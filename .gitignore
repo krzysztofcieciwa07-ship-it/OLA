@@ -15,7 +15,95 @@
 #Rapid Application Development File
 rad.json
 #Translation Base-file
-*.g.xlf
+*.g.xlf"""
+bot_lock.py — process lock dla OLA Trader Bot (bot_v8.py)
+
+PROBLEM: infra config deklarował LOCK_FILE, ale bot_v8.py nigdy go nie
+sprawdzał w kodzie -> możliwe uruchomienie dwóch instancji równolegle
+i podwojenie otwartych pozycji.
+
+UŻYCIE w bot_v8.py:
+
+    from bot_lock import acquire_lock
+
+    def main():
+        acquire_lock()          # <- pierwsza linia main(), przed jakąkolwiek
+                                 #    logiką łączenia z exchange/tradingiem
+        ...
+
+TEST przed LIVE (wymagane w pre-LIVE checklist):
+
+    python bot_v8.py &
+    sleep 2
+    python bot_v8.py   # musi zakończyć się błędem i kodem wyjścia != 0
+"""
+
+import os
+import sys
+import fcntl
+import atexit
+import logging
+
+logger = logging.getLogger("ola_bot.lock")
+
+LOCK_PATH = os.environ.get("OLA_BOT_LOCK_PATH", "/var/run/ola_bot.lock")
+
+
+def acquire_lock(lock_path: str = LOCK_PATH):
+    """
+    Zdobywa wyłączny, nieblokujący lock na poziomie procesu.
+    Rzuca RuntimeError i kończy proces, jeśli inna instancja już działa.
+    """
+    lock_dir = os.path.dirname(lock_path)
+    if lock_dir and not os.path.isdir(lock_dir):
+        os.makedirs(lock_dir, exist_ok=True)
+
+    lock_fd = open(lock_path, "w")
+
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_fd.close()
+        logger.critical(
+            "Another OLA bot instance holds the lock at %s — refusing to start "
+            "to prevent duplicate positions.",
+            lock_path,
+        )
+        raise RuntimeError(
+            f"Lock already held: {lock_path}. Another instance is running."
+        )
+
+    lock_fd.write(str(os.getpid()))
+    lock_fd.flush()
+    os.fsync(lock_fd.fileno())
+
+    def _release():
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+            if os.path.exists(lock_path):
+                os.remove(lock_path)
+        except Exception:
+            logger.exception("Failed to release lock cleanly at %s", lock_path)
+
+    atexit.register(_release)
+    logger.info("Lock acquired: %s (pid=%d)", lock_path, os.getpid())
+    return lock_fd
+
+
+if __name__ == "__main__":
+    # Self-test manualny: uruchom dwa razy w dwóch terminalach
+    logging.basicConfig(level=logging.INFO)
+    try:
+        acquire_lock()
+        print(f"Lock held. PID={os.getpid()}. Ctrl+C to release.")
+        import time
+        while True:
+            time.sleep(1)
+    except RuntimeError as e:
+        print(f"FAILED (expected if another instance is running): {e}")
+        sys.exit(1)
+
 #License-files
 *.bclicense
 *.flf
