@@ -3,26 +3,41 @@
 verify_readme_claims.py
 
 Re-runs the 4 core guarantees claimed in README.md as standalone checks,
-independent of the main test suite. Intended to be run in CI or before
-every commit so a future change can't silently break a claimed
-guarantee without a loud, specific failure.
+independent of the main test suite. Intended for CI and local pre-commit use.
 
 Usage:
     python3 scripts/verify_readme_claims.py
 
-Exit code 0 = all guarantees hold. Non-zero = at least one broke,
-with the specific guarantee named in the output.
+Exit code 0 = all guarantees hold. Non-zero = at least one broke.
+Each run gets a fresh temporary SQLite database so stale /tmp state cannot
+contaminate the result.
 """
+import atexit
 import os
+import shutil
 import sys
+import tempfile
 import uuid
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-TEST_DB = "/tmp/_readme_claims_check.db"
+TEST_DIR = tempfile.mkdtemp(prefix="ola_readme_claims_")
+TEST_DB = os.path.join(TEST_DIR, "claims.db")
 os.environ["OLA_EG_DB_PATH"] = TEST_DB
 
 FAILURES = []
+
+
+def _cleanup():
+    try:
+        from app import database
+        database.engine.dispose()
+    except Exception:
+        pass
+    shutil.rmtree(TEST_DIR, ignore_errors=True)
+
+
+atexit.register(_cleanup)
 
 
 def check(name):
@@ -42,9 +57,6 @@ def check(name):
 
 def _fresh_db():
     from app import database
-    # dispose any existing engine/connections before touching the file,
-    # otherwise a prior check's open SQLite connection can leave the
-    # file locked/read-only for this one.
     database.engine.dispose()
     if os.path.exists(TEST_DB):
         os.remove(TEST_DB)
@@ -73,7 +85,7 @@ def _c1():
     except AssertionError:
         raise
     except Exception:
-        db.rollback()  # expected: trigger raised
+        db.rollback()
 
 
 @check("Claim #2: hash-chain — tampered payload is detected by recompute")
@@ -87,8 +99,8 @@ def _c2():
     valid, _ = verify_chain(records)
     assert valid, "sanity: untampered chain should verify"
 
-    records[0]["payload_json"] = canonical_json({"a": 999})  # tamper without recomputing hash
-    valid, problems = verify_chain(records)
+    records[0]["payload_json"] = canonical_json({"a": 999})
+    valid, _ = verify_chain(records)
     assert not valid, "tampered payload was NOT detected"
 
 
@@ -113,7 +125,7 @@ def _c3():
 
     client = TestClient(app)
     created = client.post("/evidence", headers={"X-API-Key": kA_raw},
-                           json={"record_type": "generic", "payload": {}}).json()
+                          json={"record_type": "generic", "payload": {}}).json()
     r = client.get(f"/evidence/{created['id']}", headers={"X-API-Key": kB_raw})
     assert r.status_code == 404, f"expected 404, got {r.status_code}"
 
@@ -134,7 +146,7 @@ def _c4():
 if __name__ == "__main__":
     print()
     if FAILURES:
-        print(f"\n{len(FAILURES)} claim(s) BROKEN: {', '.join(FAILURES)}")
+        print(f"{len(FAILURES)} claim(s) BROKEN: {', '.join(FAILURES)}")
         sys.exit(1)
-    print("\nAll README guarantees verified.")
+    print("All README guarantees verified.")
     sys.exit(0)
