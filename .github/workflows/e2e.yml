@@ -1,0 +1,28 @@
+name: OLA E2E Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run pytest E2E
+        run: python -m pytest -q
+
+      - name: Run independent README guarantee gate
+        run: python scripts/verify_readme_claims.py
