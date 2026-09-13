@@ -26,3 +26,22 @@ jobs:
 
       - name: Run independent README guarantee gate
         run: python scripts/verify_readme_claims.py
+
+      - name: Build deployment image
+        run: docker build --tag ola:${GITHUB_SHA} .
+
+      - name: Run deployment image
+        run: |
+          docker run --detach --rm --name ola-e2e --publish 8000:8000 ola:${GITHUB_SHA}
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs ola-e2e
+          exit 1
+
+      - name: Stop deployment image
+        if: always()
+        run: docker stop ola-e2e || true
