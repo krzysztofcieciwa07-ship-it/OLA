@@ -19,22 +19,23 @@ from app.hashchain import verify_chain
 def _seed_tenant():
     db = SessionLocal()
     tenant = Tenant(id=str(uuid.uuid4()), name="product-e2e")
+    tenant_id = tenant.id
     db.add(tenant)
     db.commit()
     db.add(
         ApiKey(
             id=str(uuid.uuid4()),
-            tenant_id=tenant.id,
+            tenant_id=tenant_id,
             key_hash=hashlib.sha256(b"product-key").hexdigest(),
         )
     )
     db.commit()
     db.close()
-    return tenant
+    return tenant_id
 
 
 def test_product_e2e_task_fault_recovery_verification():
-    tenant = _seed_tenant()
+    tenant_id = _seed_tenant()
     client = TestClient(app)
 
     response = client.post(
@@ -55,7 +56,7 @@ def test_product_e2e_task_fault_recovery_verification():
     db = SessionLocal()
     rows = db.scalars(
         select(EvidenceRecord)
-        .where(EvidenceRecord.tenant_id == tenant.id)
+        .where(EvidenceRecord.tenant_id == tenant_id)
         .order_by(EvidenceRecord.seq.asc())
     ).all()
     db.close()
