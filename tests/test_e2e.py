@@ -21,6 +21,8 @@ def _seed_tenants():
     db = SessionLocal()
     tenant_a = Tenant(id=str(uuid.uuid4()), name="tenant-a")
     tenant_b = Tenant(id=str(uuid.uuid4()), name="tenant-b")
+    key_a = f"key-a-{uuid.uuid4()}"
+    key_b = f"key-b-{uuid.uuid4()}"
     db.add_all([tenant_a, tenant_b])
     db.commit()
     db.add_all(
@@ -28,29 +30,29 @@ def _seed_tenants():
             ApiKey(
                 id=str(uuid.uuid4()),
                 tenant_id=tenant_a.id,
-                key_hash=hashlib.sha256(b"key-a").hexdigest(),
+                key_hash=hashlib.sha256(key_a.encode()).hexdigest(),
             ),
             ApiKey(
                 id=str(uuid.uuid4()),
                 tenant_id=tenant_b.id,
-                key_hash=hashlib.sha256(b"key-b").hexdigest(),
+                key_hash=hashlib.sha256(key_b.encode()).hexdigest(),
             ),
         ]
     )
     db.commit()
     db.close()
-    return tenant_a, tenant_b
+    return tenant_a, tenant_b, key_a, key_b
 
 
 def test_ola_e2e_closed_environment():
-    _seed_tenants()
+    _, _, key_a, key_b = _seed_tenants()
     client = TestClient(app)
 
     assert client.get("/health").status_code == 200
 
     created = client.post(
         "/evidence",
-        headers={"X-API-Key": "key-a"},
+        headers={"X-API-Key": key_a},
         json={"record_type": "generic", "payload": {"x": 1}},
     )
     assert created.status_code == 200
@@ -58,13 +60,13 @@ def test_ola_e2e_closed_environment():
     assert record["seq"] == 0
 
     owned = client.get(
-        f"/evidence/{record['id']}", headers={"X-API-Key": "key-a"}
+        f"/evidence/{record['id']}", headers={"X-API-Key": key_a}
     )
     assert owned.status_code == 200
     assert owned.json()["payload"] == {"x": 1}
 
     cross_tenant = client.get(
-        f"/evidence/{record['id']}", headers={"X-API-Key": "key-b"}
+        f"/evidence/{record['id']}", headers={"X-API-Key": key_b}
     )
     assert cross_tenant.status_code == 404
 
@@ -120,12 +122,12 @@ def test_ola_e2e_closed_environment():
 
 
 def test_product_e2e_customer_audit():
-    tenant_a, _ = _seed_tenants()
+    tenant_a, _, key_a, _ = _seed_tenants()
     client = TestClient(app)
 
     response = client.post(
         "/audit",
-        headers={"X-API-Key": "key-a"},
+        headers={"X-API-Key": key_a},
         json={
             "task": "Verify recovery of a controlled service incident",
             "scenario": "fault_then_recovery",
