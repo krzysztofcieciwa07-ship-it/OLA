@@ -5,7 +5,7 @@ from fastapi import FastAPI, Header, HTTPException
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers
 from .models import Tenant, ApiKey, EvidenceRecord
-from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash
+from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
@@ -52,6 +52,63 @@ def append_record(tenant_id, record_type, payload):
         }
 
 
+def run_controlled_audit(tenant_id, task, scenario):
+    if scenario != "fault_then_recovery":
+        raise HTTPException(status_code=400, detail="unsupported scenario")
+
+    audit_id = str(uuid.uuid4())
+    events = [
+        ("task.received", {"audit_id": audit_id, "task": task}),
+        ("execution.started", {"audit_id": audit_id, "mode": "controlled"}),
+        ("fault.detected", {"audit_id": audit_id, "fault": "controlled_fault"}),
+        ("recovery.applied", {"audit_id": audit_id, "action": "controlled_recovery"}),
+        ("verification.passed", {"audit_id": audit_id, "assertion": "recovered_and_verified"}),
+    ]
+    evidence_ids = []
+    for record_type, payload in events:
+        evidence_ids.append(append_record(tenant_id, record_type, payload)["id"])
+
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(EvidenceRecord)
+            .where(
+                EvidenceRecord.tenant_id == tenant_id,
+                EvidenceRecord.id.in_(evidence_ids),
+            )
+            .order_by(EvidenceRecord.seq.asc())
+        ).all()
+
+    chain = [
+        {
+            "tenant_id": row.tenant_id,
+            "seq": row.seq,
+            "prev_hash": row.prev_hash,
+            "record_hash": row.record_hash,
+            "payload_json": row.payload_json,
+        }
+        for row in rows
+    ]
+    chain_ok, reason = verify_chain(chain)
+    if not chain_ok:
+        return {
+            "audit_id": audit_id,
+            "status": "FAILED",
+            "outcome": "evidence_chain_invalid",
+            "evidence_count": len(rows),
+            "evidence_ids": evidence_ids,
+            "reason": reason,
+        }
+
+    return {
+        "audit_id": audit_id,
+        "status": "VERIFIED",
+        "outcome": "recovered_and_verified",
+        "evidence_count": len(rows),
+        "evidence_ids": evidence_ids,
+        "reason": reason,
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -64,6 +121,19 @@ def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
         tenant_id,
         body.get("record_type", "generic"),
         body.get("payload", {}),
+    )
+
+
+@app.post("/audit")
+def create_audit(body: dict, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    task = body.get("task")
+    if not task:
+        raise HTTPException(status_code=400, detail="task is required")
+    return run_controlled_audit(
+        tenant_id,
+        task,
+        body.get("scenario", "fault_then_recovery"),
     )
 
 
