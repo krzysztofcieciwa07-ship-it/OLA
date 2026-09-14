@@ -8,7 +8,7 @@ os.environ["OLA_EG_DB_PATH"] = os.path.join(
 )
 
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.main import app
 from app.database import SessionLocal
@@ -117,3 +117,56 @@ def test_ola_e2e_closed_environment():
         ).status
         == RuleStatus.UNKNOWN
     )
+
+
+def test_product_e2e_customer_audit():
+    tenant_a, _ = _seed_tenants()
+    client = TestClient(app)
+
+    response = client.post(
+        "/audit",
+        headers={"X-API-Key": "key-a"},
+        json={
+            "task": "Verify recovery of a controlled service incident",
+            "scenario": "fault_then_recovery",
+        },
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "VERIFIED"
+    assert result["outcome"] == "recovered_and_verified"
+    assert result["evidence_count"] == 5
+    assert len(result["evidence_ids"]) == 5
+    assert result["reason"] == "ok"
+    assert result["audit_id"]
+
+    db = SessionLocal()
+    rows = db.scalars(
+        select(EvidenceRecord)
+        .where(EvidenceRecord.tenant_id == tenant_a.id)
+        .order_by(EvidenceRecord.seq.asc())
+    ).all()
+    db.close()
+
+    audit_rows = [row for row in rows if row.id in result["evidence_ids"]]
+    assert len(audit_rows) == 5
+    assert [row.record_type for row in audit_rows] == [
+        "task.received",
+        "execution.started",
+        "fault.detected",
+        "recovery.applied",
+        "verification.passed",
+    ]
+    assert verify_chain(
+        [
+            {
+                "tenant_id": row.tenant_id,
+                "seq": row.seq,
+                "prev_hash": row.prev_hash,
+                "record_hash": row.record_hash,
+                "payload_json": row.payload_json,
+            }
+            for row in rows
+        ]
+    )[0]
