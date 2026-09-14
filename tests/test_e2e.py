@@ -23,25 +23,27 @@ def _seed_tenants():
     tenant_b = Tenant(id=str(uuid.uuid4()), name="tenant-b")
     key_a = f"key-a-{uuid.uuid4()}"
     key_b = f"key-b-{uuid.uuid4()}"
+    tenant_a_id = tenant_a.id
+    tenant_b_id = tenant_b.id
     db.add_all([tenant_a, tenant_b])
     db.commit()
     db.add_all(
         [
             ApiKey(
                 id=str(uuid.uuid4()),
-                tenant_id=tenant_a.id,
+                tenant_id=tenant_a_id,
                 key_hash=hashlib.sha256(key_a.encode()).hexdigest(),
             ),
             ApiKey(
                 id=str(uuid.uuid4()),
-                tenant_id=tenant_b.id,
+                tenant_id=tenant_b_id,
                 key_hash=hashlib.sha256(key_b.encode()).hexdigest(),
             ),
         ]
     )
     db.commit()
     db.close()
-    return tenant_a, tenant_b, key_a, key_b
+    return tenant_a_id, tenant_b_id, key_a, key_b
 
 
 def test_ola_e2e_closed_environment():
@@ -122,7 +124,7 @@ def test_ola_e2e_closed_environment():
 
 
 def test_product_e2e_customer_audit():
-    tenant_a, _, key_a, _ = _seed_tenants()
+    tenant_a_id, _, key_a, _ = _seed_tenants()
     client = TestClient(app)
 
     response = client.post(
@@ -146,7 +148,7 @@ def test_product_e2e_customer_audit():
     db = SessionLocal()
     rows = db.scalars(
         select(EvidenceRecord)
-        .where(EvidenceRecord.tenant_id == tenant_a.id)
+        .where(EvidenceRecord.tenant_id == tenant_a_id)
         .order_by(EvidenceRecord.seq.asc())
     ).all()
     db.close()
