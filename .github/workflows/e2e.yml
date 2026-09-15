@@ -132,6 +132,43 @@ jobs:
           PY
           cat agent-runtime-proof.json
 
+      - name: Controlled invoice six-agent business E2E and independent verifier
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+          INVOICE_JSON: '{"invoice_id":"INV-CI-2026-001","supplier":"TEST-SUPPLIER","currency":"EUR","net":1000.0,"vat_rate":0.21}'
+        run: |
+          set -euo pipefail
+          docker exec -i -e EXPECTED_COMMIT="$EXPECTED_COMMIT" -e INVOICE_JSON="$INVOICE_JSON" ola-e2e python - <<'PY' > business-invoice-proof.json
+          import json, os, sqlite3, subprocess, sys, urllib.request, uuid
+          db_path = "/data/ola.db"
+          invoice = json.loads(os.environ["INVOICE_JSON"])
+          raw_key = "ci-business-key"
+          tenant_id = str(uuid.uuid4())
+          import hashlib
+          key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+          db = sqlite3.connect(db_path)
+          db.execute("INSERT INTO tenants(id, name) VALUES (?, ?)", (tenant_id, "ci-business-invoice"))
+          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash) VALUES (?, ?, ?)", (str(uuid.uuid4()), tenant_id, key_hash))
+          db.commit(); db.close()
+          req = urllib.request.Request("http://127.0.0.1:8000/business-invoice-run", data=json.dumps({"invoice": invoice}, sort_keys=True).encode(), headers={"Content-Type":"application/json","X-API-Key":raw_key}, method="POST")
+          with urllib.request.urlopen(req, timeout=10) as response: result = json.load(response)
+          assert result["status"] == "VERIFIED", result
+          assert result["agents"] == ["codeact","react","agentic_rag","mcp_tool_use","self_reflection","multi_agent"], result
+          assert result["evidence_count"] == 6, result
+          final = result["final_result"]
+          assert final["invoice_id"] == invoice["invoice_id"], final
+          assert final["net"] == 1000.0 and final["vat"] == 210.0 and final["gross"] == 1210.0, final
+          assert final["payment_decision"] == "APPROVE_FOR_TEST_TRANSFER", final
+          assert final["transfer_amount"] == 1210.0, final
+          assert final["transfer_status"] == "READY_NOT_SENT", final
+          verifier = subprocess.run(["python", "scripts/verify_business_invoice.py", "--db", db_path, "--tenant-id", tenant_id, "--run-id", result["run_id"], "--invoice-json", json.dumps(invoice, sort_keys=True, separators=(",", ":"))], capture_output=True, text=True)
+          print(verifier.stdout)
+          if verifier.returncode != 0:
+              print("STDERR:", verifier.stderr, file=sys.stderr)
+              raise RuntimeError(f"Independent business verifier failed with exit code {verifier.returncode}")
+          PY
+          cat business-invoice-proof.json
+
       - name: Real runtime fault injection and recovery
         env:
           EXPECTED_COMMIT: ${{ github.sha }}
@@ -155,7 +192,7 @@ jobs:
         run: |
           docker inspect ola-e2e > docker-inspect.json 2>&1 || true
           docker logs ola-e2e > docker-runtime.log 2>&1 || true
-          sha256sum docker-inspect.json docker-runtime.log agent-runtime-proof.json > runtime-file-hashes.txt || true
+          sha256sum docker-inspect.json docker-runtime.log agent-runtime-proof.json business-invoice-proof.json > runtime-file-hashes.txt || true
           printf '%s\n' "commit=${GITHUB_SHA}" "run=${GITHUB_RUN_ID}" > provenance.txt
           sha256sum provenance.txt >> runtime-file-hashes.txt || true
 
@@ -168,6 +205,7 @@ jobs:
             docker-inspect.json
             docker-runtime.log
             agent-runtime-proof.json
+            business-invoice-proof.json
             runtime-file-hashes.txt
             provenance.txt
           if-no-files-found: warn
