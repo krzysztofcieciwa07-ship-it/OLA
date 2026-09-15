@@ -3,6 +3,8 @@ import json
 import os
 import sys
 
+os.environ.setdefault("OLA_EG_DB_PATH", "/data/ola.db")
+
 from sqlalchemy import select
 
 from app.agent_runtime import AGENT_ROLES
