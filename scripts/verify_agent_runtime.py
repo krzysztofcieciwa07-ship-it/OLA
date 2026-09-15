@@ -23,7 +23,7 @@ EXPECTED_CAPABILITIES = {
 }
 
 
-def verify(tenant_id, run_id, expected_commit):
+def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_result=None):
     with SessionLocal() as db:
         rows = db.scalars(
             select(EvidenceRecord)
@@ -48,8 +48,10 @@ def verify(tenant_id, run_id, expected_commit):
     instance_ids = set()
     context_digests = set()
     invocations = {}
+    payloads = []
     for row in run_rows:
         payload = json.loads(row.payload_json)
+        payloads.append(payload)
         agent = payload.get("agent")
         required = {
             "capability", "tool", "tool_output", "result", "status",
@@ -78,6 +80,21 @@ def verify(tenant_id, run_id, expected_commit):
     if len(context_digests) != len(AGENT_ROLES):
         return {"status": "BLOCK", "reason": "agent contexts are not unique"}
 
+    if expected_task is not None:
+        if any(payload.get("task") != expected_task for payload in payloads):
+            return {"status": "BLOCK", "reason": "task mismatch in execution evidence"}
+
+    final_payload = payloads[-1]
+    final_result = final_payload.get("final_result")
+    if expected_result is not None and final_result != expected_result:
+        return {"status": "BLOCK", "reason": f"final result mismatch: expected {expected_result!r}, got {final_result!r}"}
+
+    codeact_result = payloads[0].get("tool_output")
+    if expected_result is not None and codeact_result != expected_result:
+        return {"status": "BLOCK", "reason": f"codeact result mismatch: expected {expected_result!r}, got {codeact_result!r}"}
+    if final_result != codeact_result:
+        return {"status": "BLOCK", "reason": "final result does not match CodeAct execution result"}
+
     chain = [
         {
             "tenant_id": row.tenant_id,
@@ -96,13 +113,15 @@ def verify(tenant_id, run_id, expected_commit):
         "status": "VERIFIED",
         "run_id": run_id,
         "commit": expected_commit,
+        "task": expected_task,
+        "final_result": final_result,
         "agents": AGENT_ROLES,
         "capabilities": capabilities,
         "independent_instance_count": len(instance_ids),
         "independent_context_count": len(context_digests),
         "invocations": invocations,
         "evidence_count": len(run_rows),
-        "reason": "independent agent identities, contexts, execution capabilities and complete evidence chain recomputed independently",
+        "reason": "six-agent execution, final result, independent identities, contexts and complete evidence chain recomputed independently",
     }
 
 
@@ -122,8 +141,10 @@ def main():
     parser.add_argument("--tenant-id", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--expected-commit", default=os.getenv("GITHUB_SHA", "UNKNOWN"))
+    parser.add_argument("--expected-task")
+    parser.add_argument("--expected-result")
     args = parser.parse_args()
-    result = verify(args.tenant_id, args.run_id, args.expected_commit)
+    result = verify(args.tenant_id, args.run_id, args.expected_commit, args.expected_task, args.expected_result)
     _emit_runtime_diagnostic(result)
     sys.exit(0 if result["status"] == "VERIFIED" else 1)
 
