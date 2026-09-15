@@ -124,7 +124,14 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
         result = {"capability": "checked_previous_output", "tool": "reflection_check", "tool_output": "PASS" if passed else "FAIL", "result": "reflection accepted the previous agent output" if passed else "reflection rejected the previous agent output"}
     elif agent == "multi_agent":
         aggregate = [item["agent"] for item in execution]
-        result = {"capability": "aggregated_agent_outputs", "tool": "agent_aggregator", "tool_output": json.dumps(aggregate), "result": f"aggregated {len(aggregate)} upstream agent outputs"}
+        final_result = execution[0]["tool_output"] if execution else ""
+        result = {
+            "capability": "aggregated_agent_outputs",
+            "tool": "agent_aggregator",
+            "tool_output": json.dumps(aggregate),
+            "final_result": final_result,
+            "result": f"aggregated {len(aggregate)} upstream agent outputs; final result={final_result}",
+        }
     else:
         raise ValueError(f"unsupported agent: {agent}")
     result.update({
@@ -178,7 +185,17 @@ def run_agent_task(tenant_id, task):
         execution.append(output)
         previous_output = output
     verification = verify_agent_run(tenant_id, run_id)
-    result = {"run_id": run_id, "status": verification["status"], "agents": AGENT_ROLES, "evidence_count": len(evidence_ids), "evidence_ids": evidence_ids, "execution": execution}
+    final_result = execution[-1].get("final_result") if execution else None
+    result = {
+        "run_id": run_id,
+        "task": task,
+        "final_result": final_result,
+        "status": verification["status"],
+        "agents": AGENT_ROLES,
+        "evidence_count": len(evidence_ids),
+        "evidence_ids": evidence_ids,
+        "execution": execution,
+    }
     return result
 
 
