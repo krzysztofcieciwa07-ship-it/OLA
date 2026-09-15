@@ -7,6 +7,7 @@ from .database import Base, engine, SessionLocal, install_append_only_triggers
 from .models import Tenant, ApiKey, EvidenceRecord
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
+from .business_runtime import run_invoice_task
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
@@ -145,6 +146,19 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
     return run_agent_task(tenant_id, task)
+
+
+@app.post("/business-invoice-run")
+def create_business_invoice_run(body: dict, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    invoice = body.get("invoice")
+    if not isinstance(invoice, dict):
+        raise HTTPException(status_code=400, detail="invoice object is required")
+    task = "INVOICE_JSON:" + canonical_json(invoice)
+    try:
+        return run_invoice_task(tenant_id, task)
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/evidence/{record_id}")
