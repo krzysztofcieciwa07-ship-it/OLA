@@ -4,6 +4,7 @@ import os
 import sys
 
 os.environ.setdefault("OLA_EG_DB_PATH", "/data/ola.db")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select
 
