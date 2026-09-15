@@ -29,6 +29,10 @@ def test_standalone_verifier_blocks_tampered_evidence():
         tampered_db = os.path.join(tmp, "tampered.db")
         shutil.copy2(source_db, tampered_db)
         db = sqlite3.connect(tampered_db)
+        # Simulate an attacker who can alter a copied evidence store; the
+        # standalone verifier must still reject the broken hash chain.
+        db.execute("DROP TRIGGER IF EXISTS evidence_no_update")
+        db.execute("DROP TRIGGER IF EXISTS evidence_no_delete")
         db.execute(
             "UPDATE evidence_records SET payload_json=? WHERE tenant_id=? AND seq=0",
             (json.dumps({"tampered": True}, sort_keys=True), tenant_id),
