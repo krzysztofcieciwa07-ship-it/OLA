@@ -106,6 +106,17 @@ def verify(tenant_id, run_id, expected_commit):
     }
 
 
+def _emit_runtime_diagnostic(result):
+    message = json.dumps(result, sort_keys=True)
+    print(message)
+    try:
+        with open("/proc/1/fd/1", "w", encoding="utf-8") as stream:
+            stream.write(f"AGENT_VERIFIER_RESULT={message}\n")
+            stream.flush()
+    except OSError:
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tenant-id", required=True)
@@ -113,7 +124,7 @@ def main():
     parser.add_argument("--expected-commit", default=os.getenv("GITHUB_SHA", "UNKNOWN"))
     args = parser.parse_args()
     result = verify(args.tenant_id, args.run_id, args.expected_commit)
-    print(json.dumps(result, sort_keys=True))
+    _emit_runtime_diagnostic(result)
     sys.exit(0 if result["status"] == "VERIFIED" else 1)
 
 
