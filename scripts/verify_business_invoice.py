@@ -4,8 +4,20 @@ import json
 import sqlite3
 import sys
 
-
 ROLES = ["codeact", "react", "agentic_rag", "mcp_tool_use", "self_reflection", "multi_agent"]
+CAPABILITIES = {
+    "codeact": "executed_safe_expression",
+    "react": "reason_act_observe",
+    "agentic_rag": "retrieved_prior_evidence",
+    "mcp_tool_use": "invoked_tool",
+    "self_reflection": "checked_previous_output",
+    "multi_agent": "aggregated_agent_outputs",
+}
+EXPECTED_INVOCATION = {
+    "provider": "local",
+    "model": "deterministic-runtime-v1",
+    "invocation_type": "local_deterministic_model",
+}
 GENESIS = "0" * 64
 
 
@@ -64,14 +76,26 @@ def main():
         expected_prev = record_hash
         payload = json.loads(payload_json)
         payloads.append(payload)
+        agent = payload.get("agent")
+        if agent != ROLES[expected_seq]:
+            fail("agent identity/order mismatch")
         if payload.get("run_id") != args.run_id:
             fail("run_id mismatch")
         if payload.get("task") != "INVOICE_JSON:" + canonical(invoice):
             fail("task mismatch")
         if payload.get("status") != "VERIFIED":
             fail("agent status is not VERIFIED")
+        if payload.get("capability") != CAPABILITIES[agent]:
+            fail(f"capability mismatch for {agent}")
         if payload.get("execution_boundary") != "independent":
             fail("execution boundary is not independent")
+        invocation = {
+            "provider": payload.get("provider"),
+            "model": payload.get("model"),
+            "invocation_type": payload.get("invocation_type"),
+        }
+        if invocation != EXPECTED_INVOCATION:
+            fail(f"invocation metadata mismatch for {agent}")
         instances.add(payload.get("agent_instance_id"))
         contexts.add(payload.get("context_digest"))
 
@@ -109,7 +133,7 @@ def main():
         "independent_context_count": len(contexts),
         "payment_decision": final["payment_decision"],
         "transfer_status": final["transfer_status"],
-        "reason": "invoice arithmetic, policy, six-agent evidence, unique identities, final result and hash-chain independently recomputed",
+        "reason": "standalone verifier independently recomputed invoice arithmetic, policy, roles, capabilities, invocation metadata, identities, final result and hash-chain",
     }, sort_keys=True))
 
 
