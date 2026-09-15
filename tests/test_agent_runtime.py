@@ -40,6 +40,19 @@ def test_six_agent_runtime_is_ordered_and_verified():
     assert verify_agent_run(tenant_id, result["run_id"])["status"] == "VERIFIED"
 
 
+def test_six_agents_have_independent_execution_identity_and_context():
+    tenant_id = _seed_tenant("agent-key-independence")
+    result = run_agent_task(tenant_id, "prove independent agent execution")
+
+    executions = result["execution"]
+    assert len(executions) == 6
+    assert [item["agent"] for item in executions] == AGENT_ROLES
+    assert len({item["agent_instance_id"] for item in executions}) == 6
+    assert len({item["context_digest"] for item in executions}) == 6
+    assert all(item["execution_boundary"] == "independent" for item in executions)
+    assert all(item["invocation_type"] == "local_deterministic_model" for item in executions)
+
+
 def test_independent_verifier_rejects_missing_agent_evidence():
     tenant_id = _seed_tenant("agent-key-2")
     result = run_agent_task(tenant_id, "task with complete evidence")
