@@ -42,6 +42,94 @@ jobs:
           docker logs ola-e2e
           exit 1
 
+      - name: Independent runtime E2E proof
+        run: |
+          docker exec -i ola-e2e python - <<'PY'
+          import hashlib, json, sqlite3, sys, urllib.request, uuid
+
+          db_path = "/data/ola.db"
+          tenant_id = str(uuid.uuid4())
+          raw_key = "ci-runtime-key"
+          key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+
+          db = sqlite3.connect(db_path)
+          db.execute("INSERT INTO tenants(id, name) VALUES (?, ?)", (tenant_id, "ci-runtime"))
+          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash) VALUES (?, ?, ?)",
+                     (str(uuid.uuid4()), tenant_id, key_hash))
+          db.commit()
+          db.close()
+
+          req = urllib.request.Request(
+              "http://127.0.0.1:8000/audit",
+              data=json.dumps({
+                  "task": "runtime E2E proof",
+                  "scenario": "fault_then_recovery",
+              }).encode(),
+              headers={"Content-Type": "application/json", "X-API-Key": raw_key},
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=10) as response:
+              result = json.load(response)
+
+          assert result["status"] == "VERIFIED", result
+          assert result["outcome"] == "recovered_and_verified", result
+          assert result["evidence_count"] == 5, result
+
+          db = sqlite3.connect(db_path)
+          rows = db.execute(
+              "SELECT id, tenant_id, seq, record_type, payload_json, prev_hash, record_hash "
+              "FROM evidence_records WHERE tenant_id=? ORDER BY seq", (tenant_id,)
+          ).fetchall()
+          db.close()
+
+          expected_types = [
+              "task.received", "execution.started", "fault.detected",
+              "recovery.applied", "verification.passed"
+          ]
+          assert [r[3] for r in rows] == expected_types, rows
+          assert [r[0] for r in rows] == result["evidence_ids"], (rows, result)
+
+          expected_prev = "0" * 64
+          for expected_seq, row in enumerate(rows):
+              _, row_tenant, seq, _, payload_json, prev_hash, record_hash = row
+              assert row_tenant == tenant_id
+              assert seq == expected_seq
+              assert prev_hash == expected_prev
+              material = f"{tenant_id}|{seq}|{prev_hash}|{payload_json}".encode("utf-8")
+              expected_hash = hashlib.sha256(material).hexdigest()
+              assert record_hash == expected_hash, (seq, record_hash, expected_hash)
+              expected_prev = record_hash
+
+          print(json.dumps({
+              "gate": "INDEPENDENT_RUNTIME_E2E",
+              "status": "VERIFIED",
+              "container_health": "PASS",
+              "http_audit": "PASS",
+              "evidence_count": len(rows),
+              "hash_chain": "PASS",
+              "result_ids_match_db": True,
+              "commit": "${GITHUB_SHA}",
+          }, sort_keys=True))
+          PY
+
+      - name: Capture runtime proof artifact
+        if: always()
+        run: |
+          docker inspect ola-e2e > docker-inspect.json 2>&1 || true
+          docker logs ola-e2e > docker-runtime.log 2>&1 || true
+          sha256sum docker-inspect.json docker-runtime.log > runtime-file-hashes.txt || true
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ola-runtime-e2e-${{ github.sha }}
+          path: |
+            docker-inspect.json
+            docker-runtime.log
+            runtime-file-hashes.txt
+          if-no-files-found: warn
+
       - name: Stop deployment image
         if: always()
         run: docker stop ola-e2e || true
