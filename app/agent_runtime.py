@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from typing import Any
 
-from .hashchain import canonical_json
-from .main import append_record
 from .database import SessionLocal
+from .hashchain import canonical_json, verify_chain
+from .main import append_record
 from .models import EvidenceRecord
 
 AGENT_ROLES = [
@@ -62,26 +63,39 @@ def run_agent_task(tenant_id: str, task: str) -> dict[str, Any]:
 
 
 def verify_agent_run(tenant_id: str, run_id: str) -> dict[str, Any]:
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         rows = db.query(EvidenceRecord).filter(EvidenceRecord.tenant_id == tenant_id).all()
-    finally:
-        db.close()
 
-    records = []
+    run_rows = []
     for row in rows:
-        payload = __import__("json").loads(row.payload_json)
-        if payload.get("record_type") == "agent_runtime":
-            records.append((row, payload))
+        if row.record_type != "agent_runtime":
+            continue
+        payload = json.loads(row.payload_json)
+        if payload.get("run_id") == run_id:
+            run_rows.append(row)
 
-    run_records = [(row, payload) for row, payload in records if payload.get("run_id") == run_id]
-    if len(run_records) != len(AGENT_ROLES):
+    if len(run_rows) != len(AGENT_ROLES):
         return {"status": "UNKNOWN", "reason": "missing agent evidence"}
 
-    expected = list(range(1, len(AGENT_ROLES) + 1))
-    actual = sorted(payload.get("sequence") for _, payload in run_records)
-    agents = [payload.get("agent") for _, payload in sorted(run_records, key=lambda item: item[1].get("sequence", 0))]
-    if actual != expected or agents != AGENT_ROLES:
+    run_rows.sort(key=lambda row: row.seq)
+    payloads = [json.loads(row.payload_json) for row in run_rows]
+    if [p.get("sequence") for p in payloads] != list(range(1, len(AGENT_ROLES) + 1)):
         return {"status": "UNKNOWN", "reason": "agent sequence mismatch"}
+    if [p.get("agent") for p in payloads] != AGENT_ROLES:
+        return {"status": "UNKNOWN", "reason": "agent role mismatch"}
 
-    return {"status": "VERIFIED", "reason": "six agent evidence records present"}
+    chain = [
+        {
+            "tenant_id": row.tenant_id,
+            "seq": row.seq,
+            "prev_hash": row.prev_hash,
+            "record_hash": row.record_hash,
+            "payload_json": row.payload_json,
+        }
+        for row in run_rows
+    ]
+    chain_ok, reason = verify_chain(chain)
+    if not chain_ok:
+        return {"status": "UNKNOWN", "reason": reason}
+
+    return {"status": "VERIFIED", "reason": "six agent evidence records and chain verified"}
