@@ -55,6 +55,13 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
     ).fetchall()
     db.close()
 
+    # Integrity must be established over the complete evidence store before
+    # filtering by run_id; otherwise tampering can hide the corrupted record
+    # from the hash-chain check.
+    chain_ok, chain_reason = verify_hash_chain(rows)
+    if not chain_ok:
+        return fail(chain_reason)
+
     run_rows = []
     for row in rows:
         try:
@@ -67,10 +74,6 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
     expected_types = [f"agent.{role}" for role in ROLES]
     if [row[2] for row in run_rows] != expected_types:
         return fail("six-agent evidence missing or out of order")
-
-    chain_ok, chain_reason = verify_hash_chain(rows)
-    if not chain_ok:
-        return fail(chain_reason)
 
     capabilities = {}
     instance_ids = set()
