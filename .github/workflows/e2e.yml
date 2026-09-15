@@ -107,10 +107,14 @@ jobs:
               assert row_tenant == tenant_id; assert seq == expected_seq; assert prev_hash == expected_prev
               expected_hash = hashlib.sha256(f"{tenant_id}|{seq}|{prev_hash}|{payload_json}".encode("utf-8")).hexdigest()
               assert record_hash == expected_hash; expected_prev = record_hash
-          verifier = subprocess.run(["python","scripts/verify_agent_runtime.py","--tenant-id",tenant_id,"--run-id",result["run_id"],"--expected-commit",os.environ["EXPECTED_COMMIT"]], capture_output=True, text=True)
-          print(verifier.stdout.strip())
+          verifier = __import__("subprocess").run(
+              ["python", "scripts/verify_agent_runtime.py", "--tenant-id", tenant_id,
+               "--run-id", result["run_id"], "--expected-commit", __import__("os").environ["EXPECTED_COMMIT"]],
+              capture_output=True, text=True,
+          )
+          print(verifier.stdout)
           if verifier.returncode != 0:
-              print("STDERR:", verifier.stderr, file=sys.stderr)
+              print("STDERR:", verifier.stderr, file=__import__("sys").stderr)
               raise RuntimeError(f"Agent verification failed with exit code {verifier.returncode}")
           PY
           cat agent-runtime-proof.json
