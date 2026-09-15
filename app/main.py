@@ -6,6 +6,7 @@ from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers
 from .models import Tenant, ApiKey, EvidenceRecord
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
+from .agent_runtime import run_agent_task
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
@@ -135,6 +136,15 @@ def create_audit(body: dict, x_api_key: str | None = Header(default=None)):
         task,
         body.get("scenario", "fault_then_recovery"),
     )
+
+
+@app.post("/agent-run")
+def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    task = body.get("task")
+    if not task:
+        raise HTTPException(status_code=400, detail="task is required")
+    return run_agent_task(tenant_id, task)
 
 
 @app.get("/evidence/{record_id}")
