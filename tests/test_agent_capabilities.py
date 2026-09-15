@@ -1,11 +1,4 @@
-import hashlib
-import os
-import tempfile
 import uuid
-
-os.environ["OLA_EG_DB_PATH"] = os.path.join(
-    tempfile.mkdtemp(prefix="ola_agent_capabilities_"), "agent_capabilities.db"
-)
 
 from app.agent_runtime import run_agent_task
 from app.database import SessionLocal
