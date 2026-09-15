@@ -1,11 +1,5 @@
 import hashlib
-import os
-import tempfile
 import uuid
-
-os.environ["OLA_EG_DB_PATH"] = os.path.join(
-    tempfile.mkdtemp(prefix="ola_agent_runtime_"), "agent_runtime.db"
-)
 
 from fastapi.testclient import TestClient
 
