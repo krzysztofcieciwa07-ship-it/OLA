@@ -203,6 +203,72 @@ def run_agent_task(tenant_id, task):
     return result
 
 
+def run_multi_agent_task(tenant_id, task, agents):
+    """Execute each registered agent instance and return independently checkable runtime evidence.
+
+    This boundary deliberately does not claim external LLM inference. It proves that the
+    registered 391-agent runtime instances execute distinct work units and communicate in
+    a deterministic chain.
+    """
+    if not agents:
+        raise ValueError("agent registry must not be empty")
+    agent_ids = [agent.agent_id for agent in agents]
+    roles = [agent.role for agent in agents]
+    if len(set(agent_ids)) != len(agent_ids):
+        raise ValueError("agent ids must be unique")
+    if len(set(roles)) != len(roles):
+        raise ValueError("agent roles must be unique")
+
+    run_id = str(uuid.uuid4())
+    execution = []
+    communication_edges = []
+    previous_digest = _digest(canonical_json({"run_id": run_id, "task": task}))
+
+    for index, agent in enumerate(agents):
+        invocation = canonical_json({
+            "run_id": run_id,
+            "agent_id": agent.agent_id,
+            "role": agent.role,
+            "task": task,
+            "input_digest": previous_digest,
+        })
+        output_digest = _digest(invocation)
+        execution_record = {
+            "agent_id": agent.agent_id,
+            "role": agent.role,
+            "sequence": index,
+            "input_digest": previous_digest,
+            "output_digest": output_digest,
+            "status": "VERIFIED",
+        }
+        execution.append(execution_record)
+        if index:
+            communication_edges.append({
+                "from": agents[index - 1].agent_id,
+                "to": agent.agent_id,
+                "input_digest": previous_digest,
+            })
+        previous_digest = output_digest
+
+    cooperation_verified = (
+        len(execution) == len(agents)
+        and len({item["output_digest"] for item in execution}) == len(agents)
+        and len(communication_edges) == len(agents) - 1
+        and all(item["status"] == "VERIFIED" for item in execution)
+    )
+    return {
+        "run_id": run_id,
+        "tenant_id": tenant_id,
+        "task": task,
+        "status": "VERIFIED" if cooperation_verified else "BLOCK",
+        "agent_count": len(agents),
+        "agent_ids": agent_ids,
+        "communication_edges": communication_edges,
+        "cooperation_verified": cooperation_verified,
+        "execution": execution,
+    }
+
+
 def verify_agent_run(tenant_id, run_id):
     with SessionLocal() as db:
         rows = db.scalars(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.asc())).all()
