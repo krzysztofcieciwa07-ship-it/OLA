@@ -42,9 +42,7 @@ def verify_hash_chain(rows):
 
 
 def fail(reason, **extra):
-    result = {"status": "BLOCK", "reason": reason, **extra}
-    print(json.dumps(result, sort_keys=True))
-    return result
+    return {"status": "BLOCK", "reason": reason, **extra}
 
 
 def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_result=None, db_path=None):
