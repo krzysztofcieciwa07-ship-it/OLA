@@ -1,4 +1,3 @@
-import hashlib
 import os
 import subprocess
 import sys
@@ -10,9 +9,10 @@ os.environ["OLA_EG_DB_PATH"] = os.path.join(
 )
 
 from app.agent_runtime import run_agent_task
-from app.database import SessionLocal
+from app.database import Base, SessionLocal, engine
 from app.models import Tenant
 
+Base.metadata.create_all(bind=engine)
 
 REAL_TASK = "Calculate 17 * 23 and return the verified result."
 EXPECTED_RESULT = "391"
