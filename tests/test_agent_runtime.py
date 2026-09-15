@@ -15,23 +15,23 @@ from app.models import ApiKey, Tenant
 from app.agent_runtime import AGENT_ROLES, run_agent_task, verify_agent_run
 
 
-def _seed_tenant():
+def _seed_tenant(api_key="agent-key"):
+    tenant_id = str(uuid.uuid4())
     db = SessionLocal()
-    tenant = Tenant(id=str(uuid.uuid4()), name="agent-runtime-test")
-    db.add(tenant)
+    db.add(Tenant(id=tenant_id, name="agent-runtime-test"))
     db.commit()
     db.add(ApiKey(
         id=str(uuid.uuid4()),
-        tenant_id=tenant.id,
-        key_hash=hashlib.sha256(b"agent-key").hexdigest(),
+        tenant_id=tenant_id,
+        key_hash=hashlib.sha256(api_key.encode()).hexdigest(),
     ))
     db.commit()
     db.close()
-    return tenant.id
+    return tenant_id
 
 
 def test_six_agent_runtime_is_ordered_and_verified():
-    tenant_id = _seed_tenant()
+    tenant_id = _seed_tenant("agent-key-1")
     result = run_agent_task(tenant_id, "verify an evidence-backed task")
 
     assert result["status"] == "VERIFIED"
@@ -41,7 +41,7 @@ def test_six_agent_runtime_is_ordered_and_verified():
 
 
 def test_independent_verifier_rejects_missing_agent_evidence():
-    tenant_id = _seed_tenant()
+    tenant_id = _seed_tenant("agent-key-2")
     result = run_agent_task(tenant_id, "task with complete evidence")
 
     assert verify_agent_run(tenant_id, str(uuid.uuid4()))["status"] in {"UNKNOWN", "BLOCK"}
@@ -49,7 +49,7 @@ def test_independent_verifier_rejects_missing_agent_evidence():
 
 
 def test_agent_runtime_http_endpoint():
-    _seed_tenant()
+    _seed_tenant("agent-key")
     client = TestClient(app)
     response = client.post(
         "/agent-run",
