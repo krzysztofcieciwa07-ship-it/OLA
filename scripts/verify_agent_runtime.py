@@ -1,18 +1,11 @@
 import argparse
+import hashlib
 import json
 import os
+import sqlite3
 import sys
 
-os.environ.setdefault("OLA_EG_DB_PATH", "/data/ola.db")
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from sqlalchemy import select
-
-from app.agent_runtime import AGENT_ROLES
-from app.database import SessionLocal
-from app.hashchain import verify_chain
-from app.models import EvidenceRecord
-
+ROLES = ["codeact", "react", "agentic_rag", "mcp_tool_use", "self_reflection", "multi_agent"]
 EXPECTED_CAPABILITIES = {
     "codeact": "executed_safe_expression",
     "react": "reason_act_observe",
@@ -21,28 +14,65 @@ EXPECTED_CAPABILITIES = {
     "self_reflection": "checked_previous_output",
     "multi_agent": "aggregated_agent_outputs",
 }
+EXPECTED_INVOCATION = {
+    "provider": "local",
+    "model": "deterministic-runtime-v1",
+    "invocation_type": "local_deterministic_model",
+}
+GENESIS_HASH = "0" * 64
 
 
-def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_result=None):
-    with SessionLocal() as db:
-        rows = db.scalars(
-            select(EvidenceRecord)
-            .where(EvidenceRecord.tenant_id == tenant_id)
-            .order_by(EvidenceRecord.seq.asc())
-        ).all()
+def compute_record_hash(tenant_id, seq, prev_hash, payload_json):
+    return hashlib.sha256(
+        f"{tenant_id}|{seq}|{prev_hash}|{payload_json}".encode("utf-8")
+    ).hexdigest()
+
+
+def verify_hash_chain(rows):
+    expected_prev = GENESIS_HASH
+    for expected_seq, row in enumerate(rows):
+        tenant_id, seq, _, payload_json, prev_hash, record_hash = row
+        if seq != expected_seq or prev_hash != expected_prev:
+            return False, "sequence or predecessor mismatch"
+        expected = compute_record_hash(tenant_id, seq, prev_hash, payload_json)
+        if record_hash != expected:
+            return False, "record hash mismatch"
+        expected_prev = record_hash
+    return True, "ok"
+
+
+def fail(reason, **extra):
+    result = {"status": "BLOCK", "reason": reason, **extra}
+    print(json.dumps(result, sort_keys=True))
+    return result
+
+
+def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_result=None, db_path=None):
+    db_path = db_path or os.getenv("OLA_EG_DB_PATH", "/data/ola.db")
+    db = sqlite3.connect(db_path)
+    rows = db.execute(
+        "SELECT tenant_id, seq, record_type, payload_json, prev_hash, record_hash "
+        "FROM evidence_records WHERE tenant_id=? ORDER BY seq",
+        (tenant_id,),
+    ).fetchall()
+    db.close()
 
     run_rows = []
     for row in rows:
         try:
-            payload = json.loads(row.payload_json)
+            payload = json.loads(row[3])
         except json.JSONDecodeError:
             continue
-        if payload.get("run_id") == run_id and row.record_type.startswith("agent."):
+        if payload.get("run_id") == run_id and row[2].startswith("agent."):
             run_rows.append(row)
 
-    expected_types = [f"agent.{role}" for role in AGENT_ROLES]
-    if [row.record_type for row in run_rows] != expected_types:
-        return {"status": "BLOCK", "reason": "six-agent evidence missing or out of order"}
+    expected_types = [f"agent.{role}" for role in ROLES]
+    if [row[2] for row in run_rows] != expected_types:
+        return fail("six-agent evidence missing or out of order")
+
+    chain_ok, chain_reason = verify_hash_chain(rows)
+    if not chain_ok:
+        return fail(chain_reason)
 
     capabilities = {}
     instance_ids = set()
@@ -50,7 +80,7 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
     invocations = {}
     payloads = []
     for row in run_rows:
-        payload = json.loads(row.payload_json)
+        payload = json.loads(row[3])
         payloads.append(payload)
         agent = payload.get("agent")
         required = {
@@ -59,55 +89,42 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
             "invocation_type", "model", "provider",
         }
         if not required.issubset(payload):
-            return {"status": "BLOCK", "reason": f"execution evidence incomplete for {agent}"}
+            return fail(f"execution evidence incomplete for {agent}")
         if payload.get("status") != "VERIFIED":
-            return {"status": "BLOCK", "reason": f"execution not verified for {agent}"}
+            return fail(f"execution not verified for {agent}")
         if payload.get("capability") != EXPECTED_CAPABILITIES.get(agent):
-            return {"status": "BLOCK", "reason": f"unexpected capability for {agent}"}
+            return fail(f"unexpected capability for {agent}")
         if payload.get("execution_boundary") != "independent":
-            return {"status": "BLOCK", "reason": f"non-independent execution boundary for {agent}"}
-        instance_ids.add(payload["agent_instance_id"])
-        context_digests.add(payload["context_digest"])
-        invocations[agent] = {
+            return fail(f"non-independent execution boundary for {agent}")
+        invocation = {
             "provider": payload["provider"],
             "model": payload["model"],
             "invocation_type": payload["invocation_type"],
         }
+        if invocation != EXPECTED_INVOCATION:
+            return fail(f"unexpected invocation metadata for {agent}")
+        instance_ids.add(payload["agent_instance_id"])
+        context_digests.add(payload["context_digest"])
+        invocations[agent] = invocation
         capabilities[agent] = payload["capability"]
 
-    if len(instance_ids) != len(AGENT_ROLES):
-        return {"status": "BLOCK", "reason": "agent instance identities are not unique"}
-    if len(context_digests) != len(AGENT_ROLES):
-        return {"status": "BLOCK", "reason": "agent contexts are not unique"}
+    if len(instance_ids) != len(ROLES):
+        return fail("agent instance identities are not unique")
+    if len(context_digests) != len(ROLES):
+        return fail("agent contexts are not unique")
 
-    if expected_task is not None:
-        if any(payload.get("task") != expected_task for payload in payloads):
-            return {"status": "BLOCK", "reason": "task mismatch in execution evidence"}
+    if expected_task is not None and any(payload.get("task") != expected_task for payload in payloads):
+        return fail("task mismatch in execution evidence")
 
-    final_payload = payloads[-1]
-    final_result = final_payload.get("final_result")
+    final_result = payloads[-1].get("final_result")
     if expected_result is not None and final_result != expected_result:
-        return {"status": "BLOCK", "reason": f"final result mismatch: expected {expected_result!r}, got {final_result!r}"}
+        return fail(f"final result mismatch: expected {expected_result!r}, got {final_result!r}")
 
     codeact_result = payloads[0].get("tool_output")
     if expected_result is not None and codeact_result != expected_result:
-        return {"status": "BLOCK", "reason": f"codeact result mismatch: expected {expected_result!r}, got {codeact_result!r}"}
+        return fail(f"codeact result mismatch: expected {expected_result!r}, got {codeact_result!r}")
     if final_result != codeact_result:
-        return {"status": "BLOCK", "reason": "final result does not match CodeAct execution result"}
-
-    chain = [
-        {
-            "tenant_id": row.tenant_id,
-            "seq": row.seq,
-            "prev_hash": row.prev_hash,
-            "record_hash": row.record_hash,
-            "payload_json": row.payload_json,
-        }
-        for row in rows
-    ]
-    chain_ok, reason = verify_chain(chain)
-    if not chain_ok:
-        return {"status": "BLOCK", "reason": reason}
+        return fail("final result does not match CodeAct execution result")
 
     return {
         "status": "VERIFIED",
@@ -115,13 +132,13 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
         "commit": expected_commit,
         "task": expected_task,
         "final_result": final_result,
-        "agents": AGENT_ROLES,
+        "agents": ROLES,
         "capabilities": capabilities,
         "independent_instance_count": len(instance_ids),
         "independent_context_count": len(context_digests),
         "invocations": invocations,
         "evidence_count": len(run_rows),
-        "reason": "six-agent execution, final result, independent identities, contexts and complete evidence chain recomputed independently",
+        "reason": "standalone verifier recomputed roles, capabilities, invocation metadata, result, identities, contexts and hash chain without importing runtime verification code",
     }
 
 
@@ -143,8 +160,16 @@ def main():
     parser.add_argument("--expected-commit", default=os.getenv("GITHUB_SHA", "UNKNOWN"))
     parser.add_argument("--expected-task")
     parser.add_argument("--expected-result")
+    parser.add_argument("--db-path", default=os.getenv("OLA_EG_DB_PATH", "/data/ola.db"))
     args = parser.parse_args()
-    result = verify(args.tenant_id, args.run_id, args.expected_commit, args.expected_task, args.expected_result)
+    result = verify(
+        args.tenant_id,
+        args.run_id,
+        args.expected_commit,
+        args.expected_task,
+        args.expected_result,
+        args.db_path,
+    )
     _emit_runtime_diagnostic(result)
     sys.exit(0 if result["status"] == "VERIFIED" else 1)
 
