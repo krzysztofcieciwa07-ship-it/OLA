@@ -1,6 +1,4 @@
 import os
-import subprocess
-import sys
 import tempfile
 import uuid
 
@@ -11,6 +9,7 @@ os.environ["OLA_EG_DB_PATH"] = os.path.join(
 from app.agent_runtime import run_agent_task
 from app.database import Base, SessionLocal, engine
 from app.models import Tenant
+from scripts.verify_agent_runtime import verify
 
 Base.metadata.create_all(bind=engine)
 
@@ -37,31 +36,14 @@ def test_six_agents_produce_verified_final_result():
     assert result["execution"][0]["tool_output"] == EXPECTED_RESULT
     assert result["execution"][-1]["final_result"] == EXPECTED_RESULT
 
-    verifier = subprocess.run(
-        [
-            sys.executable,
-            "scripts/verify_agent_runtime.py",
-            "--tenant-id",
-            tenant_id,
-            "--run-id",
-            result["run_id"],
-            "--expected-commit",
-            "TEST_COMMIT",
-            "--expected-task",
-            REAL_TASK,
-            "--expected-result",
-            EXPECTED_RESULT,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=os.environ.copy(),
+    proof = verify(
+        tenant_id,
+        result["run_id"],
+        "TEST_COMMIT",
+        expected_task=REAL_TASK,
+        expected_result=EXPECTED_RESULT,
     )
-    assert verifier.returncode == 0, verifier.stdout + verifier.stderr
-
-    import json
-    proof = json.loads(verifier.stdout.strip().splitlines()[-1])
-    assert proof["status"] == "VERIFIED"
+    assert proof["status"] == "VERIFIED", proof
     assert proof["task"] == REAL_TASK
     assert proof["final_result"] == EXPECTED_RESULT
     assert proof["evidence_count"] == 6
