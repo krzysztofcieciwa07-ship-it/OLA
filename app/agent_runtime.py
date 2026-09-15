@@ -127,7 +127,12 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
         result = {"capability": "aggregated_agent_outputs", "tool": "agent_aggregator", "tool_output": json.dumps(aggregate), "result": f"aggregated {len(aggregate)} upstream agent outputs"}
     else:
         raise ValueError(f"unsupported agent: {agent}")
-    result.update(model=model)
+    result.update({
+        "provider": model["provider"],
+        "model": model["model"],
+        "invocation_type": model["invocation_type"],
+        "prompt_digest": model["prompt_digest"],
+    })
     return result
 
 
