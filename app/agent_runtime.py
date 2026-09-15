@@ -33,7 +33,11 @@ def _digest(value):
 
 
 def _safe_expression(task):
-    expression = task.split("calculate", 1)[1].strip() if "calculate" in task.lower() else task.strip()
+    lowered = task.lower()
+    if "calculate" in lowered:
+        expression = task[lowered.index("calculate") + len("calculate"):].strip()
+    else:
+        expression = task.strip()
     expression = expression.replace("?", "").split(" and ")[0].strip()
     try:
         tree = ast.parse(expression, mode="eval")
