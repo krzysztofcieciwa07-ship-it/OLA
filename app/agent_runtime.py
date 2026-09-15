@@ -88,31 +88,69 @@ def _mcp_tool_call(name, arguments):
     return tools[name](arguments["value"])
 
 
+def _invoke_local_deterministic_model(agent, task, context):
+    prompt = canonical_json({"agent": agent, "task": task, "context": context})
+    return {
+        "provider": "local",
+        "model": "deterministic-runtime-v1",
+        "invocation_type": "local_deterministic_model",
+        "prompt_digest": _digest(prompt),
+        "output": f"{agent} model invocation completed",
+    }
+
+
 def _execute_agent(agent, tenant_id, task, previous_output, execution):
+    context = {
+        "task": task,
+        "previous_output": previous_output,
+        "upstream_agents": [item["agent"] for item in execution],
+    }
+    model = _invoke_local_deterministic_model(agent, task, context)
     if agent == "codeact":
         tool_output = _safe_expression(task)
-        return {"capability": "executed_safe_expression", "tool": "safe_expression", "tool_output": tool_output, "result": f"safe execution returned {tool_output}"}
-    if agent == "react":
+        result = {"capability": "executed_safe_expression", "tool": "safe_expression", "tool_output": tool_output, "result": f"safe execution returned {tool_output}"}
+    elif agent == "react":
         data = _run_react(task, previous_output)
-        return {"capability": "reason_act_observe", "tool": "react_loop", "tool_output": json.dumps(data, sort_keys=True), "result": data["result"]}
-    if agent == "agentic_rag":
+        result = {"capability": "reason_act_observe", "tool": "react_loop", "tool_output": json.dumps(data, sort_keys=True), "result": data["result"]}
+    elif agent == "agentic_rag":
         data = _run_rag(tenant_id, task)
-        return {"capability": "retrieved_prior_evidence", "tool": "evidence_retriever", "tool_output": json.dumps(data, sort_keys=True), "result": data["result"]}
-    if agent == "mcp_tool_use":
+        result = {"capability": "retrieved_prior_evidence", "tool": "evidence_retriever", "tool_output": json.dumps(data, sort_keys=True), "result": data["result"]}
+    elif agent == "mcp_tool_use":
         value = _mcp_tool_call("sha256", {"value": previous_output.get("tool_output", task)})
-        return {"capability": "invoked_tool", "tool": "local_mcp_tool_registry.sha256", "tool_output": value, "result": "invoked a registered tool through the tool-use boundary"}
-    if agent == "self_reflection":
+        result = {"capability": "invoked_tool", "tool": "local_mcp_tool_registry.sha256", "tool_output": value, "result": "invoked a registered tool through the tool-use boundary"}
+    elif agent == "self_reflection":
         observed = json.dumps(previous_output, sort_keys=True)
         passed = bool(previous_output.get("tool_output")) and "error" not in observed.lower()
-        return {"capability": "checked_previous_output", "tool": "reflection_check", "tool_output": "PASS" if passed else "FAIL", "result": "reflection accepted the previous agent output" if passed else "reflection rejected the previous agent output"}
-    if agent == "multi_agent":
+        result = {"capability": "checked_previous_output", "tool": "reflection_check", "tool_output": "PASS" if passed else "FAIL", "result": "reflection accepted the previous agent output" if passed else "reflection rejected the previous agent output"}
+    elif agent == "multi_agent":
         aggregate = [item["agent"] for item in execution]
-        return {"capability": "aggregated_agent_outputs", "tool": "agent_aggregator", "tool_output": json.dumps(aggregate), "result": f"aggregated {len(aggregate)} upstream agent outputs"}
-    raise ValueError(f"unsupported agent: {agent}")
+        result = {"capability": "aggregated_agent_outputs", "tool": "agent_aggregator", "tool_output": json.dumps(aggregate), "result": f"aggregated {len(aggregate)} upstream agent outputs"}
+    else:
+        raise ValueError(f"unsupported agent: {agent}")
+    result.update(model=model)
+    return result
 
 
 def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution):
-    output = {"agent": agent, "task": task, "input_digest": _digest(json.dumps(previous_output, sort_keys=True)), **_execute_agent(agent, tenant_id, task, previous_output, execution), "status": "VERIFIED"}
+    agent_instance_id = str(uuid.uuid4())
+    context = {
+        "run_id": run_id,
+        "agent": agent,
+        "agent_instance_id": agent_instance_id,
+        "task": task,
+        "previous_output": previous_output,
+        "upstream_agents": [item["agent"] for item in execution],
+    }
+    output = {
+        "agent": agent,
+        "agent_instance_id": agent_instance_id,
+        "execution_boundary": "independent",
+        "context_digest": _digest(canonical_json(context)),
+        "task": task,
+        "input_digest": _digest(json.dumps(previous_output, sort_keys=True)),
+        **_execute_agent(agent, tenant_id, task, previous_output, execution),
+        "status": "VERIFIED",
+    }
     with SessionLocal() as db:
         last = db.scalar(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.desc()))
         seq = 0 if last is None else last.seq + 1
@@ -155,14 +193,23 @@ def verify_agent_run(tenant_id, run_id):
     expected_types = [f"agent.{role}" for role in AGENT_ROLES]
     if [row.record_type for row in run_rows] != expected_types:
         return {"status": "BLOCK", "reason": "agent order mismatch", "evidence_count": len(run_rows)}
+    instance_ids = set()
+    context_digests = set()
     for row in run_rows:
         payload = json.loads(row.payload_json)
-        if not {"capability", "tool", "tool_output", "result", "status"}.issubset(payload):
+        required = {"capability", "tool", "tool_output", "result", "status", "agent_instance_id", "execution_boundary", "context_digest", "invocation_type", "model", "provider"}
+        if not required.issubset(payload):
             return {"status": "BLOCK", "reason": "agent execution evidence incomplete", "evidence_count": len(run_rows)}
         if payload["status"] != "VERIFIED":
             return {"status": "BLOCK", "reason": "agent execution not verified", "evidence_count": len(run_rows)}
+        if payload["execution_boundary"] != "independent":
+            return {"status": "BLOCK", "reason": "agent execution boundary is not independent", "evidence_count": len(run_rows)}
+        instance_ids.add(payload["agent_instance_id"])
+        context_digests.add(payload["context_digest"])
+    if len(instance_ids) != len(AGENT_ROLES) or len(context_digests) != len(AGENT_ROLES):
+        return {"status": "BLOCK", "reason": "agent instances or contexts are not unique", "evidence_count": len(run_rows)}
     chain = [{"tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash, "record_hash": row.record_hash, "payload_json": row.payload_json} for row in rows]
     chain_ok, reason = verify_chain(chain)
     if not chain_ok:
         return {"status": "BLOCK", "reason": reason, "evidence_count": len(run_rows)}
-    return {"status": "VERIFIED", "reason": "independent execution-evidence and hash-chain verification passed", "evidence_count": len(run_rows)}
+    return {"status": "VERIFIED", "reason": "independent agent identities, contexts, execution evidence and hash-chain verification passed", "evidence_count": len(run_rows)}
