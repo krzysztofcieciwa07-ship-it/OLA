@@ -137,6 +137,16 @@ def create_audit(body: dict, x_api_key: str | None = Header(default=None)):
     )
 
 
+@app.post("/agent-run")
+def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    task = body.get("task")
+    if not task:
+        raise HTTPException(status_code=400, detail="task is required")
+    from .agent_runtime import run_agent_task
+    return run_agent_task(tenant_id, task)
+
+
 @app.get("/evidence/{record_id}")
 def get_evidence(record_id: str, x_api_key: str | None = Header(default=None)):
     tenant_id = tenant_from_key(x_api_key)
