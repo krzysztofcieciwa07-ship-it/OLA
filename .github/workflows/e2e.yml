@@ -43,9 +43,11 @@ jobs:
           exit 1
 
       - name: Independent runtime E2E proof
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
-          docker exec -i ola-e2e python - <<'PY'
-          import hashlib, json, sqlite3, sys, urllib.request, uuid
+          docker exec -i -e EXPECTED_COMMIT="$EXPECTED_COMMIT" ola-e2e python - <<'PY'
+          import hashlib, json, os, sqlite3, urllib.request, uuid
 
           db_path = "/data/ola.db"
           tenant_id = str(uuid.uuid4())
@@ -59,18 +61,20 @@ jobs:
           db.commit()
           db.close()
 
-          req = urllib.request.Request(
-              "http://127.0.0.1:8000/audit",
-              data=json.dumps({
-                  "task": "runtime E2E proof",
-                  "scenario": "fault_then_recovery",
-              }).encode(),
-              headers={"Content-Type": "application/json", "X-API-Key": raw_key},
-              method="POST",
-          )
-          with urllib.request.urlopen(req, timeout=10) as response:
-              result = json.load(response)
+          def post_audit():
+              req = urllib.request.Request(
+                  "http://127.0.0.1:8000/audit",
+                  data=json.dumps({
+                      "task": "runtime E2E proof",
+                      "scenario": "fault_then_recovery",
+                  }).encode(),
+                  headers={"Content-Type": "application/json", "X-API-Key": raw_key},
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=10) as response:
+                  return json.load(response)
 
+          result = post_audit()
           assert result["status"] == "VERIFIED", result
           assert result["outcome"] == "recovered_and_verified", result
           assert result["evidence_count"] == 5, result
@@ -108,9 +112,32 @@ jobs:
               "evidence_count": len(rows),
               "hash_chain": "PASS",
               "result_ids_match_db": True,
-              "commit": "${GITHUB_SHA}",
+              "commit": os.environ["EXPECTED_COMMIT"],
           }, sort_keys=True))
           PY
+
+      - name: Real runtime fault injection and recovery
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent http://127.0.0.1:8000/health >/dev/null
+          docker exec ola-e2e sh -c 'kill -STOP 1'
+          sleep 2
+          if curl --fail --silent --max-time 2 http://127.0.0.1:8000/health >/dev/null; then
+            echo "FAIL: service remained responsive after SIGSTOP"
+            exit 1
+          fi
+          docker exec ola-e2e sh -c 'kill -CONT 1'
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              echo "REAL_RUNTIME_FAULT_RECOVERY=VERIFIED commit=${EXPECTED_COMMIT}"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs ola-e2e
+          exit 1
 
       - name: Capture runtime proof artifact
         if: always()
@@ -118,6 +145,8 @@ jobs:
           docker inspect ola-e2e > docker-inspect.json 2>&1 || true
           docker logs ola-e2e > docker-runtime.log 2>&1 || true
           sha256sum docker-inspect.json docker-runtime.log > runtime-file-hashes.txt || true
+          printf '%s\n' "commit=${GITHUB_SHA}" "run=${GITHUB_RUN_ID}" > provenance.txt
+          sha256sum provenance.txt >> runtime-file-hashes.txt || true
 
       - name: Upload runtime evidence
         if: always()
@@ -128,6 +157,7 @@ jobs:
             docker-inspect.json
             docker-runtime.log
             runtime-file-hashes.txt
+            provenance.txt
           if-no-files-found: warn
 
       - name: Stop deployment image
