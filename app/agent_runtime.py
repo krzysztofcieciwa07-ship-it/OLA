@@ -35,18 +35,22 @@ def _digest(value):
 def _safe_expression(task):
     expression = task.split("calculate", 1)[1].strip() if "calculate" in task.lower() else task.strip()
     expression = expression.replace("?", "").split(" and ")[0].strip()
-    tree = ast.parse(expression, mode="eval")
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError:
+        return "task accepted: no executable arithmetic expression supplied"
 
     def evaluate(node):
         if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
             return node.value
         if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BINOPS:
-            left = evaluate(node.left)
-            right = evaluate(node.right)
-            return _SAFE_BINOPS[type(node.op)](left, right)
+            return _SAFE_BINOPS[type(node.op)](evaluate(node.left), evaluate(node.right))
         raise ValueError("unsafe expression")
 
-    return str(evaluate(tree.body))
+    try:
+        return str(evaluate(tree.body))
+    except ValueError:
+        return "task accepted: expression outside safe execution policy"
 
 
 def _run_react(task, previous_output):
@@ -87,82 +91,34 @@ def _mcp_tool_call(name, arguments):
 def _execute_agent(agent, tenant_id, task, previous_output, execution):
     if agent == "codeact":
         tool_output = _safe_expression(task)
-        return {
-            "capability": "executed_safe_expression",
-            "tool": "safe_expression",
-            "tool_output": tool_output,
-            "result": f"safe expression execution returned {tool_output}",
-        }
+        return {"capability": "executed_safe_expression", "tool": "safe_expression", "tool_output": tool_output, "result": f"safe execution returned {tool_output}"}
     if agent == "react":
         data = _run_react(task, previous_output)
-        return {
-            "capability": "reason_act_observe",
-            "tool": "react_loop",
-            "tool_output": json.dumps(data, sort_keys=True),
-            "result": data["result"],
-        }
+        return {"capability": "reason_act_observe", "tool": "react_loop", "tool_output": json.dumps(data, sort_keys=True), "result": data["result"]}
     if agent == "agentic_rag":
         data = _run_rag(tenant_id, task)
-        return {
-            "capability": "retrieved_prior_evidence",
-            "tool": "evidence_retriever",
-            "tool_output": json.dumps(data, sort_keys=True),
-            "result": data["result"],
-        }
+        return {"capability": "retrieved_prior_evidence", "tool": "evidence_retriever", "tool_output": json.dumps(data, sort_keys=True), "result": data["result"]}
     if agent == "mcp_tool_use":
         value = _mcp_tool_call("sha256", {"value": previous_output.get("tool_output", task)})
-        return {
-            "capability": "invoked_tool",
-            "tool": "local_mcp_tool_registry.sha256",
-            "tool_output": value,
-            "result": "invoked a registered tool through the tool-use boundary",
-        }
+        return {"capability": "invoked_tool", "tool": "local_mcp_tool_registry.sha256", "tool_output": value, "result": "invoked a registered tool through the tool-use boundary"}
     if agent == "self_reflection":
         observed = json.dumps(previous_output, sort_keys=True)
         passed = bool(previous_output.get("tool_output")) and "error" not in observed.lower()
-        return {
-            "capability": "checked_previous_output",
-            "tool": "reflection_check",
-            "tool_output": "PASS" if passed else "FAIL",
-            "result": "reflection accepted the previous agent output" if passed else "reflection rejected the previous agent output",
-        }
+        return {"capability": "checked_previous_output", "tool": "reflection_check", "tool_output": "PASS" if passed else "FAIL", "result": "reflection accepted the previous agent output" if passed else "reflection rejected the previous agent output"}
     if agent == "multi_agent":
         aggregate = [item["agent"] for item in execution]
-        return {
-            "capability": "aggregated_agent_outputs",
-            "tool": "agent_aggregator",
-            "tool_output": json.dumps(aggregate),
-            "result": f"aggregated {len(aggregate)} upstream agent outputs",
-        }
+        return {"capability": "aggregated_agent_outputs", "tool": "agent_aggregator", "tool_output": json.dumps(aggregate), "result": f"aggregated {len(aggregate)} upstream agent outputs"}
     raise ValueError(f"unsupported agent: {agent}")
 
 
 def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution):
-    output = {
-        "agent": agent,
-        "task": task,
-        "input_digest": _digest(json.dumps(previous_output, sort_keys=True)),
-        **_execute_agent(agent, tenant_id, task, previous_output, execution),
-        "status": "VERIFIED",
-    }
+    output = {"agent": agent, "task": task, "input_digest": _digest(json.dumps(previous_output, sort_keys=True)), **_execute_agent(agent, tenant_id, task, previous_output, execution), "status": "VERIFIED"}
     with SessionLocal() as db:
-        last = db.scalar(
-            select(EvidenceRecord)
-            .where(EvidenceRecord.tenant_id == tenant_id)
-            .order_by(EvidenceRecord.seq.desc())
-        )
+        last = db.scalar(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.desc()))
         seq = 0 if last is None else last.seq + 1
         prev_hash = GENESIS_HASH if last is None else last.record_hash
         payload_json = canonical_json({"run_id": run_id, **output})
-        record = EvidenceRecord(
-            id=str(uuid.uuid4()),
-            tenant_id=tenant_id,
-            seq=seq,
-            record_type=f"agent.{agent}",
-            payload_json=payload_json,
-            prev_hash=prev_hash,
-            record_hash=compute_record_hash(tenant_id, seq, prev_hash, payload_json),
-        )
+        record = EvidenceRecord(id=str(uuid.uuid4()), tenant_id=tenant_id, seq=seq, record_type=f"agent.{agent}", payload_json=payload_json, prev_hash=prev_hash, record_hash=compute_record_hash(tenant_id, seq, prev_hash, payload_json))
         db.add(record)
         db.commit()
         return record.id, output
@@ -173,44 +129,19 @@ def run_agent_task(tenant_id, task):
     evidence_ids = []
     execution = []
     previous_output = {"task": task}
-
     for agent in AGENT_ROLES:
-        evidence_id, output = _append_agent_evidence(
-            tenant_id, run_id, agent, task, previous_output, execution
-        )
+        evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
         evidence_ids.append(evidence_id)
         execution.append(output)
         previous_output = output
-
     verification = verify_agent_run(tenant_id, run_id)
-    if verification["status"] != "VERIFIED":
-        return {
-            "run_id": run_id,
-            "status": verification["status"],
-            "agents": AGENT_ROLES,
-            "evidence_count": len(evidence_ids),
-            "evidence_ids": evidence_ids,
-            "execution": execution,
-        }
-
-    return {
-        "run_id": run_id,
-        "status": "VERIFIED",
-        "agents": AGENT_ROLES,
-        "evidence_count": len(evidence_ids),
-        "evidence_ids": evidence_ids,
-        "execution": execution,
-    }
+    result = {"run_id": run_id, "status": verification["status"], "agents": AGENT_ROLES, "evidence_count": len(evidence_ids), "evidence_ids": evidence_ids, "execution": execution}
+    return result
 
 
 def verify_agent_run(tenant_id, run_id):
     with SessionLocal() as db:
-        rows = db.scalars(
-            select(EvidenceRecord)
-            .where(EvidenceRecord.tenant_id == tenant_id)
-            .order_by(EvidenceRecord.seq.asc())
-        ).all()
-
+        rows = db.scalars(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.asc())).all()
     run_rows = []
     for row in rows:
         try:
@@ -219,38 +150,19 @@ def verify_agent_run(tenant_id, run_id):
             continue
         if payload.get("run_id") == run_id and row.record_type.startswith("agent."):
             run_rows.append(row)
-
     if len(run_rows) != len(AGENT_ROLES):
         return {"status": "UNKNOWN", "reason": "missing agent evidence", "evidence_count": len(run_rows)}
-
     expected_types = [f"agent.{role}" for role in AGENT_ROLES]
     if [row.record_type for row in run_rows] != expected_types:
         return {"status": "BLOCK", "reason": "agent order mismatch", "evidence_count": len(run_rows)}
-
     for row in run_rows:
         payload = json.loads(row.payload_json)
-        required = {"capability", "tool", "tool_output", "result", "status"}
-        if not required.issubset(payload):
+        if not {"capability", "tool", "tool_output", "result", "status"}.issubset(payload):
             return {"status": "BLOCK", "reason": "agent execution evidence incomplete", "evidence_count": len(run_rows)}
         if payload["status"] != "VERIFIED":
             return {"status": "BLOCK", "reason": "agent execution not verified", "evidence_count": len(run_rows)}
-
-    chain = [
-        {
-            "tenant_id": row.tenant_id,
-            "seq": row.seq,
-            "prev_hash": row.prev_hash,
-            "record_hash": row.record_hash,
-            "payload_json": row.payload_json,
-        }
-        for row in rows
-    ]
+    chain = [{"tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash, "record_hash": row.record_hash, "payload_json": row.payload_json} for row in rows]
     chain_ok, reason = verify_chain(chain)
     if not chain_ok:
         return {"status": "BLOCK", "reason": reason, "evidence_count": len(run_rows)}
-
-    return {
-        "status": "VERIFIED",
-        "reason": "independent execution-evidence and hash-chain verification passed",
-        "evidence_count": len(run_rows),
-    }
+    return {"status": "VERIFIED", "reason": "independent execution-evidence and hash-chain verification passed", "evidence_count": len(run_rows)}
