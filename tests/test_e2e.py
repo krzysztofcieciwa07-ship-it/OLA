@@ -1,11 +1,5 @@
 import hashlib
-import os
-import tempfile
 import uuid
-
-os.environ["OLA_EG_DB_PATH"] = os.path.join(
-    tempfile.mkdtemp(prefix="ola_e2e_"), "e2e.db"
-)
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
