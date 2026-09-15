@@ -2,20 +2,19 @@ import argparse
 import hashlib
 import json
 import sqlite3
-import sys
 
 ROLES = ["codeact", "react", "agentic_rag", "mcp_tool_use", "self_reflection", "multi_agent"]
 CAPABILITIES = {
-    "codeact": "executed_safe_expression",
+    "codeact": "validated_invoice_math",
     "react": "reason_act_observe",
-    "agentic_rag": "retrieved_prior_evidence",
+    "agentic_rag": "retrieved_controlled_policy",
     "mcp_tool_use": "invoked_tool",
     "self_reflection": "checked_previous_output",
     "multi_agent": "aggregated_agent_outputs",
 }
 EXPECTED_INVOCATION = {
     "provider": "local",
-    "model": "deterministic-runtime-v1",
+    "model": "deterministic-business-runtime-v1",
     "invocation_type": "local_deterministic_model",
 }
 GENESIS = "0" * 64
@@ -26,8 +25,7 @@ def canonical(value):
 
 
 def fail(reason):
-    print(json.dumps({"status": "BLOCK", "reason": reason}, sort_keys=True))
-    raise SystemExit(1)
+    raise SystemExit(json.dumps({"status": "BLOCK", "reason": reason}, sort_keys=True))
 
 
 def main():
