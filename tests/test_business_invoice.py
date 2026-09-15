@@ -1,19 +1,12 @@
-import hashlib
 import json
 import os
-import sqlite3
 import subprocess
 import sys
-import tempfile
 import uuid
 
-os.environ["OLA_EG_DB_PATH"] = os.path.join(tempfile.mkdtemp(prefix="ola_business_invoice_"), "invoice.db")
-
 from app.business_runtime import run_invoice_task
-from app.database import Base, SessionLocal, engine
+from app.database import SessionLocal
 from app.models import Tenant
-
-Base.metadata.create_all(bind=engine)
 
 INVOICE = {
     "invoice_id": "INV-TEST-2026-001",
