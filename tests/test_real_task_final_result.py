@@ -1,17 +1,12 @@
+import json
 import os
-import tempfile
+import subprocess
+import sys
 import uuid
 
-os.environ["OLA_EG_DB_PATH"] = os.path.join(
-    tempfile.mkdtemp(prefix="ola_real_task_"), "real_task.db"
-)
-
 from app.agent_runtime import run_agent_task
-from app.database import Base, SessionLocal, engine
+from app.database import SessionLocal
 from app.models import Tenant
-from scripts.verify_agent_runtime import verify
-
-Base.metadata.create_all(bind=engine)
 
 REAL_TASK = "Calculate 17 * 23 and return the verified result."
 EXPECTED_RESULT = "391"
@@ -25,7 +20,7 @@ def _tenant():
     return tenant_id
 
 
-def test_six_agents_produce_verified_final_result():
+def test_six_agents_produce_verified_final_result_with_external_verifier():
     tenant_id = _tenant()
     result = run_agent_task(tenant_id, REAL_TASK)
 
@@ -36,13 +31,26 @@ def test_six_agents_produce_verified_final_result():
     assert result["execution"][0]["tool_output"] == EXPECTED_RESULT
     assert result["execution"][-1]["final_result"] == EXPECTED_RESULT
 
-    proof = verify(
-        tenant_id,
-        result["run_id"],
-        "TEST_COMMIT",
-        expected_task=REAL_TASK,
-        expected_result=EXPECTED_RESULT,
+    verifier = subprocess.run(
+        [
+            sys.executable,
+            "scripts/verify_agent_runtime.py",
+            "--tenant-id",
+            tenant_id,
+            "--run-id",
+            result["run_id"],
+            "--expected-commit",
+            "TEST_COMMIT",
+            "--expected-task",
+            REAL_TASK,
+            "--expected-result",
+            EXPECTED_RESULT,
+        ],
+        capture_output=True,
+        text=True,
     )
+    assert verifier.returncode == 0, verifier.stdout + verifier.stderr
+    proof = json.loads(verifier.stdout.strip())
     assert proof["status"] == "VERIFIED", proof
     assert proof["task"] == REAL_TASK
     assert proof["final_result"] == EXPECTED_RESULT
