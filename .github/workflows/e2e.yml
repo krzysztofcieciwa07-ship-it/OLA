@@ -122,13 +122,14 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail --silent http://127.0.0.1:8000/health >/dev/null
-          docker exec ola-e2e sh -c 'kill -STOP 1'
+          docker pause ola-e2e
           sleep 2
           if curl --fail --silent --max-time 2 http://127.0.0.1:8000/health >/dev/null; then
-            echo "FAIL: service remained responsive after SIGSTOP"
+            echo "FAIL: service remained responsive while container was paused"
+            docker unpause ola-e2e || true
             exit 1
           fi
-          docker exec ola-e2e sh -c 'kill -CONT 1'
+          docker unpause ola-e2e
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
               echo "REAL_RUNTIME_FAULT_RECOVERY=VERIFIED commit=${EXPECTED_COMMIT}"
