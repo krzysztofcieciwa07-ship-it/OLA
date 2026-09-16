@@ -5,8 +5,10 @@ import subprocess
 import sys
 
 
-def block(reason):
-    return {"status": "BLOCK", "reason": reason}
+def block(reason, **details):
+    result = {"status": "BLOCK", "reason": reason}
+    result.update(details)
+    return result
 
 
 def main():
