@@ -52,7 +52,7 @@ jobs:
               result = json.load(response)
           assert result["status"] == "VERIFIED", result
           verifier = subprocess.run([
-              "python", "scripts/verify_agent_runtime.py",
+              "python", "scripts/verify_provenance_runtime.py",
               "--tenant-id", tenant_id,
               "--run-id", result["run_id"],
               "--expected-commit", os.environ["EXPECTED_COMMIT"],
@@ -100,7 +100,7 @@ jobs:
           db.execute("UPDATE evidence_records SET payload_json=? WHERE tenant_id=? AND seq=?", (json.dumps(payload, sort_keys=True, separators=(",", ":")), tenant_id, seq))
           db.commit(); db.close()
           verifier = subprocess.run([
-              "python", "scripts/verify_agent_runtime.py",
+              "python", "scripts/verify_provenance_runtime.py",
               "--tenant-id", tenant_id,
               "--run-id", result["run_id"],
               "--expected-commit", os.environ["EXPECTED_COMMIT"],
@@ -113,6 +113,7 @@ jobs:
           assert verifier.returncode != 0, verifier
           parsed = json.loads(verifier.stdout.strip().splitlines()[-1])
           assert parsed["status"] == "BLOCK", parsed
+          assert parsed["reason"] == "record hash mismatch", parsed
           print("CONTROLLED_EVIDENCE_MUTATION=VERIFIED")
           PY
 
@@ -138,7 +139,7 @@ jobs:
               result = json.load(response)
           assert result["status"] == "VERIFIED", result
           verifier = subprocess.run([
-              "python", "scripts/verify_agent_runtime.py",
+              "python", "scripts/verify_provenance_runtime.py",
               "--tenant-id", tenant_id,
               "--run-id", result["run_id"],
               "--expected-commit", "0000000000000000000000000000000000000000000000000000000000000000",
@@ -150,6 +151,7 @@ jobs:
           assert verifier.returncode != 0, verifier
           parsed = json.loads(verifier.stdout.strip().splitlines()[-1])
           assert parsed["status"] == "BLOCK", parsed
+          assert parsed["reason"] == "commit provenance mismatch", parsed
           print("CONTROLLED_COMMIT_MUTATION=VERIFIED")
           PY
 
