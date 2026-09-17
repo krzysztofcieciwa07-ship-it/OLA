@@ -1,0 +1,163 @@
+name: Provenance Gate Final
+
+on:
+  pull_request:
+  push:
+    branches:
+      - provenance-controlled-mutation
+
+jobs:
+  provenance-gate-final:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build deployment image
+        run: docker build --tag ola:${GITHUB_SHA} .
+
+      - name: Start deployment image with source provenance
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name ola-provenance -p 8000:8000 \
+            -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" \
+            ola:${GITHUB_SHA}
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker logs ola-provenance
+          exit 1
+
+      - name: CLEAN — evidence and provenance verify
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_TASK: Calculate 17 * 23 and return the verified result.
+          EXPECTED_RESULT: "391"
+        run: |
+          set -euo pipefail
+          docker exec -i -e EXPECTED_COMMIT="$EXPECTED_COMMIT" -e EXPECTED_TASK="$EXPECTED_TASK" -e EXPECTED_RESULT="$EXPECTED_RESULT" ola-provenance python - <<'PY'
+          import hashlib, json, os, sqlite3, subprocess, urllib.request, uuid
+          db_path = "/data/ola.db"
+          tenant_id = str(uuid.uuid4())
+          raw_key = "final-clean-key"
+          key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+          db = sqlite3.connect(db_path)
+          db.execute("INSERT INTO tenants(id, name) VALUES (?, ?)", (tenant_id, "final-clean"))
+          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash) VALUES (?, ?, ?)", (str(uuid.uuid4()), tenant_id, key_hash))
+          db.commit(); db.close()
+          task = os.environ["EXPECTED_TASK"]
+          req = urllib.request.Request("http://127.0.0.1:8000/agent-run", data=json.dumps({"task": task}).encode(), headers={"Content-Type":"application/json", "X-API-Key":raw_key}, method="POST")
+          with urllib.request.urlopen(req, timeout=10) as response:
+              result = json.load(response)
+          assert result["status"] == "VERIFIED", result
+          verifier = subprocess.run([
+              "python", "scripts/verify_provenance_runtime.py",
+              "--tenant-id", tenant_id,
+              "--run-id", result["run_id"],
+              "--expected-commit", os.environ["EXPECTED_COMMIT"],
+              "--expected-task", task,
+              "--expected-result", os.environ["EXPECTED_RESULT"],
+          ], capture_output=True, text=True)
+          print("CLEAN_PROVENANCE_STDOUT=" + verifier.stdout.strip())
+          print("CLEAN_PROVENANCE_STDERR=" + verifier.stderr.strip())
+          assert verifier.returncode == 0, verifier
+          print("CLEAN_PATH=VERIFIED")
+          PY
+
+      - name: TAMPER — mutate evidence artifact and require BLOCK
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_TASK: Calculate 17 * 23 and return the verified result.
+          EXPECTED_RESULT: "391"
+        run: |
+          set -euo pipefail
+          docker exec -i -e EXPECTED_COMMIT="$EXPECTED_COMMIT" -e EXPECTED_TASK="$EXPECTED_TASK" -e EXPECTED_RESULT="$EXPECTED_RESULT" ola-provenance python - <<'PY'
+          import hashlib, json, os, shutil, sqlite3, subprocess, urllib.request, uuid
+          source_db = "/data/ola.db"
+          tampered_db = "/tmp/tampered-evidence.db"
+          tenant_id = str(uuid.uuid4())
+          raw_key = "final-tamper-key"
+          key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+          db = sqlite3.connect(source_db)
+          db.execute("INSERT INTO tenants(id, name) VALUES (?, ?)", (tenant_id, "final-tamper"))
+          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash) VALUES (?, ?, ?)", (str(uuid.uuid4()), tenant_id, key_hash))
+          db.commit(); db.close()
+          task = os.environ["EXPECTED_TASK"]
+          req = urllib.request.Request("http://127.0.0.1:8000/agent-run", data=json.dumps({"task": task}).encode(), headers={"Content-Type":"application/json", "X-API-Key":raw_key}, method="POST")
+          with urllib.request.urlopen(req, timeout=10) as response:
+              result = json.load(response)
+          assert result["status"] == "VERIFIED", result
+          shutil.copy2(source_db, tampered_db)
+          db = sqlite3.connect(tampered_db)
+          triggers = db.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='evidence_records'").fetchall()
+          for (name,) in triggers:
+              db.execute('DROP TRIGGER IF EXISTS "' + name.replace('"', '""') + '"')
+          row = db.execute("SELECT seq, payload_json FROM evidence_records WHERE tenant_id=? ORDER BY seq LIMIT 1", (tenant_id,)).fetchone()
+          assert row is not None
+          seq, payload_json = row
+          payload = json.loads(payload_json)
+          payload["tamper_marker"] = "CONTROLLED_MUTATION"
+          db.execute("UPDATE evidence_records SET payload_json=? WHERE tenant_id=? AND seq=?", (json.dumps(payload, sort_keys=True, separators=(",", ":")), tenant_id, seq))
+          db.commit(); db.close()
+          verifier = subprocess.run([
+              "python", "scripts/verify_provenance_runtime.py",
+              "--tenant-id", tenant_id,
+              "--run-id", result["run_id"],
+              "--expected-commit", os.environ["EXPECTED_COMMIT"],
+              "--expected-task", task,
+              "--expected-result", os.environ["EXPECTED_RESULT"],
+              "--db-path", tampered_db,
+          ], capture_output=True, text=True)
+          print("TAMPER_STDOUT=" + verifier.stdout.strip())
+          print("TAMPER_STDERR=" + verifier.stderr.strip())
+          assert verifier.returncode != 0, verifier
+          parsed = json.loads(verifier.stdout.strip().splitlines()[-1])
+          assert parsed["status"] == "BLOCK", parsed
+          print("CONTROLLED_EVIDENCE_MUTATION=VERIFIED")
+          PY
+
+      - name: WRONG COMMIT — valid evidence with false commit requires BLOCK
+        env:
+          EXPECTED_TASK: Calculate 17 * 23 and return the verified result.
+          EXPECTED_RESULT: "391"
+        run: |
+          set -euo pipefail
+          docker exec -i -e EXPECTED_TASK="$EXPECTED_TASK" -e EXPECTED_RESULT="$EXPECTED_RESULT" ola-provenance python - <<'PY'
+          import hashlib, json, os, sqlite3, subprocess, urllib.request, uuid
+          db_path = "/data/ola.db"
+          tenant_id = str(uuid.uuid4())
+          raw_key = "final-commit-key"
+          key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+          db = sqlite3.connect(db_path)
+          db.execute("INSERT INTO tenants(id, name) VALUES (?, ?)", (tenant_id, "final-commit"))
+          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash) VALUES (?, ?, ?)", (str(uuid.uuid4()), tenant_id, key_hash))
+          db.commit(); db.close()
+          task = os.environ["EXPECTED_TASK"]
+          req = urllib.request.Request("http://127.0.0.1:8000/agent-run", data=json.dumps({"task": task}).encode(), headers={"Content-Type":"application/json", "X-API-Key":raw_key}, method="POST")
+          with urllib.request.urlopen(req, timeout=10) as response:
+              result = json.load(response)
+          assert result["status"] == "VERIFIED", result
+          actual = os.environ.get("OLA_RUNTIME_COMMIT")
+          false_commit = "0" * 64
+          assert actual and actual != false_commit
+          verifier = subprocess.run([
+              "python", "scripts/verify_provenance_runtime.py",
+              "--tenant-id", tenant_id,
+              "--run-id", result["run_id"],
+              "--expected-commit", false_commit,
+              "--expected-task", task,
+              "--expected-result", os.environ["EXPECTED_RESULT"],
+          ], capture_output=True, text=True)
+          print("WRONG_COMMIT_STDOUT=" + verifier.stdout.strip())
+          print("WRONG_COMMIT_STDERR=" + verifier.stderr.strip())
+          assert verifier.returncode != 0, verifier
+          parsed = json.loads(verifier.stdout.strip().splitlines()[-1])
+          assert parsed["status"] == "BLOCK", parsed
+          assert parsed["reason"] == "commit provenance mismatch", parsed
+          print("CONTROLLED_COMMIT_MUTATION=VERIFIED")
+          PY
+
+      - name: Stop deployment image
+        if: always()
+        run: docker stop ola-provenance || true
