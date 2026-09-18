@@ -1,32 +1,30 @@
 import json
 
 from app.igor import IgorVerifier
+from app.hashchain import compute_record_hash
+
+
+def _record(commit="abc", result="391"):
+    payload = {"run_id": "r1", "commit": commit, "task": "Calculate 17 * 23", "result": result}
+    record = {
+        "tenant_id": "tenant-1",
+        "seq": 0,
+        "prev_hash": "0" * 64,
+        "record_hash": "",
+        "payload_json": json.dumps(payload, sort_keys=True, separators=(",", ":")),
+    }
+    record["record_hash"] = compute_record_hash(record["tenant_id"], record["seq"], record["prev_hash"], record["payload_json"])
+    return record
 
 
 def test_igor_clean_run_verifies():
-    verifier = IgorVerifier()
-    result = verifier.verify_records(
-        records=[
-            {"seq": 0, "prev_hash": "0" * 64, "record_hash": "a" * 64, "payload_json": json.dumps({"run_id": "r1", "commit": "abc", "task": "Calculate 17 * 23", "result": "391"})}
-        ],
-        expected_commit="abc",
-        expected_task="Calculate 17 * 23",
-        expected_result="391",
-    )
-    assert result.status in {"VERIFIED", "BLOCK"}
-    assert "chain" in result.checks
+    result = IgorVerifier().verify_records([_record()], "abc", "Calculate 17 * 23", "391")
+    assert result.status == "VERIFIED"
+    assert result.checks["chain"] is True
 
 
 def test_igor_wrong_commit_blocks():
-    verifier = IgorVerifier()
-    result = verifier.verify_records(
-        records=[
-            {"seq": 0, "prev_hash": "0" * 64, "record_hash": "a" * 64, "payload_json": json.dumps({"run_id": "r1", "commit": "abc", "task": "Calculate 17 * 23", "result": "391"})}
-        ],
-        expected_commit="wrong",
-        expected_task="Calculate 17 * 23",
-        expected_result="391",
-    )
+    result = IgorVerifier().verify_records([_record()], "wrong", "Calculate 17 * 23", "391")
     assert result.status == "BLOCK"
     assert result.reason == "commit provenance mismatch"
 
