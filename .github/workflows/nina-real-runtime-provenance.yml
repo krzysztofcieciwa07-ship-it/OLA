@@ -76,12 +76,18 @@ jobs:
           cat runtime-proof.json
 
       - name: Independent artifact verifier
+        env:
+          EXPECTED_COMMIT: ${{ env.EXPECTED_COMMIT }}
         run: |
           python - <<'PY'
-          import hashlib,json
+          import hashlib,json,os
           d=json.load(open("runtime-proof.json"))
-          assert d["status"]=="VERIFIED" and d["commit"]=="${EXPECTED_COMMIT}"
-          assert d["hash_chain"]=="PASS" and d["independent_verifier"]=="PASS" and d["human_gate"]=="VERIFIED"
+          expected=os.environ["EXPECTED_COMMIT"]
+          assert d["status"]=="VERIFIED"
+          assert d["commit"]==expected, (d["commit"], expected)
+          assert d["hash_chain"]=="PASS"
+          assert d["independent_verifier"]=="PASS"
+          assert d["human_gate"]=="VERIFIED"
           print("INDEPENDENT_ARTIFACT=VERIFIED")
           print("SHA256="+hashlib.sha256(open("runtime-proof.json","rb").read()).hexdigest())
           PY
@@ -94,7 +100,6 @@ jobs:
           p="runtime-proof.tampered.json"; d=json.load(open(p)); d["final_result"]="392"; json.dump(d,open(p,"w"),sort_keys=True)
           assert json.load(open(p))["final_result"]!="391"
           print("TAMPER_MUTATION=BLOCK")
-          PY
 
       - name: Replay
         run: python -c 'import json; d=json.load(open("runtime-proof.json")); assert d["evidence_count"]==6 and d["final_result"]=="391"; print("REPLAY=PASS")'
