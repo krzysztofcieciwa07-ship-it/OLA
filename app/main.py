@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import uuid
 from fastapi import FastAPI, Header, HTTPException
 from sqlalchemy import select
@@ -8,6 +9,11 @@ from .models import Tenant, ApiKey, EvidenceRecord
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
 from .business_runtime import run_invoice_task
+from .nina import NinaOrchestrator, NinaTask
+from .igor import IgorVerifier
+from .replay import build_replay
+from .human_gate import HumanGate, ReviewDecision
+from .nina_igor import NinaIgorChain
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
@@ -146,6 +152,62 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
     return run_agent_task(tenant_id, task)
+
+
+@app.post("/nina-run")
+def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    task_text = body.get("task")
+    if not task_text:
+        raise HTTPException(status_code=400, detail="task is required")
+    requested_tools = body.get("requested_tools", ["safe_expression"])
+    if not isinstance(requested_tools, list):
+        raise HTTPException(status_code=400, detail="requested_tools must be a list")
+
+    nina_task = NinaTask.create(tenant_id, task_text, requested_tools)
+    nina = NinaOrchestrator()
+    plan = nina.plan(nina_task)
+    if plan.status != "ALLOW":
+        return {
+            "task_id": nina_task.task_id,
+            "nina": {"status": plan.status, "reason": plan.reason},
+            "igor": {"status": "UNKNOWN", "reason": "execution did not start"},
+            "human_gate": {"status": "BLOCK", "reason": "NINA blocked execution"},
+            "status": "BLOCK",
+        }
+
+    runtime = nina.execute(nina_task)
+    run_id = runtime["runtime"]["run_id"]
+    runtime_commit = os.getenv("OLA_RUNTIME_COMMIT")
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == tenant_id)
+            .order_by(EvidenceRecord.seq.asc())
+        ).all()
+    if runtime_commit:
+        append_record(tenant_id, "provenance.runtime", {"run_id": run_id, "commit": runtime_commit, "task": task_text, "result": runtime["runtime"].get("final_result")})
+        with SessionLocal() as db:
+            rows = db.scalars(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.asc())).all()
+
+    record_dicts = [
+        {"id": row.id, "tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash, "record_hash": row.record_hash, "record_type": row.record_type, "payload_json": row.payload_json}
+        for row in rows
+    ]
+    expected_result = runtime["runtime"].get("execution", [{}])[0].get("tool_output", "")
+    igor = IgorVerifier().verify_records(record_dicts, runtime_commit, task_text, expected_result)
+    replay = build_replay(record_dicts)
+    review = ReviewDecision(bool(body.get("human_approved", False)), str(body.get("human_actor", "")), str(body.get("human_reason", "")))
+    terminal = NinaIgorChain.finalize(runtime.get("status", "UNKNOWN"), igor.status, review)
+    return {
+        "task_id": nina_task.task_id,
+        "run_id": run_id,
+        "nina": {"status": runtime.get("status", "UNKNOWN"), "decision": plan.reason},
+        "igor": {"status": igor.status, "reason": igor.reason, "checks": igor.checks},
+        "replay": replay,
+        "human_gate": terminal,
+        "status": terminal["status"],
+    }
 
 
 @app.post("/business-invoice-run")
