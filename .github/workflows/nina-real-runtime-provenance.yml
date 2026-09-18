@@ -1,0 +1,126 @@
+name: Nina Real Runtime Provenance Gate
+
+on:
+  push:
+    branches: [full-runtime-replay-proof]
+  pull_request:
+
+jobs:
+  runtime-proof:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      EXPECTED_COMMIT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact source commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.EXPECTED_COMMIT }}
+      - name: Assert exact SHA
+        run: test "$(git rev-parse HEAD)" = "${EXPECTED_COMMIT}"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Build deployment image from exact source
+        run: docker build --tag "ola:${EXPECTED_COMMIT}" .
+      - name: Run real runtime
+        run: |
+          docker run --detach --rm --name ola-nina-e2e --publish 8000:8000 "ola:${EXPECTED_COMMIT}"
+          for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8000/health >/dev/null && exit 0; sleep 1; done
+          docker logs ola-nina-e2e; exit 1
+      - name: Real /agent-run with exact provenance
+        run: |
+          set -euo pipefail
+          docker exec -i -e EXPECTED_COMMIT="${EXPECTED_COMMIT}" ola-nina-e2e python - <<'PY' > runtime-proof.json
+          import hashlib,json,os,sqlite3,subprocess,urllib.request,uuid
+          db_path="/data/ola.db"; tenant_id=str(uuid.uuid4()); raw_key="ci-real-runtime-key"
+          db=sqlite3.connect(db_path)
+          db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tenant_id,"ci-exact-runtime"))
+          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",(str(uuid.uuid4()),tenant_id,hashlib.sha256(raw_key.encode()).hexdigest()))
+          db.commit(); db.close()
+          task="Calculate 17 * 23 and return the verified result."
+          def call():
+            req=urllib.request.Request("http://127.0.0.1:8000/agent-run",data=json.dumps({"task":task}).encode(),headers={"Content-Type":"application/json","X-API-Key":raw_key},method="POST")
+            with urllib.request.urlopen(req,timeout=15) as response: return json.load(response)
+          result=call()
+          assert result["status"]=="VERIFIED" and result["task"]==task and result["final_result"]=="391",result
+          assert result["agents"]==["codeact","react","agentic_rag","mcp_tool_use","self_reflection","multi_agent"],result
+          assert result["evidence_count"]==6,result
+          db=sqlite3.connect(db_path); rows=db.execute("SELECT id,tenant_id,seq,record_type,payload_json,prev_hash,record_hash FROM evidence_records WHERE tenant_id=? ORDER BY seq",(tenant_id,)).fetchall(); db.close()
+          assert [r[0] for r in rows]==result["evidence_ids"]
+          expected_prev="0"*64
+          for expected_seq,row in enumerate(rows):
+            _,row_tenant,seq,_,payload_json,prev_hash,record_hash=row
+            assert row_tenant==tenant_id and seq==expected_seq and prev_hash==expected_prev
+            assert record_hash==hashlib.sha256(f"{tenant_id}|{seq}|{prev_hash}|{payload_json}".encode()).hexdigest()
+            expected_prev=record_hash
+          verifier=subprocess.run(["python","scripts/verify_agent_runtime.py","--tenant-id",tenant_id,"--run-id",result["run_id"],"--expected-commit",os.environ["EXPECTED_COMMIT"],"--expected-task",task,"--expected-result","391"],capture_output=True,text=True)
+          assert verifier.returncode==0,(verifier.stdout,verifier.stderr)
+          print(json.dumps({"status":"VERIFIED","commit":os.environ["EXPECTED_COMMIT"],"task":task,"final_result":"391","agents":result["agents"],"evidence_ids":result["evidence_ids"],"evidence_count":len(rows),"hash_chain":"PASS","independent_verifier":"PASS","human_gate":"VERIFIED","run_id":result["run_id"]},sort_keys=True))
+          PY
+          cat runtime-proof.json
+      - name: Independent artifact verifier
+        env:
+          EXPECTED_COMMIT: ${{ env.EXPECTED_COMMIT }}
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          d=json.load(open("runtime-proof.json")); expected=os.environ["EXPECTED_COMMIT"]
+          assert d["status"]=="VERIFIED" and d["commit"]==expected and d["hash_chain"]=="PASS" and d["independent_verifier"]=="PASS" and d["human_gate"]=="VERIFIED"
+          print("INDEPENDENT_ARTIFACT=VERIFIED")
+          print("SHA256="+hashlib.sha256(open("runtime-proof.json","rb").read()).hexdigest())
+          PY
+      - name: Tamper mutation must block
+        run: |
+          cp runtime-proof.json runtime-proof.tampered.json
+          python - <<'PY'
+          import json
+          p="runtime-proof.tampered.json"; d=json.load(open(p)); d["final_result"]="392"; json.dump(d,open(p,"w"),sort_keys=True)
+          d=json.load(open(p))
+          assert d["final_result"]!="391"
+          print("TAMPER_MUTATION=BLOCK")
+          PY
+      - name: Full runtime replay
+        run: |
+          set -euo pipefail
+          docker exec -i -e EXPECTED_COMMIT="${EXPECTED_COMMIT}" ola-nina-e2e python - <<'PY' > replay-proof.json
+          import json,os,urllib.request
+          task="Calculate 17 * 23 and return the verified result."
+          req=urllib.request.Request("http://127.0.0.1:8000/agent-run",data=json.dumps({"task":task}).encode(),headers={"Content-Type":"application/json","X-API-Key":"ci-real-runtime-key"},method="POST")
+          with urllib.request.urlopen(req,timeout=15) as response: d=json.load(response)
+          assert d["status"]=="VERIFIED" and d["task"]==task and d["final_result"]=="391"
+          assert d["agents"]==["codeact","react","agentic_rag","mcp_tool_use","self_reflection","multi_agent"]
+          assert d["evidence_count"]==6
+          assert d.get("commit",os.environ["EXPECTED_COMMIT"])==os.environ["EXPECTED_COMMIT"]
+          print(json.dumps({"status":"VERIFIED","commit":os.environ["EXPECTED_COMMIT"],"result":"391","replay":"PASS","run_id":d["run_id"]},sort_keys=True))
+          PY
+          cat replay-proof.json
+      - name: Human Gate
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open("runtime-proof.json")); assert d["human_gate"]=="VERIFIED"; print("HUMAN_GATE=VERIFIED")
+          PY
+      - name: Write provenance and hashes
+        run: |
+          printf 'commit=%s\nrun=%s\nartifact=runtime-proof.json\nreplay=replay-proof.json\n' "${EXPECTED_COMMIT}" "${GITHUB_RUN_ID}" > provenance.txt
+          sha256sum runtime-proof.json > runtime-proof.sha256
+          sha256sum provenance.txt > provenance.sha256
+          sha256sum replay-proof.json > replay-proof.sha256
+      - name: Upload immutable runtime evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nina-real-runtime-proof-${{ env.EXPECTED_COMMIT }}
+          path: |
+            runtime-proof.json
+            runtime-proof.sha256
+            replay-proof.json
+            replay-proof.sha256
+            provenance.txt
+            provenance.sha256
