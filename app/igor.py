@@ -30,17 +30,20 @@ class IgorVerifier:
 
         payloads = [json.loads(record["payload_json"]) for record in records]
         provenance_values = {payload.get("commit") for payload in payloads if payload.get("commit") is not None}
-        if provenance_values and expected_commit not in provenance_values:
-            checks["commit"] = False
+        checks["commit"] = bool(expected_commit) and expected_commit in provenance_values
+        if not checks["commit"]:
             return IgorVerification("BLOCK", "commit provenance mismatch", checks)
-        checks["commit"] = True if expected_commit is not None else False
 
         matching_task = any(payload.get("task") == expected_task for payload in payloads)
         checks["task"] = matching_task
         if not matching_task:
             return IgorVerification("BLOCK", "task mismatch", checks)
 
-        matching_result = any(str(payload.get("result")) == str(expected_result) for payload in payloads)
+        matching_result = any(
+            str(payload.get("result")) == str(expected_result)
+            or str(payload.get("tool_output")) == str(expected_result)
+            for payload in payloads
+        )
         checks["result"] = matching_result
         if not matching_result:
             return IgorVerification("BLOCK", "result mismatch", checks)
