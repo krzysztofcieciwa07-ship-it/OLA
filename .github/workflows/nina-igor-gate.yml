@@ -1,0 +1,41 @@
+name: Nina Igor Gate
+
+on:
+  push:
+    branches:
+      - nina-igor-execution-chain
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: Run Nina, Igor and provenance tests
+        run: pytest -q tests/test_nina.py tests/test_igor.py tests/test_contradiction_replay.py tests/test_review_gate.py tests/test_nina_igor_chain.py tests/test_nina_run_endpoint_contract.py tests/test_independent_verifier_tamper.py
+
+      - name: Generate evidence manifest
+        run: python scripts/verify_nina_igor_gate.py --expected-commit "${GITHUB_SHA}" --evidence-out nina-igor-evidence.json
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nina-igor-evidence-${{ github.sha }}
+          path: nina-igor-evidence.json
