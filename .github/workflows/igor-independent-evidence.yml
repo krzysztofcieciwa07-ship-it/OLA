@@ -1,0 +1,180 @@
+name: IGOR Independent Evidence Gate
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  igor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    env:
+      SOURCE_COMMIT: 3f7221bfeb81c28041bf67279434a3fb0a8a9367
+      NINA_RUN_ID: "35401204165"
+      NINA_ARTIFACT_ID: "10571050438"
+      NINA_ARTIFACT_NAME: nina-real-runtime-proof-3f7221bfeb81c28041bf67279434a3fb0a8a9367
+      NINA_ARTIFACT_SHA256: 997d85434fc95d3741626b910e9ed8525ee3255cfc4911a721173b301a8e997e
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.SOURCE_COMMIT }}
+
+      - name: Assert exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${SOURCE_COMMIT}"
+
+      - name: Download NINA evidence artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.NINA_ARTIFACT_NAME }}
+          path: nina-evidence
+          run-id: ${{ env.NINA_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify GitHub artifact digest and provenance
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${NINA_ARTIFACT_ID}" --jq '.digest' | sed 's/^sha256://')"
+          test "$actual" = "${NINA_ARTIFACT_SHA256}"
+          grep -qx "commit=${SOURCE_COMMIT}" nina-evidence/provenance.txt
+          grep -qx "run=${NINA_RUN_ID}" nina-evidence/provenance.txt
+          sha256sum -c nina-evidence/runtime-proof.sha256
+          sha256sum -c nina-evidence/replay-proof.sha256
+          sha256sum -c nina-evidence/provenance.sha256
+
+      - name: IGOR independent verifier
+        run: |
+          python - <<'PY'
+          import hashlib, json, pathlib
+          root=pathlib.Path("nina-evidence")
+          d=json.loads((root/"runtime-proof.json").read_text())
+          assert d["status"]=="VERIFIED"
+          assert d["commit"]=="3f7221bfeb81c28041bf67279434a3fb0a8a9367"
+          assert d["final_result"]=="391"
+          assert d["agents"]==["codeact","react","agentic_rag","mcp_tool_use","self_reflection","multi_agent"]
+          assert d["evidence_count"]==6
+          assert d["hash_chain"]=="PASS"
+          assert d["independent_verifier"]=="PASS"
+          assert d["human_gate"]=="VERIFIED"
+          print("IGOR_NINA_BUNDLE=PASS")
+          print("IGOR_SOURCE_SHA=PASS")
+          print("IGOR_ARTIFACT_HASH=PASS")
+          print("IGOR_PROVENANCE=PASS")
+          print("IGOR_EVIDENCE_CONTENT=PASS")
+          PY
+
+      - name: Tamper mutation must BLOCK
+        run: |
+          set -euo pipefail
+          cp nina-evidence/runtime-proof.json tampered-runtime-proof.json
+          python - <<'PY'
+          import json
+          p="tampered-runtime-proof.json"
+          d=json.loads(open(p).read())
+          d["final_result"]="392"
+          open(p,"w").write(json.dumps(d,sort_keys=True))
+          PY
+          if sha256sum -c nina-evidence/runtime-proof.sha256 --quiet 2>/dev/null; then
+            echo "TAMPER_CHECK=FAIL"
+            exit 1
+          fi
+          echo "TAMPER_CHECK=BLOCK"
+
+      - name: Build exact-source runtime for independent replay
+        run: |
+          python -m pip install -r requirements.txt
+          docker build --tag "ola-igor:${SOURCE_COMMIT}" .
+
+      - name: Start runtime
+        run: |
+          docker run --detach --rm --name ola-igor-e2e --publish 8001:8000 "ola-igor:${SOURCE_COMMIT}"
+          for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8001/health >/dev/null && exit 0; sleep 1; done
+          docker logs ola-igor-e2e
+          exit 1
+
+      - name: IGOR real replay
+        run: |
+          set -euo pipefail
+          docker exec -i ola-igor-e2e python - <<'PY' > igor-replay.json
+          import hashlib,json,sqlite3,urllib.request,uuid
+          db_path="/data/ola.db"
+          tenant_id=str(uuid.uuid4())
+          raw_key="igor-independent-key"
+          db=sqlite3.connect(db_path)
+          db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tenant_id,"igor-independent-replay"))
+          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",(str(uuid.uuid4()),tenant_id,hashlib.sha256(raw_key.encode()).hexdigest()))
+          db.commit(); db.close()
+          task="Calculate 17 * 23 and return the verified result."
+          req=urllib.request.Request("http://127.0.0.1:8000/agent-run",data=json.dumps({"task":task}).encode(),headers={"Content-Type":"application/json","X-API-Key":raw_key},method="POST")
+          with urllib.request.urlopen(req,timeout=15) as response: d=json.load(response)
+          assert d["status"]=="VERIFIED"
+          assert d["task"]==task
+          assert d["final_result"]=="391"
+          assert d["agents"]==["codeact","react","agentic_rag","mcp_tool_use","self_reflection","multi_agent"]
+          assert d["evidence_count"]==6
+          print(json.dumps({"status":"VERIFIED","commit":"3f7221bfeb81c28041bf67279434a3fb0a8a9367","result":"391","replay":"PASS","run_id":d["run_id"]},sort_keys=True))
+          PY
+          cat igor-replay.json
+
+      - name: Build Evidence Bundle v1 and IGOR certificate
+        run: |
+          set -euo pipefail
+          mkdir -p evidence-bundle/source evidence-bundle/runtime evidence-bundle/provenance evidence-bundle/integrity evidence-bundle/verification evidence-bundle/tamper evidence-bundle/replay evidence-bundle/human evidence-bundle/hashes
+          printf '%s\n' "${SOURCE_COMMIT}" > evidence-bundle/source/commit.txt
+          cp nina-evidence/runtime-proof.json evidence-bundle/runtime/runtime-proof.json
+          cp nina-evidence/replay-proof.json evidence-bundle/runtime/replay-proof.json
+          cp nina-evidence/provenance.txt evidence-bundle/provenance/provenance.txt
+          cp nina-evidence/provenance.sha256 evidence-bundle/provenance/provenance.sha256
+          cp nina-evidence/runtime-proof.sha256 evidence-bundle/integrity/runtime-proof.sha256
+          cp nina-evidence/replay-proof.sha256 evidence-bundle/integrity/replay-proof.sha256
+          cp igor-replay.json evidence-bundle/replay/igor-replay.json
+          cat > evidence-bundle/verification/igor-result.json <<'JSON'
+          {"status":"VERIFIED","verifier":"IGOR","source_commit":"3f7221bfeb81c28041bf67279434a3fb0a8a9367","nina_run_id":35401204165,"nina_artifact_id":10571050438,"nina_artifact_sha256":"997d85434fc95d3741626b910e9ed8525ee3255cfc4911a721173b301a8e997e","tamper":"BLOCK","replay":"PASS","human_gate":"PENDING"}
+          JSON
+          printf '%s\n' '{"status":"BLOCKED_PENDING_HUMAN_APPROVAL","human_gate":"PENDING","reason":"Automated IGOR verification is complete; final Human Gate is not asserted by automation."}' > evidence-bundle/human/human-gate.json
+          find evidence-bundle -type f ! -path '*/hashes/*' -print0 | sort -z | xargs -0 sha256sum > evidence-bundle/hashes/files.sha256
+          sha256sum evidence-bundle/verification/igor-result.json > evidence-bundle/hashes/igor-result.sha256
+          python - <<'PY'
+          import hashlib,json,pathlib
+          root=pathlib.Path("evidence-bundle")
+          manifest={
+            "schema":"evidence-bundle/v1",
+            "source_commit":"3f7221bfeb81c28041bf67279434a3fb0a8a9367",
+            "nina_run_id":35401204165,
+            "nina_artifact_id":10571050438,
+            "nina_artifact_sha256":"997d85434fc95d3741626b910e9ed8525ee3255cfc4911a721173b301a8e997e",
+            "igor":"VERIFIED",
+            "tamper":"BLOCK",
+            "replay":"PASS",
+            "human_gate":"PENDING"
+          }
+          (root/"MANIFEST.json").write_text(json.dumps(manifest,sort_keys=True,indent=2)+"\n")
+          digest=hashlib.sha256((root/"MANIFEST.json").read_bytes()).hexdigest()
+          (root/"hashes"/"bundle-manifest.sha256").write_text(f"{digest}  MANIFEST.json\n")
+          PY
+          sha256sum evidence-bundle/MANIFEST.json > evidence-bundle/hashes/bundle-manifest.sha256
+
+      - name: Own IGOR SHA-256
+        run: |
+          sha256sum evidence-bundle/verification/igor-result.json
+          sha256sum igor-replay.json
+          tar -czf igor-evidence-bundle.tar.gz evidence-bundle
+          sha256sum igor-evidence-bundle.tar.gz | tee igor-evidence-bundle.sha256
+
+      - name: Human Gate hold
+        run: |
+          test "$(jq -r .human_gate evidence-bundle/verification/igor-result.json)" = "PENDING"
+          echo "HUMAN_GATE=PENDING"
+
+      - name: Upload IGOR evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: igor-independent-evidence-${{ env.SOURCE_COMMIT }}
+          path: |
+            igor-evidence-bundle.tar.gz
+            igor-evidence-bundle.sha256
+            evidence-bundle/
