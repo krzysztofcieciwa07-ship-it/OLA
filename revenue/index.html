@@ -28,7 +28,7 @@ body{overflow-x:hidden}
 #flash2{background:radial-gradient(circle at 82% 22%,rgba(255,255,255,.5),transparent 38%)}
 .hero{position:relative;z-index:5;max-width:1180px;min-height:100vh;margin:auto;padding:8vh 6vw;display:flex;align-items:center}
 .copy{width:min(510px,48vw);margin-top:7vh;opacity:0;transform:translateY(18px);animation:copyIn 1.3s ease 8.1s forwards}
-.eyebrow{font-size:10px;letter-spacing:3px;color:#8d99a7;text-transform:uppercase}
+ .eyebrow{font-size:10px;letter-spacing:3px;color:#8d99a7;text-transform:uppercase}.promise{margin-top:13px;font-size:12px;line-height:1.45;letter-spacing:1.6px;color:#d9e2eb}.promise span{color:#fff}.proof{display:flex;align-items:baseline;gap:10px;margin:4px 0 20px}.proof span{font-size:11px;letter-spacing:2px;color:#eef5fb;border:1px solid rgba(220,235,250,.28);padding:6px 8px;border-radius:999px}.proof small{color:#778390;font-size:9px;letter-spacing:1px}.deliver{display:grid;gap:7px;margin:-5px 0 24px;color:#9ca8b4;font-size:11px;line-height:1.5}.deliver b{font-size:9px;letter-spacing:2px;color:#6f7b87}.deliver em{color:#d5dde5;font-style:normal}
 h1{margin:18px 0 22px;font-size:clamp(42px,5vw,64px);line-height:.98;letter-spacing:-2.5px}
 .lead{margin:0 0 28px;font-size:clamp(17px,1.7vw,20px);line-height:1.55;color:#aeb7c2}
 ul{padding:0;margin:0 0 30px;list-style:none;color:#c8d0da;font-size:14px;line-height:2}
@@ -64,15 +64,18 @@ li:before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%
 <main class="hero">
 <section class="copy">
 <div class="eyebrow">Evidence-first execution</div>
+<div class="promise">YOUR AI SAYS IT SUCCEEDED. <span>CAN YOU PROVE IT?</span></div>
 <h1>OLA Execution Audit</h1>
 <p class="lead">Jednorazowy audyt wykonania zadania przez OLA — z wynikiem, śladem dowodowym i niezależną weryfikacją.</p>
 <ul>
-<li>6 wzorców agentowych w zweryfikowanym runtime</li>
+<li>AI execution tested across 6 agent patterns</li>
 <li>łańcuch evidence z hashami i provenance</li>
 <li>niezależna weryfikacja wyniku po wykonaniu</li>
 <li>automatyczne uruchomienie po potwierdzeniu płatności</li>
 </ul>
-<div class="offer"><span class="price">Cena testowa: €99</span><a class="cta" href="https://buy.stripe.com/test_cNi28t0yN5Sd2B20ufdjO00">START AUDIT</a></div>
+<div class="proof"><span>VERIFIED</span><small>Execution · Provenance · Evidence · Replay</small></div>
+<div class="deliver"><b>WHAT YOU GET</b><span>Execution evidence · Provenance &amp; hashes · Independent verification · Tamper / replay check</span><em>If evidence is missing, OLA says so.</em></div>
+<div class="offer"><span class="price">€99 <small>· one controlled audit</small></span><a class="cta" href="https://buy.stripe.com/test_cNi28t0yN5Sd2B20ufdjO00">START AUDIT</a></div>
 <div class="note">Preview — Stripe Sandbox. To nie jest sprzedaż produkcyjna.</div>
 </section>
 <div class="scene" aria-hidden="true">
