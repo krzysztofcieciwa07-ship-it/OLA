@@ -2,8 +2,9 @@ name: Nina Real Runtime Provenance Gate
 
 on:
   push:
-    branches: [full-runtime-replay-proof]
+    branches: [main, full-runtime-replay-proof]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   runtime-proof:
