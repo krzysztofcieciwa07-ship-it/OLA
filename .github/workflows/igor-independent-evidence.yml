@@ -183,6 +183,13 @@ jobs:
         with:
           subject-path: igor-evidence-bundle.tar.gz
 
+      - name: Independently verify IGOR attestation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh attestation verify igor-evidence-bundle.tar.gz -R "$GITHUB_REPOSITORY"
+
       - name: Human Gate hold
         run: |
           test "$(jq -r .human_gate evidence-bundle/verification/igor-result.json)" = "PENDING"
