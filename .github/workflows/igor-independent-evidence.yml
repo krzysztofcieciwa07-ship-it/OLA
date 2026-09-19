@@ -78,10 +78,9 @@ jobs:
           d["final_result"]="392"
           open(p,"w").write(json.dumps(d,sort_keys=True))
           PY
-          if sha256sum -c nina-evidence/runtime-proof.sha256 --quiet 2>/dev/null; then
-            echo "TAMPER_CHECK=FAIL"
-            exit 1
-          fi
+          expected="$(cut -d' ' -f1 nina-evidence/runtime-proof.sha256)"
+          actual="$(sha256sum tampered-runtime-proof.json | cut -d' ' -f1)"
+          test "$actual" != "$expected"
           echo "TAMPER_CHECK=BLOCK"
 
       - name: Build exact-source runtime for independent replay
