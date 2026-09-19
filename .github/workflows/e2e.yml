@@ -78,7 +78,7 @@ jobs:
           PY
 
       - name: Real OpenAI LLM six-agent E2E
-        if: ${{ secrets.OPENAI_API_KEY != '' }}
+        if: ${{ env.OPENAI_API_KEY != '' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OLA_LLM_MODE: required
