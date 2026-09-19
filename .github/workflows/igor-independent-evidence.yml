@@ -11,6 +11,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
+      attestations: write
     env:
       SOURCE_COMMIT: 3f7221bfeb81c28041bf67279434a3fb0a8a9367
       NINA_RUN_ID: "35401204165"
@@ -170,6 +172,11 @@ jobs:
           sha256sum igor-replay.json
           tar -czf igor-evidence-bundle.tar.gz evidence-bundle
           sha256sum igor-evidence-bundle.tar.gz | tee igor-evidence-bundle.sha256
+
+      - name: Generate IGOR evidence attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: igor-evidence-bundle.tar.gz
 
       - name: Human Gate hold
         run: |
