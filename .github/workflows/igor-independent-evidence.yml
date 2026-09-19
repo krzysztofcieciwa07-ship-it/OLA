@@ -54,7 +54,8 @@ jobs:
         run: |
           python - <<'PY'
           import hashlib, json, pathlib
-          root=pathlib.Path("nina-evidence")
+          import subprocess
+          root=pathlib.Path(subprocess.check_output(["bash","-lc","find nina-evidence -type f -name runtime-proof.json -print -quit"],text=True).strip()).parent
           d=json.loads((root/"runtime-proof.json").read_text())
           assert d["status"]=="VERIFIED"
           assert d["commit"]=="3f7221bfeb81c28041bf67279434a3fb0a8a9367"
@@ -128,12 +129,14 @@ jobs:
           set -euo pipefail
           mkdir -p evidence-bundle/source evidence-bundle/runtime evidence-bundle/provenance evidence-bundle/integrity evidence-bundle/verification evidence-bundle/tamper evidence-bundle/replay evidence-bundle/human evidence-bundle/hashes
           printf '%s\n' "${SOURCE_COMMIT}" > evidence-bundle/source/commit.txt
-          cp nina-evidence/runtime-proof.json evidence-bundle/runtime/runtime-proof.json
-          cp nina-evidence/replay-proof.json evidence-bundle/runtime/replay-proof.json
-          cp nina-evidence/provenance.txt evidence-bundle/provenance/provenance.txt
-          cp nina-evidence/provenance.sha256 evidence-bundle/provenance/provenance.sha256
-          cp nina-evidence/runtime-proof.sha256 evidence-bundle/integrity/runtime-proof.sha256
-          cp nina-evidence/replay-proof.sha256 evidence-bundle/integrity/replay-proof.sha256
+          root="$(find nina-evidence -type f -name runtime-proof.json -print -quit | xargs -r dirname)"
+          test -n "$root"
+          cp "$root/runtime-proof.json" evidence-bundle/runtime/runtime-proof.json
+          cp "$root/replay-proof.json" evidence-bundle/runtime/replay-proof.json
+          cp "$root/provenance.txt" evidence-bundle/provenance/provenance.txt
+          cp "$root/provenance.sha256" evidence-bundle/provenance/provenance.sha256
+          cp "$root/runtime-proof.sha256" evidence-bundle/integrity/runtime-proof.sha256
+          cp "$root/replay-proof.sha256" evidence-bundle/integrity/replay-proof.sha256
           cp igor-replay.json evidence-bundle/replay/igor-replay.json
           cat > evidence-bundle/verification/igor-result.json <<'JSON'
           {"status":"VERIFIED","verifier":"IGOR","source_commit":"3f7221bfeb81c28041bf67279434a3fb0a8a9367","nina_run_id":35401204165,"nina_artifact_id":10571050438,"nina_artifact_sha256":"997d85434fc95d3741626b910e9ed8525ee3255cfc4911a721173b301a8e997e","tamper":"BLOCK","replay":"PASS","human_gate":"PENDING"}
