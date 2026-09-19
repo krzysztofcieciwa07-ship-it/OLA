@@ -2,7 +2,7 @@ import hashlib
 import json
 import os
 import uuid
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers
 from .models import Tenant, ApiKey, EvidenceRecord
@@ -14,6 +14,7 @@ from .igor import IgorVerifier
 from .replay import build_replay
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
+from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
@@ -208,6 +209,14 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
         "human_gate": terminal,
         "status": terminal["status"],
     }
+
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request, stripe_signature: str | None = Header(default=None)):
+    if not stripe_signature:
+        raise HTTPException(status_code=400, detail="missing Stripe signature")
+    body = await request.body()
+    return process_checkout_event(body, stripe_signature)
 
 
 @app.post("/business-invoice-run")

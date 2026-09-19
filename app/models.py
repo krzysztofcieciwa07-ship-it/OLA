@@ -30,3 +30,14 @@ class EvidenceRecord(Base):
     prev_hash = Column(String(64), nullable=False)
     record_hash = Column(String(64), nullable=False)
     __table_args__ = (UniqueConstraint("tenant_id", "seq", name="uq_evidence_tenant_seq"),)
+
+
+
+class StripeEvent(Base):
+    __tablename__ = "stripe_events"
+    id = Column(String(36), primary_key=True)
+    event_id = Column(String(255), nullable=False, unique=True, index=True)
+    status = Column(String(32), nullable=False)
+    run_id = Column(String(36), nullable=True)
+    task = Column(Text, nullable=True)
+    result_json = Column(Text, nullable=True)

@@ -32,7 +32,7 @@ jobs:
 
       - name: Run deployment image
         run: |
-          docker run --detach --rm --name ola-e2e --publish 8000:8000 ola:${GITHUB_SHA}
+          docker run --detach --rm --name ola-e2e --publish 8000:8000 -e STRIPE_WEBHOOK_SECRET="whsec_ci_ola" -e OLA_STRIPE_TENANT_ID="00000000-0000-0000-0000-000000000001" ola:${GITHUB_SHA}
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
               exit 0
@@ -168,6 +168,93 @@ jobs:
               raise RuntimeError(f"Independent business verifier failed with exit code {verifier.returncode}")
           PY
           cat business-invoice-proof.json
+
+      - name: Stripe confirmed-payment webhook triggers OLA and is idempotent
+        run: |
+          set -euo pipefail
+          docker exec -i ola-e2e python - <<'PY'
+          import hashlib, hmac, json, os, sqlite3, time, urllib.error, urllib.request, uuid
+
+          db_path="/data/ola.db"
+          tenant_id="00000000-0000-0000-0000-000000000001"
+          raw_key="stripe-webhook-ci-key"
+          db=sqlite3.connect(db_path)
+          db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tenant_id,"ci-stripe-webhook"))
+          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",(str(uuid.uuid4()),tenant_id,hashlib.sha256(raw_key.encode()).hexdigest()))
+          db.commit(); db.close()
+
+          payload={
+              "id":"evt_ci_ola_checkout_001",
+              "type":"checkout.session.completed",
+              "data":{"object":{
+                  "id":"cs_ci_ola_checkout_001",
+                  "metadata":{"offer":"ola-execution-audit"},
+                  "payment_status":"paid",
+                  "amount_total":9900,
+                  "currency":"eur",
+                  "custom_fields":[{"key":"audit_task","type":"text","text":{"value":"Calculate 17 * 23 and return the verified result."}}]
+              }}
+          }
+          body=json.dumps(payload,separators=(",",":"),sort_keys=True).encode()
+          timestamp=int(time.time())
+          digest=hmac.new(b"whsec_ci_ola",f"{timestamp}.".encode()+body,hashlib.sha256).hexdigest()
+          signature=f"t={timestamp},v1={digest}"
+
+          def post():
+              req=urllib.request.Request(
+                  "http://127.0.0.1:8000/stripe/webhook",
+                  data=body,
+                  headers={"Content-Type":"application/json","Stripe-Signature":signature},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(req,timeout=15) as response:
+                      return response.status,json.load(response)
+              except urllib.error.HTTPError as exc:
+                  detail=exc.read().decode("utf-8","replace")
+                  raise RuntimeError(f"webhook HTTP {exc.code}: {detail}") from exc
+
+          status1,result1=post()
+          assert status1==200,result1
+          assert result1["status"]=="COMPLETED",result1
+          assert result1["payment"]=="CONFIRMED",result1
+          assert result1["ola_status"]=="VERIFIED",result1
+          assert result1["ola_final_result"]=="391",result1
+          assert len(result1["ola_evidence_ids"])==6,result1
+
+          status2,result2=post()
+          assert status2==200,result2
+          assert result2==result1,(result1,result2)
+
+          db=sqlite3.connect(db_path)
+          rows=db.execute(
+              "SELECT record_type,payload_json FROM evidence_records WHERE tenant_id=? ORDER BY seq",
+              (tenant_id,),
+          ).fetchall()
+          db.close()
+          assert len(rows)==8,rows
+          assert [r[0] for r in rows]==[
+              "stripe.payment_confirmed",
+              "agent.codeact",
+              "agent.react",
+              "agent.agentic_rag",
+              "agent.mcp_tool_use",
+              "agent.self_reflection",
+              "agent.multi_agent",
+              "stripe.ola_execution_completed",
+          ],rows
+          payment_records=[r for r in rows if r[0]=="stripe.payment_confirmed"]
+          assert len(payment_records)==1,payment_records
+          assert json.loads(payment_records[0][1])["stripe_event_id"]=="evt_ci_ola_checkout_001"
+          print(json.dumps({
+              "gate":"STRIPE_CHECKOUT_TO_OLA",
+              "signature":"PASS",
+              "payment":"CONFIRMED",
+              "ola_runtime":"VERIFIED",
+              "idempotency":"PASS",
+              "evidence_count":len(rows)
+          },sort_keys=True))
+          PY
 
       - name: Real runtime fault injection and recovery
         env:
