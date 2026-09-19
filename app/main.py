@@ -2,7 +2,7 @@ import hashlib
 import json
 import os
 import uuid
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers
 from .models import Tenant, ApiKey, EvidenceRecord
@@ -212,9 +212,10 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
 
 
 @app.post("/stripe/webhook")
-def stripe_webhook(body: bytes, stripe_signature: str | None = Header(default=None)):
+async def stripe_webhook(request: Request, stripe_signature: str | None = Header(default=None)):
     if not stripe_signature:
         raise HTTPException(status_code=400, detail="missing Stripe signature")
+    body = await request.body()
     return process_checkout_event(body, stripe_signature)
 
 
