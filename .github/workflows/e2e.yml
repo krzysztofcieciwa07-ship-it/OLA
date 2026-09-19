@@ -32,7 +32,7 @@ jobs:
 
       - name: Run deployment image
         run: |
-          docker run --detach --rm --name ola-e2e --publish 8000:8000 ola:${GITHUB_SHA}
+          docker run --detach --rm --name ola-e2e --publish 8000:8000 -e STRIPE_WEBHOOK_SECRET="whsec_ci_ola" -e OLA_STRIPE_TENANT_ID="00000000-0000-0000-0000-000000000001" ola:${GITHUB_SHA}
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
               exit 0
@@ -172,15 +172,11 @@ jobs:
       - name: Stripe confirmed-payment webhook triggers OLA and is idempotent
         run: |
           set -euo pipefail
-          docker exec -i -e STRIPE_WEBHOOK_SECRET="whsec_ci_ola" -e OLA_STRIPE_TENANT_ID="$(python - <<'PY'
-          import uuid
-          print(uuid.uuid4())
-          PY
-          )" ola-e2e python - <<'PY'
+          docker exec -i ola-e2e python - <<'PY'
           import hashlib, hmac, json, os, sqlite3, time, urllib.error, urllib.request, uuid
 
           db_path="/data/ola.db"
-          tenant_id=os.environ["OLA_STRIPE_TENANT_ID"]
+          tenant_id="00000000-0000-0000-0000-000000000001"
           raw_key="stripe-webhook-ci-key"
           db=sqlite3.connect(db_path)
           db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tenant_id,"ci-stripe-webhook"))
