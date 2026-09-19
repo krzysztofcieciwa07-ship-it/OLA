@@ -211,8 +211,12 @@ jobs:
                   headers={"Content-Type":"application/json","Stripe-Signature":signature},
                   method="POST",
               )
-              with urllib.request.urlopen(req,timeout=15) as response:
-                  return response.status,json.load(response)
+              try:
+                  with urllib.request.urlopen(req,timeout=15) as response:
+                      return response.status,json.load(response)
+              except urllib.error.HTTPError as exc:
+                  detail=exc.read().decode("utf-8","replace")
+                  raise RuntimeError(f"webhook HTTP {exc.code}: {detail}") from exc
 
           status1,result1=post()
           assert status1==200,result1
