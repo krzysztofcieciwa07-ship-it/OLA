@@ -107,7 +107,7 @@ jobs:
       - name: IGOR real replay
         run: |
           set -euo pipefail
-          docker exec -i ola-igor-e2e python - <<'PY' > igor-replay.json
+          docker exec -i -e SOURCE_COMMIT="${SOURCE_COMMIT}" ola-igor-e2e python - <<'PY' > igor-replay.json
           import hashlib,json,sqlite3,urllib.request,uuid,os
           db_path="/data/ola.db"
           tenant_id=str(uuid.uuid4())
