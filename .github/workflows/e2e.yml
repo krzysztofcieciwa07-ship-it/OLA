@@ -77,6 +77,33 @@ jobs:
           print(json.dumps({"gate":"INDEPENDENT_RUNTIME_E2E","status":"VERIFIED","container_health":"PASS","http_audit":"PASS","evidence_count":len(rows),"hash_chain":"PASS","result_ids_match_db":True,"commit":os.environ["EXPECTED_COMMIT"]}, sort_keys=True))
           PY
 
+      - name: Real OpenAI LLM six-agent E2E
+        if: ${{ secrets.OPENAI_API_KEY != '' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OLA_LLM_MODE: required
+          OLA_LLM_MODEL: gpt-5.6-luna
+        run: |
+          set -euo pipefail
+          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" ola-e2e python - <<'PY'
+          import hashlib, json, os, sqlite3, urllib.request, uuid
+          db_path="/data/ola.db"; tenant_id=str(uuid.uuid4()); raw_key="ci-real-llm-key"
+          db=sqlite3.connect(db_path)
+          db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tenant_id,"ci-real-llm"))
+          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",(str(uuid.uuid4()),tenant_id,hashlib.sha256(raw_key.encode()).hexdigest()))
+          db.commit(); db.close()
+          task="Use your language reasoning to explain why 17 * 23 equals 391, then return the exact verified result 391."
+          req=urllib.request.Request("http://127.0.0.1:8000/agent-run",data=json.dumps({"task":task}).encode(),headers={"Content-Type":"application/json","X-API-Key":raw_key},method="POST")
+          with urllib.request.urlopen(req,timeout=90) as response: result=json.load(response)
+          assert result["status"]=="VERIFIED",result
+          assert result["final_result"]=="391",result
+          assert result["evidence_count"]==6,result
+          assert all(item["invocation_type"]=="real_llm" for item in result["execution"]),result
+          assert all(item["provider"]=="openai" for item in result["execution"]),result
+          assert all(item["response_id"] for item in result["execution"]),result
+          print(json.dumps({"gate":"REAL_OPENAI_LLM_E2E","status":"VERIFIED","model":os.environ["OLA_LLM_MODEL"],"agents":6,"llm_invocations":6,"final_result":result["final_result"],"evidence_count":result["evidence_count"]},sort_keys=True))
+          PY
+
       - name: Real task six-agent E2E and independent final-result verification
         env:
           EXPECTED_COMMIT: ${{ github.sha }}
