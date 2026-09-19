@@ -2,7 +2,7 @@ name: IGOR Independent Evidence Gate
 
 on:
   push:
-    branches: [igor-independent-evidence]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
