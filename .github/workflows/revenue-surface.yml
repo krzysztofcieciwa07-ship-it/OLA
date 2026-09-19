@@ -1,0 +1,25 @@
+name: Revenue Surface Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  revenue-surface:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify revenue surface
+        run: |
+          set -euo pipefail
+          test -f revenue/index.html
+          grep -q "OLA Execution Audit" revenue/index.html
+          grep -q "https://buy.stripe.com/test_cNi28t0yN5Sd2B20ufdjO00" revenue/index.html
+          grep -q "SANDBOX" revenue/index.html
+          grep -q "NOT" docs/revenue-marketing-flow.md
+          echo "REVENUE_SURFACE=VERIFIED"
+          echo "STRIPE_MODE=SANDBOX"
+          echo "PRODUCTION_REVENUE=NOT_PROVEN"
