@@ -1,0 +1,201 @@
+import hashlib
+import hmac
+import json
+import os
+import time
+import uuid
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from .agent_runtime import run_agent_task
+from .database import SessionLocal
+from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash
+from .models import EvidenceRecord, StripeEvent
+
+
+STRIPE_SIGNATURE_TOLERANCE_SECONDS = 300
+OLA_OFFER = "ola-execution-audit"
+OLA_PRICE_ID = "price_1UHJ5pQAlMYmWpjWjMlRzfrP"
+
+
+def verify_stripe_signature(payload: bytes, signature_header: str, secret: str, now: int | None = None) -> bool:
+    if not signature_header or not secret:
+        return False
+    timestamp = None
+    signatures = []
+    for item in signature_header.split(","):
+        key, _, value = item.partition("=")
+        if key == "t":
+            try:
+                timestamp = int(value)
+            except ValueError:
+                return False
+        elif key == "v1" and value:
+            signatures.append(value)
+    if timestamp is None or not signatures:
+        return False
+    current = int(time.time()) if now is None else now
+    if abs(current - timestamp) > STRIPE_SIGNATURE_TOLERANCE_SECONDS:
+        return False
+    signed = f"{timestamp}.".encode("utf-8") + payload
+    expected = hmac.new(secret.encode("utf-8"), signed, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(expected, signature) for signature in signatures)
+
+
+def _append_evidence(tenant_id: str, record_type: str, payload: dict) -> str:
+    payload_json = canonical_json(payload)
+    with SessionLocal() as db:
+        last = db.scalar(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == tenant_id)
+            .order_by(EvidenceRecord.seq.desc())
+        )
+        seq = 0 if last is None else last.seq + 1
+        prev_hash = GENESIS_HASH if last is None else last.record_hash
+        record = EvidenceRecord(
+            id=str(uuid.uuid4()),
+            tenant_id=tenant_id,
+            seq=seq,
+            record_type=record_type,
+            payload_json=payload_json,
+            prev_hash=prev_hash,
+            record_hash=compute_record_hash(tenant_id, seq, prev_hash, payload_json),
+        )
+        db.add(record)
+        db.commit()
+        return record.id
+
+
+def _custom_field(session: dict, key: str) -> str | None:
+    for field in session.get("custom_fields", []) or []:
+        if field.get("key") == key:
+            value = field.get("text", {}).get("value")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def _validate_checkout(session: dict) -> str:
+    metadata = session.get("metadata") or {}
+    if metadata.get("offer") != OLA_OFFER:
+        raise HTTPException(status_code=400, detail="unsupported Stripe offer")
+    if session.get("payment_status") != "paid":
+        raise HTTPException(status_code=400, detail="payment is not confirmed")
+    if session.get("currency") != "eur" or session.get("amount_total") != 9900:
+        raise HTTPException(status_code=400, detail="unexpected payment amount or currency")
+    line_items = session.get("line_items") or []
+    if line_items:
+        price_ids = {
+            item.get("price", {}).get("id")
+            for item in line_items.get("data", [])
+            if isinstance(item, dict)
+        }
+        if price_ids and OLA_PRICE_ID not in price_ids:
+            raise HTTPException(status_code=400, detail="unexpected Stripe price")
+    task = _custom_field(session, "audit_task")
+    if not task:
+        raise HTTPException(status_code=400, detail="audit task is required")
+    return task
+
+
+def process_checkout_event(payload: bytes, signature_header: str) -> dict:
+    secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    if not verify_stripe_signature(payload, signature_header, secret):
+        raise HTTPException(status_code=400, detail="invalid Stripe signature")
+
+    try:
+        event = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="invalid Stripe JSON") from exc
+
+    event_id = event.get("id")
+    event_type = event.get("type")
+    if not event_id or not event_type:
+        raise HTTPException(status_code=400, detail="Stripe event id and type are required")
+    if event_type != "checkout.session.completed":
+        return {"status": "IGNORED", "event_id": event_id, "event_type": event_type}
+
+    session = event.get("data", {}).get("object", {})
+    task = _validate_checkout(session)
+    tenant_id = os.getenv("OLA_STRIPE_TENANT_ID", "")
+    if not tenant_id:
+        raise HTTPException(status_code=500, detail="OLA_STRIPE_TENANT_ID is not configured")
+
+    with SessionLocal() as db:
+        existing = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
+        if existing is not None:
+            if existing.status == "COMPLETED" and existing.result_json:
+                return json.loads(existing.result_json)
+            raise HTTPException(status_code=409, detail="Stripe event is already being processed")
+
+        record = StripeEvent(
+            id=str(uuid.uuid4()),
+            event_id=event_id,
+            status="PROCESSING",
+            task=task,
+        )
+        db.add(record)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Stripe event is already being processed") from None
+
+    payment_evidence_id = _append_evidence(
+        tenant_id,
+        "stripe.payment_confirmed",
+        {
+            "stripe_event_id": event_id,
+            "checkout_session_id": session.get("id"),
+            "offer": OLA_OFFER,
+            "price_id": OLA_PRICE_ID,
+            "amount_total": session.get("amount_total"),
+            "currency": session.get("currency"),
+            "task": task,
+        },
+    )
+
+    try:
+        runtime = run_agent_task(tenant_id, task)
+    except Exception:
+        with SessionLocal() as db:
+            failed = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
+            if failed is not None:
+                failed.status = "FAILED"
+                db.commit()
+        raise
+
+    result = {
+        "status": "COMPLETED",
+        "event_id": event_id,
+        "checkout_session_id": session.get("id"),
+        "payment": "CONFIRMED",
+        "ola_status": runtime.get("status", "UNKNOWN"),
+        "ola_run_id": runtime.get("run_id"),
+        "ola_final_result": runtime.get("final_result"),
+        "payment_evidence_id": payment_evidence_id,
+        "ola_evidence_ids": runtime.get("evidence_ids", []),
+    }
+    _append_evidence(
+        tenant_id,
+        "stripe.ola_execution_completed",
+        {
+            "stripe_event_id": event_id,
+            "checkout_session_id": session.get("id"),
+            "ola_run_id": runtime.get("run_id"),
+            "ola_status": runtime.get("status", "UNKNOWN"),
+            "ola_final_result": runtime.get("final_result"),
+            "payment_evidence_id": payment_evidence_id,
+        },
+    )
+
+    with SessionLocal() as db:
+        completed = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
+        completed.status = "COMPLETED"
+        completed.run_id = runtime.get("run_id")
+        completed.result_json = canonical_json(result)
+        db.commit()
+
+    return result
