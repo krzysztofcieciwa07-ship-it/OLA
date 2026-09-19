@@ -46,6 +46,7 @@ jobs:
           actual="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${NINA_ARTIFACT_ID}" --jq '.digest' | sed 's/^sha256://')"
           test -n "$actual"
           printf '%s\n' "$actual" > nina-artifact.sha256
+          root="$(find nina-evidence -type f -name runtime-proof.json -print -quit | xargs -r dirname)"
           test -n "$root"
           grep -qx "commit=${SOURCE_COMMIT}" "$root/provenance.txt"
           grep -qx "run=${NINA_RUN_ID}" "$root/provenance.txt"
