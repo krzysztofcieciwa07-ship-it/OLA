@@ -162,7 +162,7 @@ jobs:
           digest=hashlib.sha256((root/"MANIFEST.json").read_bytes()).hexdigest()
           (root/"hashes"/"bundle-manifest.sha256").write_text(f"{digest}  MANIFEST.json\n")
           PY
-          sha256sum evidence-bundle/MANIFEST.json > evidence-bundle/hashes/bundle-manifest.sha256
+          test "$(cut -d' ' -f1 evidence-bundle/hashes/bundle-manifest.sha256)" = "$(sha256sum evidence-bundle/MANIFEST.json | cut -d' ' -f1)"
 
       - name: Own IGOR SHA-256
         run: |
