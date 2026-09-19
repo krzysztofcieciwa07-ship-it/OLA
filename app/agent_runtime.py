@@ -208,7 +208,8 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "task": task,
         "input_digest": _digest(json.dumps(previous_output, sort_keys=True)),
         **_execute_agent(agent, tenant_id, task, previous_output, execution),
-        "status": "VERIFIED",\n        "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
+        "status": "VERIFIED",
+        "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
     }
     with SessionLocal() as db:
         last = db.scalar(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.desc()))
