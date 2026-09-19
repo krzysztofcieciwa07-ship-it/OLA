@@ -1,9 +1,9 @@
 name: IGOR Independent Evidence Gate
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["Nina Real Runtime Provenance Gate"]
+    types: [completed]
 
 jobs:
   igor:
@@ -13,12 +13,11 @@ jobs:
       actions: read
       id-token: write
       attestations: write
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     env:
-      SOURCE_COMMIT: 3f7221bfeb81c28041bf67279434a3fb0a8a9367
-      NINA_RUN_ID: "35401204165"
-      NINA_ARTIFACT_ID: "10571050438"
-      NINA_ARTIFACT_NAME: nina-real-runtime-proof-3f7221bfeb81c28041bf67279434a3fb0a8a9367
-      NINA_ARTIFACT_SHA256: 997d85434fc95d3741626b910e9ed8525ee3255cfc4911a721173b301a8e997e
+      SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+      NINA_RUN_ID: ${{ github.event.workflow_run.id }}
+      NINA_ARTIFACT_NAME: nina-real-runtime-proof-${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Checkout exact source
         uses: actions/checkout@v4
@@ -42,6 +41,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          NINA_ARTIFACT_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${NINA_RUN_ID}/artifacts" --jq '.artifacts[] | select(.name == "'"'"'${NINA_ARTIFACT_NAME}'"'"'") | .id' | head -n1)"
+          test -n "$NINA_ARTIFACT_ID"
           actual="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${NINA_ARTIFACT_ID}" --jq '.digest' | sed 's/^sha256://')"
           test "$actual" = "${NINA_ARTIFACT_SHA256}"
           root="$(find nina-evidence -type f -name runtime-proof.json -print -quit | xargs -r dirname)"
@@ -60,7 +61,7 @@ jobs:
           root=pathlib.Path(subprocess.check_output(["bash","-lc","find nina-evidence -type f -name runtime-proof.json -print -quit"],text=True).strip()).parent
           d=json.loads((root/"runtime-proof.json").read_text())
           assert d["status"]=="VERIFIED"
-          assert d["commit"]=="3f7221bfeb81c28041bf67279434a3fb0a8a9367"
+          assert d["commit"]==os.environ["SOURCE_COMMIT"]
           assert d["final_result"]=="391"
           assert d["agents"]==["codeact","react","agentic_rag","mcp_tool_use","self_reflection","multi_agent"]
           assert d["evidence_count"]==6
@@ -141,7 +142,7 @@ jobs:
           cp "$root/replay-proof.sha256" evidence-bundle/integrity/replay-proof.sha256
           cp igor-replay.json evidence-bundle/replay/igor-replay.json
           cat > evidence-bundle/verification/igor-result.json <<'JSON'
-          {"status":"VERIFIED","verifier":"IGOR","source_commit":"3f7221bfeb81c28041bf67279434a3fb0a8a9367","nina_run_id":35401204165,"nina_artifact_id":10571050438,"nina_artifact_sha256":"997d85434fc95d3741626b910e9ed8525ee3255cfc4911a721173b301a8e997e","tamper":"BLOCK","replay":"PASS","human_gate":"PENDING"}
+          {"status":"VERIFIED","verifier":"IGOR","source_commit":"${SOURCE_COMMIT}","nina_run_id":${NINA_RUN_ID},"nina_artifact_name":"${NINA_ARTIFACT_NAME}","tamper":"BLOCK","replay":"PASS","human_gate":"PENDING"}
           JSON
           printf '%s\n' '{"status":"BLOCKED_PENDING_HUMAN_APPROVAL","human_gate":"PENDING","reason":"Automated IGOR verification is complete; final Human Gate is not asserted by automation."}' > evidence-bundle/human/human-gate.json
           find evidence-bundle -type f ! -path '*/hashes/*' -print0 | sort -z | xargs -0 sha256sum > evidence-bundle/hashes/files.sha256
@@ -151,10 +152,9 @@ jobs:
           root=pathlib.Path("evidence-bundle")
           manifest={
             "schema":"evidence-bundle/v1",
-            "source_commit":"3f7221bfeb81c28041bf67279434a3fb0a8a9367",
-            "nina_run_id":35401204165,
-            "nina_artifact_id":10571050438,
-            "nina_artifact_sha256":"997d85434fc95d3741626b910e9ed8525ee3255cfc4911a721173b301a8e997e",
+            "source_commit":"${SOURCE_COMMIT}",
+            "nina_run_id":${NINA_RUN_ID},
+            "nina_artifact_name":"${NINA_ARTIFACT_NAME}",
             "igor":"VERIFIED",
             "tamper":"BLOCK",
             "replay":"PASS",
