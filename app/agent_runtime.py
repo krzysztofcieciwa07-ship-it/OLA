@@ -92,6 +92,49 @@ def _mcp_tool_call(name, arguments):
     return tools[name](arguments["value"])
 
 
+
+def _invoke_llm(agent, task, context):
+    """Invoke a real LLM when configured; fail closed when required but unavailable."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    mode = os.getenv("OLA_LLM_MODE", "deterministic")
+    if not api_key:
+        if mode == "required":
+            raise RuntimeError("OLA_LLM_MODE=required but OPENAI_API_KEY is missing")
+        return None
+
+    model = os.getenv("OLA_LLM_MODEL", "gpt-5.6-luna")
+    endpoint = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1") + "/responses"
+    prompt = canonical_json({"agent": agent, "task": task, "context": context})
+    payload = {
+        "model": model,
+        "input": [
+            {"role": "system", "content": "You are one agent in OLA di-OS. Return concise JSON-compatible reasoning output. Do not claim tools or evidence you did not actually use."},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    import httpx
+    response = httpx.post(endpoint, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=payload, timeout=float(os.getenv("OLA_LLM_TIMEOUT", "30")))
+    response.raise_for_status()
+    body = response.json()
+    output = body.get("output_text")
+    if not output:
+        parts = []
+        for item in body.get("output", []):
+            for content in item.get("content", []):
+                if content.get("type") in {"output_text", "text"} and content.get("text"):
+                    parts.append(content["text"])
+        output = "\\n".join(parts)
+    if not output:
+        raise RuntimeError("LLM response contained no output text")
+    return {
+        "provider": "openai",
+        "model": model,
+        "invocation_type": "real_llm",
+        "prompt_digest": _digest(prompt),
+        "output": output,
+        "response_id": body.get("id"),
+    }
+
 def _invoke_local_deterministic_model(agent, task, context):
     prompt = canonical_json({"agent": agent, "task": task, "context": context})
     return {
@@ -109,7 +152,7 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
         "previous_output": previous_output,
         "upstream_agents": [item["agent"] for item in execution],
     }
-    model = _invoke_local_deterministic_model(agent, task, context)
+    model = _invoke_llm(agent, task, context) or _invoke_local_deterministic_model(agent, task, context)
     if agent == "codeact":
         tool_output = _safe_expression(task)
         result = {"capability": "executed_safe_expression", "tool": "safe_expression", "tool_output": tool_output, "result": f"safe execution returned {tool_output}"}
@@ -165,7 +208,7 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "task": task,
         "input_digest": _digest(json.dumps(previous_output, sort_keys=True)),
         **_execute_agent(agent, tenant_id, task, previous_output, execution),
-        "status": "VERIFIED",
+        "status": "VERIFIED",\n        "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
     }
     with SessionLocal() as db:
         last = db.scalar(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.desc()))
