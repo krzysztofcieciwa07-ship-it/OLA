@@ -41,8 +41,14 @@ jobs:
       - name: Build deployment image from exact source
         run: docker build --tag "ola:${EXPECTED_COMMIT}" .
       - name: Run real runtime
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          docker run --detach --rm --name ola-nina-e2e --publish 8000:8000 "ola:${EXPECTED_COMMIT}"
+          docker run --detach --rm --name ola-nina-e2e --publish 8000:8000 \
+            -e OPENAI_API_KEY="$OPENAI_API_KEY" \
+            -e OLA_LLM_MODE="$OLA_LLM_MODE" \
+            -e OLA_LLM_MODEL="$OLA_LLM_MODEL" \
+            "ola:${EXPECTED_COMMIT}"
           for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8000/health >/dev/null && exit 0; sleep 1; done
           docker logs ola-nina-e2e; exit 1
       - name: Real /agent-run with exact provenance
