@@ -21,26 +21,29 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$OPENAI_API_KEY"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
       - name: Unit and contract suite
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           python -m pip install -r requirements.txt
-          OLA_LLM_MODE=required python -m pytest -q
+          OLA_LLM_MODE=deterministic python -m pytest -q
       - name: Build exact-source runtime
-        run: docker build --tag "ola-product:\${GITHUB_SHA}" .
+        run: docker build --tag "ola-product:${GITHUB_SHA}" .
       - name: Start runtime
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "\${GITHUB_SHA}"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           docker run --detach --rm --name ola-product --publish 8000:8000 \
             -e OPENAI_API_KEY="$OPENAI_API_KEY" \
             -e OLA_LLM_MODE="$OLA_LLM_MODE" \
             -e OLA_LLM_MODEL="$OLA_LLM_MODEL" \
-            -e OLA_RUNTIME_COMMIT="\${GITHUB_SHA}" \
-            "ola-product:\${GITHUB_SHA}"
+            -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" \
+            "ola-product:${GITHUB_SHA}"
           for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8000/health >/dev/null && break; sleep 1; done
           curl --fail --silent http://127.0.0.1:8000/health >/dev/null
       - name: Verify product surface
@@ -74,7 +77,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" -e OLA_RUNTIME_COMMIT="\${GITHUB_SHA}" ola-product python - <<'PY'
+          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" ola-product python - <<'PY'
           import hashlib,json,sqlite3,urllib.request,uuid
           tid=str(uuid.uuid4()); key="nina-chain-key"; db=sqlite3.connect("/data/ola.db")
           db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tid,"nina-chain"))
