@@ -16,6 +16,7 @@ from .replay import build_replay
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
 from .chat_runtime import chat
+from .revenue import create_checkout, retrieve_checkout, payment_verified
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
@@ -141,6 +142,54 @@ def chat_endpoint(body: dict, x_api_key: str | None = Header(default=None)):
             raise HTTPException(status_code=400, detail="invalid message")
         clean.append({"role": item["role"], "content": item["content"]})
     return chat(tenant_id, clean)
+
+
+@app.post("/checkout")
+def create_checkout_session(body: dict, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    task = body.get("task")
+    if not isinstance(task, str) or not task.strip():
+        raise HTTPException(status_code=400, detail="task is required")
+    success_url = body.get("success_url") or "http://localhost:8000/payment-success"
+    cancel_url = body.get("cancel_url") or "http://localhost:8000/"
+    try:
+        session = create_checkout(task.strip(), success_url, cancel_url)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"checkout creation failed: {exc.__class__.__name__}") from exc
+    append_record(
+        tenant_id,
+        "revenue.checkout_created",
+        {"session_id": session.get("id"), "task": task.strip(), "amount": session.get("amount_total")},
+    )
+    return {"status": "READY_FOR_PAYMENT", "session_id": session.get("id"), "checkout_url": session.get("url")}
+
+
+@app.get("/payment-success")
+def payment_success(session_id: str, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    try:
+        session = retrieve_checkout(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"payment lookup failed: {exc.__class__.__name__}") from exc
+    if not payment_verified(session):
+        append_record(
+            tenant_id,
+            "revenue.payment_blocked",
+            {"session_id": session_id, "payment_status": session.get("payment_status"), "status": session.get("status")},
+        )
+        return {"status": "BLOCK", "reason": "payment not verified", "session_id": session_id}
+    task = session.get("metadata", {}).get("task")
+    if not task:
+        return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
+    result = run_agent_task(tenant_id, task)
+    append_record(
+        tenant_id,
+        "revenue.payment_verified",
+        {"session_id": session_id, "task": task, "runtime_status": result.get("status"), "run_id": result.get("run_id")},
+    )
+    return {"status": result.get("status", "UNKNOWN"), "session_id": session_id, "task": task, "result": result}
 
 
 @app.post("/evidence")
