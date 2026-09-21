@@ -20,7 +20,7 @@ def _seed_tenant():
         ApiKey(
             id=str(uuid.uuid4()),
             tenant_id=tenant_id,
-            key_hash=hashlib.sha256(b"product-key").hexdigest(),
+            key_hash=hashlib.sha256(f"product-key-{tenant_id}".encode()).hexdigest(),
         )
     )
     db.commit()
@@ -34,7 +34,7 @@ def test_product_e2e_task_fault_recovery_verification():
 
     response = client.post(
         "/audit",
-        headers={"X-API-Key": "product-key"},
+        headers={"X-API-Key": f"product-key-{tenant_id}"},
         json={
             "task": "controlled incident verification",
             "scenario": "fault_then_recovery",

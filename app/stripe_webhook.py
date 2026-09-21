@@ -17,7 +17,7 @@ from .models import EvidenceRecord, StripeEvent
 
 STRIPE_SIGNATURE_TOLERANCE_SECONDS = 300
 OLA_OFFER = "ola-execution-audit"
-OLA_PRICE_ID = "price_1UHJ5pQAlMYmWpjWjMlRzfrP"
+OLA_PRODUCT = "OLA Execution Audit"
 
 
 def verify_stripe_signature(payload: bytes, signature_header: str, secret: str, now: int | None = None) -> bool:
@@ -68,9 +68,13 @@ def _append_evidence(tenant_id: str, record_type: str, payload: dict) -> str:
         return record.id
 
 
-def _custom_field(session: dict, key: str) -> str | None:
+def _metadata_task(session: dict) -> str | None:
+    metadata = session.get("metadata") or {}
+    task = metadata.get("task")
+    if isinstance(task, str) and task.strip():
+        return task.strip()
     for field in session.get("custom_fields", []) or []:
-        if field.get("key") == key:
+        if field.get("key") == "audit_task":
             value = field.get("text", {}).get("value")
             if isinstance(value, str) and value.strip():
                 return value.strip()
@@ -81,20 +85,23 @@ def _validate_checkout(session: dict) -> str:
     metadata = session.get("metadata") or {}
     if metadata.get("offer") != OLA_OFFER:
         raise HTTPException(status_code=400, detail="unsupported Stripe offer")
-    if session.get("payment_status") != "paid":
+    if metadata.get("product") not in {None, OLA_PRODUCT}:
+        raise HTTPException(status_code=400, detail="unsupported Stripe product")
+    if session.get("payment_status") != "paid" or session.get("status") not in {None, "complete"}:
         raise HTTPException(status_code=400, detail="payment is not confirmed")
     if session.get("currency") != "eur" or session.get("amount_total") != 9900:
         raise HTTPException(status_code=400, detail="unexpected payment amount or currency")
-    line_items = session.get("line_items") or []
-    if line_items:
+    line_items = session.get("line_items") or {}
+    if isinstance(line_items, dict):
         price_ids = {
             item.get("price", {}).get("id")
             for item in line_items.get("data", [])
             if isinstance(item, dict)
         }
-        if price_ids and OLA_PRICE_ID not in price_ids:
+        expected_price = os.getenv("OLA_STRIPE_PRICE_ID")
+        if price_ids and expected_price and expected_price not in price_ids:
             raise HTTPException(status_code=400, detail="unexpected Stripe price")
-    task = _custom_field(session, "audit_task")
+    task = _metadata_task(session)
     if not task:
         raise HTTPException(status_code=400, detail="audit task is required")
     return task
@@ -119,9 +126,9 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
 
     session = event.get("data", {}).get("object", {})
     task = _validate_checkout(session)
-    tenant_id = os.getenv("OLA_STRIPE_TENANT_ID", "")
+    tenant_id = (session.get("metadata") or {}).get("tenant_id") or os.getenv("OLA_STRIPE_TENANT_ID", "")
     if not tenant_id:
-        raise HTTPException(status_code=500, detail="OLA_STRIPE_TENANT_ID is not configured")
+        raise HTTPException(status_code=500, detail="Stripe session has no tenant provenance")
 
     with SessionLocal() as db:
         existing = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
@@ -150,7 +157,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
             "stripe_event_id": event_id,
             "checkout_session_id": session.get("id"),
             "offer": OLA_OFFER,
-            "price_id": OLA_PRICE_ID,
+            "product": OLA_PRODUCT,
             "amount_total": session.get("amount_total"),
             "currency": session.get("currency"),
             "task": task,

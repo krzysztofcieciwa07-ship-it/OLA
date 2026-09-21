@@ -2,10 +2,12 @@ import hashlib
 import json
 import os
 import uuid
+from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
+from starlette.responses import FileResponse
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers
-from .models import Tenant, ApiKey, EvidenceRecord
+from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
 from .business_runtime import run_invoice_task
@@ -14,6 +16,8 @@ from .igor import IgorVerifier
 from .replay import build_replay
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
+from .chat_runtime import chat
+from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
@@ -121,6 +125,86 @@ def run_controlled_audit(tenant_id, task, scenario):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/")
+def home():
+    web_path = Path(__file__).resolve().parent.parent / "web" / "index.html"
+    return FileResponse(web_path, media_type="text/html")
+
+
+@app.post("/chat")
+def chat_endpoint(body: dict, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    messages = body.get("messages", [])
+    if not isinstance(messages, list) or not messages:
+        raise HTTPException(status_code=400, detail="messages list is required")
+    clean = []
+    for item in messages:
+        if not isinstance(item, dict) or item.get("role") not in {"user", "assistant"} or not isinstance(item.get("content"), str):
+            raise HTTPException(status_code=400, detail="invalid message")
+        clean.append({"role": item["role"], "content": item["content"]})
+    return chat(tenant_id, clean)
+
+
+@app.post("/checkout")
+def create_checkout_session(body: dict, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    task = body.get("task")
+    if not isinstance(task, str) or not task.strip():
+        raise HTTPException(status_code=400, detail="task is required")
+    success_url = body.get("success_url") or "http://localhost:8000/payment-success"
+    cancel_url = body.get("cancel_url") or "http://localhost:8000/"
+    try:
+        session = create_checkout(task.strip(), success_url, cancel_url, tenant_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"checkout creation failed: {exc.__class__.__name__}") from exc
+    append_record(tenant_id, "revenue.checkout_created", {"session_id": session.get("id"), "task": task.strip(), "amount": session.get("amount_total")})
+    return {"status": "READY_FOR_PAYMENT", "session_id": session.get("id"), "checkout_url": session.get("url")}
+
+
+@app.get("/payment-success")
+def payment_success(session_id: str):
+    try:
+        session = retrieve_checkout(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"payment lookup failed: {exc.__class__.__name__}") from exc
+    tenant_id = session.get("metadata", {}).get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="payment session has no tenant provenance")
+    if not payment_verified(session):
+        append_record(tenant_id, "revenue.payment_blocked", {"session_id": session_id, "payment_status": session.get("payment_status"), "status": session.get("status")})
+        return {"status": "BLOCK", "reason": "payment not verified", "session_id": session_id}
+    task = session.get("metadata", {}).get("task")
+    if not task:
+        return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
+
+    with SessionLocal() as db:
+        completed = db.scalar(
+            select(StripeEvent).where(
+                StripeEvent.status == "COMPLETED",
+                StripeEvent.task == task,
+            )
+        )
+
+    if completed is None:
+        return {
+            "status": "PAYMENT_CONFIRMED_EXECUTION_PENDING",
+            "session_id": session_id,
+            "task": task,
+            "execution": "STRIPE_WEBHOOK",
+        }
+
+    return {
+        "status": "COMPLETED",
+        "session_id": session_id,
+        "task": task,
+        "execution": "STRIPE_WEBHOOK",
+        "run_id": completed.run_id,
+        "result": json.loads(completed.result_json) if completed.result_json else None,
+    }
 
 
 @app.post("/evidence")

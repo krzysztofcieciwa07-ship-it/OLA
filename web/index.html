@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NINA</title>
+</head>
+<body>
+<main>
+<h1>NINA</h1>
+<p>Tryb chroniony: podaj swój klucz API OLA. Klucz nie jest zapisywany na serwerze.</p>
+<input id="key" type="password" placeholder="X-API-Key" autocomplete="off">
+<div id="messages"></div>
+<form>
+<textarea id="input" placeholder="Napisz do NINA..." required></textarea>
+<button>Wyślij</button>
+</form>
+</main>
+<script>
+const messages=[],box=document.querySelector("#messages"),input=document.querySelector("#input"),key=document.querySelector("#key");
+function add(role,text){const d=document.createElement("div");d.textContent=role+": "+text;box.appendChild(d)}
+document.querySelector("form").onsubmit=async e=>{
+ e.preventDefault();
+ const text=input.value.trim();
+ const apiKey=key.value.trim();
+ if(!text||!apiKey)return;
+ input.value="";
+ messages.push({role:"user",content:text});
+ add("user",text);
+ const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json","X-API-Key":apiKey},body:JSON.stringify({messages})});
+ const d=await r.json();
+ const answer=d.message||("NINA BLOCK: "+(d.detail||d.reason||"unknown"));
+ messages.push({role:"assistant",content:answer});
+ add("nina",answer);
+};
+add("nina","Cześć. Jestem NINA.");
+</script>
+</body>
+</html>

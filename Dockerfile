@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY scripts ./scripts
 COPY tests ./tests
+COPY web ./web
 
 RUN useradd --create-home --uid 10001 ola \
     && mkdir -p /data \
