@@ -3,6 +3,7 @@ import json
 import os
 import uuid
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers
 from .models import Tenant, ApiKey, EvidenceRecord
@@ -14,6 +15,7 @@ from .igor import IgorVerifier
 from .replay import build_replay
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
+from .chat_runtime import chat
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
@@ -120,6 +122,25 @@ def run_controlled_audit(tenant_id, task, scenario):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/")
+def home():
+    return FileResponse("/app/web/index.html", media_type="text/html")
+
+
+@app.post("/chat")
+def chat_endpoint(body: dict, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    messages = body.get("messages", [])
+    if not isinstance(messages, list) or not messages:
+        raise HTTPException(status_code=400, detail="messages list is required")
+    clean = []
+    for item in messages:
+        if not isinstance(item, dict) or item.get("role") not in {"user", "assistant"} or not isinstance(item.get("content"), str):
+            raise HTTPException(status_code=400, detail="invalid message")
+        clean.append({"role": item["role"], "content": item["content"]})
+    return chat(tenant_id, clean)
 
 
 @app.post("/evidence")
