@@ -187,6 +187,7 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
         "model": model["model"],
         "invocation_type": model["invocation_type"],
         "prompt_digest": model["prompt_digest"],
+        "response_id": model.get("response_id"),
     })
     return result
 
@@ -334,7 +335,7 @@ def verify_agent_run(tenant_id, run_id):
     context_digests = set()
     for row in run_rows:
         payload = json.loads(row.payload_json)
-        required = {"capability", "tool", "tool_output", "result", "status", "agent_instance_id", "execution_boundary", "context_digest", "invocation_type", "model", "provider"}
+        required = {"capability", "tool", "tool_output", "result", "status", "agent_instance_id", "execution_boundary", "context_digest", "invocation_type", "model", "provider", "response_id"}
         if not required.issubset(payload):
             return {"status": "BLOCK", "reason": "agent execution evidence incomplete", "evidence_count": len(run_rows)}
         if payload["status"] != "VERIFIED":
