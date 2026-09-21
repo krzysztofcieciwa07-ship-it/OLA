@@ -9,9 +9,8 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      OLA_LLM_MODE: required
-      OLA_LLM_MODEL: gpt-5.6-luna
+      OLA_LLM_MODE: deterministic
+      OLA_LLM_MODEL: deterministic-runtime-v1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,7 +81,11 @@ jobs:
           PY
 
       - name: Real OpenAI LLM six-agent E2E
-        if: ${{ env.OPENAI_API_KEY != '' }}
+        if: ${{ secrets.OPENAI_API_KEY != '' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OLA_LLM_MODE: required
+          OLA_LLM_MODEL: gpt-5.6-luna
         run: |
           set -euo pipefail
           docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" ola-e2e python - <<'PY'
@@ -105,7 +108,11 @@ jobs:
           PY
 
       - name: Real task six-agent E2E and independent final-result verification
-        if: ${{ env.OPENAI_API_KEY != '' }}
+        if: ${{ secrets.OPENAI_API_KEY != '' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OLA_LLM_MODE: required
+          OLA_LLM_MODEL: gpt-5.6-luna
         env:
           EXPECTED_COMMIT: ${{ github.sha }}
           EXPECTED_TASK: Calculate 17 * 23 and return the verified result.
@@ -200,6 +207,8 @@ jobs:
 
       - name: Real LLM credential status
         if: ${{ always() }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           if [ -n "$OPENAI_API_KEY" ]; then echo "REAL_LLM_CREDENTIAL=AVAILABLE"; else echo "REAL_LLM_CREDENTIAL=BLOCKED — GitHub Actions secret OPENAI_API_KEY is missing"; fi
 
