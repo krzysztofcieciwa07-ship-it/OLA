@@ -5,7 +5,6 @@ import urllib.request
 from typing import Any
 
 from .hashchain import canonical_json
-from .main import append_record
 
 
 SYSTEM_PROMPT = """You are NINA, a precise execution assistant.
@@ -56,6 +55,7 @@ def chat(tenant_id: str, messages: list[dict[str, str]]) -> dict[str, Any]:
     if not text:
         return {"status": "BLOCK", "reason": "LLM returned no output"}
 
+    from .main import append_record
     append_record(
         tenant_id,
         "chat.completed",
