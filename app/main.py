@@ -2,7 +2,7 @@ import hashlib
 import json
 import os
 import uuid
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, FileResponse, Header, HTTPException, Request
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers
 from .models import Tenant, ApiKey, EvidenceRecord
