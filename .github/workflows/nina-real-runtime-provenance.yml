@@ -104,15 +104,24 @@ jobs:
           PY
       - name: Tamper mutation must block
         run: |
+          set -euo pipefail
           cp runtime-proof.json runtime-proof.tampered.json
+          original_sha="$(sha256sum runtime-proof.tampered.json | awk '{print $1}')"
           python - <<'PY'
           import json
-          p="runtime-proof.tampered.json"; d=json.load(open(p)); d["final_result"]="392"; json.dump(d,open(p,"w"),sort_keys=True)
+          p="runtime-proof.tampered.json"
           d=json.load(open(p))
-          assert d["final_result"]!="391"
-          echo=""; test "$(sha256sum runtime-proof.json | awk '{print $1}')" != "$(sha256sum runtime-proof.tampered.json | awk '{print $1}')"
-          print("TAMPER_MUTATION=BLOCK")
+          d["final_result"]="392"
+          json.dump(d,open(p,"w"),sort_keys=True)
           PY
+          mutated_sha="$(sha256sum runtime-proof.tampered.json | awk '{print $1}')"
+          test "$original_sha" != "$mutated_sha"
+          test "$(python - <<'PY'
+          import json
+          print(json.load(open("runtime-proof.tampered.json"))["final_result"])
+          PY
+          )" = "392"
+          echo "TAMPER_MUTATION=BLOCK"
       - name: Full runtime replay
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
