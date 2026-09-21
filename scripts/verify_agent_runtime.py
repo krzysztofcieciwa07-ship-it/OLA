@@ -45,8 +45,13 @@ def fail(reason, **extra):
     return {"status": "BLOCK", "reason": reason, **extra}
 
 
-def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_result=None, db_path=None):
+def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_result=None, db_path=None, expected_provider="local", expected_model="deterministic-runtime-v1", expected_invocation_type="local_deterministic_model"):
     db_path = db_path or os.getenv("OLA_EG_DB_PATH", "/data/ola.db")
+    expected_invocation = {
+        "provider": expected_provider,
+        "model": expected_model,
+        "invocation_type": expected_invocation_type,
+    }
     db = sqlite3.connect(db_path)
     rows = db.execute(
         "SELECT tenant_id, seq, record_type, payload_json, prev_hash, record_hash "
@@ -102,6 +107,8 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
             "model": payload["model"],
             "invocation_type": payload["invocation_type"],
         }
+        if expected_invocation_type == "real_llm" and not payload.get("response_id"):
+            return fail(f"missing real LLM response id for {agent}")
         if invocation != EXPECTED_INVOCATION:
             return fail(f"unexpected invocation metadata for {agent}")
         instance_ids.add(payload["agent_instance_id"])
@@ -162,6 +169,9 @@ def main():
     parser.add_argument("--expected-task")
     parser.add_argument("--expected-result")
     parser.add_argument("--db-path", default=os.getenv("OLA_EG_DB_PATH", "/data/ola.db"))
+    parser.add_argument("--expected-provider", default="local")
+    parser.add_argument("--expected-model", default="deterministic-runtime-v1")
+    parser.add_argument("--expected-invocation-type", default="local_deterministic_model")
     args = parser.parse_args()
     result = verify(
         args.tenant_id,
@@ -170,6 +180,9 @@ def main():
         args.expected_task,
         args.expected_result,
         args.db_path,
+        args.expected_provider,
+        args.expected_model,
+        args.expected_invocation_type,
     )
     _emit_runtime_diagnostic(result)
     sys.exit(0 if result["status"] == "VERIFIED" else 1)
