@@ -1,7 +1,5 @@
 import hashlib
 import hmac
-import json
-import time
 
 import pytest
 
@@ -16,6 +14,21 @@ def _signature(payload: bytes) -> str:
     signed = f"{TIMESTAMP}.".encode() + payload
     digest = hmac.new(SECRET.encode(), signed, hashlib.sha256).hexdigest()
     return f"t={TIMESTAMP},v1={digest}"
+
+
+def _paid_session():
+    return {
+        "metadata": {
+            "offer": "ola-execution-audit",
+            "product": "OLA Execution Audit",
+            "task": "Audit this company workflow for evidence gaps.",
+            "tenant_id": "tenant-test",
+        },
+        "payment_status": "paid",
+        "status": "complete",
+        "amount_total": 9900,
+        "currency": "eur",
+    }
 
 
 def test_stripe_signature_accepts_valid_signature():
@@ -37,20 +50,7 @@ def test_stripe_signature_rejects_old_timestamp():
 
 
 def test_paid_ola_checkout_extracts_audit_task():
-    session = {
-        "metadata": {"offer": "ola-execution-audit"},
-        "payment_status": "paid",
-        "amount_total": 9900,
-        "currency": "eur",
-        "custom_fields": [
-            {
-                "key": "audit_task",
-                "type": "text",
-                "text": {"value": "Audit this company workflow for evidence gaps."},
-            }
-        ],
-    }
-    assert _validate_checkout(session) == "Audit this company workflow for evidence gaps."
+    assert _validate_checkout(_paid_session()) == "Audit this company workflow for evidence gaps."
 
 
 @pytest.mark.parametrize(
@@ -59,23 +59,17 @@ def test_paid_ola_checkout_extracts_audit_task():
         {"payment_status": "unpaid"},
         {"amount_total": 9800},
         {"currency": "usd"},
-        {"metadata": {"offer": "other-offer"}},
+        {"metadata": {"offer": "other-offer", "product": "OLA Execution Audit", "task": "x"}},
     ],
 )
 def test_invalid_checkout_is_rejected(override):
-    session = {
-        "metadata": {"offer": "ola-execution-audit"},
-        "payment_status": "paid",
-        "amount_total": 9900,
-        "currency": "eur",
-        "custom_fields": [
-            {
-                "key": "audit_task",
-                "type": "text",
-                "text": {"value": "Audit this company workflow for evidence gaps."},
-            }
-        ],
-    }
+    session = _paid_session()
     session.update(override)
     with pytest.raises(Exception):
         _validate_checkout(session)
+
+
+def test_paid_checkout_uses_metadata_task_without_custom_fields():
+    session = _paid_session()
+    assert "custom_fields" not in session
+    assert _validate_checkout(session) == "Audit this company workflow for evidence gaps."
