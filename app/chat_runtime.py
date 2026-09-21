@@ -12,7 +12,7 @@ When a user asks for an action that requires execution, explain that the verifie
 
 def chat(tenant_id: str, messages: list[dict[str, str]]) -> dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY")
-    model = os.getenv("NINA_CHAT_MODEL", "gpt-5-mini")
+    model = os.getenv("NINA_CHAT_MODEL", os.getenv("OLA_LLM_MODEL", "gpt-5.6-luna"))
     if not api_key:
         return {"status": "BLOCK", "reason": "OPENAI_API_KEY is not configured", "message": "NINA conversational LLM access is not configured yet."}
     payload = {"model": model, "input": [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-20:]}
