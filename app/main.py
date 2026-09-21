@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import uuid
+from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse
 from sqlalchemy import select
@@ -128,7 +129,8 @@ def health():
 
 @app.get("/")
 def home():
-    return FileResponse("/app/web/index.html", media_type="text/html")
+    web_path = Path(__file__).resolve().parent.parent / "web" / "index.html"
+    return FileResponse(web_path, media_type="text/html")
 
 
 @app.post("/chat")
