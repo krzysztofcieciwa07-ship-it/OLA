@@ -18,12 +18,13 @@ def _seed_tenant():
         ApiKey(
             id=str(uuid.uuid4()),
             tenant_id=tenant.id,
-            key_hash=hashlib.sha256(b"product-key").hexdigest(),
+            key_hash=hashlib.sha256(f"product-key-{tenant.id}".encode()).hexdigest(),
         )
     )
     db.commit()
+    tenant_id = tenant.id
     db.close()
-    return tenant.id
+    return tenant_id
 
 
 def test_nina_home_is_served():
