@@ -7,7 +7,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers
-from .models import Tenant, ApiKey, EvidenceRecord
+from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
 from .business_runtime import run_invoice_task
@@ -180,9 +180,31 @@ def payment_success(session_id: str):
     task = session.get("metadata", {}).get("task")
     if not task:
         return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
-    result = run_agent_task(tenant_id, task)
-    append_record(tenant_id, "revenue.payment_verified", {"session_id": session_id, "task": task, "runtime_status": result.get("status"), "run_id": result.get("run_id")})
-    return {"status": result.get("status", "UNKNOWN"), "session_id": session_id, "task": task, "result": result}
+
+    with SessionLocal() as db:
+        completed = db.scalar(
+            select(StripeEvent).where(
+                StripeEvent.status == "COMPLETED",
+                StripeEvent.task == task,
+            )
+        )
+
+    if completed is None:
+        return {
+            "status": "PAYMENT_CONFIRMED_EXECUTION_PENDING",
+            "session_id": session_id,
+            "task": task,
+            "execution": "STRIPE_WEBHOOK",
+        }
+
+    return {
+        "status": "COMPLETED",
+        "session_id": session_id,
+        "task": task,
+        "execution": "STRIPE_WEBHOOK",
+        "run_id": completed.run_id,
+        "result": json.loads(completed.result_json) if completed.result_json else None,
+    }
 
 
 @app.post("/evidence")
