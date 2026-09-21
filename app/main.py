@@ -153,7 +153,7 @@ def create_checkout_session(body: dict, x_api_key: str | None = Header(default=N
     success_url = body.get("success_url") or "http://localhost:8000/payment-success"
     cancel_url = body.get("cancel_url") or "http://localhost:8000/"
     try:
-        session = create_checkout(task.strip(), success_url, cancel_url)
+        session = create_checkout(task.strip(), success_url, cancel_url, tenant_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -167,12 +167,14 @@ def create_checkout_session(body: dict, x_api_key: str | None = Header(default=N
 
 
 @app.get("/payment-success")
-def payment_success(session_id: str, x_api_key: str | None = Header(default=None)):
-    tenant_id = tenant_from_key(x_api_key)
+def payment_success(session_id: str):
     try:
         session = retrieve_checkout(session_id)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"payment lookup failed: {exc.__class__.__name__}") from exc
+    tenant_id = session.get("metadata", {}).get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=403, detail="payment session has no tenant provenance")
     if not payment_verified(session):
         append_record(
             tenant_id,
