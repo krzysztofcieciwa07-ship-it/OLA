@@ -83,8 +83,10 @@ def _metadata_task(session: dict) -> str | None:
 
 def _validate_checkout(session: dict) -> str:
     metadata = session.get("metadata") or {}
-    if metadata.get("offer") != OLA_OFFER or metadata.get("product") != OLA_PRODUCT:
+    if metadata.get("offer") != OLA_OFFER:
         raise HTTPException(status_code=400, detail="unsupported Stripe offer")
+    if metadata.get("product") not in {None, OLA_PRODUCT}:
+        raise HTTPException(status_code=400, detail="unsupported Stripe product")
     if session.get("payment_status") != "paid" or session.get("status") not in {None, "complete"}:
         raise HTTPException(status_code=400, detail="payment is not confirmed")
     if session.get("currency") != "eur" or session.get("amount_total") != 9900:
