@@ -56,7 +56,7 @@ def test_nina_chat_route_reaches_runtime(monkeypatch):
     client = TestClient(app)
     response = client.post(
         "/chat",
-        headers={"X-API-Key": "product-key"},
+        headers={"X-API-Key": f"product-key-{tenant_id}"},
         json={"messages": [{"role": "user", "content": "hello"}]},
     )
 
