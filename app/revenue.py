@@ -26,7 +26,7 @@ def _stripe_request(path: str, fields: dict[str, Any]) -> dict[str, Any]:
         return json.load(response)
 
 
-def create_checkout(task: str, success_url: str, cancel_url: str) -> dict[str, Any]:
+def create_checkout(task: str, success_url: str, cancel_url: str, tenant_id: str) -> dict[str, Any]:
     price_id = os.getenv("NINA_STRIPE_PRICE_ID")
     if not price_id:
         raise RuntimeError("NINA_STRIPE_PRICE_ID is not configured")
@@ -41,6 +41,7 @@ def create_checkout(task: str, success_url: str, cancel_url: str) -> dict[str, A
             "client_reference_id": hashlib.sha256(task.encode()).hexdigest(),
             "metadata[product]": PRODUCT_NAME,
             "metadata[task]": task,
+            "metadata[tenant_id]": tenant_id,
         },
     )
 
