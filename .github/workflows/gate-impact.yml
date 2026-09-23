@@ -1,0 +1,90 @@
+name: Gate Funnel Impact Proof
+
+on:
+  push:
+    branches: [codex/gate-funnel-impact]
+  pull_request:
+
+jobs:
+  gate-impact:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run pytest
+        run: python -m pytest -q
+
+      - name: Build image
+        run: docker build --tag ola-gate-impact:${GITHUB_SHA} .
+
+      - name: Start runtime
+        run: |
+          docker run --detach --rm --name ola-gate-impact --publish 8000:8000 ola-gate-impact:${GITHUB_SHA}
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker logs ola-gate-impact
+          exit 1
+
+      - name: Seed tenant and API key
+        run: |
+          docker exec ola-gate-impact python - <<'PY'
+          import hashlib, sqlite3, uuid
+          db=sqlite3.connect('/data/ola.db')
+          tenant=str(uuid.uuid4()); raw='gate-impact-ci-key'
+          db.execute('INSERT INTO tenants(id,name) VALUES (?,?)',(tenant,'gate-impact-ci'))
+          db.execute('INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)',(str(uuid.uuid4()),tenant,hashlib.sha256(raw.encode()).hexdigest()))
+          db.commit(); db.close()
+          print(f'TENANT_ID={tenant}')
+          print(f'API_KEY={raw}')
+          PY
+
+      - name: Real curl endpoint proof
+        run: |
+          set -euo pipefail
+          KEY='gate-impact-ci-key'
+          echo '--- POST /audit ---'
+          curl --fail --silent --show-error -X POST http://127.0.0.1:8000/audit \
+            -H 'Content-Type: application/json' -H "X-API-Key: ${KEY}" \
+            -d '{"task":"gate funnel proof","scenario":"fault_then_recovery"}' | tee audit.json
+          echo
+          echo '--- GET /gate-funnel ---'
+          curl --fail --silent --show-error http://127.0.0.1:8000/gate-funnel \
+            -H "X-API-Key: ${KEY}" | tee gate-funnel.json
+          echo
+          echo '--- POST /evidence risk=HIGH ---'
+          curl --fail --silent --show-error -X POST http://127.0.0.1:8000/evidence \
+            -H 'Content-Type: application/json' -H "X-API-Key: ${KEY}" \
+            -d '{"record_type":"impact.test","payload":{"risk":"HIGH"}}' | tee risk-record.json
+          echo
+          echo '--- GET /impact-classification ---'
+          curl --fail --silent --show-error http://127.0.0.1:8000/impact-classification \
+            -H "X-API-Key: ${KEY}" | tee impact.json
+          echo
+          python - <<'PY'
+          import json
+          audit=json.load(open('audit.json'))
+          funnel=json.load(open('gate-funnel.json'))
+          impact=json.load(open('impact.json'))
+          assert audit['status']=='VERIFIED', audit
+          assert funnel['source']=='evidence_records.payload_json', funnel
+          assert funnel['stages']['nina']['status']=='UNKNOWN' or funnel['stages']['nina']['status']=='VERIFIED', funnel
+          assert impact['classification']=='HIGH', impact
+          assert impact['confidence']=='EXPLICIT', impact
+          print(json.dumps({'gate':'GATE_FUNNEL_IMPACT_REAL_CURL','status':'VERIFIED','audit_status':audit['status'],'impact':impact['classification']}, sort_keys=True))
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: docker logs ola-gate-impact || true
