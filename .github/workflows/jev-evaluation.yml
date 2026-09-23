@@ -80,7 +80,7 @@ jobs:
           assert 0 <= a["noul"] <= 1
           assert "usage" in d
           print("JEV_LIVE_RESPONSE=RECEIVED")
-          print("JEV_TYPED_RESPONSE=VERIFIED")
+          print("JEV_TYPED_RESPONSE=VALIDATED_SCHEMA")
           print("JEV_IS_NOT_VERIFICATION=TRUE")
           print("JEV_CANNOT_PROMOTE_TO_VERIFIED=TRUE")
           PY
