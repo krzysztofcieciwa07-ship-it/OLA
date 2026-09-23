@@ -11,72 +11,84 @@ class FakeProvider:
         return {"body": self.body, "request_id": "req-test-1"}
 
 
-def test_decision_fabric_preserves_typed_answers_and_hashes():
-    provider = FakeProvider(
-        {
-            "model": "jev-1.13.0",
-            "answers": {
-                "route": {
-                    "type": "choice",
-                    "choice": "audit",
-                    "probabilities": {"audit": 0.92, "block": 0.08},
-                    "confidence": 0.92,
-                },
-                "needs_human": {"type": "noul", "noul": 0.91},
-            },
-        }
-    )
-    fabric = DecisionFabric(provider=provider)
-    result = fabric.evaluate(
-        state={"task": "audit evidence"},
-        questions={
-            "route": {
-                "type": "choice",
-                "instructions": "Which route?",
-                "criteria": {"audit": "Evidence audit", "block": "Unsafe"},
-            },
-            "needs_human": {
-                "type": "noul",
-                "instructions": "Does this require human review?",
-            },
+QUESTIONS = {
+    "route": {
+        "type": "choice",
+        "instructions": "Which route?",
+        "criteria": {"audit": "Evidence audit", "block": "Unsafe"},
+    },
+    "risk": {
+        "type": "score",
+        "instructions": "How risky is this?",
+        "criteria": ["low", "medium", "high"],
+    },
+    "needs_human": {
+        "type": "noul",
+        "instructions": "Does this require human review?",
+    },
+}
+
+
+def test_current_typed_contract_and_hashes():
+    provider = FakeProvider({
+        "model": "jev-1.13.0",
+        "answers": {
+            "route": {"type": "choice", "choice": "audit", "probabilities": {"audit": 0.92, "block": 0.08}, "confidence": 0.92},
+            "risk": {"type": "score", "score": 0.9, "legend": {"0": "low", "1": "medium", "2": "high"}, "probabilities": {"0": 0.9, "1": 0.08, "2": 0.02}, "confidence": 0.91},
+            "needs_human": {"type": "noul", "noul": 0.91},
         },
-    )
+        "usage": {"input_tokens": 120, "output_tokens": 12},
+    })
+    result = DecisionFabric(provider=provider).evaluate(state={"task": "audit evidence"}, questions=QUESTIONS)
     assert result.status == "READY"
     assert result.model == "jev-1.13.0"
-    assert result.request_sha256
-    assert result.response_sha256
+    assert result.request_sha256 and result.response_sha256
     assert result.request_id == "req-test-1"
-    assert fabric.classify(result) == {"route": "ACCEPT", "needs_human": "YES"}
+    assert result.usage == {"input_tokens": 120, "output_tokens": 12}
+    assert DecisionFabric(provider=provider).classify(result) == {"route": "ACCEPT", "risk": "ACCEPT", "needs_human": "YES"}
 
 
-def test_decision_policy_does_not_treat_uncertainty_as_yes():
-    policy = DecisionPolicy(noul_yes_threshold=0.80, noul_no_threshold=0.20)
+def test_noul_has_no_confidence_field():
+    policy = DecisionPolicy()
     assert policy.classify({"type": "noul", "noul": 0.50}) == "REVIEW"
     assert policy.classify({"type": "noul", "noul": 0.79}) == "REVIEW"
     assert policy.classify({"type": "noul", "noul": 0.20}) == "NO"
 
 
-def test_decision_fabric_blocks_on_missing_provider():
+def test_missing_provider_blocks_without_fallback():
     class Broken:
         name = "broken"
-
         def evaluate(self, **kwargs):
             raise RuntimeError("missing credential")
-
     result = DecisionFabric(provider=Broken()).evaluate(
-        state={"task": "x"},
-        questions={"ok": {"type": "noul", "instructions": "Is it safe?"}},
+        state={"task": "x"}, questions={"ok": {"type": "noul", "instructions": "Is it safe?"}}
     )
     assert result.status == "BLOCK"
-    assert "unavailable" in result.reason
+    assert "failure" in result.reason
     assert DecisionFabric(provider=Broken()).classify(result) == {}
 
 
-def test_decision_fabric_blocks_mismatched_answers():
+def test_mismatched_answers_block():
     provider = FakeProvider({"model": "jev-1.13.0", "answers": {"other": {"type": "noul", "noul": 1.0}}})
     result = DecisionFabric(provider=provider).evaluate(
-        state={},
-        questions={"expected": {"type": "noul", "instructions": "Is it valid?"}},
+        state={}, questions={"expected": {"type": "noul", "instructions": "Is it valid?"}}
     )
     assert result.status == "BLOCK"
-    assert "does not match" in result.reason
+    assert "failure" in result.reason
+
+
+def test_score_criteria_must_be_ordered_sequence():
+    result = DecisionFabric(provider=FakeProvider({})).evaluate(
+        state={}, questions={"risk": {"type": "score", "instructions": "Risk?", "criteria": {"low": "low", "high": "high"}}}
+    )
+    assert result.status == "BLOCK"
+
+
+def test_malformed_answer_blocks():
+    provider = FakeProvider({"model": "jev-1.13.0", "answers": {
+        "route": {"type": "choice", "choice": "audit", "probabilities": {"audit": 1.0}, "confidence": 1.0}
+    }})
+    result = DecisionFabric(provider=provider).evaluate(
+        state={}, questions={"route": {"type": "choice", "instructions": "Route?", "criteria": {"audit": None, "block": None}}}
+    )
+    assert result.status == "BLOCK"
