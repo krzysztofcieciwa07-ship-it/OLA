@@ -47,7 +47,7 @@ jobs:
             "state": {
               "gate": "OLA isolated Jev evaluation",
               "evidence": "Jev output is advisory only and can never set VERIFIED.",
-              "requested_action": "classify whether the evidence bundle should proceed to human review"
+              "requested_action": "produce a decision vector for an OLA evidence workflow; the vector is advisory and never establishes verification"
             },
             "questions": {
               "review_required": {
@@ -57,6 +57,26 @@ jobs:
                   "true": "Human review is required before any verification claim.",
                   "false": "No human review is required for this decision."
                 }
+              },
+              "route": {
+                "type": "choice",
+                "instructions": "Which OLA routing state best fits this evidence workflow as an advisory decision signal?",
+                "criteria": {
+                  "allow_candidate": "All stated evidence signals appear internally consistent; this is only a candidate route and never VERIFIED.",
+                  "review": "A human should inspect the evidence before any final verification claim.",
+                  "block": "The evidence indicates a blocking condition or insufficient basis for progression."
+                }
+              },
+              "evidence_quality": {
+                "type": "score",
+                "instructions": "How strong is the evidence basis for proceeding, using the rubric below?",
+                "criteria": [
+                  "insufficient",
+                  "weak",
+                  "mixed",
+                  "strong",
+                  "very_strong"
+                ]
               }
             }
           }
@@ -78,11 +98,24 @@ jobs:
           a=d["answers"]["review_required"]
           assert a["type"]=="noul"
           assert 0 <= a["noul"] <= 1
+          c=d["answers"]["route"]
+          assert c["type"]=="choice"
+          assert c["choice"] in {"allow_candidate","review","block"}
+          assert 0 <= c["confidence"] <= 1
+          assert set(c["probabilities"]) == {"allow_candidate","review","block"}
+          s=d["answers"]["evidence_quality"]
+          assert s["type"]=="score"
+          assert 0 <= s["confidence"] <= 1
+          assert 0 <= s["score"] <= 4
+          assert set(s["probabilities"]) == {"0","1","2","3","4"}
+          print("JEV_DECISION_VECTOR=review_required+route+evidence_quality")
+          print("JEV_POLICY_OWNER=OLA_CODE")
           assert "usage" in d
           print("JEV_LIVE_RESPONSE=RECEIVED")
           print("JEV_TYPED_RESPONSE=VALIDATED_SCHEMA")
           print("JEV_IS_NOT_VERIFICATION=TRUE")
           print("JEV_CANNOT_PROMOTE_TO_VERIFIED=TRUE")
+          print("JEV_FINAL_DECISION_OWNER=OLA_VERIFICATION_CHAIN")
           PY
 
       - name: Upload isolated evaluation evidence
