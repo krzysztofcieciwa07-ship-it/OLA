@@ -5,7 +5,8 @@ import hashlib
 import json
 import sys
 
-from app.hashchain import canonical_json
+def canonical_json(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def verify(path: str) -> bool:
