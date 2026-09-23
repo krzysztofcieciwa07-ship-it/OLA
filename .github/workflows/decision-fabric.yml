@@ -26,7 +26,7 @@ jobs:
 
   live-jev:
     runs-on: ubuntu-latest
-    if: ${{ secrets.TYPESAFE_API_KEY != '' ${{
+    if: ${{ secrets.TYPESAFE_API_KEY != '' }}
     steps:
       - name: Checkout exact source
         uses: actions/checkout@v4
@@ -38,26 +38,16 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Live Jev decision
         env:
-          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY ${{
-        run: |
-          python - <<'PY'
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: python - <<'PY'
           from app.decision_fabric import DecisionFabric
           fabric = DecisionFabric()
           result = fabric.evaluate(
-              state={"task": "Classify whether this evidence package requires human review."},
+              state={"task": "Classify evidence package."},
               questions={
-                  "needs_review": {
-                      "type": "noul",
-                      "instructions": "Does this evidence package require human review before promotion?",
-                  },
-                  "route": {
-                      "type": "choice",
-                      "instructions": "Which route should handle this package?",
-                      "criteria": {
-                          "audit": "Evidence audit and verification",
-                          "block": "Unsafe, incomplete, or unverifiable work",
-                      },
-                  },
+                  "needs_review": {"type": "noul", "instructions": "Does this require human review?"},
+                  "route": {"type": "choice", "instructions": "Which route?", "criteria": {"audit": "Evidence audit", "block": "Unsafe or unverifiable"}},
+                  "risk": {"type": "score", "instructions": "How risky is promotion?", "criteria": ["low", "medium", "high"]},
               },
           )
           print(fabric.evidence(result))
@@ -66,18 +56,17 @@ jobs:
           PY
 
   evidence:
-    if: ${{ always() ${{
+    if: ${{ always() }}
     needs: [contract, live-jev]
     runs-on: ubuntu-latest
     steps:
       - name: Decision gate summary
+        env:
+          CONTRACT_RESULT: ${{ needs.contract.result }}
+          LIVE_RESULT: ${{ needs.live-jev.result }}
         run: |
-          echo "CONTRACT_JOB=${{ needs.contract.result ${{"
-          echo "LIVE_JEV_JOB=${{ needs.live-jev.result ${{"
-          if [ "${{ needs.contract.result ${{" != "success" ]; then exit 1; fi
-          if [ "${{ needs.live-jev.result ${{" = "failure" ]; then exit 1; fi
-          if [ "${{ needs.live-jev.result ${{" = "skipped" ]; then
-            echo "LIVE_JEV=NOT_PROVEN — TYPESAFE_API_KEY is not configured"
-          else
-            echo "LIVE_JEV=VERIFIED"
-          fi
+          echo "CONTRACT_JOB=$CONTRACT_RESULT"
+          echo "LIVE_JEV_JOB=$LIVE_RESULT"
+          if [ "$CONTRACT_RESULT" != "success" ]; then exit 1; fi
+          if [ "$LIVE_RESULT" = "failure" ]; then exit 1; fi
+          if [ "$LIVE_RESULT" = "skipped" ]; then echo "LIVE_JEV=NOT_PROVEN"; else echo "LIVE_JEV=VERIFIED"; fi
