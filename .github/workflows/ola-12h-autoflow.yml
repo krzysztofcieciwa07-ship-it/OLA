@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY ${{
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - name: Checkout exact scheduled source
         uses: actions/checkout@v4
@@ -90,9 +90,9 @@ jobs:
 
       - name: Dispatch real Nina runtime provenance gate
         id: runtime_dispatch
-        if: ${{ steps.deps.outcome == 'success' && steps.nina_tests.outcome == 'success' && steps.igor_tests.outcome == 'success' && steps.credential.outcome == 'success' ${{
+        if: ${{ steps.deps.outcome == 'success' && steps.nina_tests.outcome == 'success' && steps.igor_tests.outcome == 'success' && steps.credential.outcome == 'success' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN ${{
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           date -u +%s > runtime-dispatch-start.txt
@@ -101,10 +101,10 @@ jobs:
 
       - name: Wait for exact-commit real runtime result
         id: runtime_wait
-        if: ${{ steps.runtime_dispatch.outcome == 'success' ${{
+        if: ${{ steps.runtime_dispatch.outcome == 'success' }}
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN ${{
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           start="$(cat runtime-dispatch-start.txt)"
@@ -131,15 +131,15 @@ jobs:
 
       - name: Classify evidence
         id: classify
-        if: ${{ always() ${{
+        if: ${{ always() }}
         run: |
           set -euo pipefail
-          deps="${{ steps.deps.outcome ${{"
-          nina="${{ steps.nina_tests.outcome ${{"
-          igor="${{ steps.igor_tests.outcome ${{"
-          credential="${{ steps.credential.outcome ${{"
-          dispatch="${{ steps.runtime_dispatch.outcome ${{"
-          runtime="${{ steps.runtime_wait.outcome ${{"
+          deps="${{ steps.deps.outcome }}"
+          nina="${{ steps.nina_tests.outcome }}"
+          igor="${{ steps.igor_tests.outcome }}"
+          credential="${{ steps.credential.outcome }}"
+          dispatch="${{ steps.runtime_dispatch.outcome }}"
+          runtime="${{ steps.runtime_wait.outcome }}"
           status="BLOCKED"
           reason="unknown"
           if [ "$deps" != "success" ]; then
@@ -179,10 +179,10 @@ jobs:
           echo "FLOW_STATUS=$status"
 
       - name: Upload evidence bundle
-        if: ${{ always() ${{
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: ola-12h-evidence-${{ github.sha ${{
+          name: ola-12h-evidence-${{ github.sha }}
           path: |
             source-provenance.txt
             nina-gate.log
@@ -193,7 +193,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Fail closed
-        if: ${{ always() ${{
+        if: ${{ always() }}
         run: |
           set -euo pipefail
           status="$(python -c 'import json; print(json.load(open("ola-12h-evidence.json"))["status"])')"
