@@ -50,10 +50,25 @@ jobs:
                   "risk": {"type": "score", "instructions": "How risky is promotion?", "criteria": ["low", "medium", "high"]},
               },
           )
-          print(fabric.evidence(result))
+          import json
+          from pathlib import Path
+          evidence = fabric.evidence(result)
+          evidence["commit"] = "${{ github.sha }}"
+          Path("jev-live-evidence.json").write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(evidence, sort_keys=True))
           assert result.status == "READY", result.reason
           assert result.model == "jev-1.13.0", result.model
           PY
+      - name: Hash live evidence
+        run: sha256sum jev-live-evidence.json | tee jev-live-evidence.sha256
+      - name: Upload live evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ola-jev-live-evidence-${{ github.sha }}
+          path: |
+            jev-live-evidence.json
+            jev-live-evidence.sha256
+          if-no-files-found: error
 
   evidence:
     if: ${{ always() }}
