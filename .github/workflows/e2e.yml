@@ -81,7 +81,6 @@ jobs:
           PY
 
       - name: Real OpenAI LLM six-agent E2E
-        if: ${{ secrets.OPENAI_API_KEY != '' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OLA_LLM_MODE: required
@@ -108,7 +107,6 @@ jobs:
           PY
 
       - name: Real task six-agent E2E and independent final-result verification
-        if: ${{ secrets.OPENAI_API_KEY != '' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OLA_LLM_MODE: required
@@ -209,7 +207,9 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          if [ -n "$OPENAI_API_KEY" ]; then echo "REAL_LLM_CREDENTIAL=AVAILABLE"; else echo "REAL_LLM_CREDENTIAL=BLOCKED — GitHub Actions secret OPENAI_API_KEY is missing"; fi
+          set -euo pipefail
+          test -n "$OPENAI_API_KEY"
+          echo "REAL_LLM_CREDENTIAL=AVAILABLE"
 
       - name: Stripe integration status (non-blocking core)
         if: ${{ always() }}

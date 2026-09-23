@@ -1,0 +1,116 @@
+name: OLA DI-OS Product Gate
+on:
+  push:
+    branches: [main, integration/full-ola-dios-product-gate]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  product-gate:
+    runs-on: ubuntu-latest
+    env:
+      OLA_LLM_MODE: required
+      OLA_LLM_MODEL: gpt-5.6-luna
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require real OpenAI credential
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$OPENAI_API_KEY"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Unit and contract suite
+        run: |
+          python -m pip install -r requirements.txt
+          OLA_LLM_MODE=deterministic python -m pytest -q
+      - name: Build exact-source runtime
+        run: docker build --tag "ola-product:${GITHUB_SHA}" .
+      - name: Start runtime
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          docker run --detach --rm --name ola-product --publish 8000:8000 \
+            -e OPENAI_API_KEY="$OPENAI_API_KEY" \
+            -e OLA_LLM_MODE="$OLA_LLM_MODE" \
+            -e OLA_LLM_MODEL="$OLA_LLM_MODEL" \
+            -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" \
+            "ola-product:${GITHUB_SHA}"
+          for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8000/health >/dev/null && break; sleep 1; done
+          curl --fail --silent http://127.0.0.1:8000/health >/dev/null
+      - name: Verify product surface
+        run: |
+          set -euo pipefail
+          curl --fail --silent http://127.0.0.1:8000/ | grep -q "NINA"
+          curl --fail --silent http://127.0.0.1:8000/ | grep -q "X-API-Key"
+      - name: Verify real six-agent runtime
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" ola-product python - <<'PY'
+          import hashlib,json,os,sqlite3,urllib.request,uuid
+          tid=str(uuid.uuid4()); key="product-gate-key"; db=sqlite3.connect("/data/ola.db")
+          db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tid,"product-gate"))
+          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",(str(uuid.uuid4()),tid,hashlib.sha256(key.encode()).hexdigest()))
+          db.commit(); db.close()
+          task="Calculate 17 * 23 and return the verified result."
+          req=urllib.request.Request("http://127.0.0.1:8000/agent-run",data=json.dumps({"task":task}).encode(),headers={"Content-Type":"application/json","X-API-Key":key},method="POST")
+          with urllib.request.urlopen(req,timeout=120) as r: d=json.load(r)
+          assert d["status"]=="VERIFIED",d
+          assert d["final_result"]=="391",d
+          assert d["evidence_count"]==6,d
+          assert d["agents"]==["codeact","react","agentic_rag","mcp_tool_use","self_reflection","multi_agent"],d
+          assert all(x["invocation_type"]=="real_llm" and x["provider"]=="openai" and x["model"]==os.environ["OLA_LLM_MODEL"] and x["response_id"] for x in d["execution"]),d
+          print("REAL_SIX_AGENT_RUNTIME=VERIFIED")
+          PY
+      - name: Verify NINA to IGOR to Human Gate
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" ola-product python - <<'PY'
+          import hashlib,json,sqlite3,urllib.request,uuid
+          tid=str(uuid.uuid4()); key="nina-chain-key"; db=sqlite3.connect("/data/ola.db")
+          db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tid,"nina-chain"))
+          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",(str(uuid.uuid4()),tid,hashlib.sha256(key.encode()).hexdigest()))
+          db.commit(); db.close()
+          req=urllib.request.Request("http://127.0.0.1:8000/nina-run",data=json.dumps({"task":"Calculate 17 * 23 and return the verified result.","requested_tools":["safe_expression"],"human_approved":False}).encode(),headers={"Content-Type":"application/json","X-API-Key":key},method="POST")
+          with urllib.request.urlopen(req,timeout=120) as r: d=json.load(r)
+          assert d["nina"]["status"]=="VERIFIED",d
+          assert d["igor"]["status"]=="VERIFIED",d
+          assert d["human_gate"]["status"]=="BLOCK",d
+          assert d["status"]=="BLOCK",d
+          print("NINA=VERIFIED IGOR=VERIFIED HUMAN_GATE=FAIL_CLOSED")
+          PY
+      - name: Health stability window
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 15); do curl --fail --silent http://127.0.0.1:8000/health >/dev/null; sleep 1; done
+          echo "HEALTH_STABLE_15S=VERIFIED"
+      - name: Evidence
+        if: always()
+        run: |
+          docker inspect ola-product > docker-inspect.json 2>&1 || true
+          docker logs ola-product > docker-runtime.log 2>&1 || true
+          sha256sum docker-inspect.json docker-runtime.log > product-file-hashes.txt || true
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ola-product-gate-${{ github.sha }}
+          path: |
+            docker-inspect.json
+            docker-runtime.log
+            product-file-hashes.txt
+      - name: Stop runtime
+        if: always()
+        run: docker stop ola-product || true
