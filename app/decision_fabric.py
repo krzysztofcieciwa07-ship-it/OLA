@@ -81,8 +81,13 @@ class JevProvider:
                     if not isinstance(body, Mapping):
                         raise ValueError("Jev response body must be an object")
                     return {"body": dict(body), "request_id": response.headers.get("x-request-id")}
-                except httpx.HTTPError:
-                    if attempt >= self.max_retries: raise
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code not in TRANSIENT_STATUS_CODES or attempt >= self.max_retries:
+                        raise
+                    time.sleep(2 ** attempt)
+                except httpx.RequestError:
+                    if attempt >= self.max_retries:
+                        raise
                     time.sleep(2 ** attempt)
             raise RuntimeError("Jev request failed")
         finally:
