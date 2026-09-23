@@ -92,3 +92,40 @@ def test_malformed_answer_blocks():
         state={}, questions={"route": {"type": "choice", "instructions": "Route?", "criteria": {"audit": None, "block": None}}}
     )
     assert result.status == "BLOCK"
+
+
+def test_noul_requires_instruction_or_outcome_criteria():
+    provider = FakeProvider({"model": "jev-1.13.0", "answers": {"ok": {"type": "noul", "noul": 0.9}}})
+    result = DecisionFabric(provider=provider).evaluate(state={}, questions={"ok": {"type": "noul"}})
+    assert result.status == "BLOCK"
+
+
+def test_noul_can_use_true_false_criteria_without_instruction():
+    provider = FakeProvider({"model": "jev-1.13.0", "answers": {"ok": {"type": "noul", "noul": 0.9}}})
+    result = DecisionFabric(provider=provider).evaluate(
+        state={},
+        questions={"ok": {"type": "noul", "criteria": {"true": "yes", "false": "no"}}},
+    )
+    assert result.status == "READY"
+
+
+def test_state_null_blocks_before_provider():
+    provider = FakeProvider({})
+    result = DecisionFabric(provider=provider).evaluate(
+        state=None, questions={"ok": {"type": "noul", "instructions": "Is it valid?"}}
+    )
+    assert result.status == "BLOCK"
+
+
+def test_score_probability_keys_and_legend_are_exact():
+    provider = FakeProvider({"model": "jev-1.13.0", "answers": {
+        "risk": {
+            "type": "score", "score": 1.5, "confidence": 0.9,
+            "probabilities": {"0": 0.1, "2": 0.9},
+            "legend": {"0": "low", "1": "medium", "2": "high"},
+        }
+    }})
+    result = DecisionFabric(provider=provider).evaluate(
+        state={}, questions={"risk": {"type": "score", "instructions": "Risk?", "criteria": ["low", "medium", "high"]}}
+    )
+    assert result.status == "BLOCK"
