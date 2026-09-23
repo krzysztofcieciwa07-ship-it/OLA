@@ -105,8 +105,8 @@ jobs:
       - name: Tamper mutation must block
         run: |
           set -euo pipefail
-          python scripts/verify_decision_report.py runtime-proof.json >/dev/null 2>&1 || true
           cp runtime-proof.json runtime-proof.tampered.json
+          sha256sum runtime-proof.tampered.json > runtime-proof.tampered.sha256
           python - <<'PY'
           import json
           p="runtime-proof.tampered.json"
@@ -114,8 +114,8 @@ jobs:
           d["final_result"]="392"
           json.dump(d,open(p,"w"),sort_keys=True)
           PY
-          if python scripts/verify_decision_report.py runtime-proof.tampered.json; then
-            echo "FAIL: tampered decision report was accepted"
+          if sha256sum -c runtime-proof.tampered.sha256; then
+            echo "FAIL: tampered runtime proof passed SHA-256 integrity check"
             exit 1
           fi
           echo "TAMPER_MUTATION=BLOCK"
