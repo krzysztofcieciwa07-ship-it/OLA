@@ -1,0 +1,128 @@
+name: Jev Decision Gate Evaluation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  jev-evaluation:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+    steps:
+      - name: Require real Jev credential
+        run: |
+          set -euo pipefail
+          if [ -z "${TYPESAFE_API_KEY:-}" ]; then
+            echo "JEV_STATUS=BLOCKED"
+            echo "REASON=TYPESAFE_API_KEY GitHub Actions secret is unavailable"
+            exit 1
+          fi
+
+      - name: Discover available Jev model
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${TYPESAFE_API_KEY}" \
+            https://api.typesafe.ai/v1/models > models.json
+          cat models.json
+          python - <<'PY'
+          import json
+          d=json.load(open("models.json"))
+          models=d.get("models", [])
+          assert models, "No TypeSafe models returned"
+          print("JEV_MODEL=" + models[0]["name"])
+          PY
+
+      - name: Call Jev System One API
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          d=json.load(open("models.json"))
+          model=d["models"][0]["name"]
+          request={
+            "model": model,
+            "state": {
+              "gate": "OLA isolated Jev evaluation",
+              "evidence": "Jev output is advisory only and can never set VERIFIED.",
+              "requested_action": "produce a decision vector for an OLA evidence workflow; the vector is advisory and never establishes verification"
+            },
+            "questions": {
+              "review_required": {
+                "type": "noul",
+                "instructions": "Should this evidence bundle be sent for human review rather than treated as automatically verified?",
+                "criteria": {
+                  "true": "Human review is required before any verification claim.",
+                  "false": "No human review is required for this decision."
+                }
+              },
+              "route": {
+                "type": "choice",
+                "instructions": "Which OLA routing state best fits this evidence workflow as an advisory decision signal?",
+                "criteria": {
+                  "allow_candidate": "All stated evidence signals appear internally consistent; this is only a candidate route and never VERIFIED.",
+                  "review": "A human should inspect the evidence before any final verification claim.",
+                  "block": "The evidence indicates a blocking condition or insufficient basis for progression."
+                }
+              },
+              "evidence_quality": {
+                "type": "score",
+                "instructions": "How strong is the evidence basis for proceeding, using the rubric below?",
+                "criteria": [
+                  "insufficient",
+                  "weak",
+                  "mixed",
+                  "strong",
+                  "very_strong"
+                ]
+              }
+            }
+          }
+          open("jev-request.json","w").write(json.dumps(request,sort_keys=True))
+          PY
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.typesafe.ai/v1/systemone" \
+            -H "Authorization: Bearer ${TYPESAFE_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data @jev-request.json > jev-response.json
+          cat jev-response.json
+
+      - name: Validate typed response without promoting verification
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open("jev-response.json"))
+          assert isinstance(d.get("model"), str)
+          a=d["answers"]["review_required"]
+          assert a["type"]=="noul"
+          assert 0 <= a["noul"] <= 1
+          c=d["answers"]["route"]
+          assert c["type"]=="choice"
+          assert c["choice"] in {"allow_candidate","review","block"}
+          assert 0 <= c["confidence"] <= 1
+          assert set(c["probabilities"]) == {"allow_candidate","review","block"}
+          s=d["answers"]["evidence_quality"]
+          assert s["type"]=="score"
+          assert 0 <= s["confidence"] <= 1
+          assert 0 <= s["score"] <= 4
+          assert set(s["probabilities"]) == {"0","1","2","3","4"}
+          print("JEV_DECISION_VECTOR=review_required+route+evidence_quality")
+          print("JEV_POLICY_OWNER=OLA_CODE")
+          assert "usage" in d
+          print("JEV_LIVE_RESPONSE=RECEIVED")
+          print("JEV_TYPED_RESPONSE=VALIDATED_SCHEMA")
+          print("JEV_IS_NOT_VERIFICATION=TRUE")
+          print("JEV_CANNOT_PROMOTE_TO_VERIFIED=TRUE")
+          print("JEV_FINAL_DECISION_OWNER=OLA_VERIFICATION_CHAIN")
+          PY
+
+      - name: Upload isolated evaluation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: jev-evaluation-${{ github.sha }}
+          path: |
+            models.json
+            jev-request.json
+            jev-response.json
