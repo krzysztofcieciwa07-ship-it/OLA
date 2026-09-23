@@ -16,6 +16,7 @@ from .igor import IgorVerifier
 from .replay import build_replay
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
+from .decision_report import build_decision_report
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
@@ -284,13 +285,30 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     replay = build_replay(record_dicts)
     review = ReviewDecision(bool(body.get("human_approved", False)), str(body.get("human_actor", "")), str(body.get("human_reason", "")))
     terminal = NinaIgorChain.finalize(runtime.get("status", "UNKNOWN"), igor.status, review)
+    nina_summary = {"status": runtime.get("status", "UNKNOWN"), "decision": plan.reason}
+    igor_summary = {"status": igor.status, "reason": igor.reason, "checks": igor.checks}
+    report = build_decision_report(
+        task_id=nina_task.task_id,
+        run_id=run_id,
+        task=task_text,
+        nina=nina_summary,
+        igor=igor_summary,
+        replay=replay,
+        human_gate=terminal,
+        evidence_ids=[record["id"] for record in record_dicts],
+        human_approved=review.approved,
+        human_actor=review.actor,
+        human_reason=review.reason,
+    )
     return {
         "task_id": nina_task.task_id,
         "run_id": run_id,
-        "nina": {"status": runtime.get("status", "UNKNOWN"), "decision": plan.reason},
-        "igor": {"status": igor.status, "reason": igor.reason, "checks": igor.checks},
+        "nina": nina_summary,
+        "igor": igor_summary,
         "replay": replay,
         "human_gate": terminal,
+        "policy": report["policy"],
+        "decision_report": report,
         "status": terminal["status"],
     }
 
