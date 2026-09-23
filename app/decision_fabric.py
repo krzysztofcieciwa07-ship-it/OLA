@@ -100,19 +100,40 @@ class DecisionFabric:
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _validate_questions(questions: Mapping[str, Mapping[str, Any]]) -> None:
-        if not questions: raise ValueError("at least one question is required")
+    def _validate_questions(questions: Mapping[str, Mapping[str, Any]], state: Any) -> None:
+        if state is None or not isinstance(state, (str, Mapping, list)):
+            raise ValueError("state must be a string, object, or array")
+        if not questions:
+            raise ValueError("at least one question is required")
         for name, q in questions.items():
-            if not isinstance(q, Mapping): raise ValueError(f"question {name!r} must be an object")
+            if not isinstance(name, str) or not name:
+                raise ValueError("question names must be non-empty strings")
+            if not isinstance(q, Mapping):
+                raise ValueError(f"question {name!r} must be an object")
             kind = q.get("type")
-            if kind not in {"choice", "score", "noul"}: raise ValueError(f"question {name!r} has unsupported type")
-            if not isinstance(q.get("instructions"), str) or not q["instructions"].strip():
-                raise ValueError(f"question {name!r} requires instructions")
+            if kind not in {"choice", "score", "noul"}:
+                raise ValueError(f"question {name!r} has unsupported type")
+            instructions = q.get("instructions")
             criteria = q.get("criteria")
-            if kind == "choice" and (not isinstance(criteria, Mapping) or not 2 <= len(criteria) <= 255):
-                raise ValueError(f"choice question {name!r} requires 2-255 criteria")
-            if kind == "score" and (not isinstance(criteria, (list, tuple)) or not 2 <= len(criteria) <= 10):
-                raise ValueError(f"score question {name!r} requires 2-10 ordered criteria")
+            if instructions is not None and not isinstance(instructions, (str, Mapping, list)):
+                raise ValueError(f"question {name!r} has invalid instructions")
+            if kind == "choice":
+                if not isinstance(criteria, Mapping) or not 1 <= len(criteria) <= 255:
+                    raise ValueError(f"choice question {name!r} requires 1-255 criteria")
+            elif kind == "score":
+                if not isinstance(criteria, (list, tuple)) or not 2 <= len(criteria) <= 10:
+                    raise ValueError(f"score question {name!r} requires 2-10 ordered criteria")
+                if any(item is None for item in criteria):
+                    raise ValueError(f"score question {name!r} cannot contain null criteria")
+            else:
+                has_instruction = isinstance(instructions, (str, Mapping, list)) and (
+                    not isinstance(instructions, str) or bool(instructions.strip())
+                )
+                has_noul_criteria = isinstance(criteria, Mapping) and any(
+                    key in criteria and criteria[key] is not None for key in ("true", "false")
+                )
+                if not has_instruction and not has_noul_criteria:
+                    raise ValueError(f"noul question {name!r} requires instructions or true/false criteria")
 
     @staticmethod
     def _validate_answers(questions: Mapping[str, Mapping[str, Any]], answers: Mapping[str, Any]) -> None:
@@ -132,9 +153,20 @@ class DecisionFabric:
                 if not isinstance(a.get("score"), (int, float)): raise ValueError(f"score answer {name!r} is malformed")
                 if not isinstance(a.get("confidence"), (int, float)) or not 0 <= float(a["confidence"]) <= 1:
                     raise ValueError(f"score answer {name!r} has invalid confidence")
-                if not isinstance(a.get("probabilities"), Mapping) or len(a["probabilities"]) != len(q["criteria"]):
+                max_score = len(q["criteria"]) - 1
+                if not 0 <= float(a["score"]) <= max_score:
+                    raise ValueError(f"score answer {name!r} is outside rubric range")
+                probabilities = a.get("probabilities")
+                if not isinstance(probabilities, Mapping):
                     raise ValueError(f"score answer {name!r} has invalid probabilities")
-                if "legend" not in a: raise ValueError(f"score answer {name!r} is missing legend")
+                expected_keys = {str(i) for i in range(len(q["criteria"]))}
+                if set(probabilities) != expected_keys:
+                    raise ValueError(f"score answer {name!r} has invalid probability keys")
+                if any(not isinstance(value, (int, float)) or not 0 <= float(value) <= 1 for value in probabilities.values()):
+                    raise ValueError(f"score answer {name!r} has invalid probability values")
+                legend = a.get("legend")
+                if not isinstance(legend, Mapping) or set(legend) != expected_keys:
+                    raise ValueError(f"score answer {name!r} has invalid legend")
             elif not isinstance(a.get("noul"), (int, float)) or not 0 <= float(a["noul"]) <= 1:
                 raise ValueError(f"noul answer {name!r} is malformed")
 
@@ -142,7 +174,7 @@ class DecisionFabric:
         request = {"model": self.model, "state": state, "questions": dict(questions)}
         request_sha = self._sha(request)
         try:
-            self._validate_questions(questions)
+            self._validate_questions(questions, state)
             raw = self.provider.evaluate(state=state, questions=questions, model=self.model)
             if not isinstance(raw, Mapping): raise ValueError("provider result must be an object")
             body = raw.get("body", raw)
