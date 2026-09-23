@@ -1,0 +1,49 @@
+name: Jev Decision Gate Evaluation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  jev-evaluation:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+    steps:
+      - name: Require real Jev credential
+        run: |
+          set -euo pipefail
+          if [ -z "${TYPESAFE_API_KEY:-}" ]; then
+            echo "JEV_STATUS=BLOCKED"
+            echo "REASON=TYPESAFE_API_KEY GitHub Actions secret is unavailable"
+            exit 1
+          fi
+
+      - name: Call Jev System One API
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body --silent --show-error \
+            -X POST "https://api.typesafe.ai/v1/systemone" \
+            -H "Authorization: Bearer ${TYPESAFE_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data '{"model":"jev-1.13.0","input":{"question":"Is this OLA evidence bundle eligible for review?","context":"This evaluation is isolated. Jev output is advisory only and can never set VERIFIED.","response_type":"noul"}}')"
+          printf '%s\n' "$response" > jev-response.json
+          cat jev-response.json
+
+      - name: Record non-authoritative result
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open("jev-response.json"))
+          print("JEV_LIVE_RESPONSE=RECEIVED")
+          print("JEV_IS_NOT_VERIFICATION=TRUE")
+          print("JEV_CANNOT_PROMOTE_TO_VERIFIED=TRUE")
+          assert isinstance(d, dict)
+          PY
+
+      - name: Upload raw evaluation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: jev-evaluation-${{ github.sha }}
+          path: jev-response.json
