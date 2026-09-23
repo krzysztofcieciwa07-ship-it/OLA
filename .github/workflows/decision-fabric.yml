@@ -39,7 +39,8 @@ jobs:
       - name: Live Jev decision
         env:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
-        run: python - <<'PY'
+        run: |
+          python - <<'PY'
           from app.decision_fabric import DecisionFabric
           fabric = DecisionFabric()
           result = fabric.evaluate(
