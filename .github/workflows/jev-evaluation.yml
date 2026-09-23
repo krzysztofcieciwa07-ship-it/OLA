@@ -20,30 +20,76 @@ jobs:
             exit 1
           fi
 
+      - name: Discover available Jev model
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${TYPESAFE_API_KEY}" \
+            https://api.typesafe.ai/v1/models > models.json
+          cat models.json
+          python - <<'PY'
+          import json
+          d=json.load(open("models.json"))
+          models=d.get("models", [])
+          assert models, "No TypeSafe models returned"
+          print("JEV_MODEL=" + models[0]["name"])
+          PY
+
       - name: Call Jev System One API
         run: |
           set -euo pipefail
-          response="$(curl --fail-with-body --silent --show-error \
+          python - <<'PY'
+          import json
+          d=json.load(open("models.json"))
+          model=d["models"][0]["name"]
+          request={
+            "model": model,
+            "state": {
+              "gate": "OLA isolated Jev evaluation",
+              "evidence": "Jev output is advisory only and can never set VERIFIED.",
+              "requested_action": "classify whether the evidence bundle should proceed to human review"
+            },
+            "questions": {
+              "review_required": {
+                "type": "noul",
+                "instructions": "Should this evidence bundle be sent for human review rather than treated as automatically verified?",
+                "criteria": {
+                  "true": "Human review is required before any verification claim.",
+                  "false": "No human review is required for this decision."
+                }
+              }
+            }
+          }
+          open("jev-request.json","w").write(json.dumps(request,sort_keys=True))
+          PY
+          curl --fail-with-body --silent --show-error \
             -X POST "https://api.typesafe.ai/v1/systemone" \
             -H "Authorization: Bearer ${TYPESAFE_API_KEY}" \
             -H "Content-Type: application/json" \
-            --data '{"model":"jev-1.13.0","input":{"question":"Is this OLA evidence bundle eligible for review?","context":"This evaluation is isolated. Jev output is advisory only and can never set VERIFIED.","response_type":"noul"}}')"
-          printf '%s\n' "$response" > jev-response.json
+            --data @jev-request.json > jev-response.json
           cat jev-response.json
 
-      - name: Record non-authoritative result
+      - name: Validate typed response without promoting verification
         run: |
           python - <<'PY'
           import json
           d=json.load(open("jev-response.json"))
+          assert isinstance(d.get("model"), str)
+          a=d["answers"]["review_required"]
+          assert a["type"]=="noul"
+          assert 0 <= a["noul"] <= 1
+          assert "usage" in d
           print("JEV_LIVE_RESPONSE=RECEIVED")
+          print("JEV_TYPED_RESPONSE=VERIFIED")
           print("JEV_IS_NOT_VERIFICATION=TRUE")
           print("JEV_CANNOT_PROMOTE_TO_VERIFIED=TRUE")
-          assert isinstance(d, dict)
           PY
 
-      - name: Upload raw evaluation evidence
+      - name: Upload isolated evaluation evidence
         uses: actions/upload-artifact@v4
         with:
           name: jev-evaluation-${{ github.sha }}
-          path: jev-response.json
+          path: |
+            models.json
+            jev-request.json
+            jev-response.json
