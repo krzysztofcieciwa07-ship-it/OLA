@@ -32,6 +32,21 @@ class EvidenceRecord(Base):
     __table_args__ = (UniqueConstraint("tenant_id", "seq", name="uq_evidence_tenant_seq"),)
 
 
+class StateCheckpoint(Base):
+    __tablename__ = "state_checkpoints"
+    id = Column(String(64), primary_key=True)
+    tenant_id = Column(String(36), nullable=False, index=True)
+    run_id = Column(String(36), nullable=False, index=True)
+    sequence = Column(Integer, nullable=False)
+    stage = Column(String(120), nullable=False)
+    status = Column(String(32), nullable=False)
+    artifact_path = Column(Text, nullable=False)
+    artifact_sha256 = Column(String(64), nullable=False)
+    previous_hash = Column(String(64), nullable=False)
+    state_hash = Column(String(64), nullable=False)
+    payload_json = Column(Text, nullable=False)
+    __table_args__ = (UniqueConstraint("tenant_id", "run_id", "sequence", name="uq_state_run_sequence"),)
+
 
 class StripeEvent(Base):
     __tablename__ = "stripe_events"
