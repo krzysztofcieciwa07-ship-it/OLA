@@ -10,6 +10,8 @@ on:
       - main
     paths:
       - .github/workflows/ola-12h-autoflow.yml
+      - app/decision_report.py
+      - tests/test_decision_report.py
 
 concurrency:
   group: ola-12h-autoflow
