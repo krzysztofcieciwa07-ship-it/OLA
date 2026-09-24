@@ -1,6 +1,8 @@
 import os
 import uuid
 
+from app import main  # ensures all runtime tables are created for isolated test execution
+
 from app.database import SessionLocal
 from app.models import Tenant
 from app.state_continuity import persist_checkpoint, recover_latest_checkpoint, verify_run_state
