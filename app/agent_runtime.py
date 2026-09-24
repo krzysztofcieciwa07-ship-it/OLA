@@ -10,6 +10,7 @@ from sqlalchemy import select
 from .database import SessionLocal
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .models import EvidenceRecord
+from .state_continuity import persist_checkpoint, verify_run_state
 
 
 AGENT_ROLES = [
@@ -229,22 +230,75 @@ def run_agent_task(tenant_id, task):
     evidence_ids = []
     execution = []
     previous_output = {"task": task}
+    checkpoints = [
+        persist_checkpoint(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            stage="execution.started",
+            status="RUNNING",
+            artifact={"task": task},
+            metadata={"agent_count": len(AGENT_ROLES)},
+        )
+    ]
     for agent in AGENT_ROLES:
         evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
         evidence_ids.append(evidence_id)
         execution.append(output)
         previous_output = output
+        checkpoints.append(
+            persist_checkpoint(
+                tenant_id=tenant_id,
+                run_id=run_id,
+                stage=f"agent.{agent}.completed",
+                status="VERIFIED",
+                artifact={
+                    "agent": agent,
+                    "evidence_id": evidence_id,
+                    "tool_output": output.get("tool_output"),
+                    "result": output.get("result"),
+                },
+                metadata={
+                    "agent_instance_id": output.get("agent_instance_id"),
+                    "context_digest": output.get("context_digest"),
+                },
+            )
+        )
     verification = verify_agent_run(tenant_id, run_id)
     final_result = execution[-1].get("final_result") if execution else None
+    state_status = "STABLE" if verification["status"] == "VERIFIED" else verification["status"]
+    checkpoints.append(
+        persist_checkpoint(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            stage="execution.verified" if verification["status"] == "VERIFIED" else "execution.blocked",
+            status=state_status,
+            artifact={
+                "final_result": final_result,
+                "evidence_ids": evidence_ids,
+                "evidence_count": len(evidence_ids),
+                "verification": verification,
+            },
+            metadata={"source": "verify_agent_run"},
+        )
+    )
+    state = verify_run_state(tenant_id, run_id)
+    terminal_status = "VERIFIED" if verification["status"] == "VERIFIED" and state["status"] == "STABLE" else "BLOCK"
     result = {
         "run_id": run_id,
         "task": task,
         "final_result": final_result,
-        "status": verification["status"],
+        "status": terminal_status,
         "agents": AGENT_ROLES,
         "evidence_count": len(evidence_ids),
         "evidence_ids": evidence_ids,
         "execution": execution,
+        "state": {
+            "status": state["status"],
+            "checkpoints": state.get("checkpoints", len(checkpoints)),
+            "last_state_hash": state.get("last_state_hash"),
+            "checkpoint_ids": [item["checkpoint_id"] for item in checkpoints],
+            "artifact_paths": [item["artifact_path"] for item in checkpoints],
+        },
     }
     return result
 
