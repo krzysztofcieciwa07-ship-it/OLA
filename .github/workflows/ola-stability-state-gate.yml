@@ -1,0 +1,58 @@
+name: OLA Stability State Gate
+
+on:
+  push:
+    branches: [main, stability-state-continuity-gate]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ola-stability-state-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  stability-state:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert exact SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile runtime
+        run: python -m compileall -q app scripts
+
+      - name: State continuity tests
+        run: pytest -q tests/test_state_continuity.py
+
+      - name: Runtime and integrity tests
+        run: |
+          pytest -q             tests/test_agent_runtime.py             tests/test_nina_igor_chain.py             tests/test_independent_verifier_tamper.py             tests/test_contradiction_replay.py             tests/test_decision_report.py
+
+      - name: Full regression suite
+        run: pytest -q
+
+      - name: Gate result
+        run: |
+          echo "STATE_CONTINUITY=PASS"
+          echo "CHECKPOINT_PATH_HASH=PASS"
+          echo "TAMPER_BLOCK=PASS"
+          echo "RECOVERY=PASS"
+          echo "REGRESSION=PASS"
+          echo "STABILITY_STATE_GATE=PASS"
