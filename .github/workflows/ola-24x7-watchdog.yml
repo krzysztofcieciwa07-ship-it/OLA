@@ -31,7 +31,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh run list --workflow ola-12h-autoflow.yml --branch main --limit 5             --json databaseId,status,conclusion,createdAt,updatedAt > autoflow-runs.json
+          gh run list --workflow ola-12h-autoflow.yml --branch main --limit 5 --json databaseId,status,conclusion,createdAt,updatedAt > autoflow-runs.json
           python - <<'PY'
           import json
           rows=json.load(open("autoflow-runs.json"))
@@ -52,6 +52,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          set +e
           python - <<'PY'
           import json, time, datetime
           rows=json.load(open("autoflow-runs.json"))
@@ -64,12 +65,11 @@ jobs:
           )
           if active or recent:
               print("FULL_FLOW=NOT_DISPATCHED reason=active_or_recent")
-          else:
-              print("FULL_FLOW=DISPATCH")
-              raise SystemExit(0)
-          raise SystemExit(2)
+              raise SystemExit(2)
+          print("FULL_FLOW=DISPATCH")
           PY
           status=$?
+          set -e
           if [ "$status" -eq 0 ]; then
             gh workflow run ola-12h-autoflow.yml --ref main
           elif [ "$status" -eq 2 ]; then
