@@ -1,0 +1,93 @@
+name: OLA 24x7 Watchdog
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+      timezone: "Europe/Brussels"
+  workflow_dispatch:
+
+concurrency:
+  group: ola-24x7-watchdog
+  cancel-in-progress: true
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Inspect runtime health
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh run list --workflow ola-12h-autoflow.yml --branch main --limit 5             --json databaseId,status,conclusion,createdAt,updatedAt > autoflow-runs.json
+          python - <<'PY'
+          import json
+          rows=json.load(open("autoflow-runs.json"))
+          print("AUTOFLOW_RECENT_RUNS")
+          for r in rows:
+              print(r)
+          PY
+
+      - name: Run local quality smoke gate
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          pytest -q tests/test_decision_report.py tests/test_igor.py tests/test_independent_verifier_tamper.py tests/test_contradiction_replay.py
+
+      - name: Dispatch full evidence flow when healthy and stale
+        if: ${{ env.OPENAI_API_KEY != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, time, datetime
+          rows=json.load(open("autoflow-runs.json"))
+          now=time.time()
+          active=any(r.get("status") in {"queued","in_progress","waiting","requested"} for r in rows)
+          recent=any(
+              r.get("createdAt") and
+              now-datetime.datetime.fromisoformat(r["createdAt"].replace("Z","+00:00")).timestamp() < 900
+              for r in rows
+          )
+          if active or recent:
+              print("FULL_FLOW=NOT_DISPATCHED reason=active_or_recent")
+          else:
+              print("FULL_FLOW=DISPATCH")
+              raise SystemExit(0)
+          raise SystemExit(2)
+          PY
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            gh workflow run ola-12h-autoflow.yml --ref main
+          elif [ "$status" -eq 2 ]; then
+            exit 0
+          else
+            exit "$status"
+          fi
+
+      - name: Record credential blocker without bypass
+        if: ${{ env.OPENAI_API_KEY == '' }}
+        run: |
+          echo "24x7 watchdog active"
+          echo "REAL_LLM_CREDENTIAL=BLOCKED"
+          echo "REASON=OPENAI_API_KEY missing"
+          echo "No full-runtime dispatch performed. Fail-closed."
+
+      - name: Watchdog result
+        if: ${{ always() }}
+        run: |
+          echo "OLA_24X7_WATCHDOG=ACTIVE"
+          echo "No UNKNOWN/BLOCKED result is promoted to VERIFIED."
