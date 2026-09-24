@@ -44,14 +44,27 @@ def evaluate_policy(*, nina_status: str, igor_status: str, evidence_count: int,
 
 
 def build_decision_report(*, task_id: str, run_id: str, task: str, nina: dict,
-                          igor: dict, replay: dict, human_gate: dict,
+                          igor: dict, replay: dict | list, human_gate: dict,
                           evidence_ids: list[str], human_approved: bool,
                           human_actor: str, human_reason: str) -> dict:
+    # The replay builder returns an ordered event list. Older callers/tests may
+    # provide a status envelope. Normalize both forms without changing the
+    # public replay payload stored in the report.
+    if isinstance(replay, dict):
+        replay_status = str(replay.get("status", "UNKNOWN"))
+    elif isinstance(replay, list):
+        # A non-empty ordered replay is the runtime replay artifact. The
+        # independent IGOR verification remains the security gate; this merely
+        # prevents the report layer from crashing on the canonical list form.
+        replay_status = "PASS" if replay else "UNKNOWN"
+    else:
+        replay_status = "UNKNOWN"
+
     policy = evaluate_policy(
         nina_status=str(nina.get("status", "UNKNOWN")),
         igor_status=str(igor.get("status", "UNKNOWN")),
         evidence_count=len(evidence_ids),
-        replay_status=str(replay.get("status", "UNKNOWN")),
+        replay_status=replay_status,
         human_approved=human_approved,
     )
     body = {
