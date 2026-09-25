@@ -3,6 +3,10 @@ name: CFR-18 Forensic Gate
 on:
   push:
     branches: [cfr18-forensic]
+  pull_request:
+    paths:
+      - 'scenarios/cfr-18/**'
+      - '.github/workflows/cfr18-forensic-gate.yml'
   workflow_dispatch:
 
 jobs:
@@ -47,9 +51,9 @@ jobs:
           import json
           from pathlib import Path
           p=Path('evidence/.chain.jsonl')
-          e=json.loads(p.read_text().splitlines()[1])
-          e['payload']['status']='fail'
           lines=p.read_text().splitlines()
+          e=json.loads(lines[1])
+          e['payload']['status']='fail'
           lines[1]=json.dumps(e)
           p.write_text('\n'.join(lines)+'\n')
           PY
