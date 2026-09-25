@@ -1,0 +1,20 @@
+services:
+  api:
+    build: .
+    command: python /app/services/api/server.py
+    environment:
+      DB_PATH: /data/flowai.db
+      PORT: 8080
+    ports: ["8080:8080"]
+    volumes:
+      - ./data:/data
+  worker:
+    build: .
+    command: python /app/services/worker/worker.py
+    environment:
+      DB_PATH: /data/flowai.db
+      FAULT_VARIANT: ${FAULT_VARIANT:-double_process}
+      KILL_DELAY_MS: ${KILL_DELAY_MS:-500}
+    volumes:
+      - ./data:/data
+    depends_on: [api]
