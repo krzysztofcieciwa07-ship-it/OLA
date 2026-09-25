@@ -83,6 +83,32 @@ jobs:
           print(json.dumps({"gate":"INDEPENDENT_RUNTIME_E2E","status":"VERIFIED","container_health":"PASS","http_audit":"PASS","evidence_count":len(rows),"hash_chain":"PASS","result_ids_match_db":True,"commit":os.environ["EXPECTED_COMMIT"]}, sort_keys=True))
           PY
 
+      - name: Required LLM mode must fail closed without credential
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name ola-no-llm --publish 8002:8000 \
+            -e OLA_LLM_MODE="required" \
+            -e OLA_LLM_MODEL="gpt-5.6-luna" \
+            ola:${GITHUB_SHA}
+          for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8002/health >/dev/null && break; sleep 1; done
+          docker exec -i ola-no-llm python - <<'PY'
+          import hashlib, json, sqlite3, urllib.error, urllib.request, uuid
+          tenant_id=str(uuid.uuid4()); raw_key="ci-no-llm-key"
+          db=sqlite3.connect("/data/ola.db")
+          db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tenant_id,"ci-required-without-credential"))
+          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",(str(uuid.uuid4()),tenant_id,hashlib.sha256(raw_key.encode()).hexdigest()))
+          db.commit(); db.close()
+          req=urllib.request.Request("http://127.0.0.1:8000/agent-run",data=json.dumps({"task":"Calculate 17 * 23 and return the verified result."}).encode(),headers={"Content-Type":"application/json","X-API-Key":raw_key},method="POST")
+          try:
+              urllib.request.urlopen(req,timeout=15)
+          except urllib.error.HTTPError as exc:
+              assert exc.code==500, exc.code
+              print("REQUIRED_WITHOUT_CREDENTIAL=BLOCK")
+          else:
+              raise AssertionError("required mode accepted agent-run without an LLM credential")
+          PY
+          docker stop ola-no-llm
+          echo "FAIL_CLOSED_LLM_GATE=VERIFIED"
       - name: Real OpenAI LLM six-agent E2E
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
