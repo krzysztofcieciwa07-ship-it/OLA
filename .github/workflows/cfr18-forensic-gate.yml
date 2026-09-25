@@ -29,6 +29,9 @@ jobs:
           test -f Dockerfile
           python3 -m py_compile ci/evidence_vault.py
 
+      - name: Install test runner
+        run: python3 -m pip install --disable-pip-version-check pytest
+
       - name: Unit forensic gate
         run: |
           set -euo pipefail
