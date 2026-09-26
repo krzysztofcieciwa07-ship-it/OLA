@@ -6,8 +6,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+ARG OLA_BUILD_COMMIT=unknown
+
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+COPY scripts/generate_third_party_notices.py /tmp/generate_third_party_notices.py
+RUN python /tmp/generate_third_party_notices.py --requirements requirements.txt --output /app/THIRD-PARTY-NOTICES --build-commit "$OLA_BUILD_COMMIT" \
+    && rm -f /tmp/generate_third_party_notices.py
 
 COPY app ./app
 COPY scripts ./scripts

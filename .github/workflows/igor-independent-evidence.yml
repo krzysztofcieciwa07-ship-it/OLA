@@ -13,9 +13,10 @@ jobs:
       actions: read
       id-token: write
       attestations: write
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') }}
     env:
       SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       NINA_RUN_ID: ${{ github.event.workflow_run.id }}
       NINA_ARTIFACT_NAME: nina-real-runtime-proof-${{ github.event.workflow_run.head_sha }}
     steps:
@@ -68,7 +69,7 @@ jobs:
           assert d["evidence_count"]==6
           assert d["hash_chain"]=="PASS"
           assert d["independent_verifier"]=="PASS"
-          assert d["human_gate"]=="VERIFIED"
+          assert d["human_gate"]=="PENDING"
           print("IGOR_NINA_BUNDLE=PASS")
           print("IGOR_SOURCE_SHA=PASS")
           print("IGOR_ARTIFACT_HASH=PASS")
@@ -97,9 +98,15 @@ jobs:
           python -m pip install -r requirements.txt
           docker build --tag "ola-igor:${SOURCE_COMMIT}" .
 
+      - name: Require real LLM credential
+        run: |
+          set -euo pipefail
+          test -n "${OPENAI_API_KEY}"
+          echo "IGOR_REAL_LLM_CREDENTIAL=AVAILABLE"
+
       - name: Start runtime
         run: |
-          docker run --detach --rm --name ola-igor-e2e --publish 8001:8000 "ola-igor:${SOURCE_COMMIT}"
+          docker run --detach --rm --name ola-igor-e2e --publish 8001:8000 -e OPENAI_API_KEY="${OPENAI_API_KEY}" -e OLA_LLM_MODE="required" -e OLA_LLM_MODEL="gpt-5.6-luna" -e OLA_RUNTIME_COMMIT="${SOURCE_COMMIT}" "ola-igor:${SOURCE_COMMIT}"
           for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8001/health >/dev/null && exit 0; sleep 1; done
           docker logs ola-igor-e2e
           exit 1
@@ -124,7 +131,11 @@ jobs:
           assert d["final_result"]=="391"
           assert d["agents"]==["codeact","react","agentic_rag","mcp_tool_use","self_reflection","multi_agent"]
           assert d["evidence_count"]==6
-          print(json.dumps({"status":"VERIFIED","commit":os.environ["SOURCE_COMMIT"],"result":"391","replay":"PASS","run_id":d["run_id"]},sort_keys=True))
+          assert all(item["invocation_type"]=="real_llm" for item in d["execution"])
+          assert all(item["provider"]=="openai" for item in d["execution"])
+          assert all(item["model"]==os.environ["OLA_LLM_MODEL"] for item in d["execution"])
+          assert all(item["response_id"] for item in d["execution"])
+          print(json.dumps({"status":"VERIFIED","commit":os.environ["SOURCE_COMMIT"],"result":"391","replay":"PASS","provider":"openai","model":os.environ["OLA_LLM_MODEL"],"invocation_type":"real_llm","llm_invocations":len(d["execution"]),"run_id":d["run_id"]},sort_keys=True))
           PY
           cat igor-replay.json
 
