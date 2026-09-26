@@ -34,7 +34,12 @@ jobs:
         run: python scripts/verify_readme_claims.py
 
       - name: Build deployment image
-        run: docker build --tag ola:${GITHUB_SHA} .
+        run: docker build --build-arg OLA_BUILD_COMMIT="${GITHUB_SHA}" --tag ola:${GITHUB_SHA} .
+          docker create --name ola-notice ola:${GITHUB_SHA}
+          docker cp ola-notice:/app/THIRD-PARTY-NOTICES THIRD-PARTY-NOTICES
+          docker rm ola-notice
+          test -s THIRD-PARTY-NOTICES
+          sha256sum THIRD-PARTY-NOTICES > third-party-notices.sha256
 
       - name: Run deployment image
         run: |
@@ -267,7 +272,7 @@ jobs:
         run: |
           docker inspect ola-e2e > docker-inspect.json 2>&1 || true
           docker logs ola-e2e > docker-runtime.log 2>&1 || true
-          sha256sum docker-inspect.json docker-runtime.log agent-runtime-proof.json business-invoice-proof.json > runtime-file-hashes.txt || true
+          sha256sum docker-inspect.json docker-runtime.log agent-runtime-proof.json business-invoice-proof.json THIRD-PARTY-NOTICES third-party-notices.sha256 > runtime-file-hashes.txt || true
           printf '%s\n' "commit=${GITHUB_SHA}" "run=${GITHUB_RUN_ID}" > provenance.txt
           sha256sum provenance.txt >> runtime-file-hashes.txt || true
 
@@ -281,6 +286,8 @@ jobs:
             docker-runtime.log
             agent-runtime-proof.json
             business-invoice-proof.json
+            THIRD-PARTY-NOTICES
+            third-party-notices.sha256
             runtime-file-hashes.txt
             provenance.txt
           if-no-files-found: warn
