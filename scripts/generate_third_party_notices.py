@@ -13,7 +13,6 @@ reported explicitly so the build evidence cannot silently become a false PASS.
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import re
 import sys
 from importlib import metadata
@@ -136,7 +135,6 @@ def render(
     roots: list[str],
     build_commit: str,
 ) -> str:
-    generated_at = dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z")
     unknown = [d for d in distributions if license_value(d) == "UNKNOWN"]
 
     lines = [
@@ -145,7 +143,7 @@ def render(
         "",
         "Generated at build time from the installed Python dependency graph.",
         f"Build commit: {build_commit}",
-        f"Generated at: {generated_at}",
+        "Generation mode: build-time from installed runtime dependency closure",
         "",
         "Direct dependency roots:",
         *[f"- {root}" for root in roots],
