@@ -34,7 +34,8 @@ jobs:
         run: python scripts/verify_readme_claims.py
 
       - name: Build deployment image
-        run: docker build --build-arg OLA_BUILD_COMMIT="${GITHUB_SHA}" --tag ola:${GITHUB_SHA} .
+        run: |
+          docker build --build-arg OLA_BUILD_COMMIT="${GITHUB_SHA}" --tag ola:${GITHUB_SHA} .
           docker create --name ola-notice ola:${GITHUB_SHA}
           docker cp ola-notice:/app/THIRD-PARTY-NOTICES THIRD-PARTY-NOTICES
           docker rm ola-notice
