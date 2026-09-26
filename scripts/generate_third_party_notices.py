@@ -88,10 +88,7 @@ def license_paths(dist: metadata.Distribution) -> list[Path]:
     for file in dist.files or []:
         text = str(file).replace("\\", "/")
         basename = Path(text).name.lower()
-        if (
-            basename.startswith(("license", "licence", "copying", "notice"))
-            and text.lower().endswith((".txt", ".md", ".rst", "."))
-        ):
+        if basename in {"license", "licence", "copying", "notice"} or (basename.startswith(("license", "licence", "copying", "notice")) and text.lower().endswith((".txt", ".md", ".rst"))):
             raw_names.append(text)
 
     found: list[Path] = []
