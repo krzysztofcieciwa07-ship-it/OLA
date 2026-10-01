@@ -22,12 +22,22 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: OpenSSF Scorecard
-        uses: ossf/scorecard-action@e8e61e86ea0a152be84d03729c02a7300065c17d # reviewed 2026-08-08
+      - name: OpenSSF Scorecard (default branch only)
+        if: github.event_name != 'pull_request'
+        uses: ossf/scorecard-action@e8e61e86ea0a152be84d03729c02a7300065c17d # v2.4.4
         with:
           results_file: scorecard.json
           results_format: json
           publish_results: false
+
+      - name: Record Scorecard PR deferral
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          cat > scorecard-deferred.json <<'EOF'
+          {"status":"DEFERRED_TO_DEFAULT_BRANCH","reason":"OpenSSF Scorecard action documents pull_request as experimental and default-branch-only support for supported published checks."}
+          EOF
+          echo "SCORECARD_PR_MODE=DEFERRED_TO_DEFAULT_BRANCH"
       - name: zizmor
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
         with:
@@ -68,6 +78,7 @@ jobs:
           name: ola-static-security-evidence-${{ github.sha }}
           path: |
             scorecard.json
+            scorecard-deferred.json
             trivy.json
             sbom.spdx.json
             zizmor.verified
