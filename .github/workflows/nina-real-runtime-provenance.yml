@@ -23,6 +23,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ env.EXPECTED_COMMIT }}
       - name: Assert exact SHA
         run: test "$(git rev-parse HEAD)" = "${EXPECTED_COMMIT}"
@@ -180,3 +181,12 @@ jobs:
             replay-proof.sha256
             provenance.txt
             provenance.sha256
+
+
+  igor-independent:
+    needs: runtime-proof
+    uses: $/.github/workflows/igor-independent-evidence.yml
+    with:
+      source_commit: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      nina_run_id: ${{ github.run_id }}
+      nina_artifact_name: nina-real-runtime-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
