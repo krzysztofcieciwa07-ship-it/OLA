@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from .database import SessionLocal
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
+from .security_controls import redact, provenance_marker
 from .models import EvidenceRecord
 
 
@@ -22,15 +23,7 @@ CONTROLLED_VAT_RATE = 0.21
 
 
 def _append(tenant_id, run_id, record_type, payload):
-    payload_json = canonical_json({"run_id": run_id, **payload})
-    with SessionLocal() as db:
-        last = db.scalar(
-            select(EvidenceRecord)
-            .where(EvidenceRecord.tenant_id == tenant_id)
-            .order_by(EvidenceRecord.seq.desc())
-        )
-        seq = 0 if last is None else last.seq + 1
-        prev_hash = GENESIS_HASH if last is None else last.record_hash
+    safe_payload = redact({"run_id": run_id, **payload})
         record = EvidenceRecord(
             id=str(uuid.uuid4()),
             tenant_id=tenant_id,
