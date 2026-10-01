@@ -185,7 +185,7 @@ jobs:
 
   igor-independent:
     needs: runtime-proof
-    uses: $/.github/workflows/igor-independent-evidence.yml
+    uses: ./.github/workflows/igor-independent-evidence.yml
     with:
       source_commit: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       nina_run_id: ${{ github.run_id }}
