@@ -20,6 +20,7 @@ from .decision_report import build_decision_report
 from .chat_runtime import chat
 from .llm_gateway import LLMGateway, supported_providers
 from .revenue import create_checkout, retrieve_checkout, payment_verified
+from .security_controls import redact, provenance_marker
 from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
@@ -39,7 +40,7 @@ def tenant_from_key(raw_key):
 
 
 def append_record(tenant_id, record_type, payload):
-    payload_json = canonical_json(payload)
+    safe_payload = redact(payload)
     with SessionLocal() as db:
         last = db.scalar(
             select(EvidenceRecord)
@@ -48,6 +49,10 @@ def append_record(tenant_id, record_type, payload):
         )
         seq = 0 if last is None else last.seq + 1
         prev_hash = GENESIS_HASH if last is None else last.record_hash
+        base_payload_json = canonical_json(safe_payload)
+        marker = provenance_marker(tenant_id, seq, prev_hash, base_payload_json)
+        safe_payload["_ola_provenance"] = {"marker": marker, "record_type": record_type}
+        payload_json = canonical_json(safe_payload)
         record = EvidenceRecord(
             id=str(uuid.uuid4()),
             tenant_id=tenant_id,
