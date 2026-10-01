@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 $RepoUrl = "https://github.com/krzysztofcieciwa07-ship-it/OLA.git"
-$SourceCommit = "426e781ba6e8bc2c17f6ed3bf1150372d673bc07"
+$SourceCommit = "472eaf20056f73b2d8bf5ed77a63a128b38cc171"
 $Root = Split-Path -Parent $PSScriptRoot
 $RepoDir = Join-Path $Root "ola-source"
 $EvidenceDir = Join-Path $Root "workstation-evidence"
