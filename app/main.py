@@ -20,7 +20,7 @@ from .decision_report import build_decision_report
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
-from .evidence_signature import sign_payload_if_configured, SIGNATURE_FIELD
+from .evidence_signature import sign_payload_if_configured
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
