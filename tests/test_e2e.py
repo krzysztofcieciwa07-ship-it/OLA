@@ -59,7 +59,10 @@ def test_ola_e2e_closed_environment():
         f"/evidence/{record['id']}", headers={"X-API-Key": key_a}
     )
     assert owned.status_code == 200
-    assert owned.json()["payload"] == {"x": 1}
+    payload = owned.json()["payload"]
+    assert payload["x"] == 1
+    assert payload["_ola_provenance"]["record_type"] == "generic"
+    assert len(payload["_ola_provenance"]["marker"]) == 64
 
     cross_tenant = client.get(
         f"/evidence/{record['id']}", headers={"X-API-Key": key_b}
