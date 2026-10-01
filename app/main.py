@@ -59,7 +59,7 @@ def tenant_from_key(raw_key):
 
 
 def append_record(tenant_id, record_type, payload):
-    if not os.getenv("OLA_PROVENANCE_SECRET"):
+    if os.getenv("OLA_PRODUCTION_MODE","false").lower() == "true" and not os.getenv("OLA_PROVENANCE_SECRET"):
         raise RuntimeError("OLA_PROVENANCE_SECRET is required for production provenance")
     safe_payload = redact(payload)
     with SessionLocal() as db:
