@@ -1,0 +1,41 @@
+name: OLA Hardening Verify
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - "workstation/OLA-Workstation.ps1"
+      - ".github/workflows/ola-hardening-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Full pytest
+        run: python -m pytest -q
+
+      - name: Verify Ed25519 primitive explicitly
+        run: python -m pytest -q tests/test_evidence_signature.py
+
+      - name: Verify workstation source pin
+        shell: bash
+        run: |
+          grep -F '472eaf20056f73b2d8bf5ed77a63a128b38cc171' workstation/OLA-Workstation.ps1
