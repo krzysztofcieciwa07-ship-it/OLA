@@ -1,9 +1,17 @@
 name: IGOR Independent Evidence Gate
 
 on:
-  workflow_run:
-    workflows: ["Nina Real Runtime Provenance Gate"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      source_commit:
+        required: true
+        type: string
+      nina_run_id:
+        required: true
+        type: string
+      nina_artifact_name:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -16,16 +24,16 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     env:
-      SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
-      NINA_RUN_ID: ${{ github.event.workflow_run.id }}
-      NINA_ARTIFACT_NAME: nina-real-runtime-proof-${{ github.event.workflow_run.head_sha }}
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      NINA_RUN_ID: ${{ inputs.nina_run_id }}
+      NINA_ARTIFACT_NAME: ${{ inputs.nina_artifact_name }}
     steps:
       - name: Checkout exact source
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ env.SOURCE_COMMIT }}
 
       - name: Assert exact source SHA
