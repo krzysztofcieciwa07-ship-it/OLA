@@ -4,7 +4,7 @@ import os
 import uuid
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, JSONResponse
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
@@ -20,12 +20,30 @@ from .decision_report import build_decision_report
 from .chat_runtime import chat
 from .llm_gateway import LLMGateway, supported_providers
 from .revenue import create_checkout, retrieve_checkout, payment_verified
-from .security_controls import redact, provenance_marker
+from .security_controls import redact, provenance_marker, compare_market_price
+from .request_guard import RequestGuard
+from .data_refresh import FreshnessRegistry
 from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
 install_append_only_triggers()
+request_guard = RequestGuard(limit=int(os.getenv('OLA_RATE_LIMIT','60')), window_seconds=int(os.getenv('OLA_RATE_WINDOW_SECONDS','60')), max_body_bytes=int(os.getenv('OLA_MAX_BODY_BYTES','1048576')))
+freshness_registry = FreshnessRegistry()
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    client_id = request.client.host if request.client else "unknown"
+    if not request_guard.body_allowed(request.headers.get("content-length")):
+        return JSONResponse({"status":"BLOCK","reason":"request body too large or invalid content length"}, status_code=413)
+    if not request_guard.allow(client_id):
+        return JSONResponse({"status":"BLOCK","reason":"rate limit exceeded"}, status_code=429)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"]="nosniff"
+    response.headers["X-Frame-Options"]="DENY"
+    response.headers["Referrer-Policy"]="no-referrer"
+    return response
 
 
 def tenant_from_key(raw_key):
