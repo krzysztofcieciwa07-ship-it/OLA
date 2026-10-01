@@ -18,6 +18,7 @@ from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
 from .decision_report import build_decision_report
 from .chat_runtime import chat
+from .llm_gateway import LLMGateway, supported_providers
 from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
 
@@ -126,6 +127,18 @@ def run_controlled_audit(tenant_id, task, scenario):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/llm/providers")
+def llm_providers():
+    config = LLMGateway().provider_config()
+    return {
+        "status": "VERIFIED",
+        "supported_providers": list(supported_providers()),
+        "configured_provider": config.provider,
+        "configured_model": config.model,
+        "credential_env": config.api_key_env,
+        "credentials_exposed": False,
+    }
 
 
 @app.get("/")
