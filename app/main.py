@@ -59,6 +59,8 @@ def tenant_from_key(raw_key):
 
 
 def append_record(tenant_id, record_type, payload):
+    if not os.getenv("OLA_PROVENANCE_SECRET"):
+        raise RuntimeError("OLA_PROVENANCE_SECRET is required for production provenance")
     safe_payload = redact(payload)
     with SessionLocal() as db:
         last = db.scalar(
@@ -156,7 +158,7 @@ def health():
 def llm_providers():
     config = LLMGateway().provider_config()
     return {
-        "status": "VERIFIED",
+        "status": "CONFIGURED",
         "supported_providers": list(supported_providers()),
         "configured_provider": config.provider,
         "configured_model": config.model,
