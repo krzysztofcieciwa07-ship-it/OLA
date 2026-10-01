@@ -28,3 +28,29 @@ def test_openrouter_invocation_is_received_not_verified(monkeypatch):
     result=module.LLMGateway().invoke("nina","hello",{})
     assert result.status=="RECEIVED" and result.provider=="openrouter" and result.response_id=="resp-test"
     assert calls[0][0].endswith("/chat/completions") and "test-key" not in repr(result)
+
+
+# Regression: a real LLM RECEIVED result must remain runtime evidence.
+def test_agent_runtime_accepts_received_llm_result(monkeypatch):
+    import app.llm_gateway as gateway_module
+    import app.agent_runtime as runtime_module
+
+    received = gateway_module.LLMResult(
+        status="RECEIVED",
+        provider="openrouter",
+        model="test-model",
+        invocation_type="real_llm",
+        prompt_digest="d" * 64,
+        output="ok",
+        response_id="resp-test",
+    )
+    monkeypatch.setattr(
+        gateway_module.LLMGateway,
+        "invoke",
+        lambda self, agent, task, context: received,
+    )
+    result = runtime_module._invoke_llm("nina", "hello", {})
+    assert result is not None
+    assert result["provider"] == "openrouter"
+    assert result["invocation_type"] == "real_llm"
+    assert result["response_id"] == "resp-test"
