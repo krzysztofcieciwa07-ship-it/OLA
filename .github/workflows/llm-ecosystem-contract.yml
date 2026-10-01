@@ -1,0 +1,21 @@
+name: OLA LLM Ecosystem Contract
+
+on:
+  push:
+    branches:
+      - feat/llm-ecosystem-20261001
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest -q tests/test_llm_ecosystem.py
