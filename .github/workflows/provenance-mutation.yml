@@ -114,8 +114,41 @@ jobs:
           parsed = json.loads(verifier.stdout.strip().splitlines()[-1])
           assert parsed["status"] == "BLOCK", parsed
           assert parsed["reason"] == "record hash mismatch", parsed
+          clean = subprocess.run([
+              "python", "scripts/verify_provenance_runtime.py",
+              "--tenant-id", tenant_id,
+              "--run-id", result["run_id"],
+              "--expected-commit", os.environ["EXPECTED_COMMIT"],
+              "--expected-task", task,
+              "--expected-result", os.environ["EXPECTED_RESULT"],
+          ], capture_output=True, text=True)
+          assert clean.returncode == 0, clean
+          original_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+          mutated_payload = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+          mutated_hash = hashlib.sha256(mutated_payload.encode("utf-8")).hexdigest()
+          proof = {
+              "status": "VERIFIED",
+              "type": "explicit_tamper_mutation_proof",
+              "run_id": result["run_id"],
+              "tenant_id": tenant_id,
+              "record_seq": seq,
+              "original_payload_sha256": original_hash,
+              "mutated_payload_sha256": mutated_hash,
+              "hash_changed": original_hash != mutated_hash,
+              "verifier_status_after_mutation": parsed["status"],
+              "verifier_reason_after_mutation": parsed["reason"],
+              "clean_restore_verifier_exit": clean.returncode,
+              "restored_clean_evidence_verified": True,
+          }
+          assert proof["hash_changed"] is True
+          assert proof["verifier_status_after_mutation"] == "BLOCK"
+          assert proof["verifier_reason_after_mutation"] == "record hash mismatch"
+          with open("/tmp/tamper-proof.json", "w", encoding="utf-8") as stream:
+              json.dump(proof, stream, sort_keys=True, indent=2)
           print("CONTROLLED_EVIDENCE_MUTATION=VERIFIED")
+          print("EXPLICIT_TAMPER_PROOF=VERIFIED")
           PY
+          docker cp ola-provenance:/tmp/tamper-proof.json tamper-proof.json
 
       - name: Commit provenance mismatch must be rejected
         env:
@@ -155,6 +188,12 @@ jobs:
           print("CONTROLLED_COMMIT_MUTATION=VERIFIED")
           PY
 
+      - name: Upload explicit tamper proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: provenance-tamper-proof-${{ github.sha }}
+          path: tamper-proof.json
+          if-no-files-found: error
       - name: Stop deployment image
         if: always()
         run: docker stop ola-provenance || true
