@@ -54,3 +54,5 @@ def test_agent_runtime_accepts_received_llm_result(monkeypatch):
     assert result["provider"] == "openrouter"
     assert result["invocation_type"] == "real_llm"
     assert result["response_id"] == "resp-test"
+
+# CI synchronization marker: rerun against current main workflow snapshot.
