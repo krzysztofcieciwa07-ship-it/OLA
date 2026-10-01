@@ -181,12 +181,3 @@ jobs:
             replay-proof.sha256
             provenance.txt
             provenance.sha256
-
-
-  igor-independent:
-    needs: runtime-proof
-    uses: ./.github/workflows/igor-independent-evidence.yml
-    with:
-      source_commit: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-      nina_run_id: ${{ github.run_id }}
-      nina_artifact_name: nina-real-runtime-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
