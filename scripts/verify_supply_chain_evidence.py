@@ -3,7 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 
-REQUIRED = ("scorecard.json", "zizmor.json", "gitleaks.sarif", "trivy.json", "sbom.spdx.json", "ola-image.tar")
+REQUIRED = ("sbom.spdx.json", "trivy-image.json", "ola-image.tar", "attestation.verified", "slsa.verified", "sigstore.verified", "in-toto.verified")
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
