@@ -2,7 +2,7 @@ name: OLA Supply Chain Evidence Gate
 
 on:
   push:
-    branches: [main, feat/ola-evidence-supply-chain-20261001]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
