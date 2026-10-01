@@ -24,13 +24,19 @@ CONTROLLED_VAT_RATE = 0.21
 
 def _append(tenant_id, run_id, record_type, payload):
     safe_payload = redact({"run_id": run_id, **payload})
+    with SessionLocal() as db:
+        last = db.scalar(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.desc()))
+        seq = 0 if last is None else last.seq + 1
+        prev_hash = GENESIS_HASH if last is None else last.record_hash
+        base_payload_json = canonical_json(safe_payload)
+        safe_payload["_ola_provenance"] = {
+            "marker": provenance_marker(tenant_id, seq, prev_hash, base_payload_json),
+            "record_type": record_type,
+        }
+        payload_json = canonical_json(safe_payload)
         record = EvidenceRecord(
-            id=str(uuid.uuid4()),
-            tenant_id=tenant_id,
-            seq=seq,
-            record_type=record_type,
-            payload_json=payload_json,
-            prev_hash=prev_hash,
+            id=str(uuid.uuid4()), tenant_id=tenant_id, seq=seq, record_type=record_type,
+            payload_json=payload_json, prev_hash=prev_hash,
             record_hash=compute_record_hash(tenant_id, seq, prev_hash, payload_json),
         )
         db.add(record)
