@@ -134,22 +134,35 @@ class LLMGateway:
 
     @staticmethod
     def _openai_compatible(cfg, system, prompt):
-        response = httpx.post(
-            cfg.base_url + "/responses",
-            headers={"Authorization": f"Bearer {os.environ[cfg.api_key_env]}", "Content-Type": "application/json"},
-            json={"model": cfg.model, "input": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]},
-            timeout=float(os.getenv("OLA_LLM_TIMEOUT", "60")),
-        )
-        response.raise_for_status()
-        body = response.json()
-        output = body.get("output_text")
-        if not output:
-            parts = []
-            for item in body.get("output", []):
-                for part in item.get("content", []):
-                    if part.get("type") in {"output_text", "text"} and part.get("text"):
-                        parts.append(part["text"])
-            output = "\n".join(parts)
+        headers = {"Authorization": f"Bearer {os.environ[cfg.api_key_env]}", "Content-Type": "application/json"}
+        timeout = float(os.getenv("OLA_LLM_TIMEOUT", "60"))
+        if cfg.provider == "openai":
+            response = httpx.post(
+                cfg.base_url + "/responses",
+                headers=headers,
+                json={"model": cfg.model, "input": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]},
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            body = response.json()
+            output = body.get("output_text")
+            if not output:
+                parts = []
+                for item in body.get("output", []):
+                    for part in item.get("content", []):
+                        if part.get("type") in {"output_text", "text"} and part.get("text"):
+                            parts.append(part["text"])
+                output = "\n".join(parts)
+        else:
+            response = httpx.post(
+                cfg.base_url + "/chat/completions",
+                headers=headers,
+                json={"model": cfg.model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}], "temperature": 0},
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            body = response.json()
+            output = body.get("choices", [{}])[0].get("message", {}).get("content")
         if not output:
             raise ValueError("provider returned no output text")
         return {"output": output, "response_id": body.get("id")}
