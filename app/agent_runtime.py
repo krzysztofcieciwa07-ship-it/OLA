@@ -101,7 +101,7 @@ def _invoke_llm(agent, task, context):
     result = LLMGateway().invoke(agent, task, context)
     if result.status == "BLOCK":
         raise RuntimeError(result.reason or "LLM invocation blocked")
-    if result.status != "VERIFIED":
+    if result.status != "RECEIVED":
         return None
     return {
         "provider": result.provider,
