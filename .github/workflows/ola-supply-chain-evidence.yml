@@ -21,6 +21,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: OpenSSF Scorecard
         uses: ossf/scorecard-action@e8e61e86ea0a152be84d03729c02a7300065c17d # reviewed 2026-08-08
         with:
