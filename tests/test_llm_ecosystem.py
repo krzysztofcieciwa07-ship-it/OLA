@@ -32,3 +32,29 @@ def test_ollama_is_local_and_needs_no_api_key(monkeypatch):
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
     gateway = LLMGateway()
     assert gateway.provider_config().provider == "ollama"
+
+def test_openrouter_invocation_uses_chat_completions(monkeypatch):
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("OLA_LLM_MODEL", "openai/gpt-5.6-luna")
+
+    import app.llm_gateway as module
+
+    class Response:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"id": "resp-test", "choices": [{"message": {"content": "ok"}}]}
+
+    calls = []
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(module.httpx, "post", fake_post)
+    result = module.LLMGateway().invoke("nina", "hello", {})
+    assert result.status == "VERIFIED"
+    assert result.provider == "openrouter"
+    assert result.response_id == "resp-test"
+    assert calls[0][0].endswith("/chat/completions")
