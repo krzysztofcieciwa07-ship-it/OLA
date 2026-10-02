@@ -538,7 +538,7 @@ def create_business_invoice_run(body: dict, x_api_key: str | None = Header(defau
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-\@app.get("/evidence")
+@app.get("/evidence")
 def list_evidence(
     limit: int = 20,
     before_seq: int | None = None,
