@@ -1,6 +1,7 @@
 name: TRACEFORGE v0 Proof
 
 on:
+  workflow_dispatch:
   push:
     branches: ["feat/traceforge-v0"]
   pull_request:
