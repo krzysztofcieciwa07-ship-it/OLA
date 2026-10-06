@@ -1,6 +1,9 @@
 name: OLA FINAL PRODUCTION GATE
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -41,6 +44,10 @@ jobs:
         run: |
           set -euo pipefail
           target_sha="${{ steps.target.outputs.sha }}"
+          event_filter=""
+          case "${GITHUB_EVENT_NAME}" in
+            pull_request|push) event_filter="&event=${GITHUB_EVENT_NAME}" ;;
+          esac
           max_attempts=80
           sleep_seconds=15
 
@@ -50,13 +57,13 @@ jobs:
             curl -fsSL \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${target_sha}&per_page=100" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${target_sha}${event_filter}&per_page=100" \
               > required-runs.json
 
             curl -fsSL \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&per_page=100" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&event=push&per_page=100" \
               > reference-runs.json
 
             if python - <<'PY'
