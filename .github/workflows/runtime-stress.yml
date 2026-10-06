@@ -1,6 +1,9 @@
 name: OLA Real Runtime Stress Gate
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
