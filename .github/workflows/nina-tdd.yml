@@ -3,6 +3,7 @@ name: Nina TDD
 on:
   push:
     branches:
+      - main
       - nina-igor-execution-chain
   pull_request:
 

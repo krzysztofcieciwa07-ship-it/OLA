@@ -6,6 +6,7 @@ on:
   workflow_call:
   push:
     branches:
+      - main
       - feat/evidence-graph-v0.1
 
 permissions:

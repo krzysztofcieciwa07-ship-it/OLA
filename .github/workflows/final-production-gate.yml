@@ -1,6 +1,9 @@
 name: OLA FINAL PRODUCTION GATE
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -11,11 +14,6 @@ permissions: {}
 jobs:
   final-production:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
-      id-token: write
-      attestations: write
     permissions:
       contents: read
       actions: read
@@ -45,14 +43,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${{ steps.target.outputs.sha }}&per_page=100" \
-            > required-runs.json
-          python - <<'PY'
+          target_sha="${{ steps.target.outputs.sha }}"
+          event_filter=""
+          case "${GITHUB_EVENT_NAME}" in
+            pull_request|push) event_filter="&event=${GITHUB_EVENT_NAME}" ;;
+          esac
+          max_attempts=80
+          sleep_seconds=15
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "GATE_POLL_ATTEMPT=$attempt/$max_attempts"
+
+            curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${target_sha}${event_filter}&per_page=100" \
+              > required-runs.json
+
+            curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&event=push&per_page=100" \
+              > reference-runs.json
+
+            if python - <<'PY'
           import json
-          required = [
+          import sys
+
+          required_exact = [
               "Nina TDD",
               "OLA DI-OS Product Gate",
               "NINA IGOR Ollama Full Flow",
@@ -61,7 +79,6 @@ jobs:
               "OLA E2E Gate",
               "Evidence Graph v0.1",
               "Real LLM Ollama Runtime Gate",
-              "OLA Frontier Baseline",
               "Provenance Mutation Gate",
               "Provenance Gate Final",
               "Nina Igor Gate",
@@ -69,22 +86,88 @@ jobs:
               "OLA State Continuity and Stability",
               "OLA Real Runtime Stress Gate",
           ]
-          runs = {}
+          required_reference = [
+              "OLA Frontier Baseline",
+          ]
+
           with open("required-runs.json", encoding="utf-8") as stream:
-              data = json.load(stream)
-          for run in data.get("workflow_runs", []):
-              name = run.get("name")
-              if name:
-                  runs[name] = run.get("conclusion") or run.get("status") or "UNKNOWN"
-          missing = [name for name in required if name not in runs]
-          failed = {name: runs[name] for name in required if name in runs and runs[name] != "success"}
-          print(json.dumps({"required": required, "observed": {name: runs.get(name, "MISSING") for name in required}}, indent=2, sort_keys=True))
-          if missing:
-              raise SystemExit("MISSING_REQUIRED_GATES=" + ",".join(missing))
+              exact_data = json.load(stream)
+          with open("reference-runs.json", encoding="utf-8") as stream:
+              reference_data = json.load(stream)
+
+          def newest_by_name(data):
+              newest = {}
+              for run in data.get("workflow_runs", []):
+                  name = run.get("name")
+                  if name and name not in newest:
+                      newest[name] = {
+                          "id": run.get("id"),
+                          "status": run.get("status"),
+                          "conclusion": run.get("conclusion"),
+                          "head_sha": run.get("head_sha"),
+                          "event": run.get("event"),
+                          "html_url": run.get("html_url"),
+                      }
+              return newest
+
+          exact = newest_by_name(exact_data)
+          reference = newest_by_name(reference_data)
+
+          observed_exact = {name: exact.get(name) for name in required_exact}
+          observed_reference = {name: reference.get(name) for name in required_reference}
+
+          missing = [name for name, run in {**observed_exact, **observed_reference}.items() if run is None]
+          pending = {
+              name: run
+              for name, run in {**observed_exact, **observed_reference}.items()
+              if run is not None and run.get("status") != "completed"
+          }
+          failed = {
+              name: run
+              for name, run in {**observed_exact, **observed_reference}.items()
+              if run is not None
+              and run.get("status") == "completed"
+              and run.get("conclusion") != "success"
+          }
+
+          status = {
+              "exact_source_gates": observed_exact,
+              "reference_gates": observed_reference,
+              "missing": missing,
+              "pending": pending,
+              "failed": failed,
+          }
+          with open("gate-status.json", "w", encoding="utf-8") as stream:
+              json.dump(status, stream, indent=2, sort_keys=True)
+              stream.write("\n")
+          print(json.dumps(status, indent=2, sort_keys=True))
+
           if failed:
-              raise SystemExit("FAILED_REQUIRED_GATES=" + json.dumps(failed, sort_keys=True))
+              print("FAILED_REQUIRED_GATES=" + ",".join(sorted(failed)), file=sys.stderr)
+              raise SystemExit(2)
+          if missing or pending:
+              raise SystemExit(10)
           print("ALL_REQUIRED_EVIDENCE_GATES=SUCCESS")
           PY
+            then
+              gate_rc=0
+            else
+              gate_rc=$?
+            fi
+
+            if [ "$gate_rc" -eq 0 ]; then
+              break
+            fi
+            if [ "$gate_rc" -eq 2 ]; then
+              echo "A required evidence gate completed unsuccessfully."
+              exit 1
+            fi
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "Timed out waiting for required evidence gates."
+              exit 1
+            fi
+            sleep "$sleep_seconds"
+          done
 
       - name: Build release image
         run: docker build -t ola-final:${{ steps.target.outputs.sha }} .
@@ -153,11 +236,13 @@ jobs:
           name: ola-final-production-${{ steps.target.outputs.sha }}
           path: |
             required-runs.json
+            reference-runs.json
+            gate-status.json
             production-manifest.json
             production-manifest-sha256.txt
             source-sha256.txt
             image-sha256.txt
-            ola-source-${{ github.sha }}.tar.gz
+            ola-source-${{ steps.target.outputs.sha }}.tar.gz
             ola-release-image.tar
 
       - name: Cleanup
