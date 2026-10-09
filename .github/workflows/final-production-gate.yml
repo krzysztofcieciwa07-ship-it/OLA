@@ -187,25 +187,30 @@ jobs:
           test "$(docker image inspect "ola-final:${{ steps.target.outputs.sha }}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${{ steps.target.outputs.sha }}"
 
       - name: Export release image
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: docker save "ola-final:${{ steps.target.outputs.sha }}" -o ola-release-image.tar
 
       - name: Create source snapshot subjects
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
           git archive --format=tar.gz --output=ola-source-${{ steps.target.outputs.sha }}.tar.gz "${{ steps.target.outputs.sha }}"
           sha256sum "ola-source-${{ steps.target.outputs.sha }}.tar.gz" | tee source-sha256.txt
           sha256sum ola-release-image.tar | tee image-sha256.txt
 
       - name: Attest source snapshot
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: "ola-source-${{ steps.target.outputs.sha }}.tar.gz"
 
       - name: Attest release image archive
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: ola-release-image.tar
 
       - name: Independently verify source and image attestations
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -236,17 +241,31 @@ jobs:
         run: |
           set -euo pipefail
           status="BLOCKED"
-          attestations="UNKNOWN"
-          if [ "${{ job.status }}" = "success" ]; then
-            status="ATTESTED_PENDING_HUMAN"
-            attestations="VERIFIED"
+          attestations="NOT_PERFORMED"
+          source_snapshot="null"
+          release_image="null"
+          source_relation="UNVERIFIED"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            source_relation="PR_MERGE_TESTS_MAY_DIFFER_FROM_HEAD"
+            if [ "${{ job.status }}" = "success" ]; then status="PREMERGE_CI_PASSED"; fi
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            source_relation="MAIN_SHA"
+            if [ "${{ job.status }}" = "success" ]; then
+              status="ATTESTED_PENDING_HUMAN"
+              attestations="VERIFIED"
+              source_snapshot='"ola-source-${{ steps.target.outputs.sha }}.tar.gz"'
+              release_image='"ola-release-image.tar"'
+            fi
           fi
           cat > production-manifest.json <<EOF
           {
             "schema": "ola-production-evidence-v1",
             "commit": "${{ steps.target.outputs.sha }}",
-            "source_snapshot": "ola-source-${{ steps.target.outputs.sha }}.tar.gz",
-            "release_image": "ola-release-image.tar",
+            "workflow_event_sha": "${{ github.sha }}",
+            "workflow_event": "${{ github.event_name }}",
+            "source_relation": "${source_relation}",
+            "source_snapshot": ${source_snapshot},
+            "release_image": ${release_image},
             "source_attestation": "${attestations}",
             "image_attestation": "${attestations}",
             "required_ci_gates": ["ci","state-continuity","stability","provenance","signatures","real-runtime","stress","tamper","replay"],
