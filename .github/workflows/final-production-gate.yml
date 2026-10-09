@@ -37,6 +37,46 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Defense in depth for PRs; the independent gate lives on trusted base.
+      - name: Verify all PR commit signatures
+        id: signatures
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          OLA_ALLOWED_SIGNER_FPRS: ${{ vars.OLA_ALLOWED_SIGNER_FPRS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_github_signatures.py
+
+      - name: Verify GitHub source signature on main push
+        id: main_signatures
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.target.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${SOURCE_SHA}" > main-signature.json
+          python3 - <<'PY'
+          import json,os
+          d=json.load(open("main-signature.json",encoding="utf8"))
+          v=d.get("commit",{}).get("verification",{})
+          if d.get("sha") != os.environ["SOURCE_SHA"] or v.get("verified") is not True or v.get("reason") != "valid":
+              raise SystemExit("BLOCKED: main source commit not GitHub VERIFIED")
+          print("MAIN_COMMIT_SIGNATURE=VERIFIED")
+          PY
+
+      - name: Block unaudited manual production dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "BLOCKED: requires PR signature gate or main push signature check" >&2
+          exit 1
+
       - name: Verify required evidence gates
         env:
           GH_TOKEN: ${{ github.token }}
@@ -214,16 +254,39 @@ jobs:
         run: |
           set -euo pipefail
           status="BLOCKED"
-          if [ "${{ job.status }}" = "success" ]; then status="VERIFIED"; fi
+          signature_gate="BLOCKED"
+          attestation_status="UNKNOWN"
+          human_gate="PENDING"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            if [ "${{ steps.signatures.outcome }}" = "success" ]; then
+              signature_gate="AUTHORIZED_GPG_VERIFIED"
+              if [ "${{ job.status }}" = "success" ]; then status="PREMERGE_CI_PASSED"; fi
+            fi
+            attestation_status="PR_ONLY_NOT_RELEASE"
+          elif [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            if [ "${{ steps.main_signatures.outcome }}" = "success" ]; then
+              signature_gate="GITHUB_COMMIT_VERIFIED"
+              if [ "${{ job.status }}" = "success" ]; then
+                status="ATTESTED_PENDING_HUMAN"
+                attestation_status="VERIFIED"
+              fi
+            fi
+          fi
           cat > production-manifest.json <<EOF
           {
             "schema": "ola-production-evidence-v1",
             "commit": "${{ steps.target.outputs.sha }}",
+            "workflow_event": "${GITHUB_EVENT_NAME}",
+            "workflow_event_sha": "${GITHUB_SHA}",
+            "commit_signature_gate": "${signature_gate}",
             "source_snapshot": "ola-source-${{ steps.target.outputs.sha }}.tar.gz",
             "release_image": "ola-release-image.tar",
-            "source_attestation": "verified-by-github-actions-attestation",
-            "image_attestation": "verified-by-github-actions-attestation",
+            "source_attestation": "${attestation_status}",
+            "image_attestation": "${attestation_status}",
             "required_gates": ["ci","state-continuity","stability","provenance","signatures","real-runtime","stress","tamper","replay","human-gate"],
+            "human_gate": "${human_gate}",
+            "production_deployment": "NOT_PERFORMED",
+            "go_no_go": "NO-GO",
             "final_status": "${status}"
           }
           EOF
