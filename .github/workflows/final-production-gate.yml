@@ -245,10 +245,10 @@ jobs:
           source_snapshot="null"
           release_image="null"
           source_relation="UNVERIFIED"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
             source_relation="PR_MERGE_TESTS_MAY_DIFFER_FROM_HEAD"
             if [ "${{ job.status }}" = "success" ]; then status="PREMERGE_CI_PASSED"; fi
-          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          elif [ "${GITHUB_REF}" = "refs/heads/main" ]; then
             source_relation="MAIN_SHA"
             if [ "${{ job.status }}" = "success" ]; then
               status="ATTESTED_PENDING_HUMAN"
