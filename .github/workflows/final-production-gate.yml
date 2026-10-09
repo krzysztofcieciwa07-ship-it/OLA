@@ -36,6 +36,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ steps.target.outputs.sha }}
+
+      - name: Verify checked out source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.target.outputs.sha }}"
+          test -z "$(git status --porcelain=v1)"
+          echo "SOURCE_BINDING=PASS"
 
       - name: Verify required evidence gates
         env:
@@ -170,7 +179,12 @@ jobs:
           done
 
       - name: Build release image
-        run: docker build -t ola-final:${{ steps.target.outputs.sha }} .
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.target.outputs.sha }}"
+          docker build --label "org.opencontainers.image.revision=${{ steps.target.outputs.sha }}" -t "ola-final:${{ steps.target.outputs.sha }}" .
+          test "$(docker image inspect "ola-final:${{ steps.target.outputs.sha }}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${{ steps.target.outputs.sha }}"
 
       - name: Export release image
         run: docker save "ola-final:${{ steps.target.outputs.sha }}" -o ola-release-image.tar
@@ -204,9 +218,17 @@ jobs:
         run: |
           set -euo pipefail
           docker run -d --name ola-final-gate -p 8000:8000 "ola-final:${{ steps.target.outputs.sha }}"
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health >/dev/null && exit 0; sleep 2; done
-          docker logs ola-final-gate
-          exit 1
+          booted=0
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null; then booted=1; break; fi
+            sleep 2
+          done
+          if [ "$booted" -ne 1 ]; then docker logs ola-final-gate; exit 1; fi
+          for i in $(seq 1 6); do
+            curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null || { docker logs ola-final-gate; exit 1; }
+            if [ "$i" -lt 6 ]; then sleep 5; fi
+          done
+          echo "HEALTH_STABLE_25S=PASS"
 
       - name: Generate final production manifest
         if: always()
@@ -214,16 +236,23 @@ jobs:
         run: |
           set -euo pipefail
           status="BLOCKED"
-          if [ "${{ job.status }}" = "success" ]; then status="VERIFIED"; fi
+          attestations="UNKNOWN"
+          if [ "${{ job.status }}" = "success" ]; then
+            status="ATTESTED_PENDING_HUMAN"
+            attestations="VERIFIED"
+          fi
           cat > production-manifest.json <<EOF
           {
             "schema": "ola-production-evidence-v1",
             "commit": "${{ steps.target.outputs.sha }}",
             "source_snapshot": "ola-source-${{ steps.target.outputs.sha }}.tar.gz",
             "release_image": "ola-release-image.tar",
-            "source_attestation": "verified-by-github-actions-attestation",
-            "image_attestation": "verified-by-github-actions-attestation",
-            "required_gates": ["ci","state-continuity","stability","provenance","signatures","real-runtime","stress","tamper","replay","human-gate"],
+            "source_attestation": "${attestations}",
+            "image_attestation": "${attestations}",
+            "required_ci_gates": ["ci","state-continuity","stability","provenance","signatures","real-runtime","stress","tamper","replay"],
+            "human_gate": "PENDING",
+            "production_deployment": "NOT_PERFORMED",
+            "go_no_go": "NO-GO",
             "final_status": "${status}"
           }
           EOF
