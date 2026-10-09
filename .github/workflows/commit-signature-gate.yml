@@ -1,11 +1,12 @@
 name: OLA Signed Commit Gate Trusted
-on:
+on: # zizmor: ignore[dangerous-triggers] Intentional trusted-base verification; read-only; no PR checkout/code, only same-repo PRs.
   pull_request_target:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
 permissions: {}
 jobs:
   signed-commits:
+    if: github.repository == 'krzysztofcieciwa07-ship-it/OLA' && github.event.pull_request.head.repo.full_name == 'krzysztofcieciwa07-ship-it/OLA'
     runs-on: ubuntu-latest
     permissions:
       contents: read
