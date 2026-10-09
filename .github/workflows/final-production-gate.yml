@@ -255,20 +255,24 @@ jobs:
           set -euo pipefail
           status="BLOCKED"
           signature_gate="BLOCKED"
-          attestation_status="UNKNOWN"
+          attestation_status="NOT_PERFORMED"
+          source_snapshot_json="null"
+          release_image_json="null"
           human_gate="PENDING"
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
             if [ "${{ steps.signatures.outcome }}" = "success" ]; then
               signature_gate="AUTHORIZED_GPG_VERIFIED"
               if [ "${{ job.status }}" = "success" ]; then status="PREMERGE_CI_PASSED"; fi
             fi
-            attestation_status="PR_ONLY_NOT_RELEASE"
+            if [ "$status" = "PREMERGE_CI_PASSED" ]; then attestation_status="PR_ONLY_NOT_RELEASE"; fi
           elif [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
             if [ "${{ steps.main_signatures.outcome }}" = "success" ]; then
               signature_gate="GITHUB_COMMIT_VERIFIED"
               if [ "${{ job.status }}" = "success" ]; then
                 status="ATTESTED_PENDING_HUMAN"
                 attestation_status="VERIFIED"
+                source_snapshot_json='"ola-source-${{ steps.target.outputs.sha }}.tar.gz"'
+                release_image_json='"ola-release-image.tar"'
               fi
             fi
           fi
@@ -279,8 +283,8 @@ jobs:
             "workflow_event": "${GITHUB_EVENT_NAME}",
             "workflow_event_sha": "${GITHUB_SHA}",
             "commit_signature_gate": "${signature_gate}",
-            "source_snapshot": "ola-source-${{ steps.target.outputs.sha }}.tar.gz",
-            "release_image": "ola-release-image.tar",
+            "source_snapshot": ${source_snapshot_json},
+            "release_image": ${release_image_json},
             "source_attestation": "${attestation_status}",
             "image_attestation": "${attestation_status}",
             "required_gates": ["ci","state-continuity","stability","provenance","signatures","real-runtime","stress","tamper","replay","human-gate"],
