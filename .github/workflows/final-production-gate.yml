@@ -52,24 +52,18 @@ jobs:
           set -euo pipefail
           python3 scripts/verify_github_signatures.py
 
-      - name: Verify GitHub source signature on main push
+      - name: Verify every newly introduced main commit signature
         id: main_signatures
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ steps.target.outputs.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          OLA_ALLOWED_SIGNER_FPRS: ${{ vars.OLA_ALLOWED_SIGNER_FPRS }}
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/commits/${SOURCE_SHA}" > main-signature.json
-          python3 - <<'PY'
-          import json,os
-          d=json.load(open("main-signature.json",encoding="utf8"))
-          v=d.get("commit",{}).get("verification",{})
-          if d.get("sha") != os.environ["SOURCE_SHA"] or v.get("verified") is not True or v.get("reason") != "valid":
-              raise SystemExit("BLOCKED: main source commit not GitHub VERIFIED")
-          print("MAIN_COMMIT_SIGNATURE=VERIFIED")
-          PY
+          python3 scripts/verify_main_push_signatures.py
 
       - name: Block unaudited manual production dispatch
         if: github.event_name == 'workflow_dispatch'

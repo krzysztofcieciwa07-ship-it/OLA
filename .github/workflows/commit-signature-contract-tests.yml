@@ -20,4 +20,6 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tests -p test_signature_gate_contract.py -v
           python3 -m unittest discover -s tests -p test_signature_gpg.py -v
-          python3 -m py_compile scripts/verify_github_signatures.py
+          python3 -m unittest discover -s tests -p test_main_push_signatures.py -v
+          python3 -m unittest discover -s tests -p test_main_push_git_range.py -v
+          python3 -m py_compile scripts/verify_github_signatures.py scripts/verify_main_push_signatures.py
