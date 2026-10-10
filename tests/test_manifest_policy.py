@@ -32,11 +32,58 @@ class ManifestPolicyTests(unittest.TestCase):
                         event_sha=MERGE if event=="pull_request" else SOURCE,
                         ref=ref,root=self.root)
     def ci(self,wrong_sha=False):
-        (self.root/"gate-status.json").write_text(json.dumps({
+        exact_names=[
+            "Nina TDD", "OLA DI-OS Product Gate",
+            "NINA IGOR Ollama Full Flow", "OLA Decision Evidence Gate",
+            "Revenue Surface Gate", "OLA E2E Gate", "Evidence Graph v0.1",
+            "Real LLM Ollama Runtime Gate", "Provenance Mutation Gate",
+            "Provenance Gate Final", "Nina Igor Gate",
+            "Nina Real Runtime Provenance Gate (OpenAI optional)",
+            "OLA State Continuity and Stability", "OLA Real Runtime Stress Gate",
+        ]
+        self.ci_payload={
             "missing":[],"pending":{},"failed":{},
-            "exact_source_gates":{"E2E":{"status":"completed","conclusion":"success",
-                                          "head_sha":"f"*40 if wrong_sha else SOURCE}},
-            "reference_gates":{"BASE":{"status":"completed","conclusion":"success"}}}))
+            "exact_source_gates":{
+                name:{"status":"completed","conclusion":"success",
+                      "head_sha":"f"*40 if wrong_sha else SOURCE,
+                      "event":"pull_request","id":100+i}
+                for i,name in enumerate(exact_names)
+            },
+            "reference_gates":{
+                "OLA Frontier Baseline":{
+                    "status":"completed","conclusion":"success",
+                    "head_sha":"c"*40,"event":"push","id":200}
+            },
+        }
+        (self.root/"gate-status.json").write_text(json.dumps(self.ci_payload))
+    def test_missing_required_exact_gate_rejected(self):
+        m=self.pr_signed()
+        del self.ci_payload["exact_source_gates"]["Real LLM Ollama Runtime Gate"]
+        (self.root/"gate-status.json").write_text(json.dumps(self.ci_payload))
+        self.blocked(m,"missing required CI")
+    def test_fake_ci_gate_name_rejected(self):
+        m=self.pr_signed()
+        self.ci_payload["exact_source_gates"]["Totally unrelated CI"]={
+            "status":"completed","conclusion":"success","head_sha":SOURCE,
+            "event":"pull_request","id":311}
+        (self.root/"gate-status.json").write_text(json.dumps(self.ci_payload))
+        self.blocked(m,"unexpected CI")
+    def test_wrong_ci_event_rejected(self):
+        m=self.pr_signed()
+        self.ci_payload["exact_source_gates"]["OLA E2E Gate"]["event"]="workflow_dispatch"
+        (self.root/"gate-status.json").write_text(json.dumps(self.ci_payload))
+        self.blocked(m,"CI event")
+    def test_wrong_reference_event_rejected(self):
+        m=self.pr_signed()
+        self.ci_payload["reference_gates"]["OLA Frontier Baseline"]["event"]="pull_request"
+        (self.root/"gate-status.json").write_text(json.dumps(self.ci_payload))
+        self.blocked(m,"CI event")
+    def test_absent_reference_gate_rejected(self):
+        m=self.pr_signed()
+        self.ci_payload["reference_gates"]={}
+        (self.root/"gate-status.json").write_text(json.dumps(self.ci_payload))
+        self.blocked(m,"missing required CI")
+
     def pr_signed(self):
         m=fixture(state="PREMERGE_CI_PASSED")
         m.update(commit_signature_gate="AUTHORIZED_GPG_VERIFIED",
