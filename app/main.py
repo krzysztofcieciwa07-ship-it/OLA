@@ -25,11 +25,19 @@ app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
 install_append_only_triggers()
 
+API_KEY_HASH_ITERATIONS = 600_000
+API_KEY_HASH_SALT = os.environ.get("API_KEY_HASH_SALT", "ola-api-key-salt").encode("utf-8")
+
 
 def identity_from_key(raw_key):
     if not raw_key:
         raise HTTPException(status_code=401, detail="missing API key")
-    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    key_hash = hashlib.pbkdf2_hmac(
+        "sha256",
+        raw_key.encode("utf-8"),
+        API_KEY_HASH_SALT,
+        API_KEY_HASH_ITERATIONS,
+    ).hex()
     with SessionLocal() as db:
         key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
         if key is None:
