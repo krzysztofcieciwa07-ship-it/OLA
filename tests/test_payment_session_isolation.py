@@ -106,7 +106,8 @@ def test_exact_checkout_session_returns_only_correct_result_to_owner(monkeypatch
 
     public = client.get("/payment-success", params={"session_id": session_a})
     assert public.status_code == 200
-    assert public.json()["status"] == "COMPLETED"
+    assert public.json()["status"] == "PAYMENT_CONFIRMED"
+    assert public.json()["execution"] == "AUTH_REQUIRED_FOR_STATUS"
     assert "task" not in public.json()
     assert "run_id" not in public.json()
     assert "result" not in public.json()
@@ -157,3 +158,21 @@ def test_incomplete_or_unverified_result_record_not_disclosed(monkeypatch):
     )
     assert response.status_code == 409
     assert "ola_final_result" not in response.text
+
+
+def test_anonymous_payment_status_never_queries_execution_database(monkeypatch):
+    tenant_a, _ = _tenant()
+    session_id = "cs_public_" + uuid.uuid4().hex
+    monkeypatch.setattr(main, "retrieve_checkout", lambda requested: _session(tenant_a, session_id))
+
+    def forbidden_database_access():
+        raise AssertionError("anonymous status must not query Stripe execution records")
+
+    monkeypatch.setattr(main, "SessionLocal", forbidden_database_access)
+    response = TestClient(main.app).get("/payment-success", params={"session_id": session_id})
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "status": "PAYMENT_CONFIRMED",
+        "session_id": session_id,
+        "execution": "AUTH_REQUIRED_FOR_STATUS",
+    }
