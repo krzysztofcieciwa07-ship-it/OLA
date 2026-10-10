@@ -36,6 +36,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ steps.target.outputs.sha }}
+
+      - name: Verify checked out source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.target.outputs.sha }}"
+          test -z "$(git status --porcelain=v1)"
+          echo "SOURCE_SHA_BINDING=PASS"
 
       # Defense in depth for PRs; the independent gate lives on trusted base.
       - name: Verify all PR commit signatures
@@ -207,25 +216,30 @@ jobs:
         run: docker build -t ola-final:${{ steps.target.outputs.sha }} .
 
       - name: Export release image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: docker save "ola-final:${{ steps.target.outputs.sha }}" -o ola-release-image.tar
 
       - name: Create source snapshot subjects
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           git archive --format=tar.gz --output=ola-source-${{ steps.target.outputs.sha }}.tar.gz "${{ steps.target.outputs.sha }}"
           sha256sum "ola-source-${{ steps.target.outputs.sha }}.tar.gz" | tee source-sha256.txt
           sha256sum ola-release-image.tar | tee image-sha256.txt
 
       - name: Attest source snapshot
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: "ola-source-${{ steps.target.outputs.sha }}.tar.gz"
 
       - name: Attest release image archive
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: ola-release-image.tar
 
       - name: Independently verify source and image attestations
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
