@@ -71,6 +71,19 @@ class MainPushSignatureTests(unittest.TestCase):
             if sha==HEAD:r["commit"]["verification"]["verified"]=False
             return r
         with self.assertRaisesRegex(GateBlocked,"unverified"):self.call(fetch=tamper)
+    def test_merged_commit_must_use_official_github_signer(self):
+        # A GitHub-verified signature combined with a spoofed committer
+        # name cannot bypass the independently authorized signing key.
+        calls = []
+        def adversarial_verify(signature, payload, email, allowed):
+            calls.append((email, allowed))
+            if email == "noreply@github.com":
+                raise GateBlocked("untrusted GitHub merge signature")
+            return FPR
+        with self.assertRaisesRegex(GateBlocked, "untrusted GitHub merge signature"):
+            self.call(verify=adversarial_verify)
+        self.assertTrue(any(email == "noreply@github.com" for email, _ in calls))
+
     def test_not_github_merge_identity_blocks(self):
         original=make_fetch()
         def tamper(sha):
