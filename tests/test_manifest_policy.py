@@ -31,7 +31,7 @@ class ManifestPolicyTests(unittest.TestCase):
         return validate(m,source=SOURCE,event=event,
                         event_sha=MERGE if event=="pull_request" else SOURCE,
                         ref=ref,root=self.root)
-    def ci(self,wrong_sha=False):
+    def ci(self,wrong_sha=False,event="pull_request"):
         exact_names=[
             "Nina TDD", "OLA DI-OS Product Gate",
             "NINA IGOR Ollama Full Flow", "OLA Decision Evidence Gate",
@@ -46,7 +46,7 @@ class ManifestPolicyTests(unittest.TestCase):
             "exact_source_gates":{
                 name:{"status":"completed","conclusion":"success",
                       "head_sha":"f"*40 if wrong_sha else SOURCE,
-                      "event":"pull_request","id":100+i}
+                      "event":event,"id":100+i}
                 for i,name in enumerate(exact_names)
             },
             "reference_gates":{
@@ -105,7 +105,7 @@ class ManifestPolicyTests(unittest.TestCase):
             payload=("valid "+name).encode()
             (self.root/name).write_bytes(payload)
             (self.root/sumfile).write_text(hashlib.sha256(payload).hexdigest()+"  "+name+"\n")
-        self.ci()
+        self.ci(event="push")
         return m
     def blocked(self,m,match):
         with self.assertRaisesRegex(PolicyError,match):self.call(m)
