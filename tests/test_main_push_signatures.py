@@ -2,7 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"scripts"))
-from verify_main_push_signatures import validate_main_push,GateBlocked
+from verify_main_push_signatures import validate_main_push,GateBlocked,GITHUB_WEBFLOW_SIGNER_FPR
 
 PRE="a"*40
 HEAD="e"*40
@@ -48,7 +48,7 @@ class MainPushSignatureTests(unittest.TestCase):
 
     def call(self,**params):
         a=dict(before=PRE,head=HEAD,commits=[OWNER,HEAD],allowed_fprs=FPR,fetch=make_fetch(),
-               verify=lambda signature,payload,email,allowed:FPR)
+               verify=lambda signature,payload,email,allowed:(GITHUB_WEBFLOW_SIGNER_FPR if allowed=={GITHUB_WEBFLOW_SIGNER_FPR} else FPR))
         a.update(params)
         return validate_main_push(**a)
     def test_owner_and_github_signed_merge_pass(self):
@@ -84,6 +84,11 @@ class MainPushSignatureTests(unittest.TestCase):
             self.call(verify=adversarial_verify)
         self.assertTrue(any(email == "noreply@github.com" for email, _ in calls))
 
+    def test_wrong_github_merge_key_blocks(self):
+        def forged_signer(signature,payload,email,allowed):
+            return "F"*40 if email=="noreply@github.com" else FPR
+        with self.assertRaisesRegex(GateBlocked,"untrusted GitHub merge signature"):
+            self.call(verify=forged_signer)
     def test_not_github_merge_identity_blocks(self):
         original=make_fetch()
         def tamper(sha):
