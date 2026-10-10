@@ -31,7 +31,8 @@ def classify(rows, source_sha):
             raise BadRun("unknown run status")
         if status == "completed" and conclusion not in DONE:
             raise BadRun("missing/invalid completed conclusion")
-        if status in ACTIVE and conclusion is not None:
+        # gh CLI may serialize a nonterminal conclusion as null or empty string.
+        if status in ACTIVE and conclusion not in (None, ""):
             raise BadRun("active run has conclusion")
         if sha == source_sha:
             parsed.append({"id":rid,"sha":sha,"status":status,"conclusion":conclusion})

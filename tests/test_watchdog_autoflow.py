@@ -20,6 +20,13 @@ class WatchdogTests(unittest.TestCase):
         self.assertEqual((x["status"],x["production_go"]),("DEGRADED","NO-GO"))
     def test_active_run_is_pending(self):
         self.assertEqual(classify([run(21,None,"in_progress")],SHA)["status"],"PENDING")
+    def test_github_cli_active_empty_conclusion_is_pending(self):
+        self.assertEqual(
+            classify([run(21,"","in_progress")],SHA)["status"],"PENDING"
+        )
+    def test_active_with_false_success_is_rejected(self):
+        with self.assertRaises(BadRun):
+            classify([run(21,"success","in_progress")],SHA)
     def test_bootstrap_missing_source(self):
         self.assertEqual(classify([run(21,"failure",sha=OLD)],SHA)["status"],"BOOTSTRAP")
     def test_unknown_status_rejected(self):
