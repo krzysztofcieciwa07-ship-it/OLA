@@ -12,6 +12,8 @@ from typing import Callable
 
 HEX=re.compile(r"^[0-9a-f]{40}$")
 OWNER_KEY_URL="https://github.com/krzysztofcieciwa07-ship-it.gpg"
+GITHUB_WEBFLOW_KEY_URL="https://github.com/web-flow.gpg"
+GITHUB_WEBFLOW_SIGNER_FPR="968479A1AFF927E37D1A566BB5690EEEBB952194"
 
 class GateBlocked(Exception):
     pass
@@ -67,9 +69,15 @@ def validate_main_push(*,before:str,head:str,commits:list[str],allowed_fprs:str,
             committer=data.get("committer") or {}
             if committer.get("name")!="GitHub" or committer.get("email")!="noreply@github.com":
                 raise GateBlocked("untrusted merge identity")
+            try:
+                signer=verify(signature,payload,"noreply@github.com",{GITHUB_WEBFLOW_SIGNER_FPR}).upper()
+            except GateBlocked:raise
+            except Exception as exc:
+                raise GateBlocked(f"independent GitHub merge verification failed: {type(exc).__name__}") from exc
+            if signer!=GITHUB_WEBFLOW_SIGNER_FPR:
+                raise GateBlocked("untrusted GitHub merge signature")
             merge_count+=1
             kind="GITHUB_SIGNED_MERGE"
-            signer="GitHub"
         else:
             email=(data.get("author") or {}).get("email")
             if not isinstance(email,str) or not email:
@@ -120,6 +128,7 @@ def main()->int:
     result={"status":"BLOCKED","gate":"OLA_MAIN_PUSH_SIGNED_ANCESTRY",
             "human_gate":"PENDING","production_go":"NO-GO"}
     verifier=None
+    github_verifier=None
     try:
         from verify_github_signatures import GPG as GPGVerifier
         repo=os.environ.get("GITHUB_REPOSITORY","")
@@ -130,7 +139,9 @@ def main()->int:
         token=os.environ.get("GITHUB_TOKEN","")
         if not token:raise GateBlocked("GitHub token unavailable")
         allowed_raw=os.environ.get("OLA_ALLOWED_SIGNER_FPRS","")
-        allowlist(allowed_raw)
+        approved=allowlist(allowed_raw)
+        if GITHUB_WEBFLOW_SIGNER_FPR in approved:
+            raise GateBlocked("GitHub merge signing key cannot authorize owner source commits")
         before,head=checked_sha(os.environ.get("PUSH_BEFORE_SHA")),checked_sha(os.environ.get("SOURCE_SHA"))
         if subprocess.run(["git","rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()!=head:
             raise GateBlocked("checked out source is not push HEAD")
@@ -139,13 +150,21 @@ def main()->int:
         with urllib.request.urlopen(request,timeout=20) as resp:keys=resp.read(1_000_001)
         if len(keys)>1_000_000:raise GateBlocked("owner key bundle too large")
         verifier=GPGVerifier(keys)
+        request=urllib.request.Request(GITHUB_WEBFLOW_KEY_URL,headers={"User-Agent":"OLA-main-signature-gate/1"})
+        with urllib.request.urlopen(request,timeout=20) as resp:github_keys=resp.read(1_000_001)
+        if len(github_keys)>1_000_000:raise GateBlocked("GitHub merge key bundle too large")
+        github_verifier=GPGVerifier(github_keys)
+        def independent_verify(signature,payload,email,allowed):
+            selected=github_verifier if allowed=={GITHUB_WEBFLOW_SIGNER_FPR} else verifier
+            return selected.verify(signature,payload,email,allowed)
         result=validate_main_push(before=before,head=head,commits=shas,allowed_fprs=allowed_raw,
-                                  fetch=lambda sha:_get_commit(repo,token,sha),verify=verifier.verify)
+                                  fetch=lambda sha:_get_commit(repo,token,sha),verify=independent_verify)
         rc=0
     except Exception as exc:
         result["reason"]=str(exc) if isinstance(exc,GateBlocked) else type(exc).__name__
         rc=1
     finally:
+        if github_verifier is not None:github_verifier.close()
         if verifier is not None:verifier.close()
     output.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf8")
     print(json.dumps(result,sort_keys=True))
