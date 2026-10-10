@@ -32,7 +32,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh run list --workflow ola-12h-autoflow.yml --branch main --limit 5 --json databaseId,status,conclusion,createdAt,updatedAt > autoflow-runs.json
+          gh run list --workflow ola-12h-autoflow.yml --branch main --limit 5 --json databaseId,headSha,status,conclusion,createdAt,updatedAt > autoflow-runs.json
           python - <<'PY'
           import json
           rows=json.load(open("autoflow-runs.json"))
@@ -40,6 +40,25 @@ jobs:
           for r in rows:
               print(r)
           PY
+
+      - name: Enforce source-bound runtime health
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 scripts/watchdog_autoflow.py \
+            --runs-file autoflow-runs.json \
+            --source-sha "$GITHUB_SHA" | tee watchdog-diagnostic.json
+
+      - name: Preserve blocked Watchdog evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: watchdog-blocked-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            autoflow-runs.json
+            watchdog-diagnostic.json
+          if-no-files-found: warn
 
       - name: Run local quality smoke gate
         run: |
