@@ -16,6 +16,23 @@ DIGEST=re.compile(r"^[0-9a-f]{64}$")
 REQUIRED={"ci","state-continuity","stability","provenance","signatures",
           "real-runtime","stress","tamper","replay","human-gate"}
 STATES={"BLOCKED","PREMERGE_CI_PASSED","ATTESTED_PENDING_HUMAN"}
+REQUIRED_EXACT_CI=frozenset({
+    "Nina TDD",
+    "OLA DI-OS Product Gate",
+    "NINA IGOR Ollama Full Flow",
+    "OLA Decision Evidence Gate",
+    "Revenue Surface Gate",
+    "OLA E2E Gate",
+    "Evidence Graph v0.1",
+    "Real LLM Ollama Runtime Gate",
+    "Provenance Mutation Gate",
+    "Provenance Gate Final",
+    "Nina Igor Gate",
+    "Nina Real Runtime Provenance Gate (OpenAI optional)",
+    "OLA State Continuity and Stability",
+    "OLA Real Runtime Stress Gate",
+})
+REQUIRED_REFERENCE_CI=frozenset({"OLA Frontier Baseline"})
 
 class PolicyError(ValueError):
     pass
@@ -109,14 +126,28 @@ def validate(m,*,source,event,event_sha,ref,root):
         p=data(root/"gate-status.json")
         need(all(not p.get(k) for k in ("missing","pending","failed")),
              "evidence gate missing, pending or failed")
-        for group in ("exact_source_gates","reference_gates"):
+        for group,required in (
+            ("exact_source_gates",REQUIRED_EXACT_CI),
+            ("reference_gates",REQUIRED_REFERENCE_CI),
+        ):
             checks=p.get(group)
-            need(isinstance(checks,dict) and bool(checks),"required CI group absent")
+            need(isinstance(checks,dict),"required CI group absent")
+            actual=set(checks)
+            need(not (required-actual),"missing required CI gate: "+",".join(sorted(required-actual)))
+            need(not (actual-required),"unexpected CI gate: "+",".join(sorted(actual-required)))
             for name,run in checks.items():
                 need(isinstance(run,dict) and run.get("status")=="completed" and
                      run.get("conclusion")=="success","required CI failed: "+name)
+                need(type(run.get("id")) is int and run["id"]>0,
+                     "CI run identity missing: "+name)
+                expected_event=event if group=="exact_source_gates" else "push"
+                need(run.get("event")==expected_event,"CI event mismatch: "+name)
                 if group=="exact_source_gates":
                     need(run.get("head_sha")==source,"CI source SHA drift: "+name)
+                else:
+                    need(isinstance(run.get("head_sha"),str) and
+                         SHA.fullmatch(run["head_sha"]) is not None,
+                         "reference CI SHA invalid: "+name)
     return status
 
 def main():
