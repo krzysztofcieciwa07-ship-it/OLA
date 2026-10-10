@@ -39,13 +39,15 @@ class ExecutionSafetyGate:
             return ExecutionDecision(status="BLOCK")
         if not isinstance(risk, str) or risk.upper() not in self.ALLOWED_RISK_LEVELS:
             return ExecutionDecision(status="BLOCK")
-        if not isinstance(action, str) or action not in self._allowed_actions:
-            return ExecutionDecision(status="BLOCK")
+        # Preserve the established REVIEW contract for all high-risk requests:
+        # never execute them, even if an action is not on the allowlist.
         if risk.upper() in {"HIGH", "CRITICAL"}:
             return ExecutionDecision(
                 status="REVIEW",
                 required_approval="HUMAN_OWNER",
             )
+        if not isinstance(action, str) or action not in self._allowed_actions:
+            return ExecutionDecision(status="BLOCK")
 
         result = effect()
         return ExecutionDecision(
