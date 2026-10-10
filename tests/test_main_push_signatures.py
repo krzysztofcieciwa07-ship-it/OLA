@@ -23,6 +23,29 @@ def make_fetch(bad=False):
     return lambda sha:commits[sha]
 
 class MainPushSignatureTests(unittest.TestCase):
+    def test_entrypoint_uses_real_verifier_class(self):
+        # Regression: the main() entrypoint formerly imported an unavailable
+        # GPGVerifier class, making actual signed pushes fail before policy.
+        import json
+        import os
+        import tempfile
+        from unittest.mock import patch
+        from verify_main_push_signatures import main as entrypoint
+        with tempfile.TemporaryDirectory() as root:
+            previous = os.getcwd()
+            try:
+                os.chdir(root)
+                with patch.dict(os.environ, {"GITHUB_REPOSITORY": "invalid/repo"}, clear=True):
+                    code = entrypoint()
+                with open("main-signature-result.json", encoding="utf-8") as stream:
+                    evidence = json.load(stream)
+            finally:
+                os.chdir(previous)
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["status"], "BLOCKED")
+        self.assertEqual(evidence["reason"], "unexpected target repository")
+
+
     def call(self,**params):
         a=dict(before=PRE,head=HEAD,commits=[OWNER,HEAD],allowed_fprs=FPR,fetch=make_fetch(),
                verify=lambda signature,payload,email,allowed:FPR)
