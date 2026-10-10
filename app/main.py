@@ -219,6 +219,16 @@ def payment_success(
     if not isinstance(task, str) or not task.strip():
         return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
 
+    # A browser redirect has only a session identifier, not tenant auth.
+    # Never scan execution records (or disclose execution status) for an
+    # unauthenticated caller. Stripe alone proves payment, not OLA execution.
+    if not authorized:
+        return {
+            "status": "PAYMENT_CONFIRMED",
+            "session_id": session_id,
+            "execution": "AUTH_REQUIRED_FOR_STATUS",
+        }
+
     # The old task-only query could return an unrelated customer's result.
     # Existing deployments have no checkout_session_id column: match the
     # cryptographically authorized webhook receipt's exact session id instead.
