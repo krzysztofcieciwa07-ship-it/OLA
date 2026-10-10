@@ -121,7 +121,7 @@ def main()->int:
             "human_gate":"PENDING","production_go":"NO-GO"}
     verifier=None
     try:
-        from verify_github_signatures import GPGVerifier
+        from verify_github_signatures import GPG as GPGVerifier
         repo=os.environ.get("GITHUB_REPOSITORY","")
         if repo!="krzysztofcieciwa07-ship-it/OLA":
             raise GateBlocked("unexpected target repository")
