@@ -24,6 +24,8 @@ REQUIRED_EXACT_CI=frozenset({
     "Revenue Surface Gate",
     "OLA E2E Gate",
     "Evidence Graph v0.1",
+    "OLA CodeQL",
+    "OLA Supply Chain Evidence Gate",
     "Real LLM Ollama Runtime Gate",
     "Provenance Mutation Gate",
     "Provenance Gate Final",

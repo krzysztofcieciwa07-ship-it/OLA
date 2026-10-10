@@ -1,0 +1,480 @@
+[
+  {
+    "branch": "cfr18-forensic",
+    "head_sha": "a435c711625d05ec5275caa3d6317d1c5dc69896",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "chore/codeql-main",
+    "head_sha": "d877ba180c5ec61caf9ea15592188cbe6f558db3",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (add/add): Merge conflict in .github/workflows/codeql.yml"
+    ]
+  },
+  {
+    "branch": "chore/codeql-ola",
+    "head_sha": "7c8af8af8bfbb61d0363a06858b92005731d373c",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (add/add): Merge conflict in .github/workflows/codeql.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/e2e.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-product-gate.yml",
+      "CONFLICT (content): Merge conflict in app/main.py",
+      "CONFLICT (add/add): Merge conflict in tests/test_evidence_list.py"
+    ]
+  },
+  {
+    "branch": "codex/gate-funnel-impact",
+    "head_sha": "f0afbd3e43ae807d869de8536539f34676965142",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in app/main.py"
+    ]
+  },
+  {
+    "branch": "feat/decision-fabric-jev",
+    "head_sha": "f176695b029114eb8b80afc6ceedb94a685641e1",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "feat/evidence-graph-v0.1",
+    "head_sha": "b688b123e9a788b7ba46f9a77d9411b7041c23b6",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (add/add): Merge conflict in .github/workflows/evidence-graph.yml",
+      "CONFLICT (add/add): Merge conflict in .github/workflows/nina-igor-ollama.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/nina-real-runtime-provenance.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-12h-autoflow.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-product-gate.yml",
+      "CONFLICT (add/add): Merge conflict in .github/workflows/ollama-real-runtime.yml",
+      "CONFLICT (content): Merge conflict in app/agent_runtime.py",
+      "CONFLICT (content): Merge conflict in app/igor.py",
+      "CONFLICT (content): Merge conflict in app/main.py",
+      "CONFLICT (content): Merge conflict in app/replay.py",
+      "CONFLICT (content): Merge conflict in scripts/verify_agent_runtime.py",
+      "CONFLICT (content): Merge conflict in tests/test_igor.py",
+      "CONFLICT (content): Merge conflict in tests/test_nina_run_endpoint_contract.py",
+      "CONFLICT (add/add): Merge conflict in tests/test_replay.py"
+    ]
+  },
+  {
+    "branch": "feat/evidence-read-list",
+    "head_sha": "afd5a57733c12f3055eec65765dd18ec14af14e9",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/e2e.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-product-gate.yml",
+      "CONFLICT (content): Merge conflict in app/main.py",
+      "CONFLICT (add/add): Merge conflict in tests/test_evidence_list.py"
+    ]
+  },
+  {
+    "branch": "feat/evidence-read-list-current-main-20261002",
+    "head_sha": "6beb0af1c49cdf03521350ac720b597e7ca67892",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "feat/final-production-gate-20260930",
+    "head_sha": "943e76dd758e0e564604122cbbf20a0da53aafa9",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "feat/jev-decision-gate-evaluation",
+    "head_sha": "3cbd638441e86043ba4d7fbddfbed95c6b1f390e",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "feat/llm-ecosystem-20261001",
+    "head_sha": "a982ca820d95358eca8eb4085e7118b824908c24",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/decision-evidence-gate.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/e2e.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/evidence-graph.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/frontier-baseline.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/igor-independent-evidence.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/jev-evaluation.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/nina-igor-gate.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/nina-real-runtime-provenance.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/nina-tdd.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-12h-autoflow.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-24x7-watchdog.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-product-gate.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-workstation-installer-v2.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/provenance-gate-final.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/provenance-mutation.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/revenue-surface.yml",
+      "CONFLICT (content): Merge conflict in app/agent_runtime.py"
+    ]
+  },
+  {
+    "branch": "feat/nina-provenance-gate",
+    "head_sha": "a16dd622ca18d7753e5db85d24c574df670878e4",
+    "status": "ADDITIONAL_UNINTEGRATED_DELTA",
+    "diff_stat": " .../plans/2026-09-15-nina-provenance-gate.md       | 431 +++++++++++++++++++++\n .../2026-09-15-nina-igor-human-provenance-gate.md  |  58 +++\n 2 files changed, 489 insertions(+)\n"
+  },
+  {
+    "branch": "feat/ola-di-os-autoflow",
+    "head_sha": "e85e4518bd0c89a7e42073c0cd39413131eef905",
+    "status": "NO_TREE_CHANGE",
+    "diff_stat": ""
+  },
+  {
+    "branch": "feat/ola-di-os-hardening-program",
+    "head_sha": "e902f09e3e24971752f667c75158813c9b6458b7",
+    "status": "ADDITIONAL_UNINTEGRATED_DELTA",
+    "diff_stat": " .../2026-09-30-ola-di-os-hardening-program.md      | 160 +++++++++++++++++++++\n 1 file changed, 160 insertions(+)\n"
+  },
+  {
+    "branch": "feat/ola-evidence-supply-chain-20261001",
+    "head_sha": "acb308d2c132a77e99a5356db534c9140aad3f7d",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/decision-evidence-gate.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/e2e.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/evidence-graph.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/frontier-baseline.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/igor-independent-evidence.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/jev-evaluation.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/nina-igor-gate.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/nina-real-runtime-provenance.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/nina-tdd.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-12h-autoflow.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-24x7-watchdog.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-product-gate.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/ola-workstation-installer-v2.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/provenance-gate-final.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/provenance-mutation.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/revenue-surface.yml",
+      "CONFLICT (content): Merge conflict in app/agent_runtime.py"
+    ]
+  },
+  {
+    "branch": "feat/ola-workstation-kit-v1",
+    "head_sha": "06e6d58791b1e037829802cf23762419a05c7bc6",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (add/add): Merge conflict in workstation/OLA-Workstation.ps1"
+    ]
+  },
+  {
+    "branch": "feat/traceforge-v0",
+    "head_sha": "7d2ec1b3b4e6770b0c8d5ce8552bc2fb599ad884",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix-runtime-artifact-verifier",
+    "head_sha": "e0f91c1ca84cde2292d55572e02c56557bee1828",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/391-agent-runtime-e2e",
+    "head_sha": "be1a2fdf3111fc7a8bf72bfc58ad934080745205",
+    "status": "NO_TREE_CHANGE",
+    "diff_stat": ""
+  },
+  {
+    "branch": "fix/agent-runtime-minimal",
+    "head_sha": "1aec8869b9535209f361bd17f271a54c33a4a7a0",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (add/add): Merge conflict in app/agent_runtime.py",
+      "CONFLICT (content): Merge conflict in app/main.py",
+      "CONFLICT (add/add): Merge conflict in scripts/verify_agent_runtime.py"
+    ]
+  },
+  {
+    "branch": "fix/agent-runtime-minimal-10",
+    "head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/agent-runtime-minimal-11",
+    "head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/agent-runtime-minimal-2",
+    "head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/agent-runtime-minimal-3",
+    "head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/agent-runtime-minimal-4",
+    "head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/agent-runtime-minimal-5",
+    "head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/agent-runtime-minimal-7",
+    "head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/agent-runtime-minimal-8",
+    "head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/agent-runtime-minimal-9",
+    "head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/autoflow-ci-regressions-20260930",
+    "head_sha": "498dba348791a2369962b4f7ec7956800f255569",
+    "status": "NO_TREE_CHANGE",
+    "diff_stat": ""
+  },
+  {
+    "branch": "fix/ci-human-gate-contract-20260930",
+    "head_sha": "d4c49a1007c7f8e0e4d0f302864a38ac933f7167",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/final-production-gate-20261006",
+    "head_sha": "9990e9f990cee87bc0d00c5c99566d4e436238f0",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/final-production-gate-artifact-path",
+    "head_sha": "8f3f28034edf1b2a036a2959bc4e7f191884a96a",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/final-production-gate-stage-20261006",
+    "head_sha": "9990e9f990cee87bc0d00c5c99566d4e436238f0",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/igor-human-gate-contract",
+    "head_sha": "eb5faaab40c8aced52b2ac49d53c7c978d195be3",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/igor-independent-evidence.yml"
+    ]
+  },
+  {
+    "branch": "fix/ollama-bounded-inference-evidence-20261010",
+    "head_sha": "528b9600af1706a674958f42d50a2915ac5bcb6c",
+    "status": "NO_TREE_CHANGE",
+    "diff_stat": ""
+  },
+  {
+    "branch": "fix/pr2-fail-closed-status",
+    "head_sha": "bf953c46015e0810bfef5bd52149210c9565b639",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/nina-igor-ollama.yml",
+      "CONFLICT (content): Merge conflict in app/main.py",
+      "CONFLICT (content): Merge conflict in app/nina_igor.py",
+      "CONFLICT (content): Merge conflict in tests/test_nina_run_endpoint_contract.py"
+    ]
+  },
+  {
+    "branch": "fix/pr3-cryptographic-replay",
+    "head_sha": "94d58d47d57680856b0ab0820599591e83c071aa",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/nina-igor-ollama.yml",
+      "CONFLICT (content): Merge conflict in app/main.py"
+    ]
+  },
+  {
+    "branch": "fix/production-gate-evidence-20261010",
+    "head_sha": "ca0ed485e7358cef82aa68de3903316e382a67b7",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "fix/real-llm-e2e-provenance-gate",
+    "head_sha": "ecbbcc41ba1bdd02a228e6b370c07cd216555b15",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/e2e.yml",
+      "CONFLICT (content): Merge conflict in app/agent_runtime.py",
+      "CONFLICT (content): Merge conflict in scripts/verify_agent_runtime.py"
+    ]
+  },
+  {
+    "branch": "fix/watchdog-failclosed-autoflow-20261010",
+    "head_sha": "a6677aa5306d1923895ed9befe1f9ff82a7f4a1b",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "forensic/semantic-closure-2026-10-02",
+    "head_sha": "8afdb7defd2d62f818ab92443772f31a3422498a",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "full-runtime-replay-proof",
+    "head_sha": "3f7221bfeb81c28041bf67279434a3fb0a8a9367",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "hardening/evidence-ed25519-20261001",
+    "head_sha": "df4e73f121bca21a873992877ea1a7a810cdf3f4",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in app/main.py",
+      "CONFLICT (content): Merge conflict in requirements.txt",
+      "CONFLICT (content): Merge conflict in workstation/OLA-Workstation.ps1"
+    ]
+  },
+  {
+    "branch": "hardening/nina-igor-regression-audit",
+    "head_sha": "6f31be7c8cccde2e028203868d0952c1c3de2c4e",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/e2e.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/igor-independent-evidence.yml",
+      "CONFLICT (content): Merge conflict in .github/workflows/nina-real-runtime-provenance.yml",
+      "CONFLICT (content): Merge conflict in Dockerfile",
+      "CONFLICT (content): Merge conflict in SECURITY.md",
+      "CONFLICT (content): Merge conflict in requirements.txt"
+    ]
+  },
+  {
+    "branch": "igor-independent-evidence",
+    "head_sha": "60c27484623b2ae3b010059af744295614cb11ed",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (add/add): Merge conflict in .github/workflows/igor-independent-evidence.yml"
+    ]
+  },
+  {
+    "branch": "igor-tamper-fix",
+    "head_sha": "0392c10cfe36c3d2282ea7dd68773e970420596e",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/igor-independent-evidence.yml"
+    ]
+  },
+  {
+    "branch": "integration/full-ola-dios-product-gate",
+    "head_sha": "f12e792258b7819d331cb36f43ae207afac2a8c0",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "krzysztofcieciwa07-ship-it-patch-1",
+    "head_sha": "bbe128d93809131a6a1384d9fc4de35195f6d78b",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in README.md"
+    ]
+  },
+  {
+    "branch": "krzysztofcieciwa07-ship-it-patch-2",
+    "head_sha": "cae4f6e19868162a2e7e37e73ef0029c80f83ab6",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "nina-chat-on-main-20260921",
+    "head_sha": "271fd2241613c454b4008448171929f3505fe03d",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (add/add): Merge conflict in app/chat_runtime.py",
+      "CONFLICT (content): Merge conflict in app/main.py"
+    ]
+  },
+  {
+    "branch": "nina-igor-execution-chain",
+    "head_sha": "1afb7164cce65a857b50ec88505f7a5955848f61",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in tests/test_nina_run_endpoint_contract.py"
+    ]
+  },
+  {
+    "branch": "nina-product-chat",
+    "head_sha": "e099fa3d237249daf81f00862c68fa83ab36ebe8",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (add/add): Merge conflict in app/chat_runtime.py",
+      "CONFLICT (content): Merge conflict in app/main.py",
+      "CONFLICT (add/add): Merge conflict in app/revenue.py",
+      "CONFLICT (add/add): Merge conflict in web/index.html"
+    ]
+  },
+  {
+    "branch": "nina-real-e2e",
+    "head_sha": "7da337ed77f2b0706523960c16eff4ba29eff745",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "nina-real-runtime-proof",
+    "head_sha": "5226cd5c667fa2e5185700a0deab219017d230f9",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "provenance-controlled-mutation",
+    "head_sha": "2ce02f1dd6009c6221ab3a94a819927867d2547b",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "revenue-marketing-surface",
+    "head_sha": "1b1b92cf1a0a8e7f7f875d778ed6569c6d0cd9f1",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "revenue/stripe-checkout-trigger",
+    "head_sha": "b49fe4fcb9ccc9465ccea1f395d03bc0e9395160",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/e2e.yml",
+      "CONFLICT (content): Merge conflict in app/main.py",
+      "CONFLICT (add/add): Merge conflict in app/stripe_webhook.py",
+      "CONFLICT (add/add): Merge conflict in tests/test_stripe_webhook.py"
+    ]
+  },
+  {
+    "branch": "safety-gate-deny-by-default",
+    "head_sha": "f3e3563e218baeaba8f970c119b76d4cd7fe6dfb",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "security/approval-bypass-failclosed-20261010",
+    "head_sha": "5fb0b59d24f5e6cefd451df6d6c1103de54e9b39",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "security/codeql-actions-python-gate",
+    "head_sha": "1aa06a292ef81d63df1c9cf645721cac77d0dc2a",
+    "status": "ADDITIONAL_UNINTEGRATED_DELTA",
+    "diff_stat": " .github/workflows/codeql-security-gate.yml | 98 ++++++++++++++++++++++++++++++\n 1 file changed, 98 insertions(+)\n"
+  },
+  {
+    "branch": "security/codeql-sarif-failclosed-20261010",
+    "head_sha": "ac4264d34212bd0c408587e196490b8e75790fb2",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "security/issue65-signed-commit-gate",
+    "head_sha": "5af49ea6b9d01e817ef71f40dc27de2edddc9e22",
+    "status": "UNRESOLVED_HISTORICAL_BRANCH",
+    "conflicts": [
+      "CONFLICT (content): Merge conflict in .github/workflows/final-production-gate.yml",
+      "CONFLICT (add/add): Merge conflict in scripts/assert_manifest_policy.py",
+      "CONFLICT (add/add): Merge conflict in tests/test_manifest_policy.py"
+    ]
+  },
+  {
+    "branch": "security/stripe-session-isolation-20261010",
+    "head_sha": "e5d936c4eae1d1748700285cc90dba82451059d2",
+    "status": "INCLUDED_ANCESTRY"
+  },
+  {
+    "branch": "stability-state-continuity-gate",
+    "head_sha": "e762252690ad04a2e77753fe0335fbe687b03db2",
+    "status": "ADDITIONAL_UNINTEGRATED_DELTA",
+    "diff_stat": " .github/workflows/ola-stability-state-gate.yml |  58 ++++++++\n .gitignore                                     |   4 +-\n app/agent_runtime.py                           |  56 +++++++-\n app/models.py                                  |  15 +++\n app/state_continuity.py                        | 178 +++++++++++++++++++++++++\n tests/test_state_continuity.py                 |  93 +++++++++++++\n 6 files changed, 402 insertions(+), 2 deletions(-)\n"
+  }
+]

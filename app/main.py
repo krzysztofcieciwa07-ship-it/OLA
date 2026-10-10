@@ -15,11 +15,13 @@ from .nina import NinaOrchestrator, NinaTask
 from .igor import IgorVerifier
 from .replay import build_replay, verify_replay
 from .human_gate import HumanGate, ReviewDecision
-from .nina_igor import NinaIgorChain
+from .nina_igor import NinaIgorChain, STATUS_FIELDS
 from .decision_report import build_decision_report
+from .decision_fabric import DecisionFabric
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
+from .payment_binding import checkout_result_matches
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
@@ -181,45 +183,104 @@ def create_checkout_session(body: dict, x_api_key: str | None = Header(default=N
 
 
 @app.get("/payment-success")
-def payment_success(session_id: str):
+def payment_success(
+    session_id: str,
+    x_api_key: str | None = Header(default=None),
+):
+    # Checkout success is a browser redirect and thus public. Do not return
+    # the customer's task, run ID or execution evidence without tenant auth.
     try:
         session = retrieve_checkout(session_id)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"payment lookup failed: {exc.__class__.__name__}") from exc
-    tenant_id = session.get("metadata", {}).get("tenant_id")
-    if not tenant_id:
+    if session.get("id") != session_id:
+        raise HTTPException(status_code=502, detail="Stripe session id mismatch")
+
+    tenant_id = (session.get("metadata") or {}).get("tenant_id")
+    if not isinstance(tenant_id, str) or not tenant_id:
         raise HTTPException(status_code=403, detail="payment session has no tenant provenance")
+
+    authorized = False
+    if x_api_key is not None:
+        caller_tenant_id = tenant_from_key(x_api_key)
+        if caller_tenant_id != tenant_id:
+            raise HTTPException(status_code=404, detail="payment session not found")
+        authorized = True
+
     if not payment_verified(session):
-        append_record(tenant_id, "revenue.payment_blocked", {"session_id": session_id, "payment_status": session.get("payment_status"), "status": session.get("status")})
+        # A public browser GET must not create arbitrary evidence records.
+        if authorized:
+            append_record(tenant_id, "revenue.payment_blocked", {
+                "session_id": session_id,
+                "payment_status": session.get("payment_status"),
+                "status": session.get("status"),
+            })
         return {"status": "BLOCK", "reason": "payment not verified", "session_id": session_id}
-    task = session.get("metadata", {}).get("task")
-    if not task:
+
+    task = (session.get("metadata") or {}).get("task")
+    if not isinstance(task, str) or not task.strip():
         return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
 
+    # The old task-only query could return an unrelated customer's result.
+    # Existing deployments have no checkout_session_id column: match the
+    # tenant-bound webhook evidence and its exact session id instead.
+    # A future migration should add indexed session_id + tenant_id columns.
+    matches = []
     with SessionLocal() as db:
-        completed = db.scalar(
-            select(StripeEvent).where(
-                StripeEvent.status == "COMPLETED",
-                StripeEvent.task == task,
-            )
+        evidence_rows = db.scalars(
+            select(EvidenceRecord).where(
+                EvidenceRecord.tenant_id == tenant_id,
+                EvidenceRecord.record_type == "stripe.ola_execution_completed",
+            ).order_by(EvidenceRecord.seq.desc())
         )
+        for evidence_row in evidence_rows:
+            try:
+                evidence = json.loads(evidence_row.payload_json)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(evidence, dict) or evidence.get("checkout_session_id") != session_id:
+                continue
+            candidate = db.scalar(
+                select(StripeEvent).where(
+                    StripeEvent.event_id == evidence.get("stripe_event_id"),
+                    StripeEvent.status == "COMPLETED",
+                    StripeEvent.task == task,
+                    StripeEvent.run_id == evidence.get("ola_run_id"),
+                )
+            )
+            if candidate is None:
+                continue
+            try:
+                result = json.loads(candidate.result_json)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            evidence["tenant_id"] = evidence_row.tenant_id
+            if checkout_result_matches(tenant_id, session_id, task, evidence, candidate, result):
+                if result.get("payment") != "CONFIRMED":
+                    raise HTTPException(status_code=409, detail="inconsistent checkout evidence")
+                matches.append((candidate.run_id, result))
+                if len(matches) > 1:
+                    raise HTTPException(status_code=409, detail="ambiguous checkout evidence")
 
-    if completed is None:
-        return {
+    if not matches:
+        pending = {
             "status": "PAYMENT_CONFIRMED_EXECUTION_PENDING",
             "session_id": session_id,
-            "task": task,
             "execution": "STRIPE_WEBHOOK",
         }
+        if authorized:
+            pending["task"] = task
+        return pending
 
-    return {
+    run_id, receipt = matches[0]
+    response = {
         "status": "COMPLETED",
         "session_id": session_id,
-        "task": task,
         "execution": "STRIPE_WEBHOOK",
-        "run_id": completed.run_id,
-        "result": json.loads(completed.result_json) if completed.result_json else None,
     }
+    if authorized:
+        response.update({"task": task, "run_id": run_id, "result": receipt})
+    return response
 
 
 @app.post("/evidence")
@@ -282,11 +343,13 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     runtime = nina.execute(nina_task)
     run_id = runtime["runtime"]["run_id"]
     execution = runtime["runtime"].get("execution", [])
-    runtime_commit = os.getenv("OLA_RUNTIME_COMMIT")
+    replay_nonce = runtime["runtime"].get("replay_nonce")
+    runtime_commit = os.getenv("OLA_SOURCE_COMMIT") or os.getenv("OLA_RUNTIME_COMMIT")
     provider = execution[0].get("provider") if execution else None
     model = execution[0].get("model") if execution else None
     invocation_type = execution[0].get("invocation_type") if execution else None
     response_ids = [item.get("response_id") for item in execution if item.get("response_id")]
+    response_digests = [item.get("response_digest") for item in execution if item.get("response_digest")]
     append_record(
         tenant_id,
         "provenance.runtime",
@@ -300,7 +363,10 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
             "invocation_type": invocation_type,
             "llm_invocations": len(execution),
             "response_ids": response_ids,
+            "response_digests": response_digests,
+            "source_commit": runtime_commit or "UNKNOWN",
             "requester_id": requester_id,
+            "replay_nonce": replay_nonce,
         },
     )
 
@@ -343,6 +409,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
         expected_provider=expected_provider,
         expected_model=expected_model,
         expected_run_id=run_id,
+        expected_nonce=replay_nonce,
     )
     replay = build_replay(record_dicts)
     replay_verification = verify_replay(
@@ -376,7 +443,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
             and invocation_type
             and (
                 invocation_type != "real_llm"
-                or len(response_ids) == len(execution)
+                or len(response_ids) + len(response_digests) >= len(execution)
             )
         ) else "BLOCK",
         "commit": runtime_commit or "UNKNOWN",
@@ -385,6 +452,9 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
         "invocation_type": invocation_type,
         "llm_invocations": len(execution),
         "response_ids": response_ids,
+        "response_digests": response_digests,
+        "source_commit": runtime_commit or "UNKNOWN",
+        "replay_nonce": replay_nonce,
     }
     report = build_decision_report(
         task_id=nina_task.task_id,
@@ -489,7 +559,11 @@ def approve_nina_run(
     candidate_fields = candidate.get("status_fields")
     if not isinstance(candidate_fields, dict):
         raise HTTPException(status_code=409, detail="decision candidate status fields are invalid")
-    approved_fields = dict(candidate_fields)
+    if set(candidate_fields) != set(STATUS_FIELDS) | {"EXECUTION_ALLOWED"}:
+        raise HTTPException(status_code=409, detail="decision candidate status fields are invalid")
+    approved_fields = {field: candidate_fields[field] for field in STATUS_FIELDS}
+    if NinaIgorChain.derive_status(approved_fields) != candidate_fields["EXECUTION_ALLOWED"]:
+        raise HTTPException(status_code=409, detail="decision candidate aggregate is inconsistent")
     approved_fields["HUMAN_GATE"] = "VERIFIED"
     if NinaIgorChain.derive_status(approved_fields) != "VERIFIED":
         raise HTTPException(status_code=409, detail="candidate is not eligible for human approval")
@@ -517,6 +591,25 @@ def approve_nina_run(
     }
 
 
+@app.post("/decision-evaluate")
+def decision_evaluate(body: dict, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    state = body.get("state")
+    questions = body.get("questions")
+    if state is None:
+        raise HTTPException(status_code=400, detail="state is required")
+    if not isinstance(questions, dict) or not questions:
+        raise HTTPException(status_code=400, detail="questions object is required")
+
+    fabric = DecisionFabric()
+    result = fabric.evaluate(state=state, questions=questions)
+    evidence = fabric.evidence(result)
+    evidence["tenant_id"] = tenant_id
+    record_type = "decision.fabric" if result.status == "READY" else "decision.fabric_blocked"
+    append_record(tenant_id, record_type, evidence)
+    return evidence
+
+
 @app.post("/stripe/webhook")
 async def stripe_webhook(request: Request, stripe_signature: str | None = Header(default=None)):
     if not stripe_signature:
@@ -536,6 +629,45 @@ def create_business_invoice_run(body: dict, x_api_key: str | None = Header(defau
         return run_invoice_task(tenant_id, task)
     except (ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/evidence")
+def list_evidence(
+    limit: int = 20,
+    before_seq: int | None = None,
+    x_api_key: str | None = Header(default=None),
+):
+    tenant_id = tenant_from_key(x_api_key)
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
+    if before_seq is not None and before_seq < 0:
+        raise HTTPException(status_code=400, detail="before_seq must be >= 0")
+
+    with SessionLocal() as db:
+        query = select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id)
+        if before_seq is not None:
+            query = query.where(EvidenceRecord.seq < before_seq)
+        records = db.scalars(
+            query.order_by(EvidenceRecord.seq.desc()).limit(limit)
+        ).all()
+
+    return {
+        "records": [
+            {
+                "id": record.id,
+                "tenant_id": record.tenant_id,
+                "seq": record.seq,
+                "record_type": record.record_type,
+                "payload": json.loads(record.payload_json),
+                "prev_hash": record.prev_hash,
+                "record_hash": record.record_hash,
+            }
+            for record in records
+        ],
+        "count": len(records),
+        "limit": limit,
+        "before_seq": before_seq,
+    }
 
 
 @app.get("/evidence/{record_id}")
