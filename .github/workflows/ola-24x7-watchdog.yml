@@ -42,6 +42,7 @@ jobs:
           PY
 
       - name: Enforce source-bound runtime health
+        id: runtime_health
         shell: bash
         run: |
           set -euo pipefail
@@ -106,6 +107,13 @@ jobs:
 
       - name: Watchdog result
         if: ${{ always() }}
+        env:
+          RUNTIME_HEALTH_OUTCOME: ${{ steps.runtime_health.outcome }}
         run: |
-          echo "OLA_24X7_WATCHDOG=ACTIVE"
+          set -euo pipefail
+          if [ "$RUNTIME_HEALTH_OUTCOME" = "success" ]; then
+            echo "OLA_24X7_WATCHDOG=CHECKED"
+          else
+            echo "OLA_24X7_WATCHDOG=BLOCKED"
+          fi
           echo "No UNKNOWN/BLOCKED result is promoted to VERIFIED."
