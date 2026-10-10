@@ -150,6 +150,12 @@ def _invoke_llm(agent, task, context):
     if provider == "ollama":
         model = os.getenv("OLA_LLM_MODEL", os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b-instruct"))
         base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+        options = {"temperature": 0}
+        token_budget = os.getenv("OLA_OLLAMA_NUM_PREDICT")
+        if token_budget is not None:
+            if not token_budget.isascii() or not token_budget.isdecimal() or not 1 <= int(token_budget) <= 512:
+                raise ValueError("OLA_OLLAMA_NUM_PREDICT must be an integer from 1 to 512")
+            options["num_predict"] = int(token_budget)
         payload = {
             "model": model,
             "messages": [
@@ -157,7 +163,7 @@ def _invoke_llm(agent, task, context):
                 {"role": "user", "content": prompt},
             ],
             "stream": False,
-            "options": {"temperature": 0},
+            "options": options,
         }
         response = httpx.post(
             f"{base_url}/api/chat",
