@@ -304,6 +304,15 @@ jobs:
           EOF
           sha256sum production-manifest.json | tee production-manifest-sha256.txt
 
+      - name: Validate production manifest claims independently
+        if: always()
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/assert_manifest_policy.py | tee manifest-policy-result.log
+
       - name: Publish final production evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -315,6 +324,9 @@ jobs:
             gate-status.json
             production-manifest.json
             production-manifest-sha256.txt
+            manifest-policy-result.log
+            signature-gate-result.json
+            main-signature-result.json
             source-sha256.txt
             image-sha256.txt
             ola-source-${{ steps.target.outputs.sha }}.tar.gz

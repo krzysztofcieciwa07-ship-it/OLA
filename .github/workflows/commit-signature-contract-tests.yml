@@ -22,4 +22,5 @@ jobs:
           python3 -m unittest discover -s tests -p test_signature_gpg.py -v
           python3 -m unittest discover -s tests -p test_main_push_signatures.py -v
           python3 -m unittest discover -s tests -p test_main_push_git_range.py -v
-          python3 -m py_compile scripts/verify_github_signatures.py scripts/verify_main_push_signatures.py
+          python3 -m unittest discover -s tests -p test_manifest_policy.py -v
+          python3 -m py_compile scripts/verify_github_signatures.py scripts/verify_main_push_signatures.py scripts/assert_manifest_policy.py
