@@ -181,45 +181,93 @@ def create_checkout_session(body: dict, x_api_key: str | None = Header(default=N
 
 
 @app.get("/payment-success")
-def payment_success(session_id: str):
+def payment_success(
+    session_id: str,
+    x_api_key: str | None = Header(default=None),
+):
+    # Checkout success is a browser redirect and thus public. Do not return
+    # the customer's task, run ID or execution evidence without tenant auth.
     try:
         session = retrieve_checkout(session_id)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"payment lookup failed: {exc.__class__.__name__}") from exc
-    tenant_id = session.get("metadata", {}).get("tenant_id")
-    if not tenant_id:
+    if session.get("id") != session_id:
+        raise HTTPException(status_code=502, detail="Stripe session id mismatch")
+
+    tenant_id = (session.get("metadata") or {}).get("tenant_id")
+    if not isinstance(tenant_id, str) or not tenant_id:
         raise HTTPException(status_code=403, detail="payment session has no tenant provenance")
+
+    authorized = False
+    if x_api_key is not None:
+        caller_tenant_id = tenant_from_key(x_api_key)
+        if caller_tenant_id != tenant_id:
+            raise HTTPException(status_code=404, detail="payment session not found")
+        authorized = True
+
     if not payment_verified(session):
-        append_record(tenant_id, "revenue.payment_blocked", {"session_id": session_id, "payment_status": session.get("payment_status"), "status": session.get("status")})
+        # A public browser GET must not create arbitrary evidence records.
+        if authorized:
+            append_record(tenant_id, "revenue.payment_blocked", {
+                "session_id": session_id,
+                "payment_status": session.get("payment_status"),
+                "status": session.get("status"),
+            })
         return {"status": "BLOCK", "reason": "payment not verified", "session_id": session_id}
-    task = session.get("metadata", {}).get("task")
-    if not task:
+
+    task = (session.get("metadata") or {}).get("task")
+    if not isinstance(task, str) or not task.strip():
         return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
 
+    # The old task-only query could return an unrelated customer's result.
+    # Existing deployments have no checkout_session_id column: match the
+    # cryptographically authorized webhook receipt's exact session id instead.
+    # A future migration should add indexed session_id + tenant_id columns.
+    matches = []
     with SessionLocal() as db:
-        completed = db.scalar(
+        candidates = db.scalars(
             select(StripeEvent).where(
                 StripeEvent.status == "COMPLETED",
-                StripeEvent.task == task,
+                StripeEvent.result_json.is_not(None),
             )
-        )
+        ).all()
+        for event in candidates:
+            try:
+                receipt = json.loads(event.result_json)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(receipt, dict) or receipt.get("checkout_session_id") != session_id:
+                continue
+            if (
+                receipt.get("status") != "COMPLETED"
+                or receipt.get("payment") != "CONFIRMED"
+                or receipt.get("event_id") != event.event_id
+                or receipt.get("ola_run_id") != event.run_id
+            ):
+                raise HTTPException(status_code=409, detail="inconsistent checkout evidence")
+            matches.append((event.run_id, receipt))
+            if len(matches) > 1:
+                raise HTTPException(status_code=409, detail="ambiguous checkout evidence")
 
-    if completed is None:
-        return {
+    if not matches:
+        pending = {
             "status": "PAYMENT_CONFIRMED_EXECUTION_PENDING",
             "session_id": session_id,
-            "task": task,
             "execution": "STRIPE_WEBHOOK",
         }
+        if authorized:
+            pending["task"] = task
+        return pending
 
-    return {
+    run_id, receipt = matches[0]
+    response = {
         "status": "COMPLETED",
         "session_id": session_id,
-        "task": task,
         "execution": "STRIPE_WEBHOOK",
-        "run_id": completed.run_id,
-        "result": json.loads(completed.result_json) if completed.result_json else None,
     }
+    if authorized:
+        response.update({"task": task, "run_id": run_id, "result": receipt})
+    return response
 
 
 @app.post("/evidence")
