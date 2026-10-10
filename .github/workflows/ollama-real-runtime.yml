@@ -16,6 +16,8 @@ env:
   OLLAMA_MODEL: qwen2.5:0.5b-instruct
   OLA_LLM_MODEL: qwen2.5:0.5b-instruct
   OLA_LLM_TIMEOUT: "60"
+  # Bound inference work on shared CI CPUs, preserving real Ollama calls.
+  OLA_OLLAMA_NUM_PREDICT: "96"
 
 jobs:
   ollama-real-runtime:
@@ -72,6 +74,7 @@ jobs:
             -e OLLAMA_MODEL="$OLLAMA_MODEL" \
             -e OLLAMA_BASE_URL="http://127.0.0.1:11434" \
             -e OLA_LLM_TIMEOUT="$OLA_LLM_TIMEOUT" \
+            -e OLA_OLLAMA_NUM_PREDICT="$OLA_OLLAMA_NUM_PREDICT" \
             ola-ollama-e2e
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
@@ -190,6 +193,8 @@ jobs:
         run: |
           set +e
           docker logs ola-ollama-e2e > ola-ollama-runtime-failure.log 2>&1
+          cp /tmp/ollama.log ollama-service-failure.log 2>/dev/null || true
+          curl --fail --silent --max-time 5 http://127.0.0.1:11434/api/ps > ollama-processes-failure.json || true
           cat ola-ollama-runtime-failure.log
 
       - name: Upload OLA failure diagnostics
@@ -199,6 +204,8 @@ jobs:
           name: ollama-real-llm-failure-${{ github.sha }}
           path: |
             ola-ollama-runtime-failure.log
+            ollama-service-failure.log
+            ollama-processes-failure.json
 
       - name: Stop OLA
         if: always()
