@@ -55,4 +55,22 @@ class GateTests(unittest.TestCase):
             return FPR
         with self.assertRaisesRegex(Blocked,"UID wrong"):
             self.call(lambda p,i,d:d[SHAS[0]]["commit"]["author"].update(email="changed@example.com"),verify=verify)
+
+class ProductionWorkflowSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "final-production-gate.yml").read_text(encoding="utf-8")
+    def test_source_checkout_is_pinned_and_asserted(self):
+        self.assertIn("ref: ${{ steps.target.outputs.sha }}", self.workflow)
+        self.assertIn("- name: Verify checked out source SHA", self.workflow)
+        self.assertIn('test "$(git rev-parse HEAD)" = "${{ steps.target.outputs.sha }}"', self.workflow)
+    def test_release_attestations_are_main_push_only(self):
+        import re
+        for step in ("Export release image", "Create source snapshot subjects",
+                     "Attest source snapshot", "Attest release image archive",
+                     "Independently verify source and image attestations"):
+            with self.subTest(step=step):
+                pattern = (r"(?m)^      - name: " + re.escape(step) +
+                           r"\n        if: github.event_name == 'push' && github.ref == 'refs/heads/main'$")
+                self.assertRegex(self.workflow, pattern)
+
 if __name__=="__main__":unittest.main()
