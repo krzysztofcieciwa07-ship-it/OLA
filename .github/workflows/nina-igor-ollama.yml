@@ -18,6 +18,8 @@ env:
   OLLAMA_MODEL: qwen2.5:0.5b-instruct
   OLA_LLM_MODEL: qwen2.5:0.5b-instruct
   OLA_LLM_TIMEOUT: "60"
+  # Use a bounded real model response in all CI callers, including 12h workflow_call.
+  OLA_OLLAMA_NUM_PREDICT: "96"
 
 jobs:
   pr2-focused-tests:
@@ -80,6 +82,7 @@ jobs:
             -e OLLAMA_MODEL="$OLLAMA_MODEL" \
             -e OLLAMA_BASE_URL="http://127.0.0.1:11434" \
             -e OLA_LLM_TIMEOUT="$OLA_LLM_TIMEOUT" \
+            -e OLA_OLLAMA_NUM_PREDICT="$OLA_OLLAMA_NUM_PREDICT" \
             ola-nina-ollama
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
@@ -212,6 +215,26 @@ jobs:
             ollama-models.json
             nina-igor-ollama-proof.json
             ola-nina-ollama-runtime.log
+
+      - name: Capture Ollama failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          docker logs ola-nina-ollama > nina-igor-runtime-failure.log 2>&1
+          cp /tmp/ollama.log ollama-service-failure.log 2>/dev/null || true
+          curl --fail --silent --max-time 5 http://127.0.0.1:11434/api/ps > ollama-processes-failure.json || true
+
+      - name: Upload Ollama failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nina-igor-ollama-failure-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            nina-igor-runtime-failure.log
+            ollama-service-failure.log
+            ollama-processes-failure.json
 
       - name: Stop OLA
         if: always()

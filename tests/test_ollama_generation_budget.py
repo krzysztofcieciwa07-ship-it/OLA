@@ -48,3 +48,27 @@ def test_provider_timeout_fails_closed_without_deterministic_fallback():
         with pytest.raises(httpx.ReadTimeout):
             _invoke_llm("codeact", "test", {})
     post.assert_called_once()
+
+def test_reused_nina_igor_workflow_sets_bounded_real_ollama_and_preserves_failure_proofs():
+    # This reusable job is called by the 12h automation; fixing only
+    # ollama-real-runtime.yml does not change that scheduled path.
+    from pathlib import Path
+    workflow = (
+        Path(__file__).resolve().parents[1]
+        / ".github"
+        / "workflows"
+        / "nina-igor-ollama.yml"
+    ).read_text(encoding="utf-8")
+    assert 'OLA_LLM_PROVIDER: ollama' in workflow
+    assert 'OLA_LLM_MODE: required' in workflow
+    assert 'OLA_OLLAMA_NUM_PREDICT: "96"' in workflow
+    assert '-e OLA_OLLAMA_NUM_PREDICT="$OLA_OLLAMA_NUM_PREDICT"' in workflow
+    assert '      - name: Capture Ollama failure diagnostics\\n        if: failure()' .replace('\\n', '\n') in workflow
+    assert '      - name: Upload Ollama failure evidence\\n        if: failure()' .replace('\\n', '\n') in workflow
+    for name in (
+        "nina-igor-runtime-failure.log",
+        "ollama-service-failure.log",
+        "ollama-processes-failure.json",
+    ):
+        assert name in workflow
+    assert 'assert body["human_gate"]["status"]=="BLOCK", body' in workflow
