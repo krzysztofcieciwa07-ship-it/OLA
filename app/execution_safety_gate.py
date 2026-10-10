@@ -12,7 +12,13 @@ class ExecutionDecision:
 
 
 class ExecutionSafetyGate:
-    """Fail-closed execution gate: unknown actions never execute."""
+    """Fail-closed gate; a caller-provided boolean never authorizes risky effects.
+
+    High/critical execution stays in REVIEW until a separate authenticated
+    approval authority is integrated. This class does not issue approvals.
+    """
+
+    ALLOWED_RISK_LEVELS = frozenset({"LOW", "MEDIUM", "HIGH", "CRITICAL"})
 
     def __init__(self, allowed_actions: Optional[set[str]] = None):
         self._allowed_actions: FrozenSet[str] = frozenset(allowed_actions or set())
@@ -26,20 +32,20 @@ class ExecutionSafetyGate:
         risk: str = "LOW",
         human_approved: bool = False,
     ) -> ExecutionDecision:
-        # agent_id is part of the execution contract even though this minimal
-        # gate does not yet maintain an agent registry.
-        _ = agent_id
-
-        # High-risk actions require explicit human-owner approval before any
-        # allow-list check can result in execution.
-        if risk.upper() == "HIGH" and not human_approved:
+        # Backward-compatible but deprecated: this untrusted flag cannot serve
+        # as proof of approval. The external approval protocol is not yet wired.
+        _ = human_approved
+        if not isinstance(agent_id, str) or not agent_id.strip():
+            return ExecutionDecision(status="BLOCK")
+        if not isinstance(risk, str) or risk.upper() not in self.ALLOWED_RISK_LEVELS:
+            return ExecutionDecision(status="BLOCK")
+        if not isinstance(action, str) or action not in self._allowed_actions:
+            return ExecutionDecision(status="BLOCK")
+        if risk.upper() in {"HIGH", "CRITICAL"}:
             return ExecutionDecision(
                 status="REVIEW",
                 required_approval="HUMAN_OWNER",
             )
-
-        if action not in self._allowed_actions:
-            return ExecutionDecision(status="BLOCK")
 
         result = effect()
         return ExecutionDecision(
