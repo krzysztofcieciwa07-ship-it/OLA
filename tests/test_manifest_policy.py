@@ -36,6 +36,7 @@ class ManifestPolicyTests(unittest.TestCase):
             "Nina TDD", "OLA DI-OS Product Gate",
             "NINA IGOR Ollama Full Flow", "OLA Decision Evidence Gate",
             "Revenue Surface Gate", "OLA E2E Gate", "Evidence Graph v0.1",
+            "OLA CodeQL", "OLA Supply Chain Evidence Gate",
             "Real LLM Ollama Runtime Gate", "Provenance Mutation Gate",
             "Provenance Gate Final", "Nina Igor Gate",
             "Nina Real Runtime Provenance Gate (OpenAI optional)",

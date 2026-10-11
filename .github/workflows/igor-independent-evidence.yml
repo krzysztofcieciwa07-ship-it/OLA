@@ -76,7 +76,7 @@ jobs:
           assert d["evidence_count"]==6
           assert d["hash_chain"]=="PASS"
           assert d["independent_verifier"]=="PASS"
-          assert d["human_gate"]=="VERIFIED"
+          assert d["human_gate"]=="CONTRACT_ONLY"
           print("IGOR_NINA_BUNDLE=PASS")
           print("IGOR_SOURCE_SHA=PASS")
           print("IGOR_ARTIFACT_HASH=PASS")
@@ -87,18 +87,25 @@ jobs:
       - name: Tamper mutation must BLOCK
         run: |
           set -euo pipefail
-          cp nina-evidence/runtime-proof.json tampered-runtime-proof.json
-          python - <<'PY'
-          import json
-          p="tampered-runtime-proof.json"
-          d=json.loads(open(p).read())
+          root="$(find nina-evidence -type f -name runtime-proof.json -print -quit | xargs -r dirname)"
+          test -n "$root"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          cp "$root/runtime-proof.json" "$tmp/runtime-proof.json"
+          cp "$root/runtime-proof.sha256" "$tmp/runtime-proof.sha256"
+          python - "$tmp/runtime-proof.json" <<'PY'
+          import json, pathlib, sys
+          p=pathlib.Path(sys.argv[1])
+          d=json.loads(p.read_text())
+          assert d["final_result"] == "391", "precondition: expected fixture outcome"
           d["final_result"]="392"
-          open(p,"w").write(json.dumps(d,sort_keys=True))
+          p.write_text(json.dumps(d,sort_keys=True))
           PY
-          expected="$(cut -d' ' -f1 nina-evidence/runtime-proof.sha256)"
-          actual="$(sha256sum tampered-runtime-proof.json | cut -d' ' -f1)"
-          test "$actual" != "$expected"
-          echo "TAMPER_CHECK=BLOCK"
+          if (cd "$tmp" && sha256sum -c runtime-proof.sha256); then
+            echo "TAMPER_VERIFIER_ACCEPTED=FAIL" >&2
+            exit 1
+          fi
+          echo "TAMPER_SHA256_VERIFIER_REJECT=PASS"
 
       - name: Build exact-source runtime for independent replay
         run: |

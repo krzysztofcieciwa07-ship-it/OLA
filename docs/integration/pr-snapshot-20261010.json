@@ -1,0 +1,57 @@
+[
+  {
+    "number": 75,
+    "branch": "security/stripe-session-isolation-20261010",
+    "head_sha": "e5d936c4eae1d1748700285cc90dba82451059d2"
+  },
+  {
+    "number": 74,
+    "branch": "security/approval-bypass-failclosed-20261010",
+    "head_sha": "5fb0b59d24f5e6cefd451df6d6c1103de54e9b39"
+  },
+  {
+    "number": 73,
+    "branch": "security/codeql-sarif-failclosed-20261010",
+    "head_sha": "ac4264d34212bd0c408587e196490b8e75790fb2"
+  },
+  {
+    "number": 71,
+    "branch": "fix/watchdog-failclosed-autoflow-20261010",
+    "head_sha": "a6677aa5306d1923895ed9befe1f9ff82a7f4a1b"
+  },
+  {
+    "number": 64,
+    "branch": "fix/production-gate-evidence-20261010",
+    "head_sha": "ca0ed485e7358cef82aa68de3903316e382a67b7"
+  },
+  {
+    "number": 61,
+    "branch": "feat/traceforge-v0",
+    "head_sha": "7d2ec1b3b4e6770b0c8d5ce8552bc2fb599ad884"
+  },
+  {
+    "number": 60,
+    "branch": "forensic/semantic-closure-2026-10-02",
+    "head_sha": "8afdb7defd2d62f818ab92443772f31a3422498a"
+  },
+  {
+    "number": 59,
+    "branch": "fix/final-production-gate-artifact-path",
+    "head_sha": "8f3f28034edf1b2a036a2959bc4e7f191884a96a"
+  },
+  {
+    "number": 58,
+    "branch": "feat/evidence-read-list-current-main-20261002",
+    "head_sha": "6beb0af1c49cdf03521350ac720b597e7ca67892"
+  },
+  {
+    "number": 40,
+    "branch": "cfr18-forensic",
+    "head_sha": "a435c711625d05ec5275caa3d6317d1c5dc69896"
+  },
+  {
+    "number": 37,
+    "branch": "feat/decision-fabric-jev",
+    "head_sha": "f176695b029114eb8b80afc6ceedb94a685641e1"
+  }
+]

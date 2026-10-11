@@ -2,12 +2,27 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
 from typing import Any
 
 PRODUCT_NAME = "OLA Execution Audit"
 OFFER = "ola-execution-audit"
+
+
+class InvalidCheckoutSessionId(ValueError):
+    pass
+
+
+class _NoStripeRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Never send the Stripe bearer credential to a redirected destination.
+        return None
+
+
+def _stripe_open(request):
+    return urllib.request.build_opener(_NoStripeRedirects()).open(request, timeout=30)
 
 
 def _stripe_request(path: str, fields: dict[str, Any]) -> dict[str, Any]:
@@ -23,7 +38,7 @@ def _stripe_request(path: str, fields: dict[str, Any]) -> dict[str, Any]:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as response:
+    with _stripe_open(req) as response:
         return json.load(response)
 
 
@@ -49,6 +64,9 @@ def create_checkout(task, success_url, cancel_url, tenant_id):
 
 
 def retrieve_checkout(session_id):
+    # Accept a single bounded Stripe object ID, never a URL or path fragment.
+    if not isinstance(session_id, str) or not re.fullmatch(r"cs_[A-Za-z0-9_]{1,252}", session_id):
+        raise InvalidCheckoutSessionId("invalid checkout session id")
     secret = os.getenv("STRIPE_SECRET_KEY")
     if not secret:
         raise RuntimeError("STRIPE_SECRET_KEY is not configured")
@@ -57,7 +75,7 @@ def retrieve_checkout(session_id):
         headers={"Authorization": f"Bearer {secret}"},
         method="GET",
     )
-    with urllib.request.urlopen(req, timeout=30) as response:
+    with _stripe_open(req) as response:
         return json.load(response)
 
 

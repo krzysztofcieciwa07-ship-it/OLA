@@ -19,6 +19,7 @@ RUN python3.13 -m venv /opt/venv     && python -m pip install --no-cache-dir --u
 
 COPY app ./app
 COPY scripts ./scripts
+COPY traceforge ./traceforge
 COPY tests ./tests
 COPY web ./web
 
