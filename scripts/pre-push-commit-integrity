@@ -1,0 +1,19 @@
+#!/bin/sh
+# Install at .git/hooks/pre-push; fail closed when allowlist is absent.
+set -eu
+remote="${1:-origin}"
+case "$remote" in
+  *[!a-zA-Z0-9_.-]*|"") echo "BLOCKED: invalid remote name" >&2; exit 1 ;;
+esac
+git fetch --quiet "$remote" main || { echo "BLOCKED: cannot refresh base" >&2; exit 1; }
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_ref" ] || continue
+  case "$local_sha" in
+    0000000000000000000000000000000000000000) continue ;;
+  esac
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    echo "BLOCKED: direct main push prohibited" >&2
+    exit 1
+  fi
+  OLA_ALLOWED_SIGNER_FPRS="${OLA_ALLOWED_SIGNER_FPRS:-}" python3 scripts/commit_integrity_guard.py "$remote/main" "$local_sha" || exit 1
+done
