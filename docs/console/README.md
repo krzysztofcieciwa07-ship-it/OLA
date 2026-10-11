@@ -59,3 +59,20 @@ Ollama or approve a production release. Credentials are never printed.
 The dedicated GitHub workflow repeats these checks and uploads the source-bound
 observation. Node is required only for the console-specific tests, not the
 production Python image or the ordinary Python regression suite.
+
+The same workflow also installs Playwright 1.62.1 in a temporary directory and
+runs `tests/web/prove_browser.py`. It starts a real loopback API with an isolated
+temporary database and an ephemeral tenant credential supplied to Node through
+stdin. Chromium exercises desktop (1440×1080) and mobile (390×844): failed login,
+successful login, one real task submission, seven fetched evidence records,
+result 391, backend IGOR/replay reports, terminal REVIEW, JSON download and logout.
+The exported report is checked for source/run/tenant binding and credential
+absence. Both runs are then checked by the standalone Python verifier. Screenshots,
+a scoped JSON observation and credential-redacted diagnostic logs are uploaded.
+This is deterministic browser/runtime proof, not real-model or deployment proof.
+
+To run it outside CI, install Playwright and its Chromium browser, then set
+`PLAYWRIGHT_MODULE_PATH` to the absolute `playwright/index.mjs` path and
+`OLA_BROWSER_OUTPUT` to a directory outside the repository before running
+`python tests/web/prove_browser.py`. The runner requires a POSIX host with local
+socket support. No existing workstation database or tenant key is used.

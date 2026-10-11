@@ -30,6 +30,22 @@ jobs:
         run: node --test tests/web/console.test.mjs
       - name: Real deterministic runtime and independent verifier
         run: python tests/web/prove_console.py > console-proof.json
+      - name: Install isolated browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/ola-browser-tools" --ignore-scripts --no-audit --no-fund playwright@1.62.1
+          "$RUNNER_TEMP/ola-browser-tools/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Rendered desktop and mobile runtime proof
+        env:
+          OLA_BROWSER_OUTPUT: ${{ runner.temp }}/ola-browser-proof
+          PLAYWRIGHT_MODULE_PATH: ${{ runner.temp }}/ola-browser-tools/node_modules/playwright/index.mjs
+        run: python tests/web/prove_browser.py
+      - name: Upload browser observations
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: console-browser-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/ola-browser-proof
+          if-no-files-found: warn
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: console-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
