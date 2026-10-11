@@ -31,7 +31,12 @@ jobs:
         run: python -m compileall -q app
 
   live-jev:
+    # PR-controlled code must never run with this provider credential.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    environment:
+      name: ci-jev
+      deployment: false
     outputs:
       available: ${{ steps.provider.outputs.available }}
     steps:
@@ -108,9 +113,12 @@ jobs:
           CONTRACT_RESULT: ${{ needs.contract.result }}
           LIVE_RESULT: ${{ needs.live-jev.result }}
           LIVE_AVAILABLE: ${{ needs.live-jev.outputs.available }}
+          TRUSTED_MAIN: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
         run: |
           echo "CONTRACT_JOB=$CONTRACT_RESULT"
           echo "LIVE_JEV_JOB=$LIVE_RESULT"
           if [ "$CONTRACT_RESULT" != "success" ]; then exit 1; fi
-          if [ "$LIVE_RESULT" != "success" ]; then exit 1; fi
+          if [ "$LIVE_RESULT" != "success" ]; then
+            if [ "$LIVE_RESULT" != "skipped" ] || [ "$TRUSTED_MAIN" = "true" ]; then exit 1; fi
+          fi
           if [ "$LIVE_AVAILABLE" != "true" ]; then echo "LIVE_JEV=NOT_PROVEN"; else echo "LIVE_JEV=VERIFIED"; fi

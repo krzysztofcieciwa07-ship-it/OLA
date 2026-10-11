@@ -26,6 +26,16 @@ Every six-agent evidence record carries `source_commit`.
 
 The standalone verifier must compare every evidence record's `source_commit` to the expected `SOURCE_SHA`; a caller-provided expected SHA alone is not sufficient.
 
+## Supply-chain checkout attestation
+
+GitHub's stock SLSA provenance describes the workflow event commit, which is the
+merge ref on pull requests. It is not proof of a head-SHA checkout. The supply-chain
+job therefore signs a separate source-binding predicate for the same image digest,
+recorded from the actual checkout before building. Verification requires the exact
+`SOURCE_SHA`, repository, run and attempt in that signed predicate, in addition to
+cryptographic verification of the workflow identity and event commit. These remain
+PR evidence; they do not authorize release or replace the trusted signature gate.
+
 ## Real LLM response identity
 
 The runtime records:

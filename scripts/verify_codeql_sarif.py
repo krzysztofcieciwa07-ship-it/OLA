@@ -76,6 +76,8 @@ def assess_report(report: dict) -> dict:
                 "tool": driver["name"],
                 "rule": rule_id,
                 "message": result.get("message", {}).get("text", ""),
+                "locations": result.get("locations", []),
+                "related_locations": result.get("relatedLocations", []),
             }
             if score is not None and score >= HIGH_THRESHOLD:
                 high.append({**finding, "severity": score})

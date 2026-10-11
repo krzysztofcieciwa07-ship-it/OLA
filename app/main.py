@@ -19,7 +19,7 @@ from .nina_igor import NinaIgorChain, STATUS_FIELDS
 from .decision_report import build_decision_report
 from .decision_fabric import DecisionFabric
 from .chat_runtime import chat
-from .revenue import create_checkout, retrieve_checkout, payment_verified
+from .revenue import create_checkout, retrieve_checkout, payment_verified, InvalidCheckoutSessionId
 from .stripe_webhook import process_checkout_event
 from .payment_binding import checkout_result_matches
 
@@ -191,6 +191,8 @@ def payment_success(
     # the customer's task, run ID or execution evidence without tenant auth.
     try:
         session = retrieve_checkout(session_id)
+    except InvalidCheckoutSessionId as exc:
+        raise HTTPException(status_code=400, detail="invalid checkout session id") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"payment lookup failed: {exc.__class__.__name__}") from exc
     if session.get("id") != session_id:
