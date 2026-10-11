@@ -12,7 +12,7 @@ class ExecutionDecision:
 
 
 class ExecutionSafetyGate:
-    """Fail-closed execution gate: unknown actions never execute."""
+    """Fail-closed execution gate: unknown actions and risks never execute."""
 
     def __init__(self, allowed_actions: Optional[set[str]] = None):
         self._allowed_actions: FrozenSet[str] = frozenset(allowed_actions or set())
@@ -26,24 +26,15 @@ class ExecutionSafetyGate:
         risk: str = "LOW",
         human_approved: bool = False,
     ) -> ExecutionDecision:
-        # agent_id is part of the execution contract even though this minimal
-        # gate does not yet maintain an agent registry.
         _ = agent_id
-
-        # High-risk actions require explicit human-owner approval before any
-        # allow-list check can result in execution.
-        if risk.upper() == "HIGH" and not human_approved:
-            return ExecutionDecision(
-                status="REVIEW",
-                required_approval="HUMAN_OWNER",
-            )
-
-        if action not in self._allowed_actions:
+        if not isinstance(risk, str) or risk.upper() not in {"LOW", "HIGH"}:
             return ExecutionDecision(status="BLOCK")
-
-        result = effect()
-        return ExecutionDecision(
-            status="ALLOW",
-            side_effect_count=1,
-            result=result,
-        )
+        # Preserve the existing human-approval contract, even for actions
+        # which would subsequently be rejected by the allowlist.
+        if risk.upper() == "HIGH" and not human_approved:
+            return ExecutionDecision(status="REVIEW", required_approval="HUMAN_OWNER")
+        if not isinstance(action, str) or action not in self._allowed_actions:
+            return ExecutionDecision(status="BLOCK")
+        if not callable(effect):
+            return ExecutionDecision(status="BLOCK")
+        return ExecutionDecision(status="ALLOW", side_effect_count=1, result=effect())
