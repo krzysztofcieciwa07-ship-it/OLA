@@ -1,0 +1,37 @@
+name: OLA Console Evidence Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main, feat/verified-console-20261011]
+
+permissions:
+  contents: read
+
+jobs:
+  console-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Dependencies and runner Node contract
+        run: |
+          python -m pip install -r requirements.txt
+          node -e 'if (Number(process.versions.node.split(".")[0]) < 20) throw new Error("Node 20+ required")'
+      - name: API authentication and tenant isolation
+        run: python -m pytest -o addopts='' -q tests/test_console.py
+      - name: Browser model adversarial contracts
+        run: node --test tests/web/console.test.mjs
+      - name: Real deterministic runtime and independent verifier
+        run: python tests/web/prove_console.py > console-proof.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: console-proof-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: console-proof.json
+          if-no-files-found: error
