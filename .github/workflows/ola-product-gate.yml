@@ -66,15 +66,22 @@ jobs:
       - name: Verify product surface
         run: |
           set -euo pipefail
-          curl --fail --silent http://127.0.0.1:8000/ | grep -q "NINA"
-          curl --fail --silent http://127.0.0.1:8000/ | grep -q "X-API-Key"
+          curl --fail --silent --show-error http://127.0.0.1:8000/ > console-index.html
+          grep -Fq 'NINA' console-index.html
+          grep -Fq 'src="/console/app.mjs"' console-index.html
+          for asset in app.mjs model.mjs style.css; do
+            curl --fail --silent --show-error "http://127.0.0.1:8000/console/$asset" > "console-$asset"
+            test -s "console-$asset"
+          done
+          grep -Fq 'X-API-Key' console-model.mjs
+          test "$(curl --silent --show-error -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/console/session)" = 401
       - name: Verify real six-agent runtime
         if: ${{ env.OPENAI_AVAILABLE == 'true' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" ola-product python - <<'PY'
+          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE=required -e OLA_LLM_MODEL="$OLA_LLM_MODEL" ola-product python - <<'PY'
           import hashlib,json,os,sqlite3,urllib.request,uuid
           tid=str(uuid.uuid4()); key="product-gate-key"; db=sqlite3.connect("/data/ola.db")
           db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tid,"product-gate"))
@@ -96,7 +103,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" ola-product python - <<'PY'
+          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE=required -e OLA_LLM_MODEL="$OLA_LLM_MODEL" -e OLA_RUNTIME_COMMIT="${SOURCE_SHA}" ola-product python - <<'PY'
           import hashlib,json,sqlite3,urllib.request,uuid
           tid=str(uuid.uuid4()); key="nina-chain-key"; db=sqlite3.connect("/data/ola.db")
           db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tid,"nina-chain"))
@@ -107,8 +114,10 @@ jobs:
           assert d["nina"]["status"]=="VERIFIED",d
           assert d["igor"]["status"]=="VERIFIED",d
           assert d["human_gate"]["status"]=="BLOCK",d
-          assert d["status"]=="BLOCK",d
-          print("NINA=VERIFIED IGOR=VERIFIED HUMAN_GATE=FAIL_CLOSED")
+          assert d["status"]=="REVIEW",d
+          assert d["status_fields"]["HUMAN_GATE"]=="REVIEW",d
+          assert d["status_fields"]["EXECUTION_ALLOWED"]=="REVIEW",d
+          print("NINA=VERIFIED IGOR=VERIFIED HUMAN_GATE=REVIEW EXECUTION_ALLOWED=REVIEW")
           PY
       - name: Health stability window
         run: |

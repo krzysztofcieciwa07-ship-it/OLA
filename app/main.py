@@ -146,8 +146,44 @@ def health():
 
 @app.get("/")
 def home():
-    web_path = Path(__file__).resolve().parent.parent / "web" / "index.html"
-    return FileResponse(web_path, media_type="text/html")
+    return console_file("index.html", "text/html")
+
+
+def console_file(name, media_type):
+    return FileResponse(
+        Path(__file__).resolve().parent.parent / "web" / name,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+        },
+    )
+
+
+@app.get("/console/app.mjs")
+def console_script():
+    return console_file("app.mjs", "text/javascript")
+
+
+@app.get("/console/model.mjs")
+def console_model():
+    return console_file("model.mjs", "text/javascript")
+
+
+@app.get("/console/style.css")
+def console_style():
+    return console_file("style.css", "text/css")
+
+
+@app.get("/console/session")
+def console_session(x_api_key: str | None = Header(default=None)):
+    # Validate an existing tenant credential, without minting a session or
+    # granting any promotion permissions.
+    tenant_id = tenant_from_key(x_api_key)
+    from starlette.responses import JSONResponse
+    return JSONResponse({"tenant_id": tenant_id}, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/chat")
