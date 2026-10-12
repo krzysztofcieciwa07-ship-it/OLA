@@ -463,18 +463,44 @@ def approve_nina_run(
 
     if not rows:
         raise HTTPException(status_code=404, detail="run evidence not found")
+
+    # The caller knows the current tip, but a tip alone is not integrity proof.
+    chain = [
+        {
+            "tenant_id": row.tenant_id,
+            "seq": row.seq,
+            "prev_hash": row.prev_hash,
+            "record_hash": row.record_hash,
+            "payload_json": row.payload_json,
+        }
+        for row in rows
+    ]
+    chain_ok, _ = verify_chain(chain)
+    if not chain_ok:
+        raise HTTPException(status_code=409, detail="evidence chain verification failed")
     if rows[-1].record_hash != tip_hash:
         raise HTTPException(status_code=409, detail="tip_hash is stale or does not match current chain tip")
 
-    candidate = None
+    # Inspect every approval record before selecting the most recent candidate.
     for row in rows:
+        if row.record_type != "human.approval":
+            continue
+        try:
+            payload = json.loads(row.payload_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict) and payload.get("run_id") == run_id:
+            raise HTTPException(status_code=409, detail="run already approved")
+
+    candidate = None
+    for row in reversed(rows):
         if row.record_type != "decision.candidate":
             continue
         try:
             payload = json.loads(row.payload_json)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             continue
-        if payload.get("run_id") == run_id:
+        if isinstance(payload, dict) and payload.get("run_id") == run_id:
             candidate = payload
             break
 
