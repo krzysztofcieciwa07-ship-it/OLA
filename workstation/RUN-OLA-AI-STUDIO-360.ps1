@@ -8,6 +8,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $python = (Get-Command python -ErrorAction Stop).Source
 $tool = Join-Path $PSScriptRoot 'scripts\ai_studio_archive.py'
+if (!(Test-Path -LiteralPath $tool)) {
+  $tool = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\ai_studio_archive.py'
+}
 if (!(Test-Path -LiteralPath $Archive)) { throw "Archiwum nie istnieje: $Archive" }
 if (!(Test-Path -LiteralPath $tool)) { throw "Brak weryfikatora archiwum: $tool" }
 & $python $tool verify --archive $Archive
