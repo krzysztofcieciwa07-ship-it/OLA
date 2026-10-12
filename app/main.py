@@ -487,11 +487,19 @@ def approve_nina_run(
         raise HTTPException(status_code=403, detail="approver must differ from requester")
 
     candidate_fields = candidate.get("status_fields")
-    if not isinstance(candidate_fields, dict):
+    # EXECUTION_ALLOWED is a derived report field, not an input status.
+    # Reject missing, extra, or forged fields before making any approval.
+    required_fields = {"RUNTIME", "EVIDENCE", "REPLAY_INTEGRITY", "POLICY", "HUMAN_GATE"}
+    if not isinstance(candidate_fields, dict) or set(candidate_fields) != required_fields | {"EXECUTION_ALLOWED"}:
         raise HTTPException(status_code=409, detail="decision candidate status fields are invalid")
-    approved_fields = dict(candidate_fields)
-    approved_fields["HUMAN_GATE"] = "VERIFIED"
-    if NinaIgorChain.derive_status(approved_fields) != "VERIFIED":
+    gate_fields = {name: candidate_fields[name] for name in required_fields}
+    derived = NinaIgorChain.derive_status(gate_fields)
+    if (candidate_fields["EXECUTION_ALLOWED"] != derived
+            or candidate.get("candidate_status") != derived
+            or gate_fields["HUMAN_GATE"] != "REVIEW"):
+        raise HTTPException(status_code=409, detail="decision candidate status is inconsistent")
+    approved_fields = {**gate_fields, "HUMAN_GATE": "VERIFIED"}
+    if derived != "REVIEW" or NinaIgorChain.derive_status(approved_fields) != "VERIFIED":
         raise HTTPException(status_code=409, detail="candidate is not eligible for human approval")
 
     record = append_record(
