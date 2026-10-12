@@ -45,3 +45,13 @@ def test_concurrent_claim_one_winner(tmp_path):
     for t in threads:t.start()
     for t in threads:t.join()
     assert sum(r is not None for r in results)==1
+
+
+def test_duplicate_event_cannot_silently_replace_or_hide_conflicting_payload(tmp_path):
+    import pytest
+    db = connect(tmp_path / "events.db")
+    enqueue(db, "tenant", "evt", "handler", '{"amount":10}')
+    enqueue(db, "tenant", "evt", "handler", '{"amount":10}')
+    with pytest.raises(ValueError, match="conflicting duplicate"):
+        enqueue(db, "tenant", "evt", "handler", '{"amount":10000}')
+    assert db.execute("SELECT payload FROM deliveries").fetchone()[0] == '{"amount":10}'
