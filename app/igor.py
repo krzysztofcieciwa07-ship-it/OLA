@@ -43,7 +43,7 @@ class IgorVerifier:
         if not payloads:
             return IgorVerification("UNKNOWN", "missing current-run evidence", checks)
         provenance_values = {payload.get("commit") for payload in payloads if payload.get("commit") is not None}
-        checks["commit"] = bool(expected_commit) and expected_commit in provenance_values
+        checks["commit"] = bool(expected_commit) and provenance_values == {expected_commit}
         if not checks["commit"]:
             return IgorVerification("BLOCK", "commit provenance mismatch", checks)
 
@@ -69,7 +69,7 @@ class IgorVerifier:
             or payload.get("invocation_type") is not None
         ]
         if expected_provider is not None:
-            checks["provider"] = bool(provenance_payloads) and any(
+            checks["provider"] = bool(provenance_payloads) and all(
                 payload.get("provider") == expected_provider
                 and payload.get("invocation_type") == "real_llm"
                 for payload in provenance_payloads
@@ -86,7 +86,7 @@ class IgorVerifier:
                     return IgorVerification("BLOCK", "real LLM response ids missing", checks)
                 checks["response_ids"] = True
         if expected_model is not None:
-            checks["model"] = bool(provenance_payloads) and any(
+            checks["model"] = bool(provenance_payloads) and all(
                 payload.get("model") == expected_model
                 for payload in provenance_payloads
             )
