@@ -29,7 +29,10 @@ if (!(Test-Path -LiteralPath $Target)) {
 # Existing deployments are not trusted based on a manifest alone.
 $expectedFiles = @{
   'frontend\index.html' = '1ed655070aba8533729be67c8bc97896a2b011a302d9705ddd20ba02c48534fc';
-  'backend\main.py' = '08b9927ecdbf23dbde220e527d2b9ea0ca8a25c6080e97d8e1f1c0ee868a498c'
+  'backend\main.py' = '08b9927ecdbf23dbde220e527d2b9ea0ca8a25c6080e97d8e1f1c0ee868a498c';
+  'Dockerfile' = '4706ad90d14b3f88bc529b1bfce8ddc101b431efecb3da75ebf0a88adcd025c3';
+  'requirements.txt' = '42bfc26eac41ae08819dbca8d681f47486dffa8c8f6ecd637b3328de2707c711';
+  'docker-compose.ola.yml' = 'c2d1c49396427737ff4c365bdaebaeb75b87d3863780dc7c54c6949964acaec6'
 }
 foreach ($relative in $expectedFiles.Keys) {
   $path = Join-Path $Target $relative
