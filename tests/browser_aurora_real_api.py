@@ -128,7 +128,13 @@ def run():
         assert page.locator('#approveSend').is_enabled()
         page.locator('#approverKey').fill(approver)
         page.locator('#approveSend').click()
-        page.get_by_text('"approved_tip_hash"').wait_for()
+        try:
+            page.get_by_text('"approved_tip_hash"').wait_for()
+        except Exception as exc:
+            diagnostic = {'approval_result': page.locator('#approvalResult').text_content(), 'toast': page.locator('#toast').text_content(), 'approval_calls': [c for c in calls if '/approve' in c['path']], 'last_calls': calls[-5:]}
+            (OUT/'approval-failure.json').write_text(json.dumps(diagnostic, indent=2), encoding='utf-8')
+            page.screenshot(path=str(OUT/'aurora-approval-failure.png'), animations='disabled')
+            raise AssertionError('Human approval E2E failure: '+json.dumps(diagnostic)) from exc
         approval=json.loads(page.locator('#approvalResult').text_content())
         assert approval['status']=='VERIFIED',approval
         assert approval['approved_tip_hash']==run['tip_hash']
