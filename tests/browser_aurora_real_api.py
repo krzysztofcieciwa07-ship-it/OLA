@@ -10,6 +10,10 @@ import os
 from pathlib import Path
 import tempfile
 import uuid
+import sys
+
+# Support direct `python tests/browser_aurora_real_api.py` execution in CI.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from playwright.sync_api import sync_playwright
 
