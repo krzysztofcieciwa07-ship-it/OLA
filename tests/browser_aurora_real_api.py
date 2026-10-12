@@ -103,7 +103,7 @@ def run():
         page.locator('[data-view="evidence"]').first.click()
         page.locator('#evidenceId').fill(record_id)
         page.locator('#evidenceForm button').click()
-        page.get_by_text(record_id).last.wait_for()
+        page.wait_for_function("record_id => document.getElementById('evidenceResult').textContent.includes(record_id)", arg=record_id)
         evidence=json.loads(page.locator('#evidenceResult').text_content())
         assert evidence['tenant_id']==tenant
         page.locator('[data-view="settings"]').first.click()
