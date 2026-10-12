@@ -12,7 +12,7 @@ import tempfile
 import uuid
 import sys
 
-# Support direct `python tests/browser_aurora_real_api.py` execution in CI.
+# Support direct execution from tests/ in CI.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from playwright.sync_api import sync_playwright
@@ -108,9 +108,10 @@ def run():
         assert evidence['tenant_id']==tenant
         page.locator('[data-view="settings"]').first.click()
         page.locator('#apiKey').fill(other_tenant)
+        assert record_id not in page.locator('#evidenceResult').text_content(), 'Sensitive evidence from prior tenant remained visible'
         page.locator('[data-view="evidence"]').first.click()
         page.locator('#evidenceForm button').click()
-        page.get_by_text('HTTP 404').wait_for()
+        page.locator('#toast').get_by_text('HTTP 404').wait_for()
         assert 'tenant_id' not in page.locator('#toast').text_content()
 
         page.locator('[data-view="settings"]').first.click()

@@ -86,3 +86,11 @@ def test_inline_javascript_syntax():
         script.write_text('\n'.join(p.scripts), encoding='utf-8')
         res = subprocess.run(['node','--check',str(script)],capture_output=True,text=True)
         assert res.returncode == 0, res.stderr
+
+def test_tenant_switch_revokes_stale_ui_and_inflight_results():
+    text, _ = page()
+    assert 'resetTenantSession' in text
+    assert 'session.activeControllers.forEach(controller=>controller.abort())' in text
+    assert text.count('epoch!==session.epoch') >= 5
+    for view in ('chatMessages', 'runResult', 'approvalResult', 'auditResult', 'evidenceResult'):
+        assert view in text
