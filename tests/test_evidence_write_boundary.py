@@ -84,3 +84,25 @@ def test_public_evidence_rejects_non_object_payload():
         json={"record_type": "generic", "payload": ["unexpected", "array"]},
     )
     assert response.status_code == 400, response.json()
+
+
+@pytest.mark.parametrize("field", (
+    "run_id", "commit", "task", "result", "tool_output", "provider", "model",
+    "invocation_type", "response_ids", "status_fields", "requester_id", "approver_id",
+))
+def test_public_evidence_rejects_reserved_runtime_claims(field):
+    owner, _, _ = _tenant_keys()
+    response = TestClient(app).post(
+        "/evidence", headers={"X-API-Key": owner},
+        json={"record_type": "generic", "payload": {field: "forged"}},
+    )
+    assert response.status_code == 400, (field, response.json())
+
+
+def test_public_evidence_limits_payload_size():
+    owner, _, _ = _tenant_keys()
+    response = TestClient(app).post(
+        "/evidence", headers={"X-API-Key": owner},
+        json={"record_type": "user.observation", "payload": {"blob": "z" * 70000}},
+    )
+    assert response.status_code == 413, response.json()
