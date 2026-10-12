@@ -19,8 +19,13 @@ def connect(path):
 def enqueue(db, tenant, event_id, handler, payload):
     if not all(isinstance(v, str) and v for v in (tenant,event_id,handler,payload)):
         raise ValueError("nonempty tenant, event, handler and payload required")
-    db.execute("INSERT OR IGNORE INTO deliveries(id,tenant,event_id,handler,payload) VALUES(?,?,?,?,?)",
-               (str(uuid.uuid4()),tenant,event_id,handler,payload))
+    cur = db.execute("INSERT OR IGNORE INTO deliveries(id,tenant,event_id,handler,payload) VALUES(?,?,?,?,?)",
+                     (str(uuid.uuid4()),tenant,event_id,handler,payload))
+    if cur.rowcount == 0:
+        existing = db.execute("SELECT payload FROM deliveries WHERE tenant=? AND event_id=? AND handler=?",
+                              (tenant,event_id,handler)).fetchone()
+        if existing is None or existing[0] != payload:
+            raise ValueError("conflicting duplicate delivery payload")
 
 
 def claim(db, tenant, now=None, lease_seconds=30):
