@@ -8,6 +8,7 @@
 <body>
 <main>
 <h1>NINA</h1>
+<p><a id="studioLink" hidden target="_blank" rel="noopener noreferrer">AI STUDIO 3.6.0 (lokalnie, osobne logowanie)</a></p>
 <p>Tryb chroniony: podaj swój klucz API OLA. Klucz nie jest zapisywany na serwerze.</p>
 <input id="key" type="password" placeholder="X-API-Key" autocomplete="off">
 <div id="messages"></div>
@@ -17,6 +18,10 @@
 </form>
 </main>
 <script>
+const studioLink=document.getElementById('studioLink');
+if(['127.0.0.1','localhost'].includes(location.hostname)){
+ studioLink.href=location.protocol+'//'+location.hostname+':8001/'; studioLink.hidden=false;
+}
 const messages=[],box=document.querySelector("#messages"),input=document.querySelector("#input"),key=document.querySelector("#key");
 function add(role,text){const d=document.createElement("div");d.textContent=role+": "+text;box.appendChild(d)}
 document.querySelector("form").onsubmit=async e=>{
