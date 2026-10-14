@@ -46,38 +46,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import glob
-          import json
-          import sys
-
-          findings = []
-          files = glob.glob("codeql-results/*.sarif")
-          for path in files:
-              data = json.load(open(path, encoding="utf-8"))
-              for run in data.get("runs", []):
-                  tool = run.get("tool", {}).get("driver", {}).get("name", "CodeQL")
-                  for result in run.get("results", []):
-                      props = result.get("properties", {})
-                      raw = props.get("security-severity")
-                      try:
-                          severity = float(raw)
-                      except (TypeError, ValueError):
-                          severity = 0.0
-                      if severity >= 7.0:
-                          findings.append({
-                              "tool": tool,
-                              "rule": result.get("ruleId"),
-                              "severity": severity,
-                              "message": result.get("message", {}).get("text"),
-                          })
-
-          print(json.dumps({
-              "codeql_sarif_files": sorted(files),
-              "high_or_critical_findings": findings,
-              "status": "BLOCK" if findings else "PASS",
-          }, sort_keys=True))
-
-          if findings:
-              sys.exit(1)
-          PY
+          python3 scripts/verify_codeql_sarif.py
