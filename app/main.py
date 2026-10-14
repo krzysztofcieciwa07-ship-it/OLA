@@ -8,8 +8,8 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
-from .database import Base, engine, SessionLocal, install_append_only_triggers
-from .api_key_crypto import hash_api_key
+from .database import Base, engine, SessionLocal, install_append_only_triggers, ensure_evidence_hash_schema
+from .api_key_crypto import hash_api_key, KeyConfigurationError
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
@@ -17,6 +17,7 @@ from .business_runtime import run_invoice_task
 from .nina import NinaOrchestrator, NinaTask
 from .igor import IgorVerifier
 from .replay import build_replay, verify_replay
+from .control_plane import get_overview, get_run_detail
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
 from .decision_report import build_decision_report
@@ -26,6 +27,7 @@ from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
 Base.metadata.create_all(bind=engine)
+ensure_evidence_hash_schema()
 install_append_only_triggers()
 
 
@@ -36,6 +38,9 @@ def identity_from_key(raw_key):
         key_hash = hash_api_key(raw_key)
     except ValueError:
         raise HTTPException(status_code=401, detail="invalid API key") from None
+    except KeyConfigurationError:
+        # A missing pepper is a deployment defect, never a bad user credential.
+        raise HTTPException(status_code=503, detail="OLA API authentication is not configured") from None
     with SessionLocal() as db:
         key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
         if key is None:
@@ -60,6 +65,10 @@ def bearer_identity(authorization):
 def append_record(tenant_id, record_type, payload):
     payload_json = canonical_json(payload)
     with SessionLocal() as db:
+        # Reserve the SQLite writer before reading the hash-chain tip.
+        # Without this reservation concurrent agent/audit writes can choose
+        # the same sequence number and fail with an unhandled unique-key race.
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
         last = db.scalar(
             select(EvidenceRecord)
             .where(EvidenceRecord.tenant_id == tenant_id)
@@ -67,14 +76,19 @@ def append_record(tenant_id, record_type, payload):
         )
         seq = 0 if last is None else last.seq + 1
         prev_hash = GENESIS_HASH if last is None else last.record_hash
+        record_id = str(uuid.uuid4())
         record = EvidenceRecord(
-            id=str(uuid.uuid4()),
+            id=record_id,
             tenant_id=tenant_id,
             seq=seq,
             record_type=record_type,
             payload_json=payload_json,
             prev_hash=prev_hash,
-            record_hash=compute_record_hash(tenant_id, seq, prev_hash, payload_json),
+            hash_version=2,
+            record_hash=compute_record_hash(
+                tenant_id, seq, prev_hash, payload_json,
+                record_id=record_id, record_type=record_type, hash_version=2,
+            ),
         )
         db.add(record)
         db.commit()
@@ -82,6 +96,7 @@ def append_record(tenant_id, record_type, payload):
             "id": record.id,
             "tenant_id": record.tenant_id,
             "seq": record.seq,
+            "hash_version": record.hash_version,
             "record_hash": record.record_hash,
         }
 
@@ -102,22 +117,25 @@ def run_controlled_audit(tenant_id, task, scenario):
     for record_type, payload in events:
         evidence_ids.append(append_record(tenant_id, record_type, payload)["id"])
 
+    # Verify the *complete* tenant chain, not only the five new audit records:
+    # genesis/prev_hash validation must start at sequence zero even on repeated audits.
     with SessionLocal() as db:
         rows = db.scalars(
             select(EvidenceRecord)
-            .where(
-                EvidenceRecord.tenant_id == tenant_id,
-                EvidenceRecord.id.in_(evidence_ids),
-            )
+            .where(EvidenceRecord.tenant_id == tenant_id)
             .order_by(EvidenceRecord.seq.asc())
         ).all()
+    audit_rows = [row for row in rows if row.id in set(evidence_ids)]
 
     chain = [
         {
+            "id": row.id,
             "tenant_id": row.tenant_id,
             "seq": row.seq,
             "prev_hash": row.prev_hash,
             "record_hash": row.record_hash,
+            "record_type": row.record_type,
+            "hash_version": row.hash_version,
             "payload_json": row.payload_json,
         }
         for row in rows
@@ -128,19 +146,44 @@ def run_controlled_audit(tenant_id, task, scenario):
             "audit_id": audit_id,
             "status": "FAILED",
             "outcome": "evidence_chain_invalid",
-            "evidence_count": len(rows),
+            "evidence_count": len(audit_rows),
             "evidence_ids": evidence_ids,
             "reason": reason,
+            "verification_scope": "CONTROLLED_SIMULATION",
         }
 
     return {
         "audit_id": audit_id,
         "status": "VERIFIED",
         "outcome": "recovered_and_verified",
-        "evidence_count": len(rows),
+        "evidence_count": len(audit_rows),
         "evidence_ids": evidence_ids,
         "reason": reason,
+        "verification_scope": "CONTROLLED_SIMULATION",
     }
+
+
+@app.get("/auth/session")
+def get_current_operator(x_api_key: str | None = Header(default=None)):
+    """Read-only credential check. Never issues credentials or exposes raw keys."""
+    tenant_id, key_id = identity_from_key(x_api_key)
+    return {"authenticated": True, "tenant_id": tenant_id, "credential_id": key_id, "scope": "OLA_CORE"}
+
+
+@app.get("/control/overview")
+def command_center_overview(x_api_key: str | None = Header(default=None)):
+    """Read-only, tenant-scoped operational truth. Does not authorize host commands."""
+    tenant_id = tenant_from_key(x_api_key)
+    return get_overview(tenant_id)
+
+
+@app.get("/control/runs/{run_id}")
+def command_center_run(run_id: str, x_api_key: str | None = Header(default=None)):
+    tenant_id = tenant_from_key(x_api_key)
+    result = get_run_detail(tenant_id, run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return result
 
 
 @app.get("/health")
@@ -360,6 +403,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
             "prev_hash": row.prev_hash,
             "record_hash": row.record_hash,
             "record_type": row.record_type,
+            "hash_version": row.hash_version,
             "payload_json": row.payload_json,
         }
         for row in rows
@@ -515,10 +559,13 @@ def approve_nina_run(
 
         chain = [
             {
+                "id": row.id,
                 "tenant_id": row.tenant_id,
                 "seq": row.seq,
                 "prev_hash": row.prev_hash,
                 "record_hash": row.record_hash,
+                "record_type": row.record_type,
+                "hash_version": row.hash_version,
                 "payload_json": row.payload_json,
             }
             for row in rows
@@ -587,13 +634,15 @@ def approve_nina_run(
         record_id = str(uuid.uuid4())
         new_seq = rows[-1].seq + 1
         record_hash = compute_record_hash(
-            approver_tenant_id, new_seq, tip_hash, payload_json
+            approver_tenant_id, new_seq, tip_hash, payload_json,
+            record_id=record_id, record_type="human.approval", hash_version=2,
         )
         db.add(EvidenceRecord(
             id=record_id,
             tenant_id=approver_tenant_id,
             seq=new_seq,
             record_type="human.approval",
+            hash_version=2,
             payload_json=payload_json,
             prev_hash=tip_hash,
             record_hash=record_hash,
@@ -649,6 +698,7 @@ def get_evidence(record_id: str, x_api_key: str | None = Header(default=None)):
             "tenant_id": record.tenant_id,
             "seq": record.seq,
             "record_type": record.record_type,
+            "hash_version": record.hash_version,
             "payload": json.loads(record.payload_json),
             "prev_hash": record.prev_hash,
             "record_hash": record.record_hash,

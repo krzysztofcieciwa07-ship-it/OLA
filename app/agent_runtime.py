@@ -5,6 +5,7 @@ import operator
 import os
 import uuid
 
+import httpx
 from sqlalchemy import select
 
 from .database import SessionLocal
@@ -267,15 +268,11 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "status": "VERIFIED",
         "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
     }
-    with SessionLocal() as db:
-        last = db.scalar(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.desc()))
-        seq = 0 if last is None else last.seq + 1
-        prev_hash = GENESIS_HASH if last is None else last.record_hash
-        payload_json = canonical_json({"run_id": run_id, **output})
-        record = EvidenceRecord(id=str(uuid.uuid4()), tenant_id=tenant_id, seq=seq, record_type=f"agent.{agent}", payload_json=payload_json, prev_hash=prev_hash, record_hash=compute_record_hash(tenant_id, seq, prev_hash, payload_json))
-        db.add(record)
-        db.commit()
-        return record.id, output
+    # Reuse the canonical write-serialized hash-chain append boundary.
+    # The independent runtime verifier still reads and checks the stored records.
+    from .main import append_record
+    record = append_record(tenant_id, f"agent.{agent}", {"run_id": run_id, **output})
+    return record["id"], output
 
 
 def run_agent_task(tenant_id, task):
@@ -284,7 +281,32 @@ def run_agent_task(tenant_id, task):
     execution = []
     previous_output = {"task": task}
     for agent in AGENT_ROLES:
-        evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
+        try:
+            evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
+        except (httpx.HTTPError, RuntimeError, ValueError, TimeoutError, LookupError, json.JSONDecodeError) as exc:
+            # Never fall back silently to a deterministic model when real LLM is required.
+            # Preserve partial evidence, but mark the entire run BLOCK.
+            from .main import append_record
+            failure = append_record(tenant_id, "runtime.blocked", {
+                "run_id": run_id,
+                "agent": agent,
+                "status": "BLOCK",
+                "reason_code": "MODEL_OR_TOOL_UNAVAILABLE",
+                "error_type": type(exc).__name__,
+                "completed_agents": len(execution),
+            })
+            evidence_ids.append(failure["id"])
+            return {
+                "run_id": run_id,
+                "task": task,
+                "final_result": None,
+                "status": "BLOCK",
+                "reason": "MODEL_OR_TOOL_UNAVAILABLE",
+                "agents": AGENT_ROLES,
+                "evidence_count": len(evidence_ids),
+                "evidence_ids": evidence_ids,
+                "execution": execution,
+            }
         evidence_ids.append(evidence_id)
         execution.append(output)
         previous_output = output
@@ -400,7 +422,7 @@ def verify_agent_run(tenant_id, run_id):
         context_digests.add(payload["context_digest"])
     if len(instance_ids) != len(AGENT_ROLES) or len(context_digests) != len(AGENT_ROLES):
         return {"status": "BLOCK", "reason": "agent instances or contexts are not unique", "evidence_count": len(run_rows)}
-    chain = [{"tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash, "record_hash": row.record_hash, "payload_json": row.payload_json} for row in rows]
+    chain = [{"id": row.id, "tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash, "record_hash": row.record_hash, "record_type": row.record_type, "hash_version": row.hash_version, "payload_json": row.payload_json} for row in rows]
     chain_ok, reason = verify_chain(chain)
     if not chain_ok:
         return {"status": "BLOCK", "reason": reason, "evidence_count": len(run_rows)}
