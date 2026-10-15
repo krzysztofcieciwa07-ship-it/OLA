@@ -5,6 +5,13 @@ on:
     paths:
       - 'workstation/OLA-Local-Executor.ps1'
       - 'workstation/OLA-Preview-Auth.ps1'
+      - 'workstation/OLA-Preflight.ps1'
+      - 'app/execution_binding.py'
+      - 'scripts/build_source_manifest.py'
+      - 'Dockerfile'
+      - 'tests/aurora_approval_state.test.cjs'
+      - 'tests/test_capture_source_portable.py'
+      - 'tests/test_preview_bootstrap.ps1'
       - 'scripts/provision_local_operator.py'
       - 'tests/test_operator_onboarding.py'
       - 'app/main.py'
@@ -16,6 +23,13 @@ on:
     paths:
       - 'workstation/OLA-Local-Executor.ps1'
       - 'workstation/OLA-Preview-Auth.ps1'
+      - 'workstation/OLA-Preflight.ps1'
+      - 'app/execution_binding.py'
+      - 'scripts/build_source_manifest.py'
+      - 'Dockerfile'
+      - 'tests/aurora_approval_state.test.cjs'
+      - 'tests/test_capture_source_portable.py'
+      - 'tests/test_preview_bootstrap.ps1'
       - 'scripts/provision_local_operator.py'
       - 'tests/test_operator_onboarding.py'
       - 'app/main.py'
@@ -52,6 +66,23 @@ jobs:
           if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host $_ }; throw 'AUTH_SCRIPT_SYNTAX_FAILED' }
           & $auth -SelfTest
           if ($LASTEXITCODE -ne 0) { throw 'AUTH_SCRIPT_SELFTEST_FAILED' }
+          $preflight = (Resolve-Path 'workstation/OLA-Preflight.ps1').Path
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($preflight, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host $_ }; throw 'PREFLIGHT_SCRIPT_SYNTAX_FAILED' }
+          $report = & $preflight -RepoRoot (Get-Location).Path
+          $facts = $report | ConvertFrom-Json
+          if ($facts.diagnostic -ne 'COLLECTED' -or $facts.product_readiness -ne 'NOT_ASSESSED') { throw 'PREFLIGHT_REPORT_CONTRACT_FAILED' }
+      - name: Regress Windows source paths, Aurora session and preview control flow
+        shell: powershell
+        run: |
+          node --test tests/aurora_approval_state.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'AURORA_APPROVAL_REGRESSION_FAILED' }
+          python -m unittest discover -s tests -p test_capture_source_portable.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'WINDOWS_SOURCE_OBSERVER_REGRESSION_FAILED' }
+          & .\tests\test_preview_bootstrap.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'PREVIEW_BOOTSTRAP_CONTROL_FLOW_FAILED' }
       - name: Probe actual loopback HTTP, origin, token and rejected mutations
         shell: powershell
         run: |

@@ -230,7 +230,15 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
    return body;
   }catch(e){if(e.name==='AbortError')throw new Error('Limit czasu oczekiwania na '+path);throw e}finally{clearTimeout(id);session.activeControllers.delete(controller)}
  }
- async function busy(button,task){if(session.busy)return;session.busy=true;button.disabled=true;button.classList.add('loading');const original=button.textContent;button.textContent='Trwa…';try{await task()}catch(e){log('BŁĄD: '+e.message);toast(e.message)}finally{session.busy=false;button.disabled=false;button.classList.remove('loading');button.textContent=original}}
+ async function busy(button,task){
+  if(session.busy)return;
+  const epoch=session.epoch;session.busy=true;button.disabled=true;button.classList.add('loading');const original=button.textContent;button.textContent='Trwa…';
+  try{await task()}catch(e){if(epoch===session.epoch){log('BŁĄD: '+e.message);toast(e.message)}}finally{
+   session.busy=false;
+   button.disabled=button===$('approveSend')&&!session.lastCandidate;
+   button.classList.remove('loading');button.textContent=original;
+  }
+ }
  function applyHealth(success,body){const status=success&&body&&body.status==='ok'?'ONLINE':'UNKNOWN';setText('healthStatus',status);setText('sideStatus',status==='ONLINE'?'OLA Core odpowiada':'Brak zweryfikowanego health');setText('healthMessage',status==='ONLINE'?'OLA Core /health: OK':'Brak potwierdzenia połączenia');setText('sideApi',status);setText('sysCore',status);$('topLed').className='led '+(status==='ONLINE'?'good':'bad');$('sideLed').className='led '+(status==='ONLINE'?'good':'bad');$('healthStatus').className='pill '+(status==='ONLINE'?'good':'bad');$('sideApi').className='pill '+(status==='ONLINE'?'good':'bad')}
  async function refreshHealth(){try{const data=await api('/health',{timeout:6500});applyHealth(true,data);log('GET /health → '+(data.status==='ok'?'ONLINE':'UNKNOWN'))}catch(e){applyHealth(false);log('GET /health → UNKNOWN ('+e.message+')')}}
  function statusLabel(value){return friendly[value]||'UNKNOWN'}

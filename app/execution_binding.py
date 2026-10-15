@@ -103,7 +103,7 @@ def capture_source(root=ROOT):
                     continue
                 if path.is_symlink():
                     raise ValueError("symlink in source boundary")
-                if path.is_file() and str(path.relative_to(root)) not in hashes:
+                if path.is_file() and path.relative_to(root).as_posix() not in hashes:
                     raise ValueError("untracked file in source boundary")
         if git("rev-parse", "HEAD").decode().strip() != sha:
             raise ValueError("source changed during capture")

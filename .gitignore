@@ -111,3 +111,9 @@ if __name__ == "__main__":
 TestResults.xml
 # Generated from clean Git source before container builds
 /source-manifest.json
+# Python imports/tests must not make a clean source checkout appear dirty.
+# Source-byte observation already excludes __pycache__; other extra app files
+# are still rejected by capture_source.
+__pycache__/
+*.pyc
+*.pyo
