@@ -28,6 +28,20 @@ Local Executor unieważnia teraz sesję przy każdej edycji lub wyczyszczeniu to
 
 Czat przesyła do API najwyżej dziewięć ostatnich pełnych par pytanie–odpowiedź oraz bieżące pytanie. Dzięki temu jedenaste i kolejne pytania mieszczą się w limicie API; wcześniejsze wpisy pozostają widoczne w panelu. Testy sprawdzają długą rozmowę, kolejność ról, odmowę i ponowienie oraz zmianę klucza. Nie potwierdzają inferencji modelu.
 
+### Nieprawidłowe odpowiedzi modelu
+
+Czat i wykonanie agentów korzystają ze wspólnej walidacji odpowiedzi Ollama/OpenAI. Nieprawidłowy JSON jako struktura, brak tekstu, tekst innego typu lub wadliwy identyfikator prowadzą do `BLOCK` przed uruchomieniem narzędzia. Dla standardowego Ollama bez `id` pozostaje dotychczasowy identyfikator oparty na hashu odpowiedzi. OpenAI wymaga własnego niepustego `id`.
+
+Uszkodzona odpowiedź nie uruchamia modelu deterministycznego jako zastępstwa. Czat nie zapisuje `chat.completed`, a runtime zapisuje `runtime.blocked`; wcześniejsze poprawne dowody częściowego wykonania pozostają zachowane. Wspólny parser zachowuje prawdziwe znaki nowej linii pomiędzy fragmentami tekstu OpenAI.
+
+Po instalacji zależności projektu uruchom:
+
+```powershell
+python -m pytest tests/test_provider_response_contract.py tests/test_chat_provider_parity.py tests/test_nina_provider_outage.py tests/test_ollama_generation_budget.py
+```
+
+Te testy korzystają z tymczasowej SQLite i zastępczych odpowiedzi HTTP providera. Test `/nina-run` dodatkowo zastępuje obserwator źródeł. Potwierdzają kontrolowane odrzucenie błędu przez rzeczywiste ścieżki API, a nie inferencję na ZBooku.
+
 Parsowanie skryptów na Windows PowerShell:
 
 ```powershell

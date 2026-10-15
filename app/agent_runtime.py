@@ -11,6 +11,7 @@ from sqlalchemy import select
 from .database import SessionLocal
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .models import EvidenceRecord
+from .provider_response import parse_provider_response
 from .tool_authorization import ToolScope, ToolAuthorizationError
 
 
@@ -129,24 +130,14 @@ def _invoke_llm(agent, task, context):
             timeout=float(os.getenv("OLA_LLM_TIMEOUT", "30")),
         )
         response.raise_for_status()
-        body = response.json()
-        output = body.get("output_text")
-        if not output:
-            parts = []
-            for item in body.get("output", []):
-                for content in item.get("content", []):
-                    if content.get("type") in {"output_text", "text"} and content.get("text"):
-                        parts.append(content["text"])
-            output = "\\n".join(parts)
-        if not output:
-            raise RuntimeError("OpenAI response contained no output text")
+        output, response_id = parse_provider_response(provider, response.json())
         return {
             "provider": "openai",
             "model": model,
             "invocation_type": "real_llm",
             "prompt_digest": _digest(prompt),
             "output": output,
-            "response_id": body.get("id"),
+            "response_id": response_id,
         }
 
     if provider == "ollama":
@@ -174,11 +165,7 @@ def _invoke_llm(agent, task, context):
             timeout=float(os.getenv("OLA_LLM_TIMEOUT", "60")),
         )
         response.raise_for_status()
-        body = response.json()
-        output = body.get("message", {}).get("content")
-        if not output:
-            raise RuntimeError("Ollama response contained no message content")
-        response_id = body.get("id") or f"ollama:{_digest(canonical_json(body))}"
+        output, response_id = parse_provider_response(provider, response.json())
         return {
             "provider": "ollama",
             "model": model,
