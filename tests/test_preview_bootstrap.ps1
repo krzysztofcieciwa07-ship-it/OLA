@@ -1,5 +1,6 @@
 # PowerShell control-flow harness. No Docker, model, credential or product runs.
 # Run with Windows PowerShell 5.1+ or pwsh; this is NOT Windows product E2E.
+param([string]$CaseFilter='')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 
@@ -39,7 +40,13 @@ function Reset-Fixture {
  $script:Fixture=@{
   Sha=$script:TestSha;Branch=$script:DefaultBranch;Dirty=$false;
   Generator='ok';Build='ok';PreviewExists=$false;VolumeExists=$false;
-  PythonPresent=$true;Built=$false;PreviewDuringBuild=$false;VolumeDuringBuild=$false;ReparseManifest=$false
+  PythonPresent=$true;Built=$false;PreviewDuringBuild=$false;VolumeDuringBuild=$false;ReparseManifest=$false;
+  Models=@([pscustomobject]@{name='local:test'});TagsResponseOverride=$false;TagsResponse=$null;
+  ShowFailure=$false;ShowCalls=0;ShowModelSeen='';
+  ShowResponse=[pscustomobject]@{
+   details=[pscustomobject]@{format='gguf';family='llama'};
+   model_info=[pscustomobject]@{'general.architecture'='llama'}
+  }
  }
  $script:Events=New-Object 'Collections.Generic.List[string]'
  $script:ExpectedSha=$script:TestSha
@@ -118,8 +125,21 @@ function docker.exe {
  throw ('UNEXPECTED_DOCKER_CALL: '+($arguments -join ' '))
 }
 function Invoke-RestMethod {
- param([string]$Uri,[int]$TimeoutSec)
- if($Uri -eq 'http://127.0.0.1:11434/api/tags'){return [pscustomobject]@{models=@([pscustomobject]@{name='local:test'})}}
+ param([string]$Uri,[int]$TimeoutSec,[string]$Method='Get',[string]$Body,[string]$ContentType)
+ if($Uri -eq 'http://127.0.0.1:11434/api/tags'){
+  Assert-That ($Method -eq 'Get') 'listing model metadata must not start a model'
+  if($script:Fixture.TagsResponseOverride){return $script:Fixture.TagsResponse}
+  return [pscustomobject]@{models=$script:Fixture.Models}
+ }
+ if($Uri -eq 'http://127.0.0.1:11434/api/show'){
+  Assert-That ($Method -eq 'Post' -and $ContentType -eq 'application/json') 'show must use the documented read-only JSON request'
+  Assert-That ($script:Events.Count -eq 0) 'model locality must be checked before generation, build or provisioning'
+  $script:Fixture.ShowCalls++
+  $script:Fixture.ShowModelSeen=($Body|ConvertFrom-Json).model
+  Assert-That ($script:Fixture.ShowModelSeen -in @($script:Fixture.Models|ForEach-Object{$_.name})) 'metadata must describe an installed model'
+  if($script:Fixture.ShowFailure){throw 'FAKE_SHOW_UNAVAILABLE'}
+  return $script:Fixture.ShowResponse
+ }
  if($Uri -eq 'http://127.0.0.1:18081/health'){return [pscustomobject]@{status='ok'}}
  throw ('UNEXPECTED_HTTP_CALL: '+$Uri)
 }
@@ -128,6 +148,7 @@ function Assert-NoMutations {
  foreach($event in @('secret','volume','run')){Assert-That (!$script:Events.Contains($event)) ('blocked path performed '+$event)}
 }
 function Run-Case([string]$Name,[scriptblock]$Arrange,[string]$ExpectedError='',[scriptblock]$Check={}){
+ if($CaseFilter -and $Name -notmatch $CaseFilter){return}
  Reset-Fixture
  & $Arrange
  $failure=$null
@@ -135,6 +156,9 @@ function Run-Case([string]$Name,[scriptblock]$Arrange,[string]$ExpectedError='',
  if($ExpectedError){
   Assert-That ($null -ne $failure -and $failure.StartsWith($ExpectedError)) ($Name+' expected '+$ExpectedError+', got '+$failure)
   Assert-NoMutations
+  if($ExpectedError -match '^(OLLAMA_|NO_LOCAL_OLLAMA_MODEL)'){
+   Assert-That ($script:Events.Count -eq 0) 'unproven local models must stop before generation, build or provisioning'
+  }
  }else{Assert-That ($null -eq $failure) ($Name+' failed: '+$failure)}
  & $Check
  $script:Cases++
@@ -143,6 +167,7 @@ function Run-Case([string]$Name,[scriptblock]$Arrange,[string]$ExpectedError='',
 
 try {
  Run-Case 'clean checkout without manifest' {} '' {
+  Assert-That ($script:Fixture.ShowCalls -eq 1) 'a local model requires a successful metadata check'
   Assert-That (($script:Events -join ',') -eq 'generate,build,secret,volume,run') 'inventory and successful build must precede all provision effects'
   Assert-That (!(Test-Path -LiteralPath (Join-Path $script:FixtureRoot 'NO-ACTUAL-SECRET.env'))) 'the harness must never create a secret file'
  }
@@ -184,6 +209,67 @@ try {
  Run-Case 'preview appears during build' {$script:Fixture.PreviewDuringBuild=$true} 'PREVIEW_EXISTS'
  Run-Case 'volume appears during build' {$script:Fixture.VolumeDuringBuild=$true} 'PREVIEW_VOLUME_EXISTS'
  Run-Case 'Python unavailable' {$script:Fixture.PythonPresent=$false} 'LOCAL_PYTHON_310_OR_NEWER_REQUIRED'
+ Run-Case 'explicit cloud tag is refused' {
+  $script:Model='gpt-oss:cloud';$script:Fixture.Models=@([pscustomobject]@{name=$script:Model})
+ } 'OLLAMA_CLOUD_MODEL_BLOCKED'
+ Run-Case 'explicit size-cloud tag is refused' {
+  $script:Model='gpt-oss:120b-cloud';$script:Fixture.Models=@([pscustomobject]@{name=$script:Model})
+ } 'OLLAMA_CLOUD_MODEL_BLOCKED'
+ Run-Case 'automatic cloud-only inventory is refused' {
+  $script:Model='';$script:Fixture.Models=@([pscustomobject]@{name='gpt-oss:cloud'})
+ } 'NO_LOCAL_OLLAMA_MODEL'
+ Run-Case 'automatic size-cloud-only inventory is refused' {
+  $script:Model='';$script:Fixture.Models=@([pscustomobject]@{name='gpt-oss:120b-cloud'})
+ } 'NO_LOCAL_OLLAMA_MODEL'
+ Run-Case 'automatic selection skips size-cloud tags' {
+  $script:Model='';$script:Fixture.Models=@([pscustomobject]@{name='gpt-oss:120b-cloud'},[pscustomobject]@{name='local:test'})
+ } '' {
+  Assert-That ($script:Fixture.ShowModelSeen -ceq 'local:test') 'a mixed inventory must select and inspect the local model'
+ }
+ Run-Case 'tag metadata refuses a remote alias' {
+  $script:Fixture.Models=@([pscustomobject]@{name='local:test';remote_host='https://ollama.com'})
+ } 'OLLAMA_CLOUD_MODEL_BLOCKED'
+ Run-Case 'show remote host refuses an ordinary alias' {
+  $script:Fixture.ShowResponse|Add-Member -NotePropertyName remote_host -NotePropertyValue 'https://ollama.com'
+ } 'OLLAMA_CLOUD_MODEL_BLOCKED'
+ Run-Case 'show remote model refuses an ordinary alias' {
+  $script:Fixture.ShowResponse|Add-Member -NotePropertyName remote_model -NotePropertyValue 'gpt-oss:120b'
+ } 'OLLAMA_CLOUD_MODEL_BLOCKED'
+ Run-Case 'missing show response is refused' {$script:Fixture.ShowResponse=$null} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'missing model info is refused' {$script:Fixture.ShowResponse.model_info=$null} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'empty model info is refused' {$script:Fixture.ShowResponse.model_info=[pscustomobject]@{}} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'nonobject model info is refused' {$script:Fixture.ShowResponse.model_info=@('llama')} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'missing local model details are refused' {$script:Fixture.ShowResponse.details=$null} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'unavailable show endpoint is refused' {$script:Fixture.ShowFailure=$true} 'OLLAMA_MODEL_DETAILS_UNAVAILABLE'
+ Run-Case 'remote metadata of an invalid type is refused' {
+  $script:Fixture.ShowResponse|Add-Member -NotePropertyName remote_host -NotePropertyValue @('https://ollama.com')
+ } 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'empty remote strings remain valid for a local model' {
+  $script:Fixture.ShowResponse|Add-Member -NotePropertyName remote_host -NotePropertyValue ''
+  $script:Fixture.ShowResponse|Add-Member -NotePropertyName remote_model -NotePropertyValue ''
+ }
+ Run-Case 'empty show object is refused' {$script:Fixture.ShowResponse=[pscustomobject]@{}} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'empty local details object is refused' {$script:Fixture.ShowResponse.details=[pscustomobject]@{}} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'local format missing from details is refused' {$script:Fixture.ShowResponse.details=[pscustomobject]@{family='llama'}} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'nonstring local format is refused' {$script:Fixture.ShowResponse.details.format=42} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'missing tags response is refused' {
+  $script:Fixture.TagsResponseOverride=$true;$script:Fixture.TagsResponse=$null
+ } 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'empty tags object is refused' {
+  $script:Fixture.TagsResponseOverride=$true;$script:Fixture.TagsResponse=[pscustomobject]@{}
+ } 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'models in tags must be an array' {
+  $script:Fixture.TagsResponseOverride=$true;$script:Fixture.TagsResponse=[pscustomobject]@{models=[pscustomobject]@{name='local:test'}}
+ } 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'empty tag object is refused' {$script:Fixture.Models=@([pscustomobject]@{})} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'nonstring tag name is refused' {$script:Fixture.Models=@([pscustomobject]@{name=42})} 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'duplicate selected model metadata is refused' {
+  $script:Fixture.Models=@([pscustomobject]@{name='local:test'},[pscustomobject]@{name='local:test'})
+ } 'OLLAMA_MODEL_METADATA_INVALID'
+ Run-Case 'automatic remote alias is refused' {
+  $script:Model=''
+  $script:Fixture.ShowResponse|Add-Member -NotePropertyName remote_host -NotePropertyValue 'https://ollama.com'
+ } 'OLLAMA_CLOUD_MODEL_BLOCKED'
  Write-Host ('OLA_PREVIEW_BOOTSTRAP_HARNESS=PASS CASES='+$script:Cases+' SCOPE=MOCKED_POWERSHELL_CONTROL_FLOW')
 }finally{
  if(Test-Path -LiteralPath $script:FixtureRoot){Remove-Item -LiteralPath $script:FixtureRoot -Recurse -Force}

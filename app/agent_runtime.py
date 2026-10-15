@@ -1,8 +1,10 @@
 import ast
 import hashlib
 import json
+import math
 import operator
 import os
+import re
 import uuid
 
 import httpx
@@ -37,27 +39,40 @@ def _digest(value):
 
 
 def _safe_expression(task):
-    lowered = task.lower()
-    if "calculate" in lowered:
-        expression = task[lowered.index("calculate") + len("calculate"):].strip()
+    command = re.match(r"\s*calculate\b", task, flags=re.IGNORECASE)
+    explicit_calculation = command is not None
+    if explicit_calculation:
+        expression = task[command.end():].strip()
     else:
         expression = task.strip()
     expression = expression.replace("?", "").split(" and ")[0].strip()
     try:
         tree = ast.parse(expression, mode="eval")
-    except SyntaxError:
+    except SyntaxError as exc:
+        if explicit_calculation:
+            raise ValueError("invalid arithmetic expression") from exc
         return "task accepted: no executable arithmetic expression supplied"
 
     def evaluate(node):
         if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return node.value
-        if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BINOPS:
-            return _SAFE_BINOPS[type(node.op)](evaluate(node.left), evaluate(node.right))
-        raise ValueError("unsafe expression")
+            value = node.value
+        elif isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BINOPS:
+            value = _SAFE_BINOPS[type(node.op)](evaluate(node.left), evaluate(node.right))
+        else:
+            raise ValueError("unsafe expression")
+        # Check each operand/result before its parent can mask an overflow,
+        # e.g. 1 / (1e308 * 1e308). Integers need no float conversion.
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ArithmeticError("non-finite arithmetic value")
+        return value
 
     try:
         return str(evaluate(tree.body))
+    except ArithmeticError as exc:
+        raise ValueError("arithmetic expression could not be computed") from exc
     except ValueError:
+        if explicit_calculation:
+            raise
         return "task accepted: expression outside safe execution policy"
 
 

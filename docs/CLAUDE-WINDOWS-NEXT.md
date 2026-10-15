@@ -2,6 +2,8 @@
 
 Materiał do kontynuacji pracy, nie potwierdzenie produkcyjnej gotowości. Zmiany przygotowano na gałęzi PR #105, baza `d3737de160492716c67c153002a2b10dce841d34`. Baza PR to gałąź `ui/ola-command-center-live-20261014`, nie `main`. Aktualny SHA poprawionej paczki jest w zewnętrznym `SOURCE-LOCK.json`; nie nadawaj bazowemu SHA znaczenia zatwierdzonego wydania.
 
+Konkretne bloki poleceń, kolejność testów i warunki nowego preview są w `docs/CLAUDE-EXECUTION-RUNBOOK-PL.md`. Użyj go jako instrukcji wykonania na ZBooku; niniejszy plik wyjaśnia poprawki i ograniczenia.
+
 ## Dlaczego potrzebne są te poprawki
 
 1. Aurora w `busy().finally` bezwarunkowo odblokowywała przycisk. Po `APPROVED` znów można było go nacisnąć bez kandydata; reset sesji też nie utrzymywał blokady. Poprawka wyprowadza stan z aktualnego kandydata i tłumi błędy poprzedniej epoki.
@@ -41,6 +43,12 @@ python -m pytest tests/test_provider_response_contract.py tests/test_chat_provid
 ```
 
 Te testy korzystają z tymczasowej SQLite i zastępczych odpowiedzi HTTP providera. Test `/nina-run` dodatkowo zastępuje obserwator źródeł. Potwierdzają kontrolowane odrzucenie błędu przez rzeczywiste ścieżki API, a nie inferencję na ZBooku.
+
+### Błędy obliczeń i lokalność modelu
+
+Dzielenie przez zero, przepełnienie i nieskończone wartości pośrednie w `safe_expression` prowadzą do kontrolowanego `BLOCK` z trwałym `runtime.blocked`, zamiast HTTP 500 lub fałszywego wyniku `VERIFIED`. Jawne polecenie `Calculate` z niedozwoloną składnią również jest odrzucane. Zwykłe zadania tekstowe zachowują dotychczasową obsługę. Regresje są w `tests/test_safe_expression_failures.py`; działają deterministycznie bez kontaktu z modelem.
+
+Nowy preview sprawdza wybrany model przez `/api/tags` i odczytowe `POST /api/show`. Odrzuca tagi `:cloud`/`:120b-cloud`, metadane `remote_host`/`remote_model` oraz brak poprawnych metadanych modelu, także przy jawnym `-Model` i zwyczajnej nazwie aliasu. Sprawdzenie następuje przed generowaniem inventory, buildem, sekretami i wolumenem. To kontrola bieżących metadanych lokalnego Ollama; nie potwierdza jeszcze rzeczywistej inferencji ani przyszłej niezmienności modelu.
 
 Parsowanie skryptów na Windows PowerShell:
 

@@ -102,6 +102,43 @@ function Assert-PreviewVolumeAbsent([string]$Volume) {
  if($LASTEXITCODE -ne 0){throw 'DOCKER_VOLUME_LIST_FAILED'}
  if($volumes -contains $Volume){throw 'PREVIEW_VOLUME_EXISTS: manual review required'}
 }
+function Test-CloudModelName([string]$Name) {
+ # Ollama cloud tags include both :cloud and sized tags such as :120b-cloud.
+ return ($Name -match '(?i)(?:^|[:-])cloud$')
+}
+function Assert-NoRemoteModelMetadata($Metadata) {
+ if($null -eq $Metadata -or $Metadata -isnot [pscustomobject] -or
+    @($Metadata.PSObject.Properties).Count -eq 0){throw 'OLLAMA_MODEL_METADATA_INVALID'}
+ foreach($field in @('remote_host','remote_model')){
+  if($Metadata.PSObject.Properties.Name -contains $field){
+   $value=$Metadata.$field
+   if($value -isnot [string]){throw 'OLLAMA_MODEL_METADATA_INVALID'}
+   if($value.Length -gt 0){throw 'OLLAMA_CLOUD_MODEL_BLOCKED'}
+  }
+ }
+}
+function Assert-LocalOllamaModel($Tag,[string]$Name) {
+ if(Test-CloudModelName $Name){throw 'OLLAMA_CLOUD_MODEL_BLOCKED'}
+ Assert-NoRemoteModelMetadata $Tag
+ # /api/show only reads metadata; it neither pulls nor loads the model.
+ # See Ollama docs/api.md (Show Model Information) and api/types.go ShowResponse.
+ try{
+  $body=@{model=$Name}|ConvertTo-Json -Compress
+  $metadata=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/show' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 5
+ }catch{throw 'OLLAMA_MODEL_DETAILS_UNAVAILABLE'}
+ Assert-NoRemoteModelMetadata $metadata
+ if($metadata.PSObject.Properties.Name -notcontains 'details' -or
+    $metadata.PSObject.Properties.Name -notcontains 'model_info' -or
+    $metadata.details -isnot [pscustomobject] -or
+    @($metadata.details.PSObject.Properties).Count -eq 0 -or
+    $metadata.model_info -isnot [pscustomobject] -or
+    @($metadata.model_info.PSObject.Properties).Count -eq 0){throw 'OLLAMA_MODEL_METADATA_INVALID'}
+ foreach($field in @('format','family')){
+  if($metadata.details.PSObject.Properties.Name -notcontains $field -or
+     $metadata.details.$field -isnot [string] -or
+     [string]::IsNullOrWhiteSpace($metadata.details.$field)){throw 'OLLAMA_MODEL_METADATA_INVALID'}
+ }
+}
 function Create-Preview {
  if(Get-Preview){throw 'PREVIEW_EXISTS: no existing data will be modified or replaced'}
  $repo=$script:PreviewRoot
@@ -111,14 +148,27 @@ function Create-Preview {
  if(!(Test-Path -LiteralPath $generator -PathType Leaf)){throw 'BUILD_INVENTORY_GENERATOR_MISSING'}
  try{$tags=Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 5}
  catch{throw 'OLLAMA_NOT_AVAILABLE: start host Ollama first'}
+ if($null -eq $tags -or $tags -isnot [pscustomobject] -or
+    @($tags.PSObject.Properties).Count -eq 0 -or
+    $tags.PSObject.Properties.Name -notcontains 'models' -or
+    $tags.models -isnot [array]){throw 'OLLAMA_MODEL_METADATA_INVALID'}
+ foreach($tag in $tags.models){
+  if($null -eq $tag -or $tag -isnot [pscustomobject] -or
+     @($tag.PSObject.Properties).Count -eq 0 -or
+     $tag.PSObject.Properties.Name -notcontains 'name' -or
+     $tag.name -isnot [string] -or [string]::IsNullOrWhiteSpace($tag.name)){throw 'OLLAMA_MODEL_METADATA_INVALID'}
+ }
  $available=@($tags.models|ForEach-Object{$_.name})
  if(!$Model){
-  $localModels=@($available|Where-Object{$_ -and $_ -notmatch ':cloud$'})
+  $localModels=@($available|Where-Object{!(Test-CloudModelName $_)})
   if($localModels.Count -eq 0){throw 'NO_LOCAL_OLLAMA_MODEL'}
   $Model=[string]$localModels[0]
  }
  if($Model -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_.\/-]{0,95}(:[a-zA-Z0-9_.-]{1,32})?$'){throw 'INVALID_OLLAMA_MODEL_NAME'}
  if($Model -notin $available){throw 'OLLAMA_MODEL_NOT_PRESENT'}
+ $selectedTags=@($tags.models|Where-Object{$_.name -ceq $Model})
+ if($selectedTags.Count -ne 1){throw 'OLLAMA_MODEL_METADATA_INVALID'}
+ Assert-LocalOllamaModel $selectedTags[0] $Model
  $volume='ola-cc-preview-data'
  Assert-PreviewVolumeAbsent $volume
  Assert-PreviewManifestPath $repo

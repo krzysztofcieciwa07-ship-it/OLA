@@ -4,7 +4,7 @@ Komunikacja z właścicielem po polsku. Docelowy runtime i odbiór produktu: Win
 
 ## Zacznij od wykonania
 
-1. Odczytaj `docs/CLAUDE-WINDOWS-NEXT.md`. Jeśli otrzymałeś paczkę audytu, odczytaj jej `START-DLA-CLAUDE.md`, aktualny status i katalog OLA-01–OLA-18.
+1. Odczytaj `docs/CLAUDE-WINDOWS-NEXT.md` oraz konkretne komendy w `docs/CLAUDE-EXECUTION-RUNBOOK-PL.md`. Jeśli otrzymałeś paczkę audytu, odczytaj jej `START-DLA-CLAUDE.md`, aktualny status i katalog OLA-01–OLA-18.
 2. Sprawdź istniejące zmiany i instrukcje lokalne. Nie wykonuj reset/clean ani nie nadpisuj pracy właściciela. Nie zmieniaj gałęzi w używanym checkout bez sprawdzenia; użyj osobnego worktree, gdy potrzebujesz izolacji.
 3. Na Windows uruchom diagnostykę, która niczego nie instaluje:
 
