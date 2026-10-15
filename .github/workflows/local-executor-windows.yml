@@ -9,7 +9,8 @@ on:
       - 'app/execution_binding.py'
       - 'scripts/build_source_manifest.py'
       - 'Dockerfile'
-      - 'tests/aurora_approval_state.test.cjs'
+      - 'tests/*.test.cjs'
+      - 'tests/helpers/**'
       - 'tests/test_capture_source_portable.py'
       - 'tests/test_preview_bootstrap.ps1'
       - 'scripts/provision_local_operator.py'
@@ -27,7 +28,8 @@ on:
       - 'app/execution_binding.py'
       - 'scripts/build_source_manifest.py'
       - 'Dockerfile'
-      - 'tests/aurora_approval_state.test.cjs'
+      - 'tests/*.test.cjs'
+      - 'tests/helpers/**'
       - 'tests/test_capture_source_portable.py'
       - 'tests/test_preview_bootstrap.ps1'
       - 'scripts/provision_local_operator.py'
@@ -77,8 +79,8 @@ jobs:
       - name: Regress Windows source paths, Aurora session and preview control flow
         shell: powershell
         run: |
-          node --test tests/aurora_approval_state.test.cjs
-          if ($LASTEXITCODE -ne 0) { throw 'AURORA_APPROVAL_REGRESSION_FAILED' }
+          node --test tests/aurora_approval_state.test.cjs tests/local_executor_session.test.cjs tests/chat_history_window.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'AURORA_SESSION_REGRESSION_FAILED' }
           python -m unittest discover -s tests -p test_capture_source_portable.py -v
           if ($LASTEXITCODE -ne 0) { throw 'WINDOWS_SOURCE_OBSERVER_REGRESSION_FAILED' }
           & .\tests\test_preview_bootstrap.ps1

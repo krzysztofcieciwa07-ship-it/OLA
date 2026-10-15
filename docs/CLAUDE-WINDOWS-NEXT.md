@@ -15,12 +15,18 @@ Importy Pythona tworzą też `__pycache__`; dodano wąskie ignorowanie tych plik
 W PowerShell, w głównym katalogu prawdziwego checkout:
 
 ```powershell
-node --test .\tests\aurora_approval_state.test.cjs
+node --test .\tests\aurora_approval_state.test.cjs .\tests\local_executor_session.test.cjs .\tests\chat_history_window.test.cjs
 python -m unittest discover -s tests -p test_capture_source_portable.py -v
 & .\tests\test_preview_bootstrap.ps1
 ```
 
 Te testy nie wymagają FastAPI, kluczy, modelu ani bazy. Gdy Node lub Python nie istnieje, zapisz konkretny brak; nie deklaruj PASS. Samodzielny test PowerShell bootstrapu jest wskazany w `START-DLA-CLAUDE.md` paczki i plikach testowych.
+
+### Dalsze poprawki sesji kokpitu
+
+Local Executor unieważnia teraz sesję przy każdej edycji lub wyczyszczeniu tokenu, także podczas pierwszego pobierania listy akcji. Odrzuca spóźnione odpowiedzi, usuwa poprzednie wyniki i listę poleceń oraz zachowuje stan zajętości nowego żądania. Nieudane ponowne połączenie blokuje stare akcje. To kontrola stanu interfejsu; przerwanie żądania w przeglądarce nie dowodzi zatrzymania polecenia już uruchomionego przez wykonawcę.
+
+Czat przesyła do API najwyżej dziewięć ostatnich pełnych par pytanie–odpowiedź oraz bieżące pytanie. Dzięki temu jedenaste i kolejne pytania mieszczą się w limicie API; wcześniejsze wpisy pozostają widoczne w panelu. Testy sprawdzają długą rozmowę, kolejność ról, odmowę i ponowienie oraz zmianę klucza. Nie potwierdzają inferencji modelu.
 
 Parsowanie skryptów na Windows PowerShell:
 

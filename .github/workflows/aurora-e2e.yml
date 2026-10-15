@@ -5,6 +5,8 @@ on:
     paths:
       - 'web/index.html'
       - 'tests/test_aurora_contract.py'
+      - 'tests/*.test.cjs'
+      - 'tests/helpers/**'
       - 'tests/browser_aurora_real_api.py'
       - '.github/workflows/aurora-e2e.yml'
   workflow_dispatch:
@@ -34,6 +36,8 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install playwright==1.57.0
           python -m playwright install --with-deps chromium
+      - name: Isolated UI session regressions
+        run: node --test tests/aurora_approval_state.test.cjs tests/local_executor_session.test.cjs tests/chat_history_window.test.cjs
       - name: AURORA source contract
         run: python -m pytest tests/test_aurora_contract.py -q
       - name: Browser to real OLA Core routes

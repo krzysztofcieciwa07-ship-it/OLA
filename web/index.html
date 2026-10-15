@@ -259,7 +259,7 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
  }
  document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>show(el.dataset.view)));
  $('searchForm').addEventListener('submit',e=>{e.preventDefault();const q=$('searchInput').value.trim().toLocaleLowerCase('pl-PL');const mapping=[['chat','chat'],['nina','chat'],['ai','chat'],['agent','operations'],['execute','operations'],['wykon','operations'],['igor','operations'],['evidence','evidence'],['dowod','evidence'],['replay','audit'],['audyt','audit'],['test','audit'],['system','system'],['health','system'],['settings','settings'],['ustaw','settings'],['app','apps']];const match=mapping.find(x=>q.includes(x[0]));if(match)show(match[1]);else toast('Nie znaleziono modułu. Sprawdź listę APPS.')});
- $('chatForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const input=$('chatInput');const text=input.value.trim();if(!text)return;busy($('chatSend'),async()=>{const next=[...session.messages,{role:'user',content:text}];const epoch=session.epoch;const result=await api('/chat',{method:'POST',payload:{messages:next},token,timeout:50000});if(epoch!==session.epoch)return;if(result.status!=='VERIFIED'||typeof result.message!=='string'){appendMessage('system','NINA BLOCK: '+String(result.reason||result.detail||result.status||'Niezweryfikowany wynik'));log('POST /chat → '+statusLabel(result.status));return}session.messages=next.concat({role:'assistant',content:result.message});appendMessage('user',text);appendMessage('assistant',result.message);input.value='';log('POST /chat → VERIFIED')})});
+ $('chatForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const input=$('chatInput');const text=input.value.trim();if(!text)return;busy($('chatSend'),async()=>{const next=[...session.messages.slice(-18),{role:'user',content:text}];const epoch=session.epoch;const result=await api('/chat',{method:'POST',payload:{messages:next},token,timeout:50000});if(epoch!==session.epoch)return;if(result.status!=='VERIFIED'||typeof result.message!=='string'){appendMessage('system','NINA BLOCK: '+String(result.reason||result.detail||result.status||'Niezweryfikowany wynik'));log('POST /chat → '+statusLabel(result.status));return}session.messages=next.concat({role:'assistant',content:result.message});appendMessage('user',text);appendMessage('assistant',result.message);input.value='';log('POST /chat → VERIFIED')})});
  $('runForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const task=$('runTask').value.trim();if(!task)return;busy($('runSend'),async()=>{session.lastCandidate=null;$('approveSend').disabled=true;const epoch=session.epoch;const result=await api('/nina-run',{method:'POST',payload:{task,requested_tools:['safe_expression','local_mcp_tool_registry.sha256']},token,timeout:110000});if(epoch!==session.epoch)return;present('runResult',result);updateGates(result);if(result.run_id&&result.tip_hash&&result.status_fields&&result.status_fields.HUMAN_GATE==='REVIEW'&&result.decision_report_v2?.report_sha256){session.lastCandidate={run_id:result.run_id,tip_hash:result.tip_hash,report_sha256:result.decision_report_v2.report_sha256};$('approveSend').disabled=false}log('POST /nina-run → '+statusLabel(result.status));if(result.status==='BLOCK')toast('NINA zwróciła BLOCK. Zobacz szczegóły w wyniku.')})});
  $('approvalForm').addEventListener('submit',e=>{e.preventDefault();const candidate=session.lastCandidate;const token=$('approverKey').value.trim();if(!candidate){toast('Najpierw uruchom zadanie NINA i uzyskaj kandydata.');return}if(!token){toast('Wymagany klucz drugiego operatora.');return}busy($('approveSend'),async()=>{const epoch=session.epoch;const result=await api('/nina-run/'+encodeURIComponent(candidate.run_id)+'/approve',{method:'POST',payload:{tip_hash:candidate.tip_hash,report_sha256:candidate.report_sha256,scope:'review-result',reason:'Manual result review from OLA Aurora console'},token,auth:'bearer',timeout:25000});if(epoch!==session.epoch)return;present('approvalResult',result);log('POST approval → '+statusLabel(result.status));if(result.status==='APPROVED'){session.lastCandidate=null;$('approveSend').disabled=true;setText('humanStatus','APPROVED — przegląd wyniku')}else toast('Zatwierdzenie niezweryfikowane')})});
  $('evidenceForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const id=$('evidenceId').value.trim();if(!/^[a-zA-Z0-9_-]{8,80}$/.test(id)){toast('Niepoprawny identyfikator dowodu.');return}const button=$('evidenceForm').querySelector('button');busy(button,async()=>{const epoch=session.epoch;const result=await api('/evidence/'+encodeURIComponent(id),{token});if(epoch!==session.epoch)return;present('evidenceResult',result);log('GET /evidence/{id} → OK')})});
@@ -343,18 +343,25 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
    $('localState').classList.toggle('connected', online);
  };
  const result = text => { $('localResult').textContent = String(text); };
- const forget = () => {
+ const resetLocalSession = () => {
    epoch += 1;
    for(const controller of inflight) controller.abort();
    inflight.clear(); actions = new Map();
-   $('localToken').value = '';
+   busy = false;
+   $('localConnect').disabled = false;
    $('localAction').replaceChildren(new Option('Najpierw połącz wykonawcę',''));
    $('localAction').disabled = true;
    $('localRun').disabled = true;
    state('NIEPODŁĄCZONE');
+   result('Brak połączenia dla aktualnego tokenu.');
+ };
+ const forget = () => {
+   resetLocalSession();
+   $('localToken').value = '';
    result('Token wyczyszczony z pola. Aby zatrzymać usługę lokalną, naciśnij Ctrl+C w jej oknie.');
  };
  async function call(path, payload, expectedEpoch) {
+   if(expectedEpoch !== epoch) throw new Error('Sesja wykonawcy została zmieniona');
    const controller = new AbortController(); inflight.add(controller);
    const timer = setTimeout(() => controller.abort(), 22000);
    try {
@@ -393,6 +400,7 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
    if(busy) return;
    const token = $('localToken').value.trim();
    if(!token) { result('Najpierw uruchom wykonawcę na ZBooku i wklej lokalny token.'); return; }
+   resetLocalSession();
    busy=true; $('localConnect').disabled=true;
    const before=epoch;
    try {
@@ -411,13 +419,11 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
      $('localAction').disabled=false; $('localRun').disabled=false;
      state('POŁĄCZONO Z ZBOOKIEM',true);
      result('LOCAL EXECUTOR ONLINE. Wybierz polecenie. Akcje zmieniające stan wymagają dodatkowego potwierdzenia.');
-   } catch(err) { state('NIEPODŁĄCZONE');result('BŁĄD POŁĄCZENIA: '+err.message); }
-   finally { busy=false; $('localConnect').disabled=false; }
+   } catch(err) { if(before===epoch){state('NIEPODŁĄCZONE');result('BŁĄD POŁĄCZENIA: '+err.message);} }
+   finally { if(before===epoch){busy=false; $('localConnect').disabled=false;} }
  });
  $('localDisconnect').addEventListener('click', forget);
- $('localToken').addEventListener('input', () => {
-   if(actions.size){epoch++;for(const c of inflight)c.abort();inflight.clear();actions.clear();$('localRun').disabled=true;$('localAction').disabled=true;state('NIEPODŁĄCZONE');}
- });
+ $('localToken').addEventListener('input', resetLocalSession);
  $('localRun').addEventListener('click', async () => {
    if(busy || $('localRun').disabled) return;
    const action=$('localAction').value;
@@ -437,8 +443,8 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
        answer=await call('/v1/run',{action},before);
      }
      showResult(answer);
-   }catch(err){result('BŁĄD: '+err.message);}
-   finally{busy=false;$('localRun').disabled=actions.size===0;}
+   }catch(err){if(before===epoch)result('BŁĄD: '+err.message);}
+   finally{if(before===epoch){busy=false;$('localRun').disabled=actions.size===0;}}
  });
 })();
 </script>
