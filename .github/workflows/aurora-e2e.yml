@@ -8,6 +8,8 @@ on:
       - 'tests/*.test.cjs'
       - 'tests/helpers/**'
       - 'tests/browser_aurora_real_api.py'
+      - 'scripts/provision_local_operator.py'
+      - 'scripts/provision_additional_tenant_key.py'
       - '.github/workflows/aurora-e2e.yml'
   workflow_dispatch:
 
@@ -37,7 +39,7 @@ jobs:
           python -m pip install playwright==1.57.0
           python -m playwright install --with-deps chromium
       - name: Isolated UI session regressions
-        run: node --test tests/aurora_approval_state.test.cjs tests/local_executor_session.test.cjs tests/chat_history_window.test.cjs
+        run: node --test tests/aurora_approval_state.test.cjs tests/local_executor_session.test.cjs tests/chat_history_window.test.cjs tests/operator_session_identity.test.cjs
       - name: AURORA source contract
         run: python -m pytest tests/test_aurora_contract.py -q
       - name: Browser to real OLA Core routes

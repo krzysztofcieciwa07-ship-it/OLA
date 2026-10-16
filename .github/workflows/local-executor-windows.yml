@@ -14,7 +14,9 @@ on:
       - 'tests/test_capture_source_portable.py'
       - 'tests/test_preview_bootstrap.ps1'
       - 'scripts/provision_local_operator.py'
+      - 'scripts/provision_additional_tenant_key.py'
       - 'tests/test_operator_onboarding.py'
+      - 'tests/test_additional_tenant_key.py'
       - 'app/main.py'
       - 'web/index.html'
       - 'tests/test_local_executor_contract.py'
@@ -33,7 +35,9 @@ on:
       - 'tests/test_capture_source_portable.py'
       - 'tests/test_preview_bootstrap.ps1'
       - 'scripts/provision_local_operator.py'
+      - 'scripts/provision_additional_tenant_key.py'
       - 'tests/test_operator_onboarding.py'
+      - 'tests/test_additional_tenant_key.py'
       - 'app/main.py'
       - 'web/index.html'
       - 'tests/test_local_executor_contract.py'
@@ -79,7 +83,7 @@ jobs:
       - name: Regress Windows source paths, Aurora session and preview control flow
         shell: powershell
         run: |
-          node --test tests/aurora_approval_state.test.cjs tests/local_executor_session.test.cjs tests/chat_history_window.test.cjs
+          node --test tests/aurora_approval_state.test.cjs tests/local_executor_session.test.cjs tests/chat_history_window.test.cjs tests/operator_session_identity.test.cjs
           if ($LASTEXITCODE -ne 0) { throw 'AURORA_SESSION_REGRESSION_FAILED' }
           python -m unittest discover -s tests -p test_capture_source_portable.py -v
           if ($LASTEXITCODE -ne 0) { throw 'WINDOWS_SOURCE_OBSERVER_REGRESSION_FAILED' }
@@ -160,4 +164,4 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pytest
       - name: Exercise real keyed FastAPI session and onboarding
-        run: python -m pytest -q tests/test_operator_onboarding.py
+        run: python -m pytest -q tests/test_operator_onboarding.py tests/test_additional_tenant_key.py
