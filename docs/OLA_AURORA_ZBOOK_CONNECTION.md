@@ -18,15 +18,29 @@ is mandatory. From the OLA repository in PowerShell:
 ~~~powershell
 git fetch origin integration/aurora-api-engine-zbook-20261016
 git switch --track -c integration/aurora-api-engine-zbook-20261016 origin/integration/aurora-api-engine-zbook-20261016
-$sha = (git rev-parse HEAD).Trim()
-.\workstation\OLA-Preview-Auth.ps1 -CreatePreview -ExpectedSha $sha
-.\workstation\OLA-Preview-Auth.ps1 -IssueKey
-python .\scripts\verify_aurora_connection.py
-Start-Process 'http://127.0.0.1:18081/'
+.\workstation\START-OLA-ZBOOK.ps1 -Setup -LiveTest
 ~~~
 
 If the branch already exists locally, switch to it and use git pull --ff-only
 instead of creating it again.
+
+The launcher reuses existing OLA FastAPI, NINA, policy/evidence and Ollama, and
+opens the live server page. For a missing preview, -Setup asks the existing
+guarded helper to create one isolated container, volume and pepper, then issues
+one tenant credential. It never destroys/replaces a container or database.
+-LiveTest prompts for that credential and performs the real chat + evidence
+round trip. Do not paste the key into Git, ChatGPT or a shared terminal log.
+
+On subsequent runs, start with:
+
+~~~powershell
+.\workstation\START-OLA-ZBOOK.ps1 -LiveTest
+~~~
+
+If a previous preview exists but its source hash differs from the Git checkout,
+the launcher will **BLOCK**, preserving existing data; investigate before an
+authorized migration. The default without -Setup is read-only and never starts,
+deletes or overwrites an existing service.
 
 -IssueKey prints X_API_KEY_ONCE on the local terminal. Paste it into
 AURORA > Ustawienia > X-API-Key > Zweryfikuj klucz. The verifier prompts for
