@@ -4,6 +4,7 @@ import uuid
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.api_key_crypto import hash_api_key
 from app.main import app
 from app.database import SessionLocal
 from app.models import ApiKey, EvidenceRecord, Tenant
@@ -20,7 +21,7 @@ def _seed_tenant():
         ApiKey(
             id=str(uuid.uuid4()),
             tenant_id=tenant_id,
-            key_hash=hashlib.sha256(f"product-key-{tenant_id}".encode()).hexdigest(),
+            key_hash=hash_api_key(f"product-key-{tenant_id}"),
         )
     )
     db.commit()
@@ -64,8 +65,11 @@ def test_product_e2e_task_fault_recovery_verification():
     ]
     chain = [
         {
+            "id": row.id,
             "tenant_id": row.tenant_id,
             "seq": row.seq,
+            "record_type": row.record_type,
+            "hash_version": row.hash_version,
             "prev_hash": row.prev_hash,
             "record_hash": row.record_hash,
             "payload_json": row.payload_json,

@@ -4,6 +4,7 @@ import uuid
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
+from app.api_key_crypto import hash_api_key
 from app.main import app
 from app.database import SessionLocal
 from app.models import ApiKey, EvidenceRecord, Tenant
@@ -26,12 +27,12 @@ def _seed_tenants():
             ApiKey(
                 id=str(uuid.uuid4()),
                 tenant_id=tenant_a_id,
-                key_hash=hashlib.sha256(key_a.encode()).hexdigest(),
+                key_hash=hash_api_key(key_a),
             ),
             ApiKey(
                 id=str(uuid.uuid4()),
                 tenant_id=tenant_b_id,
-                key_hash=hashlib.sha256(key_b.encode()).hexdigest(),
+                key_hash=hash_api_key(key_b),
             ),
         ]
     )
@@ -70,8 +71,11 @@ def test_ola_e2e_closed_environment():
     row = db.get(EvidenceRecord, record["id"])
     chain = [
         {
+            "id": row.id,
             "tenant_id": row.tenant_id,
             "seq": row.seq,
+            "record_type": row.record_type,
+            "hash_version": row.hash_version,
             "prev_hash": row.prev_hash,
             "record_hash": row.record_hash,
             "payload_json": row.payload_json,
@@ -159,8 +163,11 @@ def test_product_e2e_customer_audit():
     assert verify_chain(
         [
             {
+                "id": row.id,
                 "tenant_id": row.tenant_id,
                 "seq": row.seq,
+                "record_type": row.record_type,
+                "hash_version": row.hash_version,
                 "prev_hash": row.prev_hash,
                 "record_hash": row.record_hash,
                 "payload_json": row.payload_json,

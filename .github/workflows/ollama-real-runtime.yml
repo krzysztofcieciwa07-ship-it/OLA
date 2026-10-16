@@ -11,6 +11,8 @@ permissions:
   contents: read
 
 env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  OLA_API_KEY_PEPPER: CI-ONLY-OLA-API-KEY-PEPPER-DO-NOT-USE-IN-PRODUCTION-20261012
   OLA_LLM_PROVIDER: ollama
   OLA_LLM_MODE: required
   OLLAMA_MODEL: qwen2.5:0.5b-instruct
@@ -25,9 +27,12 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Assert exact candidate source checkout
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - name: Set up Ollama
         shell: bash
         run: |
@@ -57,17 +62,19 @@ jobs:
           PY
 
       - name: Build OLA image
-        run: docker build --tag ola-ollama-e2e --file Dockerfile .
+        run: |
+          python3 scripts/build_source_manifest.py
+          docker build --tag ola-ollama-e2e --file Dockerfile .
 
       - name: Start OLA against live Ollama
         shell: bash
         run: |
           set -euo pipefail
-          docker run --detach --rm \
+          docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" \
             --name ola-ollama-e2e \
             --network host \
             -e OLA_EG_DB_PATH=/data/ola.db \
-            -e OLA_RUNTIME_COMMIT="$GITHUB_SHA" \
+            -e OLA_RUNTIME_COMMIT="$SOURCE_SHA" \
             -e OLA_LLM_PROVIDER="$OLA_LLM_PROVIDER" \
             -e OLA_LLM_MODE="$OLA_LLM_MODE" \
             -e OLA_LLM_MODEL="$OLA_LLM_MODEL" \
@@ -90,7 +97,7 @@ jobs:
         run: |
           set -euo pipefail
           docker exec -i \
-            -e EXPECTED_COMMIT="$GITHUB_SHA" \
+            -e EXPECTED_COMMIT="$SOURCE_SHA" \
             -e OLLAMA_MODEL="$OLLAMA_MODEL" \
             ola-ollama-e2e python - <<'PY' > ollama-runtime-proof.json
           import hashlib
@@ -99,6 +106,7 @@ jobs:
           import sqlite3
           import urllib.request
           import uuid
+          from app.api_key_crypto import hash_api_key
 
           tenant_id=str(uuid.uuid4())
           raw_key="ci-ollama-real-llm-key"
@@ -111,7 +119,7 @@ jobs:
           )
           db.execute(
               "INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",
-              (str(uuid.uuid4()),tenant_id,hashlib.sha256(raw_key.encode()).hexdigest()),
+              (str(uuid.uuid4()),tenant_id,hash_api_key(raw_key)),
           )
           db.commit()
           db.close()
@@ -119,7 +127,7 @@ jobs:
           task="Calculate 17 * 23 and return the exact verified result 391."
           req=urllib.request.Request(
               "http://127.0.0.1:8000/agent-run",
-              data=json.dumps({"task":task}).encode(),
+              data=json.dumps({"task":task,"requested_tools":["safe_expression","local_mcp_tool_registry.sha256"]}).encode(),
               headers={"Content-Type":"application/json","X-API-Key":raw_key},
               method="POST",
           )
@@ -162,12 +170,27 @@ jobs:
             python scripts/verify_agent_runtime.py \
               --tenant-id "$TENANT_ID" \
               --run-id "$RUN_ID" \
-              --expected-commit "$GITHUB_SHA" \
+              --expected-commit "$SOURCE_SHA" \
               --expected-task "Calculate 17 * 23 and return the exact verified result 391." \
               --expected-result "391" \
               --expected-provider "ollama" \
               --expected-model "$OLLAMA_MODEL" \
               --expected-invocation-type "real_llm"
+
+      - name: Prepare browser and project runtime dependencies
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install browser for REAL AURORA HTTP + Ollama proof
+        run: |
+          python -m pip install -r requirements.txt playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: AURORA browser -> real HTTP API -> live Ollama -> saved evidence
+        env:
+          AURORA_EVIDENCE_DIR: aurora-live-ollama-evidence
+        run: |
+          set -euo pipefail
+          python tests/browser_aurora_ollama_live.py
 
       - name: Capture Ollama provider evidence
         shell: bash
@@ -180,11 +203,12 @@ jobs:
       - name: Upload Ollama LLM evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ollama-real-llm-proof-${{ github.sha }}
+          name: ollama-real-llm-proof-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             ollama-tags-before-pull.json
             ollama-models.json
             ollama-runtime-proof.json
+            aurora-live-ollama-evidence/
             ola-ollama-runtime.log
 
       - name: Capture OLA logs on runtime failure
@@ -201,7 +225,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ollama-real-llm-failure-${{ github.sha }}
+          name: ollama-real-llm-failure-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             ola-ollama-runtime-failure.log
             ollama-service-failure.log

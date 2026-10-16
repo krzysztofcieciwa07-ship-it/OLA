@@ -17,8 +17,11 @@ def chain_snapshot(tenant_id):
     with SessionLocal() as db:
         rows = db.query(EvidenceRecord).filter(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.asc()).all()
         chain = [{
+            "id": r.id,
             "tenant_id": r.tenant_id,
             "seq": r.seq,
+            "record_type": r.record_type,
+            "hash_version": r.hash_version,
             "prev_hash": r.prev_hash,
             "record_hash": r.record_hash,
             "payload_json": r.payload_json,
@@ -47,7 +50,7 @@ def main():
     if args.inspect:
         print(json.dumps({"tenant_id": tenant, **chain_snapshot(tenant)}, sort_keys=True))
         return
-    result = run_agent_task(tenant, args.task)
+    result = run_agent_task(tenant, args.task, allowed_tools=("safe_expression", "local_mcp_tool_registry.sha256"))
     if result.get("status") != "VERIFIED":
         raise SystemExit(json.dumps({"tenant_id": tenant, "result": result}, sort_keys=True))
     print(json.dumps({

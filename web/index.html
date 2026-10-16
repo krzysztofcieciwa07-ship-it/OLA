@@ -3,37 +3,515 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NINA</title>
+<meta name="referrer" content="no-referrer">
+<title>OLA di-OS • AURORA | Centrum operacyjne</title>
+<style>
+:root{color-scheme:dark;--ink:#f1f4ff;--muted:#9daacc;--dim:#7785ab;--cyan:#58d9ff;--violet:#9e7bff;--glass:rgba(12,21,45,.76);--stroke:rgba(156,170,242,.19);--soft:rgba(149,116,245,.14);--good:#7ef0c6;--warn:#ffc37c;--bad:#fa839b;--radius:18px}
+*{box-sizing:border-box}html{height:100%;scroll-behavior:smooth}body{margin:0;min-height:100%;font:14px/1.48 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:#040914;overflow-x:hidden}button,input,textarea{font:inherit}button{cursor:pointer}button:disabled{opacity:.48;cursor:not-allowed}a{color:#b6bfff;text-decoration:none}a:hover{text-decoration:underline}button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #a594ff;outline-offset:3px}h1,h2,h3,p{margin:0}h1{font-size:clamp(30px,3vw,44px);font-weight:680;letter-spacing:-.045em}h2{font-size:18px;font-weight:660;letter-spacing:-.02em}h3{font-size:14px;font-weight:650}small{font-size:11px;color:var(--muted)}
+.sky{position:fixed;inset:0;z-index:-2;background:radial-gradient(circle at 51% 56%,rgba(118,72,223,.20),transparent 32%),radial-gradient(ellipse at 72% 62%,rgba(20,91,176,.17),transparent 40%),linear-gradient(135deg,#030510 0%,#08142d 53%,#030914 100%);pointer-events:none}.sky::before{content:"";position:absolute;inset:0;opacity:.57;background-image:radial-gradient(1px 1px at 5% 12%,white 99%,transparent),radial-gradient(1px 1px at 12% 57%,#91b6ff 99%,transparent),radial-gradient(2px 2px at 30% 42%,#afa1ff 99%,transparent),radial-gradient(1px 1px at 53% 7%,#fff 99%,transparent),radial-gradient(1px 1px at 82% 13%,#a9dcff 99%,transparent),radial-gradient(2px 2px at 91% 74%,#8cc9ff 99%,transparent);background-size:200px 190px,310px 260px,290px 240px,410px 290px,330px 260px,280px 330px}.horizon{position:fixed;z-index:-1;pointer-events:none;width:min(78vw,920px);aspect-ratio:2.1;left:32%;top:25%;filter:drop-shadow(0 0 42px rgba(117,78,255,.2));opacity:.8}.horizon::before{content:"";position:absolute;width:39%;aspect-ratio:1;border-radius:50%;left:25%;top:9%;background:radial-gradient(circle at 43% 30%,rgba(1,8,24,.97) 45%,rgba(38,29,80,.83) 57%,rgba(241,143,249,.9) 60%,rgba(84,133,250,.5) 62%,transparent 66%);box-shadow:0 0 100px 12px rgba(122,74,250,.14)}.horizon::after{content:"";position:absolute;inset:57% -30% -3%;border-radius:50%;border-top:2px solid rgba(188,116,240,.4);background:linear-gradient(180deg,rgba(116,68,190,.13),transparent 65%);transform:perspective(180px) rotateX(46deg)}
+.app-shell{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}.sidebar{position:sticky;top:0;height:100vh;min-height:720px;padding:22px 15px 16px;display:flex;flex-direction:column;gap:24px;border-right:1px solid var(--stroke);background:linear-gradient(160deg,rgba(5,11,29,.95),rgba(8,15,32,.83));backdrop-filter:blur(26px)}.logo-line{display:flex;align-items:center;gap:13px;padding:0 10px}.brand-mark{width:41px;height:41px;border-radius:50%;background:radial-gradient(circle,#091128 46%,transparent 48%),conic-gradient(from 90deg,#56e4ff,#ab75ff,#5685ff,#e5bbff,#56e4ff);box-shadow:0 0 17px rgba(143,101,255,.65),inset 0 0 14px #6da0ff;flex:0 0 auto}.logo-line strong{font-size:18px;letter-spacing:-.04em}.logo-line small{display:block;letter-spacing:.08em;font-size:9px;text-transform:uppercase}.nav{display:flex;flex-direction:column;gap:7px}.nav-btn,.dock-btn,.quick-btn,.app-tile{background:transparent;border:1px solid transparent;color:var(--muted)}.nav-btn{width:100%;min-height:42px;display:flex;align-items:center;gap:13px;text-align:left;border-radius:12px;padding:10px 13px;transition:background .2s,border-color .2s,color .2s}.nav-btn:hover,.nav-btn.active{color:#fff;background:linear-gradient(110deg,rgba(104,82,212,.33),rgba(93,115,224,.15));border-color:rgba(151,138,255,.41);box-shadow:0 0 22px rgba(105,91,255,.12)}.nav-btn.active{box-shadow:inset 3px 0 #9c80ff,0 0 16px rgba(101,91,255,.17)}.sym{width:20px;text-align:center;font-size:17px;line-height:1;flex:0 0 20px}.sidebar-bottom{margin-top:auto}.glass{border:1px solid var(--stroke);border-radius:var(--radius);background:linear-gradient(130deg,rgba(22,32,62,.78),rgba(10,18,38,.76));box-shadow:0 12px 42px rgba(0,0,0,.16),inset 0 1px rgba(255,255,255,.035);backdrop-filter:blur(20px)}.side-status{padding:16px}.section-label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#95a2c6}.led{width:7px;height:7px;display:inline-block;border-radius:50%;background:#7584a0;box-shadow:0 0 0 3px rgba(115,132,160,.13)}.led.good{background:var(--good);box-shadow:0 0 10px var(--good)}.led.bad{background:var(--bad);box-shadow:0 0 10px var(--bad)}.led.wait{background:var(--warn);box-shadow:0 0 10px var(--warn)}.side-status .status-inline{display:flex;align-items:center;gap:8px;margin-top:11px;font-size:12px}.fineprint{color:var(--dim);font-size:11px;margin-top:9px}.workspace{min-width:0;padding:20px clamp(18px,2.3vw,42px) 120px}.topbar{display:flex;align-items:center;justify-content:space-between;gap:18px;padding-bottom:27px}.search-form{min-width:220px;max-width:450px;flex:1;position:relative}.search-form input{width:100%;height:40px;padding:0 45px 0 42px;border-radius:14px;border:1px solid var(--stroke);background:rgba(15,25,50,.67);color:var(--ink)}.search-icon{position:absolute;left:15px;top:9px;color:#afbcde;font-size:19px}.keycap{position:absolute;right:13px;top:11px;font-size:11px;color:#8b9abd}.top-controls{display:flex;align-items:center;gap:11px}.top-chip{background:rgba(17,26,52,.64);border:1px solid var(--stroke);border-radius:11px;padding:9px 12px;color:#bfcaff}.avatar{display:grid;place-items:center;border:1px solid #6c77ae;border-radius:50%;width:34px;height:34px;background:linear-gradient(130deg,#3d4e89,#1c2146);font-weight:750}.identity{line-height:1.18}.identity small{display:block}.layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(285px,.8fr);gap:20px;align-items:start}.column-main,.column-side{display:flex;flex-direction:column;gap:18px;min-width:0}.greeting{padding:13px 5px 5px}.greeting .eyebrow{font-size:16px;color:#b4bde0}.greeting p:last-child{color:#a9b4d2;margin-top:1px}.glass.pad{padding:20px}.core-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.panel-heading h3{font-size:12px;text-transform:uppercase;letter-spacing:.025em}.pill{font-size:10px;padding:4px 8px;border-radius:30px;border:1px solid rgba(152,169,212,.26);background:rgba(102,115,149,.14);color:#cad4ed;white-space:nowrap}.pill.good{color:var(--good);border-color:rgba(126,240,198,.26);background:rgba(29,135,109,.11)}.pill.bad{color:var(--bad);border-color:rgba(250,131,155,.25)}.pill.warn{color:var(--warn);border-color:rgba(255,195,124,.25)}.core-visual{width:100%;max-width:175px;aspect-ratio:1;margin:7px auto 8px;position:relative;display:grid;place-items:center}.orb{width:78%;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#fff 0%,#9ebcff 1.6%,#7a78ff 4%,transparent 6%),repeating-radial-gradient(circle,transparent 0 17px,rgba(121,109,248,.38) 18px 19px,transparent 20px 27px),conic-gradient(from 25deg,transparent,rgba(120,107,254,.6),transparent,rgba(89,178,255,.6),transparent);border:1px solid rgba(145,121,255,.25);box-shadow:0 0 33px rgba(125,84,255,.36),inset 0 0 40px rgba(140,92,250,.21);animation:spin 24s linear infinite}.orb::before{content:"";position:absolute;inset:9%;border-radius:50%;border:1px dotted rgba(157,184,255,.52)}@keyframes spin{to{transform:rotate(360deg)}}.centered{text-align:center}.muted{color:var(--muted)}.metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.metric{padding:12px;background:rgba(11,20,45,.6);border:1px solid rgba(147,157,216,.12);border-radius:12px;min-width:0}.metric small{display:block}.metric strong{font-size:13px;font-weight:650;overflow-wrap:anywhere}.metric .muted{font-size:10px}.status-rail{display:flex;flex-wrap:wrap;gap:8px;margin-top:13px}.badge-item{font-size:11px;color:#c2cce8;padding:6px 8px;border:1px solid var(--stroke);border-radius:8px;background:rgba(6,14,33,.6)}.badge-item b{font-weight:650;color:var(--muted)}.workspace-panel{padding:0;overflow:hidden}.window-bar{height:48px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(141,149,223,.14);background:rgba(8,15,33,.45)}.window-title{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:600}.window-title .brand-mark{width:20px;height:20px;box-shadow:none}.window-dot{width:8px;height:8px;border:1px solid #8292d5;border-radius:3px}.window-body{padding:22px;min-height:310px;position:relative;overflow:hidden}.window-body::after{content:"";position:absolute;right:-80px;top:26px;width:260px;aspect-ratio:1;border-radius:50%;border:2px solid rgba(161,118,255,.43);box-shadow:0 0 40px rgba(119,74,239,.24),inset 0 0 40px rgba(111,77,246,.15);pointer-events:none;opacity:.62}.subnav{display:flex;gap:7px;flex-wrap:wrap;margin:15px 0}.subnav button,.primary,.secondary,.quiet{border-radius:10px;padding:9px 14px;border:1px solid rgba(136,139,244,.3);color:#f1f4ff;background:rgba(80,62,159,.16);transition:transform .15s,background .15s}.subnav button:hover,.secondary:hover,.quiet:hover{background:rgba(113,96,213,.32)}.primary{background:linear-gradient(115deg,#7658de,#4e67cc);border-color:rgba(196,181,255,.52);box-shadow:0 4px 18px rgba(97,75,202,.25);font-weight:620}.primary:hover{background:linear-gradient(115deg,#8b70ed,#597be4)}.quiet{background:transparent}.window-body label,.auth-row label,.controls label{display:block;font-size:12px;color:#b5c1e1;margin:0 0 7px}.field,textarea{width:100%;border:1px solid rgba(148,154,219,.29);color:#edf0ff;background:rgba(5,12,29,.82);border-radius:11px;padding:11px 13px;outline:none}.field:focus,textarea:focus{border-color:#ac92ff;box-shadow:0 0 0 3px rgba(131,99,240,.11)}textarea{min-height:68px;resize:vertical}.form-row{display:flex;align-items:center;gap:9px;margin-top:10px;flex-wrap:wrap}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}.message-feed{height:195px;overflow:auto;border:1px solid rgba(148,154,219,.18);border-radius:12px;background:rgba(3,10,25,.4);padding:13px;display:flex;flex-direction:column;gap:9px;margin-bottom:12px}.message{max-width:90%;padding:9px 12px;border:1px solid var(--stroke);border-radius:11px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.message.user{align-self:flex-end;background:rgba(112,86,212,.3)}.message.assistant{align-self:flex-start;background:rgba(11,23,51,.85)}.message.system{align-self:flex-start;background:rgba(104,105,142,.11);color:var(--muted)}.action-out{margin-top:12px;padding:12px;background:rgba(1,7,20,.52);border:1px solid var(--stroke);border-radius:9px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:210px;overflow:auto;font:11px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:#d3e3ff}.hidden{display:none!important}.notice{padding:11px 12px;background:rgba(119,82,183,.12);border:1px solid rgba(159,128,229,.25);border-radius:11px;color:#bbc6e5;font-size:12px}.workspace-panel section[hidden]{display:none}.side-card{padding:17px}.status-list{display:flex;flex-direction:column;gap:9px}.status-row{display:flex;justify-content:space-between;gap:11px;align-items:center;border-bottom:1px solid rgba(147,161,221,.12);padding:7px 0}.status-row:last-child{border:0}.status-row span{color:#b1bfdf;font-size:12px}.date-big{font-size:30px;font-weight:550;letter-spacing:-.05em}.quick-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}.quick-btn{padding:12px 4px;border-radius:12px;background:rgba(15,25,57,.65);border-color:rgba(154,164,222,.17);display:flex;align-items:center;flex-direction:column;gap:7px;font-size:11px;color:#c1cce9;min-height:78px}.quick-btn:hover{border-color:rgba(182,146,255,.47);background:rgba(92,76,159,.22)}.quick-btn .sym{font-size:23px;width:auto;flex:0 0 auto}.quick-btn:disabled{cursor:not-allowed}.quick-btn:disabled:hover{border-color:rgba(154,164,222,.17);background:rgba(15,25,57,.65)}.log-list{font:11px/1.6 ui-monospace,Consolas,monospace;color:#a9bce2;max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.log-entry{padding:6px 0;border-bottom:1px solid rgba(148,154,219,.1)}.dock{position:fixed;left:calc(220px + (100vw - 220px)*.5);bottom:14px;transform:translateX(-50%);z-index:10;display:flex;align-items:center;gap:9px;padding:9px 15px;border:1px solid rgba(146,133,236,.25);background:rgba(9,16,40,.85);backdrop-filter:blur(26px);border-radius:23px;box-shadow:0 15px 45px #0007,0 0 30px rgba(126,81,235,.16)}.dock-btn{width:46px;height:46px;font-size:22px;display:grid;place-items:center;border-radius:13px;color:#cbd5ff;background:linear-gradient(150deg,rgba(66,81,144,.42),rgba(21,27,57,.61));border-color:rgba(163,150,227,.13)}.dock-btn:hover,.dock-btn.active{border-color:#9e7dff;box-shadow:0 0 16px rgba(142,99,255,.33);color:white}.dock-rule{height:33px;border-left:1px solid var(--stroke);margin:0 4px}.loading{opacity:.7;pointer-events:none}.spinner{width:13px;height:13px;display:inline-block;border:2px solid #fff5;border-top-color:#d5d0ff;border-radius:50%;animation:spin 1s linear infinite;vertical-align:-2px;margin-right:5px}.toast{position:fixed;right:25px;bottom:95px;z-index:30;background:#151e3e;color:#e2e9ff;border:1px solid #5865a2;border-radius:12px;padding:12px 17px;max-width:min(430px,90vw);box-shadow:0 15px 40px #0008}.auth-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.auth-row>div:first-child{flex:1;min-width:185px}.auth-row button{white-space:nowrap}.mono{font-family:ui-monospace,Consolas,monospace}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:1160px){.layout{grid-template-columns:1fr}.column-side{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.column-side>*:last-child{grid-column:1/-1}.horizon{left:22%;top:19%}}@media(max-width:780px){.app-shell{grid-template-columns:1fr}.sidebar{position:static;height:auto;min-height:0;padding:12px 15px;gap:12px;border-right:0;border-bottom:1px solid var(--stroke)}.sidebar-bottom{display:none}.nav{flex-direction:row;overflow:auto;gap:4px}.nav-btn{min-width:max-content;font-size:12px;padding:8px 10px;min-height:38px}.nav-btn .sym{font-size:15px;width:18px;flex-basis:18px}.workspace{padding:14px 15px 95px}.topbar{padding-bottom:17px}.top-controls .top-chip,.identity{display:none}.column-side{grid-template-columns:1fr 1fr}.horizon{left:0;top:24%;width:100%}.dock{left:50%;bottom:8px}.dock-btn{width:39px;height:39px;font-size:19px}.dock{gap:5px}.window-body{padding:16px}.core-row{gap:9px}}@media(max-width:520px){.core-row,.column-side,.two-col{grid-template-columns:1fr}.column-side>*:last-child{grid-column:auto}.topbar{gap:8px}.search-form{min-width:0}.top-chip{display:none}.greeting{padding:7px 4px}.glass.pad{padding:16px}.core-visual{max-width:130px}.window-body::after{right:-160px}.dock{width:max-content;max-width:96vw;padding:8px;overflow:auto}.dock-btn{width:35px;height:38px}.quick-grid{grid-template-columns:repeat(3,1fr)}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
+@media(max-width:780px){.app-shell{grid-template-columns:minmax(0,1fr)}.sidebar,.workspace,.topbar,.column-main,.column-side,.layout,.glass{min-width:0;max-width:100%}.nav{width:100%;min-width:0;max-width:100%;overflow-x:auto}.search-form{max-width:none;min-width:0;flex:1}.core-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+@media(max-width:520px){.core-row,.column-side,.two-col{grid-template-columns:minmax(0,1fr)}.search-form{width:100%}.topbar{min-width:0}.dock{max-width:calc(100vw - 12px)}.glass.pad{min-width:0}}
+
+/* OLA COMMAND CENTER: skin only; operational controls use existing AURORA handlers */
+:root{--ink:#e7fff3;--muted:#9bbfb3;--dim:#69988a;--cyan:#25f3bb;--violet:#19cda7;--glass:rgba(3,20,20,.82);--stroke:rgba(36,224,167,.25);--soft:rgba(17,200,143,.13);--good:#55efb3;--warn:#fabb70;--bad:#fc798a;--radius:12px}
+body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(0,146,100,.15),transparent 50%),#030a0b}.horizon{opacity:.08;filter:hue-rotate(80deg)}
+.sidebar{background:linear-gradient(160deg,#030b0c,#061c1b)}
+.glass{background:linear-gradient(150deg,rgba(3,20,20,.93),rgba(2,13,14,.92))}
+.brand-mark{background:radial-gradient(circle,#003528 43%,transparent 47%),conic-gradient(#18dca5,#1ee7c9,#56dfff,#18dca5);box-shadow:0 0 18px rgba(20,224,169,.24)}
+.nav-btn.active,.nav-btn:hover{background:rgba(6,130,99,.16);border-color:rgba(45,217,157,.4)}.nav-btn.active{box-shadow:inset 3px 0 var(--cyan)}a{color:#64f2c2}
+.cc-grid{display:grid;grid-template-columns:minmax(155px,.67fr) minmax(300px,1.7fr) minmax(220px,1fr);gap:12px;margin-bottom:20px}
+.cc-panel{min-width:0;overflow:hidden;border:1px solid rgba(31,223,163,.28);border-radius:11px;background:#031313;position:relative}
+.cc-title{font:700 11px/1.4 ui-monospace,monospace;color:#bdf9e2;letter-spacing:.09em;padding:14px 13px;border-bottom:1px solid rgba(33,220,164,.21)}
+.cc-agents{display:flex;flex-direction:column}
+.cc-agent{display:flex;justify-content:space-between;gap:5px;width:100%;background:transparent;color:#e3fff2;font-size:11px;padding:12px;border:0;border-bottom:1px solid rgba(41,204,157,.13);text-align:left}
+.cc-agent:hover{background:rgba(17,170,118,.11)}
+.cc-agent b{font:600 9px ui-monospace,monospace;color:#eab66f}
+.cc-agent b.verified{color:#6bf4bb}
+.cc-note{font-size:10px;color:#90b5a7;line-height:1.5;padding:12px;margin-top:auto}
+.cc-map{background:radial-gradient(ellipse at 50% 47%,rgba(0,106,87,.17),transparent 57%),#031014;display:flex;flex-direction:column}
+.cc-maphead{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px 14px}
+.cc-live{border:1px solid rgba(45,217,157,.3);border-radius:25px;padding:5px 9px;font:700 10px ui-monospace,monospace;color:#efbd71}
+.cc-live.online{color:#60efb5;background:rgba(15,176,123,.13)}
+.cc-mapsvg{display:block;width:100%;max-height:340px;flex:1;min-height:290px}
+.cc-label{fill:#d7ffec;font:12px ui-monospace,monospace;letter-spacing:1.1px}
+.cc-ring{transform-origin:50% 50%;animation:cc-rotate 80s linear infinite}
+.cc-ring-rev{animation-direction:reverse;animation-duration:125s}
+.cc-foot{padding:9px 12px;border-top:1px solid rgba(45,217,157,.2);font:10px ui-monospace,monospace;color:#91bcaf}
+.cc-identity{display:flex;flex-direction:column}
+.cc-portrait{min-height:333px;flex:1;position:relative;background:linear-gradient(0deg,#031313 0%,transparent 45%),linear-gradient(90deg,rgba(0,16,13,.18),rgba(0,12,13,.26)),url(data:image/webp;base64,UklGRtwGAABXRUJQVlA4INAGAABQIgCdASpgAIAAPvlko1AqpaMjOLs6MVAfCWgAzMiFkoEDPsYVG5NNjhrNcTtCzo5h2njat/e5Qop0Ne01L/2960B45XyBqigo3GyzF9Jn0OEkfUsBaYO0ZoRlIj5xn0xiEOsXbxQmVI2CBK/TMphhLDMjC79+GzV9r196Fu3mZdC3eGTRQW0RgtS5u9EHQweXkY28ukW2f9pMWIuSWNaL08sA0wme4h5ScfJbepVQKU6ogcu2oZM23vuWYGyRvECnDZHC6bu4tLs+OEKWv0iJhoWfNJ/h1Mcih9lLYf0MZWlevnEX86nkwvghZ+YH92YRnxYvE4Ak8sF95xVeiLr3GYwzlpZjhDNjqWAeW0cBg5nueEfaCnexBswAAP78pgbapkDSQsVnHTbrH3gDhP64Yle4FQi9IDfchSYLAqzF8H4YDv1Oe7FFS90Um9akmZrZ0x/s8C645rTdZjJgWiYJJX9oCCJSi15dCmDaT65+IHhweUL4hn5YWQq+WO18HNDiTCuLeq4WDe30IZNN28qYbi8EB0bUBDwDkgkpy/9fDCvlMIzTlAGWpsf9RAFyoNc9HLmj4xCVmGmjVgju0gP2wwn7USRP/oDIuL5BFuvV/C1V20WWqwNPNSZ16v4UWLv6+Z38GJTFo/++c9ina/yi7Yiq07JK3XEfzkCSCnhQrzXG5TWkgMEda3v7n+2H9WAX6TPQ/Zuum0xsj/EKveSTgWZfSu1mgdLYR79LPrphEyo3/wqGWWUNQq506l9v+rOZGrufHgQIenQiS82wR/Y+RMPsKGs5+nfws4W5pWXhCKJb7o61mnWG8QYq1M/lpYkajAoINavWcY6jr7czXjPpNpnzYUsnCyW2D0ApDMvGoLatYvg3D6ryd+a1pFxkfUZD+RuUSpcVcvRl/4/EjWy7qZ39oXpaJ9r6O4izftA3i3zSIEMx0D7fm4sSK6d1BMBTSgUY6hchSw+ydN83BprTJfPrt+0lvc2t7fhrEeT2tWFZJfDsd9cD9VmqeHdL6HMhD8rkW0M1NoUJYiqh/rnOBz8la6g/HYbVJOtxQtgxLH30KsixJSikgaTJXVz/4gMWeRnT+7D30XNarphEvP+ic+BFaT4uDTx9UvlOTAXk0SkNH2YtTXktPYqyRNlaa4i7tHjz/GjDFTRFrLbSmyQrfUDuyJhAB/B7YixnagZWwC4mJILSpobodCn3qZhN6zQyKcY9eUmeBQk0Zzz4aGcO95CoMMu21LLykhAngrAwfZecq/QxaHRrb/2aHAkZnae2PrZk4NLwrv1lWxcl1azh8JzmVZddk3TGPv5SupZl0wsMQ9OYTRppOeC6GHFItQyL1kGpqw6J9PaQM0qqButWpgbm8vCme51R9N8BGEnhEvwzs8HEsgvFMe9vCeNeLIU05i+K+wmW6JT1IqbfWyOMXyk/T6LBQaG/FfAcFl1M4KSjJXHBcqw3WL73ANowBjZKoZ1X+Dtr2IR08zXbdwBNW3tgF4Op3min8yx+TSsdmznnX65ioRx/2/3W3wlN/joK2Uhf5nuoABHU+Qe/RkQqMAKe/noN27vtyFCUwoueYRsvvkvWEK4ly8zwX9Dxx2EiAAEZlOWyAqRxCPtYRyTvaNsCJQqCS5vwfsSzdiVggSh+RyrOk0V46YXtWlgLAksrwYKydrPJmUdTFATamAXql9jAA4WqFLyL2+EokhkiPYzblY0kBgkgoMhlDRQPmPq/cOOIUUzJ5pYF1CGXsSzr2hPKsvm6MCOedP1vVyhAgAXHsh/fvwfDOUotmbSglYs28QxEOIBlcIxHhsDOFrlCnANUG/J1JjVRnoozVNhdA1AIZXRIMCA/RaWovFOiXiJOL1qUgQIwKwNSm+JfJvkzY2uMpAiYqxvZiPxbvh0DnDXEMXA6Gc5d1bSQ4dp6DDnN0+SWjwHPLvzvVDgzonD/DpH0fCi/3Q2lBVxDIIUiUgOHYfRKsDZPlW0xLpLD4IuujyRLNz3uGXTA5ULBNTz+jyCSnec7BudAzO0xrBpyA6ajeraRAKgTZvwgm5Ie9Y4o9RRcxv2PI4MYcVhbfSVHArhRC+qmBy3tKNJKR8uYvG2gm73SPHS4pQJGOgVMTI1YON8xJnuLnZt9X9SAuqkBH/nVHa1DfAsAfwfpJYr7Gdm/xUmzELAc/YEEYRoIOHEg6EFunLH2a8wzVa7278Fw1WZcfq8kgXEuGGjIg8l/RprMOoedv3e9Y8sgAkPuZBu3Px96VkKKBzGLEj4ZWq4MjLRdjGB5Tt5qKejQRtTnewLtjYzLxXcRi+Q8QNYAARmcIrnNmVAuzBSrKQlEBAAA) center top /cover no-repeat}
+.cc-reticle{position:absolute;left:14%;top:24%;width:38%;aspect-ratio:1;border:2px solid rgba(78,251,184,.72);border-radius:50%;box-shadow:0 0 22px rgba(0,239,160,.43),inset 0 0 18px rgba(0,239,160,.25);pointer-events:none}
+.cc-reticle:before,.cc-reticle:after{content:"";position:absolute;background:#81ffd6}
+.cc-reticle:before{height:1px;left:-18%;right:-18%;top:50%}
+.cc-reticle:after{width:1px;top:-18%;bottom:-18%;left:50%}
+.cc-facecaption{position:absolute;bottom:13px;left:14px;text-shadow:0 2px 5px #000;font-size:11px;color:#a1f0ce}
+.cc-facecaption b{font-size:28px;color:#f6fffb;display:block;letter-spacing:.07em}
+.cc-actions{display:flex;gap:7px;padding:10px}
+.cc-actions button{flex:1;border:1px solid rgba(49,218,167,.35);border-radius:7px;background:rgba(6,89,67,.2);color:#c7ffe7;font-size:11px;padding:9px 3px}
+.cc-actions button:hover{background:rgba(17,170,118,.2)}
+@keyframes cc-rotate{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.cc-ring{animation:none}}
+@media(max-width:1100px){.cc-grid{grid-template-columns:minmax(0,1fr) minmax(240px,.8fr)}.cc-agents{grid-column:1/-1;flex-direction:row;flex-wrap:wrap}.cc-agents .cc-title{width:100%}.cc-agent{flex:1 1 30%}.cc-note{width:100%;margin:0}}
+@media(max-width:720px){.cc-grid{grid-template-columns:1fr}.cc-agents{display:none}.cc-mapsvg{min-height:240px}.cc-portrait{min-height:390px}}
+
+
+/* Local Executor panel. No arbitrary command input is permitted. */
+.cc-local{margin:0 0 20px;padding:16px 18px;border:1px solid rgba(39,229,170,.3);border-radius:12px;background:linear-gradient(110deg,rgba(3,35,28,.94),rgba(3,17,19,.92))}
+.cc-localhead{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:11px}
+.cc-localhead h2{font-size:15px;letter-spacing:.02em}
+.cc-localstate{font:700 11px ui-monospace,monospace;color:#efbd78;border:1px solid rgba(221,160,89,.4);padding:4px 9px;border-radius:20px}
+.cc-localstate.connected{color:#71ffd2;border-color:rgba(67,229,169,.5)}
+.cc-localform{display:grid;grid-template-columns:minmax(130px,1fr) minmax(230px,1.4fr) auto auto auto;gap:9px;align-items:end}
+.cc-localform label{display:block;font-size:11px;color:#b5e0d0;margin-bottom:4px}
+.cc-localform input,.cc-localform select{display:block;width:100%;height:39px;min-width:0;border-radius:7px;border:1px solid rgba(37,207,164,.36);color:#ebfff5;background:#051b1c;padding:7px 10px;font:12px ui-monospace,monospace}
+.cc-localform button{height:39px;border-radius:7px;padding:0 12px;font-size:12px;font-weight:700;color:#dfffee;border:1px solid rgba(54,227,170,.44);background:rgba(10,117,83,.28)}
+.cc-localform button:hover:not(:disabled){background:rgba(21,169,119,.3)}
+.cc-localform button:disabled{opacity:.45}
+.cc-localout{white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;margin:12px 0 0;padding:11px 12px;border:1px solid rgba(32,171,135,.2);border-radius:7px;background:rgba(0,0,0,.25);color:#bde9d9;font:11px/1.5 ui-monospace,monospace}
+.cc-localnote{color:#8bbbab;font-size:11px;margin:10px 0 0}
+@media(max-width:1120px){.cc-localform{grid-template-columns:1fr 1.4fr auto auto}.cc-localform button:last-child{grid-column:4}}
+@media(max-width:700px){.cc-localform{grid-template-columns:1fr 1fr}.cc-localform>div{grid-column:1/-1}.cc-localform button{grid-column:auto!important}}
+
+
+/* L1-L5 live control plane: data from tenant-scoped read API */
+.cc-layers{display:grid;grid-template-columns:repeat(5,minmax(90px,1fr));gap:8px;margin:14px 0}
+.cc-layer{border:1px solid rgba(34,218,163,.23);background:#061e1b;border-radius:8px;padding:12px 9px;overflow-wrap:anywhere;min-height:98px}
+.cc-layer strong{display:block;font:700 10px ui-monospace,monospace;color:#8aebcb}
+.cc-layer span{display:block;font:700 12px/1.4 ui-monospace,monospace;color:#e6fff1;margin-top:12px}
+.cc-layer small{font-size:10px;color:#8cbcae}
+.cc-controls{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0;align-items:center}
+.cc-controls button{background:rgba(6,103,78,.4);border:1px solid #2d9e82;color:#d5ffeb;border-radius:7px;padding:11px;font-weight:700}
+.cc-controls button:disabled{opacity:.45}
+.cc-controls select{flex:1;min-width:190px;padding:11px;background:#09231f;color:#c9ffe8;border:1px solid #388d73;border-radius:6px}
+.cc-live-output{max-height:410px;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;padding:13px;border-radius:9px;background:#031715;border:1px solid rgba(35,184,146,.27);font:11px/1.5 ui-monospace,monospace}
+@media(max-width:1100px){.cc-layers{grid-template-columns:repeat(3,minmax(90px,1fr))}}
+@media(max-width:690px){.cc-layers{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
 </head>
 <body>
-<main>
-<h1>NINA</h1>
-<p>Tryb chroniony: podaj swój klucz API OLA. Klucz nie jest zapisywany na serwerze.</p>
-<input id="key" type="password" placeholder="X-API-Key" autocomplete="off">
-<div id="messages"></div>
-<form>
-<textarea id="input" placeholder="Napisz do NINA..." required></textarea>
-<button>Wyślij</button>
-</form>
+<div class="sky" aria-hidden="true"></div><div class="horizon" aria-hidden="true"></div>
+<div class="app-shell">
+<aside class="sidebar" aria-label="Nawigacja główna">
+ <div class="logo-line"><div class="brand-mark" aria-hidden="true"></div><div><strong>OLA di OS</strong><small>AURORA · UI / API BRIDGE</small></div></div>
+ <nav class="nav" aria-label="Sekcje">
+  <button class="nav-btn active" type="button" data-view="home"><span class="sym">▦</span> HOME</button>
+  <button class="nav-btn" type="button" data-view="apps"><span class="sym">▤</span> APPS</button>
+  <button class="nav-btn" type="button" data-view="chat"><span class="sym">✧</span> AI CORE</button>
+  <button class="nav-btn" type="button" data-view="evidence"><span class="sym">▣</span> EVIDENCE</button>
+  <button class="nav-btn" type="button" data-view="operations"><span class="sym">⚙</span> OPERATIONS</button>
+  <button class="nav-btn" type="button" data-view="control"><span class="sym">◇</span> CONTROL PLANE</button>
+  <button class="nav-btn" type="button" data-view="system"><span class="sym">◎</span> SYSTEM</button>
+  <button class="nav-btn" type="button" data-view="settings"><span class="sym">☷</span> SETTINGS</button>
+ </nav>
+ <div class="sidebar-bottom glass side-status"><p class="section-label">OLA RUNTIME</p><p class="status-inline"><span id="sideLed" class="led wait"></span><span id="sideStatus">Oczekiwanie na /health</span></p><p class="fineprint">Status ustalany wyłącznie z odpowiedzi API. Nie przedstawiamy danych symulowanych jako pomiarów.</p></div>
+</aside>
+<main class="workspace">
+ <header class="topbar">
+  <form class="search-form" id="searchForm" role="search"><label class="sr-only" for="searchInput">Znajdź funkcję</label><span class="search-icon" aria-hidden="true">⌕</span><input id="searchInput" type="search" autocomplete="off" placeholder="Znajdź funkcję lub moduł…"><span class="keycap">↵</span></form>
+  <div class="top-controls"><span class="top-chip" id="clock">--:--</span><span class="top-chip" title="Stan sprawdzany z API">API <span id="topLed" class="led wait"></span></span><span class="avatar" aria-hidden="true">O</span><span class="identity">OLA<small>Operator</small></span></div>
+ </header>
+
+ <section class="cc-grid" aria-label="OLA Command Center — podłączone do istniejącego AURORA API">
+  <aside class="cc-panel cc-agents" aria-label="Moduły systemu">
+   <div class="cc-title">AGENT CORE / STATUS</div>
+   <button type="button" data-view="operations" class="cc-agent">NINA <b id="ccNina">UNKNOWN</b></button>
+   <button type="button" data-view="chat" class="cc-agent">OLA CORE <b id="ccCore">UNKNOWN</b></button>
+   <button type="button" data-view="evidence" class="cc-agent">EVIDENCE <b id="ccEvidence">UNKNOWN</b></button>
+   <button type="button" data-view="operations" class="cc-agent">IGOR <b id="ccIgor">UNKNOWN</b></button>
+   <button type="button" data-view="operations" class="cc-agent">HUMAN GATE <b id="ccGate">UNKNOWN</b></button>
+   <button type="button" data-view="audit" class="cc-agent">REPLAY <b id="ccReplay">UNKNOWN</b></button>
+   <p class="cc-note">ROUTE READY oznacza obecność endpointu, a nie wykonanie. VERIFIED wyświetlamy tylko z rzeczywistej odpowiedzi backendu.</p>
+  </aside>
+  <section class="cc-panel cc-map" aria-label="Schemat przepływu dowodowego">
+   <div class="cc-maphead"><div><div class="cc-title" style="border:0;padding:0">OLA / GLOBAL INTELLIGENCE</div><small>MODEL PRZEPŁYWU · NIE TELEMETRIA</small></div><span class="cc-live" id="ccLive" aria-live="polite">API UNKNOWN</span></div>
+   <svg class="cc-mapsvg" viewBox="0 0 600 400" role="img" aria-label="Schemat SOURCE, NINA, EVIDENCE, IGOR, HUMAN GATE, REPLAY — nie rzeczywisty ruch sieciowy">
+    <g fill="none" stroke="#30cda8" stroke-opacity=".28" stroke-width="1"><circle cx="300" cy="200" r="170"/><circle cx="300" cy="200" r="131"/><circle cx="300" cy="200" r="95"/><ellipse cx="300" cy="200" rx="175" ry="61"/><ellipse cx="300" cy="200" rx="70" ry="172"/><path d="M120 200H480M300 25V375"/></g>
+    <g class="cc-ring" style="transform-origin:300px 200px" fill="none" stroke="#3ef3c0" stroke-opacity=".48" stroke-dasharray="12 24"><circle cx="300" cy="200" r="192"/></g>
+    <g class="cc-ring cc-ring-rev" style="transform-origin:300px 200px" fill="none" stroke="#7df6d4" stroke-opacity=".32" stroke-dasharray="4 16"><circle cx="300" cy="200" r="145"/></g>
+    <path d="M300 40L438 120 438 280 300 360 162 280 162 120Z M300 40V200 M438 120L300 200 M438 280L300 200 M300 360V200 M162 280L300 200 M162 120L300 200" fill="none" stroke="#2fe7b8" stroke-opacity=".57" stroke-width="1.5"/>
+    <g fill="#65ffcd" stroke="#061713" stroke-width="4"><circle cx="300" cy="40" r="7"/><circle cx="438" cy="120" r="7"/><circle cx="438" cy="280" r="7"/><circle cx="300" cy="360" r="7"/><circle cx="162" cy="280" r="7"/><circle cx="162" cy="120" r="7"/><circle cx="300" cy="200" r="12"/></g>
+    <g class="cc-label"><text x="300" y="22" text-anchor="middle">SOURCE</text><text x="455" y="111">NINA</text><text x="446" y="307">EVIDENCE</text><text x="300" y="390" text-anchor="middle">IGOR</text><text x="66" y="305">GATE</text><text x="88" y="105">REPLAY</text><text x="300" y="227" text-anchor="middle">OLA</text></g>
+   </svg>
+   <div class="cc-foot">NINA → EVIDENCE → IGOR → GATE → REPLAY · podgląd schematu, nie dowód produkcyjny</div>
+  </section>
+  <section class="cc-panel cc-identity" aria-label="OLA — zatwierdzony portret">
+   <div class="cc-portrait" role="img" aria-label="Portret OLA z holograficznym celownikiem na jednym oku"><div class="cc-reticle" aria-hidden="true"></div><div class="cc-facecaption"><b>OLA</b> ANALYSE · REASON · VERIFY</div></div>
+   <div class="cc-actions"><button type="button" data-view="chat">NINA CHAT</button><button type="button" data-view="operations">EXECUTE</button></div>
+  </section>
+ </section>
+
+ <section class="cc-local" aria-label="OLA Local Executor — kontrolowane komendy na tym ZBooku">
+  <div class="cc-localhead"><div><h2>LOCAL EXECUTOR / ZBOOK</h2><small>Tylko zatwierdzone polecenia Windows · bez dostępu do dowolnego PowerShella</small></div><span class="cc-localstate" id="localState" role="status" aria-live="polite">NIEPODŁĄCZONE</span></div>
+  <div class="cc-localform">
+   <div><label for="localToken">Token lokalny (z okna wykonawcy)</label><input type="password" id="localToken" autocomplete="off" spellcheck="false" aria-describedby="localNote" placeholder="Wklej token, nie publikuj go"></div>
+   <div><label for="localAction">Polecenie z zatwierdzonej listy</label><select id="localAction" disabled aria-label="Dostępne lokalne polecenia"><option value="">Najpierw połącz wykonawcę</option></select></div>
+   <button type="button" id="localConnect">Połącz</button>
+   <button type="button" id="localRun" disabled>Wykonaj</button>
+   <button type="button" id="localDisconnect">Rozłącz</button>
+  </div>
+  <p class="cc-localnote" id="localNote">Usługa na 127.0.0.1:18110 działa oddzielnie od Dockera. Zmiany systemowe wymagają wyraźnego potwierdzenia i jednorazowej zgody.</p>
+  <pre class="cc-localout" id="localResult" role="log" aria-live="polite">Brak połączenia. Żadne polecenie nie zostało uruchomione.</pre>
+ </section>
+ <div class="layout">
+  <div class="column-main">
+   <section class="greeting" aria-label="Powitanie"><p class="eyebrow">Centrum dowodowego wykonania,</p><h1>OLA AURORA</h1><p>Jeden interfejs. Istniejący OLA Core i AI STUDIO — bez fikcyjnych wyników.</p></section>
+   <div class="core-row">
+    <article class="glass pad"><div class="panel-heading"><h3>AI CORE STATUS</h3><span class="pill" id="healthStatus" role="status" aria-live="polite">UNKNOWN</span></div><div class="core-visual"><div class="orb" aria-hidden="true"></div></div><p class="centered" id="healthMessage">Sprawdzanie połączenia z OLA Core…</p><p class="centered muted" style="font-size:11px;margin-top:4px">GET /health · bieżąca odpowiedź</p></article>
+    <article class="glass pad"><div class="panel-heading"><h3>GATES &amp; EVIDENCE</h3><span class="pill warn">FAIL-CLOSED</span></div><div class="metric-grid"><div class="metric"><small>NINA</small><strong id="ninaStatus">UNKNOWN</strong></div><div class="metric"><small>IGOR</small><strong id="igorStatus">UNKNOWN</strong></div><div class="metric"><small>REPLAY</small><strong id="replayStatus">UNKNOWN</strong></div><div class="metric"><small>HUMAN GATE</small><strong id="humanStatus">UNKNOWN</strong></div></div><p class="muted" style="margin-top:13px;font-size:11px">Status bramek aktualizowany dopiero po rzeczywistym wywołaniu `/nina-run`.</p><div class="form-row"><button class="secondary" data-view="operations" type="button">Uruchom weryfikację →</button></div></article>
+   </div>
+   <article class="glass workspace-panel" id="workspacePanel">
+    <div class="window-bar"><div class="window-title"><div class="brand-mark" aria-hidden="true"></div><span id="windowTitle">OLA AI CORE / CHAT</span></div><span class="window-dot" aria-hidden="true"></span></div>
+    <div class="window-body">
+     <section id="panel-home"><h2>Witaj w OLA di-OS</h2><p class="muted" style="margin-top:5px">Asystent NINA, wykonywanie kontrolowane i niezależna weryfikacja.</p><div class="subnav"><button type="button" data-view="chat">✧ Rozmowa</button><button type="button" data-view="operations">⚙ Wykonaj zadanie</button><button type="button" data-view="evidence">▣ Dowody</button></div><p class="notice">Aby uruchomić funkcje chronione, przejdź do Ustawień i wprowadź klucz API OLA. Klucz pozostaje wyłącznie w bieżącej karcie przeglądarki.</p><div class="form-row"><button type="button" class="primary" data-view="chat">Otwórz NINA →</button></div></section>
+     <section id="panel-chat" hidden><h2>AI Core — NINA</h2><p class="muted">Rozmowa przez istniejący endpoint <code>/chat</code>. Nie jest równoznaczna z wykonaniem zadania.</p><div class="message-feed" id="chatMessages" role="log" aria-live="polite" aria-label="Wiadomości NINA"><div class="message system">Rozmowa gotowa. Wprowadź klucz API w Ustawieniach.</div></div><form id="chatForm"><label for="chatInput">Wiadomość dla NINA</label><textarea id="chatInput" maxlength="4000" placeholder="Zapytaj NINA…" required></textarea><div class="form-row"><button class="primary" type="submit" id="chatSend">Wyślij do /chat ↗</button><button class="secondary" type="button" data-view="operations">Wykonanie kontrolowane</button></div></form></section>
+     <section id="panel-operations" hidden><h2>Kontrolowane wykonanie</h2><p class="muted">NINA → EVIDENCE → IGOR → REPLAY → HUMAN GATE. Nie ogłaszaj GO bez odpowiedzi backendu.</p><form id="runForm" style="margin-top:14px"><label for="runTask">Zadanie dla NINA</label><textarea id="runTask" maxlength="4000" placeholder="Np. Oblicz 17 * 23" required></textarea><div class="form-row"><button class="primary" id="runSend" type="submit">Uruchom /nina-run</button><span class="pill">Obliczenia i SHA-256</span></div></form><pre id="runResult" class="action-out" aria-live="polite">Brak wyniku. Wykonanie nie zostało rozpoczęte.</pre><hr style="border:0;border-top:1px solid var(--stroke);margin:16px 0"><h3>Zatwierdzanie przez niezależnego operatora</h3><p class="muted" style="font-size:11px;margin:6px 0 11px">Wymagany inny klucz i zgodny bieżący `tip_hash`. Zatwierdzenie może zostać zablokowane przez politykę.</p><form id="approvalForm"><div class="auth-row"><div><label for="approverKey">Klucz API drugiego operatora</label><input class="field" id="approverKey" type="password" autocomplete="off" placeholder="Tylko do zatwierdzenia"></div><button class="secondary" type="submit" id="approveSend" disabled>Zatwierdź</button></div></form><pre id="approvalResult" class="action-out" aria-live="polite">Brak kandydata.</pre></section>
+     <section id="panel-evidence" hidden><h2>Dowody i odtwarzanie</h2><p class="muted">Odczyt konkretnego rekordu po identyfikatorze. Dane filtrowane przez tenant w OLA Core.</p><form id="evidenceForm" style="margin-top:13px"><label for="evidenceId">ID dowodu</label><input class="field mono" id="evidenceId" maxlength="80" placeholder="UUID rekordu" required><div class="form-row"><button class="primary" type="submit">Pobierz /evidence/{id}</button></div></form><pre id="evidenceResult" class="action-out" aria-live="polite">Brak pobranego dowodu.</pre><p class="notice" style="margin-top:11px">Integralność pełnego łańcucha potwierdza serwer, nie wyświetlenie pojedynczego rekordu.</p></section>
+     <section id="panel-audit" hidden><h2>Test odtwarzania awarii</h2><p class="muted">Kontrolowany scenariusz <span class="mono">fault_then_recovery</span>, nie dowód prawdziwej awarii produkcyjnej.</p><form id="auditForm" style="margin-top:14px"><label for="auditTask">Opis testu</label><input class="field" id="auditTask" maxlength="500" required placeholder="Scenariusz testowy OLA"><div class="form-row"><button class="primary" type="submit">Uruchom /audit</button></div></form><pre id="auditResult" class="action-out" aria-live="polite">Nie wykonano testu.</pre></section>
+     <section id="panel-apps" hidden><h2>Aplikacje ekosystemu</h2><p class="muted">Otwieramy istniejące moduły. Brak połączenia to nie wynik VERIFIED.</p><div class="quick-grid" style="margin-top:18px"><button type="button" class="quick-btn" data-view="chat"><span class="sym">✧</span>NINA Chat</button><button type="button" class="quick-btn" data-view="operations"><span class="sym">⚙</span>NINA/IGOR</button><button type="button" class="quick-btn" data-view="evidence"><span class="sym">▣</span>Evidence</button><button type="button" class="quick-btn" data-view="audit"><span class="sym">✹</span>Audit</button><button type="button" class="quick-btn" id="studioApp"><span class="sym">◈</span>AI Studio</button><button type="button" class="quick-btn" disabled title="Niepodłączone — brak API"><span class="sym">▤</span>Files · N/D</button><button type="button" class="quick-btn" disabled title="Niepodłączone — brak API"><span class="sym">▣</span>CRM · N/D</button><button type="button" class="quick-btn" disabled title="Niepodłączone — brak API"><span class="sym">▥</span>Store · N/D</button></div></section>
+     <section id="panel-control" hidden aria-label="OLA five layer control plane">
+  <div class="panel-heading"><h2>Control Plane · 5 warstw</h2><span class="pill warn" id="ccMonitorState" role="status" aria-live="polite">UNKNOWN</span></div>
+  <p class="muted">Tylko rzeczywisty odczyt z API bieżącego tenanta; lokalny hash chain nie zastępuje podpisanej atestacji.</p>
+  <div class="cc-layers">
+    <div class="cc-layer"><strong>L1 · EVIDENCE</strong><span id="ccL1">UNKNOWN</span><small>Integralność</small></div>
+    <div class="cc-layer"><strong>L2 · POLICY</strong><span id="ccL2">UNKNOWN</span><small>Polityka</small></div>
+    <div class="cc-layer"><strong>L3 · DECISION</strong><span id="ccL3">UNKNOWN</span><small>Kandydat</small></div>
+    <div class="cc-layer"><strong>L4 · AGENTS</strong><span id="ccL4">UNKNOWN</span><small>NINA / IGOR</small></div>
+    <div class="cc-layer"><strong>L5 · GOVERNANCE</strong><span id="ccL5">UNKNOWN</span><small>Human Gate</small></div>
+  </div>
+  <p class="muted" id="ccSourceLabel">SOURCE UNKNOWN · OLLAMA UNKNOWN · PRODUCTION NO-GO</p>
+  <div class="cc-controls">
+   <button type="button" id="ccRefresh">Odśwież dane</button>
+   <label for="ccRunSelect">Run ID</label>
+   <select id="ccRunSelect" disabled><option value="">Brak historii</option></select>
+   <button type="button" id="ccInspectRun" disabled>Sprawdź replay</button>
+  </div>
+  <pre class="cc-live-output" id="ccMonitorDetails" role="log" aria-live="polite">Zweryfikuj klucz w SETTINGS, następnie odczytaj dane.</pre>
+  <p class="muted">RECORDED oznacza stan zapisany w dowodach, nie niezależny podpis. Wynik produkcyjny pozostaje NO-GO.</p>
+ </section>
+<section id="panel-system" hidden><h2>System i łączność</h2><p class="muted">Tylko pomiary dostępne przez publiczny API. Lokalny odczyt CPU i RAM wymaga osobnego kontrolowanego endpointu.</p><div class="status-rail"><span class="badge-item">OLA Core <b id="sysCore">UNKNOWN</b></span><span class="badge-item">CPU <b>Niepodłączone</b></span><span class="badge-item">RAM <b>Niepodłączone</b></span><span class="badge-item">Storage <b>Niepodłączone</b></span><span class="badge-item">AI STUDIO <b>OSOBNY RUNTIME</b></span></div><div class="form-row" style="margin-top:19px"><button type="button" class="primary" id="refreshHealth">Odśwież /health</button><button type="button" class="secondary" id="systemAuditLink" data-view="audit">Test odtwarzania</button></div></section>
+     <section id="panel-settings" hidden><h2>Połączenie z OLA Core</h2><p class="muted">Jeden klucz API w pamięci bieżącej karty. Nie jest zapisywany w przeglądarce ani wysyłany do Studio.</p><div class="auth-row" style="margin-top:19px"><div><label for="apiKey">X-API-Key — tenant OLA</label><input class="field" id="apiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Wprowadź klucz dla obecnej sesji"></div><button type="button" class="secondary" id="forgetKey">Wyczyść klucze</button><button type="button" class="primary" id="verifyApiKey">Zweryfikuj klucz</button></div><p class="fineprint">Kliknij „Zweryfikuj klucz”. Status UWIERZYTELNIONY dotyczy tylko sesji API, nie dostępu do PowerShell. Local Executor wymaga osobnego tokenu.</p><div class="form-row"><button class="primary" type="button" id="healthFromSettings">Sprawdź połączenie</button></div><p class="notice" style="margin-top:17px">AI STUDIO 3.6.0 uruchamia się jako osobna usługa lokalna na porcie 8001; nie dzieli automatycznie autoryzacji, tenantów ani Evidence Graph.</p></section>
+    </div>
+   </article>
+  </div>
+  <aside class="column-side" aria-label="Panele stanu i skrótów">
+   <article class="glass side-card"><div class="panel-heading"><h3>SESJA OPERATORA</h3><span class="pill">LOCAL / API</span></div><div id="sessionDate" class="date-big">--</div><p class="muted" id="sessionTime">--:--</p><div class="status-list" style="margin-top:15px"><div class="status-row"><span>OLA API</span><strong id="sideApi" class="pill">UNKNOWN</strong></div><div class="status-row"><span>API key</span><strong id="keyState" class="pill warn">NIEPODANY</strong></div><div class="status-row"><span>Studio 3.6</span><strong class="pill">ODDZIELNE</strong></div><div class="status-row"><span>Produkcja LIVE</span><strong class="pill warn">UNVERIFIED</strong></div></div></article>
+   <article class="glass side-card"><div class="panel-heading"><h3>QUICK ACCESS</h3><span class="section-label">MODUŁY</span></div><div class="quick-grid"><button type="button" class="quick-btn" data-view="chat"><span class="sym">✧</span>NINA</button><button type="button" class="quick-btn" data-view="operations"><span class="sym">⚙</span>Execute</button><button type="button" class="quick-btn" data-view="evidence"><span class="sym">▣</span>Evidence</button><button type="button" class="quick-btn" data-view="audit"><span class="sym">✹</span>Replay</button><button type="button" class="quick-btn" id="studioQuick"><span class="sym">◈</span>Studio</button><button type="button" class="quick-btn" data-view="settings"><span class="sym">☷</span>Settings</button></div><p class="fineprint" id="studioNote">Studio: dostęp lokalny, nie wykryto automatycznie.</p></article>
+   <article class="glass side-card"><div class="panel-heading"><h3>ZDARZENIA W TEJ SESJI</h3><button type="button" id="clearLog" class="quiet" style="font-size:11px;padding:5px 8px">Wyczyść</button></div><div id="statusLog" class="log-list" aria-live="polite" role="log"><div class="log-entry">Oczekiwanie na pierwszy odczyt…</div></div></article>
+  </aside>
+ </div>
 </main>
+</div>
+<nav class="dock" aria-label="Szybka nawigacja"><div class="brand-mark" style="width:37px;height:37px;margin-right:5px" aria-hidden="true"></div><span class="dock-rule"></span><button type="button" class="dock-btn active" data-view="home" aria-label="Pulpit" title="Pulpit">▦</button><button type="button" class="dock-btn" data-view="apps" aria-label="Aplikacje" title="Aplikacje">▤</button><button type="button" class="dock-btn" data-view="operations" aria-label="Wykonanie" title="Wykonanie">⌘</button><button type="button" class="dock-btn" data-view="chat" aria-label="NINA AI" title="NINA AI">◉</button><button type="button" class="dock-btn" data-view="evidence" aria-label="Dowody" title="Dowody">▣</button><button type="button" class="dock-btn" data-view="control" aria-label="Control Plane" title="Control Plane">◇</button><button type="button" class="dock-btn" data-view="system" aria-label="System" title="System">⚙</button></nav>
+<div id="toast" class="toast hidden" role="alert" aria-live="assertive"></div>
 <script>
-const messages=[],box=document.querySelector("#messages"),input=document.querySelector("#input"),key=document.querySelector("#key");
-function add(role,text){const d=document.createElement("div");d.textContent=role+": "+text;box.appendChild(d)}
-document.querySelector("form").onsubmit=async e=>{
- e.preventDefault();
- const text=input.value.trim();
- const apiKey=key.value.trim();
- if(!text||!apiKey)return;
- input.value="";
- messages.push({role:"user",content:text});
- add("user",text);
- const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json","X-API-Key":apiKey},body:JSON.stringify({messages})});
- const d=await r.json();
- const answer=d.message||("NINA BLOCK: "+(d.detail||d.reason||"unknown"));
- messages.push({role:"assistant",content:answer});
- add("nina",answer);
-};
-add("nina","Cześć. Jestem NINA.");
+'use strict';
+(() => {
+ const $ = id => document.getElementById(id);
+ const navNames={home:'OLA AI CORE / CHAT',apps:'APLIKACJE OLA',chat:'NINA / CHAT',operations:'NINA → IGOR / EXECUTION',evidence:'EVIDENCE / FORENSIC',audit:'RECOVERY TEST / AUDIT',control:'OLA · CONTROL PLANE L1–L5',system:'STATUS SYSTEMU',settings:'USTAWIENIA SESJI'};
+ const session={messages:[],lastCandidate:null,busy:false,epoch:0,activeControllers:new Set()};
+ const friendly={APPROVED:'APPROVED',LOCAL:'LOCAL',VERIFIED:'VERIFIED',REVIEW:'REVIEW',BLOCK:'BLOCK',UNKNOWN:'UNKNOWN',PARTIAL:'PARTIAL',ALLOW:'ALLOW'};
+ function setText(id,value){$(id).textContent=String(value ?? 'UNKNOWN')}
+ function log(text){const box=$('statusLog');if(box.firstElementChild?.textContent==='Oczekiwanie na pierwszy odczyt…')box.replaceChildren();const d=document.createElement('div');d.className='log-entry';d.textContent=new Date().toLocaleTimeString('pl-PL',{hour12:false})+'  '+text;box.prepend(d);while(box.children.length>25)box.lastElementChild.remove()}
+ function toast(text){const el=$('toast');el.textContent=String(text);el.classList.remove('hidden')}
+ function clearToast(){$('toast').classList.add('hidden');$('toast').textContent=''}
+ function show(view){if(!navNames[view])return;Object.keys(navNames).forEach(name=>{$('panel-'+name).hidden=name!==view});document.querySelectorAll('[data-view]').forEach(btn=>btn.classList.toggle('active',btn.dataset.view===view));setText('windowTitle',navNames[view]);clearToast();if(window.innerWidth<781)$('workspacePanel').scrollIntoView({behavior:'smooth',block:'start'})}
+ function key(){return $('apiKey').value.trim()}
+ function requireKey(){if(!key()){show('settings');toast('Wprowadź klucz API OLA w Ustawieniach.');return null}return key()}
+ async function api(path,{method='GET',payload,token,auth='key',timeout=18000}={}){
+  const controller=new AbortController();session.activeControllers.add(controller);const id=setTimeout(()=>controller.abort(),timeout);
+  try{
+   const headers={'Accept':'application/json'};
+   if(payload!==undefined)headers['Content-Type']='application/json';
+   if(token){if(auth==='bearer')headers.Authorization='Bearer '+token;else headers['X-API-Key']=token}
+   const response=await fetch(path,{method,headers,body:payload===undefined?undefined:JSON.stringify(payload),signal:controller.signal,cache:'no-store',credentials:'same-origin'});
+   let body;try{body=await response.json()}catch{throw new Error('API nie zwróciło prawidłowego JSON (HTTP '+response.status+')')}
+   if(!response.ok)throw new Error('HTTP '+response.status+' · '+String(body.detail||body.reason||'odrzucono żądanie'));
+   return body;
+  }catch(e){if(e.name==='AbortError')throw new Error('Limit czasu oczekiwania na '+path);throw e}finally{clearTimeout(id);session.activeControllers.delete(controller)}
+ }
+ async function busy(button,task){if(session.busy)return;session.busy=true;button.disabled=true;button.classList.add('loading');const original=button.textContent;button.textContent='Trwa…';try{await task()}catch(e){log('BŁĄD: '+e.message);toast(e.message)}finally{session.busy=false;button.disabled=false;button.classList.remove('loading');button.textContent=original}}
+ function applyHealth(success,body){const status=success&&body&&body.status==='ok'?'ONLINE':'UNKNOWN';setText('healthStatus',status);setText('sideStatus',status==='ONLINE'?'OLA Core odpowiada':'Brak zweryfikowanego health');setText('healthMessage',status==='ONLINE'?'OLA Core /health: OK':'Brak potwierdzenia połączenia');setText('sideApi',status);setText('sysCore',status);$('topLed').className='led '+(status==='ONLINE'?'good':'bad');$('sideLed').className='led '+(status==='ONLINE'?'good':'bad');$('healthStatus').className='pill '+(status==='ONLINE'?'good':'bad');$('sideApi').className='pill '+(status==='ONLINE'?'good':'bad')}
+ async function refreshHealth(){try{const data=await api('/health',{timeout:6500});applyHealth(true,data);log('GET /health → '+(data.status==='ok'?'ONLINE':'UNKNOWN'))}catch(e){applyHealth(false);log('GET /health → UNKNOWN ('+e.message+')')}}
+ function statusLabel(value){return friendly[value]||'UNKNOWN'}
+ function appendMessage(role,text){const div=document.createElement('div');div.className='message '+role;div.textContent=(role==='user'?'Ty: ':role==='assistant'?'NINA: ':'')+String(text);$('chatMessages').appendChild(div);$('chatMessages').scrollTop=$('chatMessages').scrollHeight}
+ function present(id,data){$(id).textContent=JSON.stringify(data,null,2)}
+ function updateGates(data){setText('ninaStatus',statusLabel(data.nina?.status));setText('igorStatus',statusLabel(data.igor?.status));setText('replayStatus',statusLabel(data.replay_verification?.status));setText('humanStatus',statusLabel(data.human_gate?.status))}
+ function resetTenantSession(){
+  session.epoch+=1;
+  session.activeControllers.forEach(controller=>controller.abort());
+  session.messages=[];session.lastCandidate=null;
+  $('approveSend').disabled=true;$('approverKey').value='';
+  $('chatMessages').replaceChildren();appendMessage('system','Nowa sesja. Historia poprzedniego klucza została wyczyszczona.');
+  setText('runResult','Brak wyniku dla aktualnej sesji.');
+  setText('approvalResult','Brak zatwierdzenia dla aktualnej sesji.');
+  setText('auditResult','Brak audytu dla aktualnej sesji.');
+  setText('evidenceResult','Brak dowodu dla aktualnej sesji.');
+  updateGates({});
+ }
+ document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>show(el.dataset.view)));
+ $('searchForm').addEventListener('submit',e=>{e.preventDefault();const q=$('searchInput').value.trim().toLocaleLowerCase('pl-PL');const mapping=[['chat','chat'],['nina','chat'],['ai','chat'],['agent','operations'],['execute','operations'],['wykon','operations'],['igor','operations'],['evidence','evidence'],['dowod','evidence'],['replay','audit'],['audyt','audit'],['test','audit'],['system','system'],['health','system'],['settings','settings'],['ustaw','settings'],['app','apps']];const match=mapping.find(x=>q.includes(x[0]));if(match)show(match[1]);else toast('Nie znaleziono modułu. Sprawdź listę APPS.')});
+ $('chatForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const input=$('chatInput');const text=input.value.trim();if(!text)return;busy($('chatSend'),async()=>{const next=[...session.messages,{role:'user',content:text}];const epoch=session.epoch;const result=await api('/chat',{method:'POST',payload:{messages:next},token,timeout:50000});if(epoch!==session.epoch)return;if(result.status!=='VERIFIED'||typeof result.message!=='string'){appendMessage('system','NINA BLOCK: '+String(result.reason||result.detail||result.status||'Niezweryfikowany wynik'));log('POST /chat → '+statusLabel(result.status));return}session.messages=next.concat({role:'assistant',content:result.message});appendMessage('user',text);appendMessage('assistant',result.message);input.value='';log('POST /chat → VERIFIED')})});
+ $('runForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const task=$('runTask').value.trim();if(!task)return;busy($('runSend'),async()=>{session.lastCandidate=null;$('approveSend').disabled=true;const epoch=session.epoch;const result=await api('/nina-run',{method:'POST',payload:{task,requested_tools:['safe_expression','local_mcp_tool_registry.sha256']},token,timeout:110000});if(epoch!==session.epoch)return;present('runResult',result);updateGates(result);if(result.run_id&&result.tip_hash&&result.status_fields&&result.status_fields.HUMAN_GATE==='REVIEW'&&result.decision_report_v2?.report_sha256){session.lastCandidate={run_id:result.run_id,tip_hash:result.tip_hash,report_sha256:result.decision_report_v2.report_sha256};$('approveSend').disabled=false}log('POST /nina-run → '+statusLabel(result.status));if(result.status==='BLOCK')toast('NINA zwróciła BLOCK. Zobacz szczegóły w wyniku.')})});
+ $('approvalForm').addEventListener('submit',e=>{e.preventDefault();const candidate=session.lastCandidate;const token=$('approverKey').value.trim();if(!candidate){toast('Najpierw uruchom zadanie NINA i uzyskaj kandydata.');return}if(!token){toast('Wymagany klucz drugiego operatora.');return}busy($('approveSend'),async()=>{const epoch=session.epoch;const result=await api('/nina-run/'+encodeURIComponent(candidate.run_id)+'/approve',{method:'POST',payload:{tip_hash:candidate.tip_hash,report_sha256:candidate.report_sha256,scope:'review-result',reason:'Manual result review from OLA Aurora console'},token,auth:'bearer',timeout:25000});if(epoch!==session.epoch)return;present('approvalResult',result);log('POST approval → '+statusLabel(result.status));if(result.status==='APPROVED'){session.lastCandidate=null;$('approveSend').disabled=true;setText('humanStatus','APPROVED — przegląd wyniku')}else toast('Zatwierdzenie niezweryfikowane')})});
+ $('evidenceForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const id=$('evidenceId').value.trim();if(!/^[a-zA-Z0-9_-]{8,80}$/.test(id)){toast('Niepoprawny identyfikator dowodu.');return}const button=$('evidenceForm').querySelector('button');busy(button,async()=>{const epoch=session.epoch;const result=await api('/evidence/'+encodeURIComponent(id),{token});if(epoch!==session.epoch)return;present('evidenceResult',result);log('GET /evidence/{id} → OK')})});
+ $('auditForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const task=$('auditTask').value.trim();if(!task)return;const button=$('auditForm').querySelector('button');busy(button,async()=>{const epoch=session.epoch;const result=await api('/audit',{method:'POST',payload:{task,scenario:'fault_then_recovery'},token,timeout:35000});if(epoch!==session.epoch)return;present('auditResult',result);log('POST /audit → '+statusLabel(result.status))})});
+ function openStudio(){const host=window.location.hostname;if(!['127.0.0.1','localhost'].includes(host)){toast('AI STUDIO 3.6.0: dostęp tylko na lokalnym ZBooku (port 8001).');return}const target=window.location.protocol+'//'+host+':8001/';const opened=window.open(target,'_blank','noopener,noreferrer');if(opened)opened.opener=null;log('Otworzono lokalny adres AI STUDIO 3.6.0 (health nieweryfikowany)')}
+ $('studioQuick').addEventListener('click',openStudio);$('studioApp').addEventListener('click',openStudio);
+ if(['127.0.0.1','localhost'].includes(window.location.hostname))setText('studioNote','AI STUDIO: port 8001 (oddzielne logowanie).');
+ function setApiKeyState(status,good=false){setText('keyState',status);$('keyState').className='pill '+(good?'good':'warn')}
+ $('forgetKey').addEventListener('click',()=>{$('apiKey').value='';$('approverKey').value='';resetTenantSession();setApiKeyState('NIEPODANY');log('Klucze usunięte z pól bieżącej sesji')});
+ $('apiKey').addEventListener('input',()=>{resetTenantSession();setApiKeyState(key()?'NIEZWERYFIKOWANY':'NIEPODANY')});
+ $('verifyApiKey').addEventListener('click',()=>{
+   const candidate=key();
+   if(!candidate){setApiKeyState('NIEPODANY');show('settings');toast('Wprowadź klucz API OLA.');return}
+   const epoch=session.epoch;
+   busy($('verifyApiKey'),async()=>{
+     setApiKeyState('SPRAWDZANIE');
+     try{
+       const data=await api('/auth/session',{token:candidate,timeout:10000});
+       if(epoch!==session.epoch || candidate!==key())return;
+       if(data.authenticated!==true || !data.tenant_id)throw new Error('Serwer nie potwierdził sesji');
+       setApiKeyState('UWIERZYTELNIONY',true);
+       log('GET /auth/session → AUTHENTICATED (tenant '+String(data.tenant_id).slice(0,8)+'…)');
+     }catch(err){
+       if(epoch!==session.epoch || candidate!==key())return;
+       setApiKeyState('ODRZUCONY');
+       log('GET /auth/session → BLOCK ('+err.message+')');
+       toast('Klucz nie został zweryfikowany: '+err.message);
+     }
+   });
+ });
+ $('clearLog').addEventListener('click',()=>{$('statusLog').replaceChildren()});
+ $('refreshHealth').addEventListener('click',refreshHealth);$('healthFromSettings').addEventListener('click',refreshHealth);
+ function updateClock(){const now=new Date();setText('clock',now.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'}));setText('sessionDate',now.toLocaleDateString('pl-PL',{day:'2-digit',month:'short',year:'numeric'}));setText('sessionTime',now.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit',second:'2-digit'}))}
+ updateClock();setInterval(updateClock,1000);refreshHealth();
+})();
+</script>
+
+<script>
+(() => {
+ 'use strict';
+ const node = id => document.getElementById(id);
+ const map = [['healthStatus','ccCore'],['ninaStatus','ccNina'],['igorStatus','ccIgor'],['replayStatus','ccReplay'],['humanStatus','ccGate']];
+ function reflect(){
+   for (const [origin, dest] of map) {
+     const value = node(origin).textContent.trim() || 'UNKNOWN';
+     node(dest).textContent = value;
+     node(dest).classList.toggle('verified', value === 'VERIFIED');
+   }
+   const live = node('healthStatus').textContent.trim() === 'ONLINE';
+   node('ccLive').textContent = live ? 'API ONLINE' : 'API UNKNOWN';
+   node('ccLive').classList.toggle('online', live);
+ }
+ for(const [origin] of map) new MutationObserver(reflect).observe(node(origin), {childList:true,subtree:true,characterData:true});
+ reflect();
+ fetch('/openapi.json',{cache:'no-store',credentials:'same-origin'})
+   .then(response => {if(!response.ok)throw new Error('No OpenAPI');return response.json();})
+   .then(spec => {
+      const paths = spec && spec.paths || {};
+      const found = Object.keys(paths).some(path => path.startsWith('/evidence/') && !!paths[path].get);
+      node('ccEvidence').textContent = found ? 'ROUTE READY' : 'UNKNOWN';
+   }).catch(() => {node('ccEvidence').textContent = 'UNKNOWN';});
+})();
+</script>
+
+
+<script>
+/* AURORA local-host bridge. No shell input, no secrets in storage, no automatic execution. */
+(() => {
+ 'use strict';
+ const $ = id => document.getElementById(id);
+ const originAllowed = location.protocol === 'http:' &&
+   ['127.0.0.1','localhost'].includes(location.hostname) &&
+   ['18080','18081'].includes(location.port);
+ const apiBase = 'http://127.0.0.1:18110';
+ let actions = new Map();
+ let epoch = 0;
+ const inflight = new Set();
+ let busy = false;
+ const state = (message, online=false) => {
+   $('localState').textContent = message;
+   $('localState').classList.toggle('connected', online);
+ };
+ const result = text => { $('localResult').textContent = String(text); };
+ const forget = () => {
+   epoch += 1;
+   for(const controller of inflight) controller.abort();
+   inflight.clear(); actions = new Map();
+   $('localToken').value = '';
+   $('localAction').replaceChildren(new Option('Najpierw połącz wykonawcę',''));
+   $('localAction').disabled = true;
+   $('localRun').disabled = true;
+   state('NIEPODŁĄCZONE');
+   result('Token wyczyszczony z pola. Aby zatrzymać usługę lokalną, naciśnij Ctrl+C w jej oknie.');
+ };
+ async function call(path, payload, expectedEpoch) {
+   const controller = new AbortController(); inflight.add(controller);
+   const timer = setTimeout(() => controller.abort(), 22000);
+   try {
+     const response = await fetch(apiBase+path, {
+       method: payload === undefined ? 'GET' : 'POST',
+       mode: 'cors', cache: 'no-store', credentials: 'omit',
+       headers: {'Authorization': 'Bearer '+$('localToken').value.trim(), 'Content-Type': 'application/json'},
+       body: payload === undefined ? undefined : JSON.stringify(payload),
+       signal: controller.signal
+     });
+     let data;
+     try { data = await response.json(); } catch { throw new Error('Lokalny wykonawca nie zwrócił JSON'); }
+     if(!response.ok) throw new Error('LOCAL '+response.status+': '+String(data.error||'REQUEST_FAILED'));
+     if(expectedEpoch !== epoch) throw new Error('Sesja wykonawcy została zmieniona');
+     return data;
+   } finally { clearTimeout(timer); inflight.delete(controller); }
+ }
+ function showResult(data) {
+   const output = typeof data.output === 'string' ? data.output : '';
+   result([
+     'STATUS: '+String(data.status||'UNKNOWN'),
+     'ACTION: '+String(data.action||'UNKNOWN'),
+     'EXIT CODE: '+String(data.exit_code??'UNKNOWN'),
+     'SCOPE: '+String(data.scope||'UNKNOWN'),
+     'PRODUCTION: '+String(data.production||'NOT_VERIFIED'),
+     '',
+     output
+   ].join('\n'));
+ }
+ if(!originAllowed) {
+   $('localConnect').disabled = true;
+   result('BLOCKED: Local Executor działa tylko w lokalnym Command Center na porcie 18080/18081.');
+   return;
+ }
+ $('localConnect').addEventListener('click', async () => {
+   if(busy) return;
+   const token = $('localToken').value.trim();
+   if(!token) { result('Najpierw uruchom wykonawcę na ZBooku i wklej lokalny token.'); return; }
+   busy=true; $('localConnect').disabled=true;
+   const before=epoch;
+   try {
+     const info=await call('/v1/actions',undefined,before);
+     if(info.status!=='BRIDGE_ONLINE'||!Array.isArray(info.actions)) throw new Error('Niepoprawny kontrakt wykonawcy');
+     const allowed=new Map();
+     const options=[];
+     for(const item of info.actions) {
+       if(typeof item.id!=='string'||!['read','confirm'].includes(item.mode)) continue;
+       allowed.set(item.id,{label:String(item.label),mode:item.mode});
+       options.push(new Option(String(item.label),item.id));
+     }
+     if(!options.length) throw new Error('Wykonawca nie udostępnił akcji');
+     actions=allowed;
+     $('localAction').replaceChildren(...options);
+     $('localAction').disabled=false; $('localRun').disabled=false;
+     state('POŁĄCZONO Z ZBOOKIEM',true);
+     result('LOCAL EXECUTOR ONLINE. Wybierz polecenie. Akcje zmieniające stan wymagają dodatkowego potwierdzenia.');
+   } catch(err) { state('NIEPODŁĄCZONE');result('BŁĄD POŁĄCZENIA: '+err.message); }
+   finally { busy=false; $('localConnect').disabled=false; }
+ });
+ $('localDisconnect').addEventListener('click', forget);
+ $('localToken').addEventListener('input', () => {
+   if(actions.size){epoch++;for(const c of inflight)c.abort();inflight.clear();actions.clear();$('localRun').disabled=true;$('localAction').disabled=true;state('NIEPODŁĄCZONE');}
+ });
+ $('localRun').addEventListener('click', async () => {
+   if(busy || $('localRun').disabled) return;
+   const action=$('localAction').value;
+   const spec=actions.get(action);
+   if(!spec){result('Nie wybrano zatwierdzonej akcji');return;}
+   busy=true;$('localRun').disabled=true;
+   const before=epoch;
+   result('Wykonywanie: '+spec.label+' …');
+   try{
+     let answer;
+     if(spec.mode==='confirm'){
+       const draft=await call('/v1/prepare',{action},before);
+       const permitted=window.confirm('Potwierdź wykonanie na ZBooku:\n'+draft.command+'\n\nZmiana stanu systemu. Kontynuować?');
+       if(!permitted){result('Anulowano. Żadna komenda nie została wysłana do wykonania.');return;}
+       answer=await call('/v1/execute',{action,approval:draft.approval},before);
+     }else{
+       answer=await call('/v1/run',{action},before);
+     }
+     showResult(answer);
+   }catch(err){result('BŁĄD: '+err.message);}
+   finally{busy=false;$('localRun').disabled=actions.size===0;}
+ });
+})();
+</script>
+
+
+<script>
+/* Authenticated monitor of existing evidence. Read-only, no fake metrics. */
+(()=>{
+ 'use strict';
+ const el=id=>document.getElementById(id);
+ let epoch=0, controller=null, tenant=null, cache=null;
+ const fields=['ccL1','ccL2','ccL3','ccL4','ccL5'];
+ function reset(){
+  epoch++;if(controller){controller.abort();controller=null;}
+  tenant=null;cache=null;fields.forEach(id=>el(id).textContent='UNKNOWN');
+  el('ccMonitorState').textContent='UNKNOWN';
+  el('ccMonitorDetails').textContent='Brak zweryfikowanej sesji';
+  el('ccRunSelect').replaceChildren(new Option('Brak historii',''));
+  el('ccRunSelect').disabled=true;el('ccInspectRun').disabled=true;
+  el('ccSourceLabel').textContent='SOURCE UNKNOWN · OLLAMA UNKNOWN · PRODUCTION NO-GO';
+ }
+ async function fetchBound(path,token){
+  const c=new AbortController();controller=c;
+  const timer=setTimeout(()=>c.abort(),12000);
+  try{
+   const response=await fetch(path,{headers:{'X-API-Key':token},credentials:'same-origin',cache:'no-store',signal:c.signal});
+   if(!response.ok)throw new Error('HTTP '+response.status);
+   return await response.json();
+  }finally{clearTimeout(timer);if(controller===c)controller=null;}
+ }
+ async function refresh(){
+  if(el('keyState').textContent.trim()!=='UWIERZYTELNIONY'||!el('apiKey').value.trim()){reset();return;}
+  if(controller)return;
+  const current=++epoch,token=el('apiKey').value.trim();
+  el('ccMonitorState').textContent='SCANNING';
+  try{
+   const result=await fetchBound('/control/overview',token);
+   if(epoch!==current||token!==el('apiKey').value.trim())return;
+   if(result.schema!=='ola.command-center.v1'||!result.tenant_id)throw new Error('INVALID_CONTROL_SCHEMA');
+   cache=result;tenant=result.tenant_id;
+   const runs=Array.isArray(result.runs)?result.runs:[];
+   const latest=runs[0], ev=result.evidence||{};
+   el('ccL1').textContent=ev.status||'UNKNOWN';
+   el('ccL2').textContent=latest?'RECORDED: '+String(latest.policy_status_recorded):'UNKNOWN';
+   el('ccL3').textContent=latest?'RECORDED: '+String(latest.candidate_status_recorded):'NOT_RUN';
+   el('ccL4').textContent=latest?'RECORDED: '+String(latest.nina_status_recorded):'NOT_RUN';
+   el('ccL5').textContent=latest?(latest.human_approval_recorded?'APPROVAL RECORDED':'REVIEW'):'UNKNOWN';
+   const src=result.source||{},llm=result.llm||{};
+   el('ccSourceLabel').textContent='SOURCE: '+String(src.commit||'UNKNOWN').slice(0,12)+' ('+String(src.status||'UNKNOWN')+') | LLM: '+String(llm.provider_configured||'UNKNOWN')+'/'+String(llm.model_configured||'UNKNOWN')+' | PRODUCTION NO-GO';
+   el('ccRunSelect').replaceChildren(new Option('Wybierz run_id',''));
+   for(const run of runs){if(typeof run.run_id==='string')el('ccRunSelect').add(new Option(run.run_id.slice(0,8)+' · '+String(run.candidate_status_recorded||'UNKNOWN'),run.run_id));}
+   el('ccRunSelect').disabled=runs.length===0;el('ccInspectRun').disabled=runs.length===0;
+   el('ccMonitorDetails').textContent=JSON.stringify(result,null,2);
+   el('ccMonitorState').textContent='AUTHENTICATED · RELEASE NO-GO';
+  }catch(err){
+   if(epoch!==current)return;
+   reset();el('ccMonitorDetails').textContent='CONTROL PLANE: '+err.message;
+  }
+ }
+ el('ccRefresh').addEventListener('click',refresh);
+ el('ccInspectRun').addEventListener('click',async()=>{
+  if(controller||!tenant)return;
+  const run=el('ccRunSelect').value,token=el('apiKey').value.trim(),expected=tenant,current=epoch;
+  if(!run||el('keyState').textContent.trim()!=='UWIERZYTELNIONY')return;
+  el('ccInspectRun').disabled=true;
+  try{
+   const detail=await fetchBound('/control/runs/'+encodeURIComponent(run),token);
+   if(current!==epoch||expected!==tenant||run!==el('ccRunSelect').value)return;
+   el('ccMonitorDetails').textContent=JSON.stringify(detail,null,2);
+   el('ccMonitorState').textContent='LOCAL REPLAY '+String(detail.status||'UNKNOWN')+' · RELEASE NO-GO';
+  }catch(err){if(current===epoch)el('ccMonitorDetails').textContent='REPLAY: '+err.message;}
+  finally{el('ccInspectRun').disabled=!tenant;}
+ });
+ el('apiKey').addEventListener('input',reset);
+ el('forgetKey').addEventListener('click',reset);
+ new MutationObserver(()=>{
+  if(el('keyState').textContent.trim()==='UWIERZYTELNIONY'){refresh();}
+  else if(tenant){reset();}
+ }).observe(el('keyState'),{childList:true,subtree:true,characterData:true});
+ setInterval(()=>{if(!document.hidden&&tenant&&!controller)refresh();},30000);
+})();
 </script>
 </body>
 </html>

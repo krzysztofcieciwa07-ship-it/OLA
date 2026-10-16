@@ -1,5 +1,4 @@
 name: NINA IGOR Ollama Full Flow
-
 on:
   pull_request:
   workflow_dispatch:
@@ -13,6 +12,8 @@ permissions:
   contents: read
 
 env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  OLA_API_KEY_PEPPER: CI-ONLY-OLA-API-KEY-PEPPER-DO-NOT-USE-IN-PRODUCTION-20261012
   OLA_LLM_PROVIDER: ollama
   OLA_LLM_MODE: required
   OLLAMA_MODEL: qwen2.5:0.5b-instruct
@@ -33,13 +34,16 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Bind focused tests to exact source
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - name: Install test dependencies
         run: pip install -r requirements.txt
       - name: Run PR-2 focused tests
-        run: pytest -q tests/test_nina_igor_chain.py tests/test_nina_run_endpoint_contract.py
+        run: pytest -q tests/test_nina_igor_chain.py tests/test_nina_run_endpoint_contract.py tests/test_nina_igor_proof_policy.py
 
   nina-igor-ollama-full-flow:
     runs-on: ubuntu-latest
@@ -48,6 +52,15 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          ref: ${{ env.SOURCE_SHA }}
+
+      - name: Bind runtime to exact PR HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain=v1)"
+          echo "SOURCE_SHA_BINDING=PASS $SOURCE_SHA"
 
       - name: Set up Ollama
         shell: bash
@@ -65,17 +78,21 @@ jobs:
           curl --fail --silent http://127.0.0.1:11434/api/tags > ollama-models.json
 
       - name: Build OLA
-        run: docker build --tag ola-nina-ollama --file Dockerfile .
+        run: |
+          python3 scripts/build_source_manifest.py
+          docker build --tag ola-nina-ollama --file Dockerfile .
 
       - name: Start OLA
         shell: bash
         run: |
           set -euo pipefail
           docker run --detach --rm \
+            -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" \
             --name ola-nina-ollama \
             --network host \
             -e OLA_EG_DB_PATH=/data/ola.db \
-            -e OLA_RUNTIME_COMMIT="$GITHUB_SHA" \
+            -e SOURCE_SHA="$SOURCE_SHA" \
+            -e OLA_RUNTIME_COMMIT="$SOURCE_SHA" \
             -e OLA_LLM_PROVIDER="$OLA_LLM_PROVIDER" \
             -e OLA_LLM_MODE="$OLA_LLM_MODE" \
             -e OLA_LLM_MODEL="$OLA_LLM_MODEL" \
@@ -98,8 +115,10 @@ jobs:
         run: |
           set -euo pipefail
           docker exec -i ola-nina-ollama python - <<'PY' > nina-igor-ollama-proof.json
+          from app.api_key_crypto import hash_api_key
           import hashlib
           import json
+          import os
           import sqlite3
           import urllib.request
           import uuid
@@ -111,7 +130,7 @@ jobs:
           db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tenant_id,"ci-nina-ollama"))
           db.execute(
               "INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",
-              (str(uuid.uuid4()),tenant_id,hashlib.sha256(raw_key.encode()).hexdigest()),
+              (str(uuid.uuid4()),tenant_id,hash_api_key(raw_key)),
           )
           db.commit()
           db.close()
@@ -119,7 +138,7 @@ jobs:
           task="Calculate 17 * 23 and return the exact verified result 391."
           request_body={
               "task":task,
-              "requested_tools":["safe_expression"],
+              "requested_tools":["safe_expression", "local_mcp_tool_registry.sha256"],
               "human_approved":False,
               "human_actor":"ci-machine",
               "human_reason":"human confirmation intentionally left pending in CI",
@@ -146,15 +165,27 @@ jobs:
           assert body["igor"]["checks"]["provider"] is True, body
           assert body["igor"]["checks"]["model"] is True, body
           assert body["provenance"]["status"]=="VERIFIED", body
-          assert body["provenance"]["commit"]=="${{ github.sha }}", body
+          assert body["provenance"]["commit"]==os.environ["SOURCE_SHA"], body
           assert body["provenance"]["provider"]=="ollama", body
           assert body["provenance"]["model"]=="qwen2.5:0.5b-instruct", body
           assert body["provenance"]["invocation_type"]=="real_llm", body
           assert body["provenance"]["llm_invocations"]==6, body
           assert len(body["provenance"]["response_ids"])==6, body
           assert body["replay_verification"]["status"]=="VERIFIED", body
-          assert body["replay_verification"]["event_count"]==7, body
-          assert len(body["replay"])==7, body
+          assert body["replay_verification"]["event_count"]==8, body
+          assert len(body["replay"])==8, body
+          assert [event["record_type"] for event in body["replay"]] == [
+              "execution.authorization", "agent.codeact", "agent.react",
+              "agent.agentic_rag", "agent.mcp_tool_use", "agent.self_reflection",
+              "agent.multi_agent", "provenance.runtime",
+          ], body
+          report_v2 = body["decision_report_v2"]
+          assert report_v2["bindings"]["source_sha"] == os.environ["SOURCE_SHA"], body
+          assert report_v2["assurance"]["status"] == "UNKNOWN", body
+          assert report_v2["production_eligible"] is False, body
+          binding = report_v2["legacy_report"]["execution_binding"]
+          assert binding["policy_digest"] == report_v2["bindings"]["policy_digest"], body
+          assert binding["source"]["status"] == "LOCAL", body
           assert body["policy"]["status"]=="VERIFIED", body
           # HumanGate remains fail-closed until the separate approval endpoint is used.
           assert body["human_gate"]["status"]=="BLOCK", body
@@ -177,7 +208,9 @@ jobs:
               "human_gate_status":body["human_gate"]["status"],
               "run_id":body["run_id"],
               "tenant_id":tenant_id,
-              "commit":"${{ github.sha }}",
+              "commit":os.environ["SOURCE_SHA"],
+              "source_sha":os.environ["SOURCE_SHA"],
+              "workflow_event_sha":"${{ github.sha }}",
           }
           print(json.dumps(proof,sort_keys=True))
           with open("/data/nina-ollama-proof-context.json","w",encoding="utf-8") as stream:
@@ -194,12 +227,22 @@ jobs:
             python scripts/verify_agent_runtime.py \
               --tenant-id "$TENANT_ID" \
               --run-id "$RUN_ID" \
-              --expected-commit "$GITHUB_SHA" \
+              --expected-commit "$SOURCE_SHA" \
               --expected-task "Calculate 17 * 23 and return the exact verified result 391." \
               --expected-result "391" \
               --expected-provider "ollama" \
               --expected-model "$OLLAMA_MODEL" \
               --expected-invocation-type "real_llm"
+
+      - name: Independently assert source-bound flow proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/assert_nina_igor_proof.py \
+            --proof nina-igor-ollama-proof.json \
+            --expected-source-sha "$SOURCE_SHA" \
+            --result-out nina-igor-proof-check.json
+          sha256sum nina-igor-ollama-proof.json nina-igor-proof-check.json > nina-igor-proof-sha256.txt
 
       - name: Capture OLA flow evidence
         shell: bash
@@ -210,10 +253,12 @@ jobs:
       - name: Upload full-flow evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nina-igor-ollama-full-flow-${{ github.sha }}
+          name: nina-igor-ollama-full-flow-${{ env.SOURCE_SHA }}-attempt-${{ github.run_attempt }}
           path: |
             ollama-models.json
             nina-igor-ollama-proof.json
+            nina-igor-proof-check.json
+            nina-igor-proof-sha256.txt
             ola-nina-ollama-runtime.log
 
       - name: Capture Ollama failure diagnostics
@@ -229,7 +274,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nina-igor-ollama-failure-${{ github.sha }}
+          name: nina-igor-ollama-failure-${{ env.SOURCE_SHA }}-attempt-${{ github.run_attempt }}
           if-no-files-found: warn
           path: |
             nina-igor-runtime-failure.log

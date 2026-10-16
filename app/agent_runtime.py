@@ -5,11 +5,13 @@ import operator
 import os
 import uuid
 
+import httpx
 from sqlalchemy import select
 
 from .database import SessionLocal
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .models import EvidenceRecord
+from .tool_authorization import ToolScope, ToolAuthorizationError
 
 
 AGENT_ROLES = [
@@ -201,7 +203,11 @@ def _invoke_local_deterministic_model(agent, task, context):
     }
 
 
-def _execute_agent(agent, tenant_id, task, previous_output, execution):
+def _execute_agent(agent, tenant_id, task, previous_output, execution, scope):
+    if agent == "codeact":
+        scope.require("safe_expression", tenant_id, task)
+    elif agent == "mcp_tool_use":
+        scope.require("local_mcp_tool_registry.sha256", tenant_id, task)
     context = {
         "task": task,
         "previous_output": previous_output,
@@ -209,6 +215,7 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
     }
     model = _invoke_llm(agent, task, context) or _invoke_local_deterministic_model(agent, task, context)
     if agent == "codeact":
+        scope.require("safe_expression", tenant_id, task)
         tool_output = _safe_expression(task)
         result = {"capability": "executed_safe_expression", "tool": "safe_expression", "tool_output": tool_output, "result": f"safe execution returned {tool_output}"}
     elif agent == "react":
@@ -218,6 +225,7 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
         data = _run_rag(tenant_id, task)
         result = {"capability": "retrieved_prior_evidence", "tool": "evidence_retriever", "tool_output": json.dumps(data, sort_keys=True), "result": data["result"]}
     elif agent == "mcp_tool_use":
+        scope.require("local_mcp_tool_registry.sha256", tenant_id, task)
         value = _mcp_tool_call("sha256", {"value": previous_output.get("tool_output", task)})
         result = {"capability": "invoked_tool", "tool": "local_mcp_tool_registry.sha256", "tool_output": value, "result": "invoked a registered tool through the tool-use boundary"}
     elif agent == "self_reflection":
@@ -246,7 +254,7 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
     return result
 
 
-def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution):
+def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution, scope):
     agent_instance_id = str(uuid.uuid4())
     context = {
         "run_id": run_id,
@@ -263,28 +271,55 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "context_digest": _digest(canonical_json(context)),
         "task": task,
         "input_digest": _digest(json.dumps(previous_output, sort_keys=True)),
-        **_execute_agent(agent, tenant_id, task, previous_output, execution),
+        **_execute_agent(agent, tenant_id, task, previous_output, execution, scope),
+        "authorized_tools": sorted(scope.allowed),
         "status": "VERIFIED",
         "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
     }
-    with SessionLocal() as db:
-        last = db.scalar(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.desc()))
-        seq = 0 if last is None else last.seq + 1
-        prev_hash = GENESIS_HASH if last is None else last.record_hash
-        payload_json = canonical_json({"run_id": run_id, **output})
-        record = EvidenceRecord(id=str(uuid.uuid4()), tenant_id=tenant_id, seq=seq, record_type=f"agent.{agent}", payload_json=payload_json, prev_hash=prev_hash, record_hash=compute_record_hash(tenant_id, seq, prev_hash, payload_json))
-        db.add(record)
-        db.commit()
-        return record.id, output
+    # Reuse the canonical write-serialized hash-chain append boundary.
+    # The independent runtime verifier still reads and checks the stored records.
+    from .main import append_record
+    record = append_record(tenant_id, f"agent.{agent}", {"run_id": run_id, **output})
+    return record["id"], output
 
 
-def run_agent_task(tenant_id, task):
+def run_agent_task(tenant_id, task, *, allowed_tools=()):
     run_id = str(uuid.uuid4())
     evidence_ids = []
     execution = []
     previous_output = {"task": task}
+    scope = None
     for agent in AGENT_ROLES:
-        evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
+        try:
+            if scope is None:
+                scope = ToolScope.create(tenant_id, task, allowed_tools)
+                scope.preflight()
+            evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution, scope)
+        except (httpx.HTTPError, RuntimeError, ValueError, TimeoutError, LookupError, json.JSONDecodeError) as exc:
+            # Never fall back silently to a deterministic model when real LLM is required.
+            # Preserve partial evidence, but mark the entire run BLOCK.
+            from .main import append_record
+            reason_code = "TOOL_SCOPE_DENIED" if isinstance(exc, ToolAuthorizationError) else "MODEL_OR_TOOL_UNAVAILABLE"
+            failure = append_record(tenant_id, "runtime.blocked", {
+                "run_id": run_id,
+                "agent": agent,
+                "status": "BLOCK",
+                "reason_code": reason_code,
+                "error_type": type(exc).__name__,
+                "completed_agents": len(execution),
+            })
+            evidence_ids.append(failure["id"])
+            return {
+                "run_id": run_id,
+                "task": task,
+                "final_result": None,
+                "status": "BLOCK",
+                "reason": reason_code,
+                "agents": AGENT_ROLES,
+                "evidence_count": len(evidence_ids),
+                "evidence_ids": evidence_ids,
+                "execution": execution,
+            }
         evidence_ids.append(evidence_id)
         execution.append(output)
         previous_output = output
@@ -400,7 +435,7 @@ def verify_agent_run(tenant_id, run_id):
         context_digests.add(payload["context_digest"])
     if len(instance_ids) != len(AGENT_ROLES) or len(context_digests) != len(AGENT_ROLES):
         return {"status": "BLOCK", "reason": "agent instances or contexts are not unique", "evidence_count": len(run_rows)}
-    chain = [{"tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash, "record_hash": row.record_hash, "payload_json": row.payload_json} for row in rows]
+    chain = [{"id": row.id, "tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash, "record_hash": row.record_hash, "record_type": row.record_type, "hash_version": row.hash_version, "payload_json": row.payload_json} for row in rows]
     chain_ok, reason = verify_chain(chain)
     if not chain_ok:
         return {"status": "BLOCK", "reason": reason, "evidence_count": len(run_rows)}

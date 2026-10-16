@@ -1,0 +1,124 @@
+name: OLA Local Executor Windows Contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  windows-loopback:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact source without stored credentials
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - name: Parse PowerShell syntax and run executor self-tests
+        shell: powershell
+        run: |
+          $path = (Resolve-Path 'workstation/OLA-Local-Executor.ps1').Path
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host $_ }; throw 'POWERSHELL_SYNTAX_FAILED' }
+          & $path -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw 'SELF_TEST_FAILED' }
+          $auth = (Resolve-Path 'workstation/OLA-Preview-Auth.ps1').Path
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($auth, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host $_ }; throw 'AUTH_SCRIPT_SYNTAX_FAILED' }
+          & $auth -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw 'AUTH_SCRIPT_SELFTEST_FAILED' }
+          $launcher = (Resolve-Path 'workstation/START-OLA-ZBOOK.ps1').Path
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($launcher, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host $_ }; throw 'ZBOOK_LAUNCHER_SYNTAX_FAILED' }
+          & $launcher -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw 'ZBOOK_LAUNCHER_SELFTEST_FAILED' }
+      - name: Probe actual loopback HTTP, origin, token and rejected mutations
+        shell: powershell
+        run: |
+          $script = (Resolve-Path 'workstation/OLA-Local-Executor.ps1').Path
+          $stdout = Join-Path $env:RUNNER_TEMP 'ola-local-stdout.txt'
+          $stderr = Join-Path $env:RUNNER_TEMP 'ola-local-stderr.txt'
+          $proc = Start-Process -FilePath "$PSHOME\powershell.exe" -ArgumentList @('-NoProfile','-File',"`"$script`"") -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            $token = $null
+            for ($i = 0; $i -lt 60; $i++) {
+              Start-Sleep -Milliseconds 250
+              $text = ''
+              if (Test-Path $stdout) {
+                $stream = [IO.File]::Open($stdout, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+                try {
+                  $reader = New-Object System.IO.StreamReader($stream)
+                  $text = $reader.ReadToEnd()
+                } finally {
+                  if ($reader) { $reader.Dispose() }
+                  $stream.Dispose()
+                }
+              }
+              if ($text -match 'LOCAL TOKEN: ([A-Za-z0-9_-]+)') { $token = $Matches[1]; break }
+              if ($proc.HasExited) { break }
+            }
+            if (!$token) { throw ('BRIDGE_START_FAILED: '+(Get-Content $stderr -Raw -ErrorAction SilentlyContinue)) }
+            $base = 'http://127.0.0.1:18110'
+            $headers = @{ Origin='http://127.0.0.1:18081'; Authorization="Bearer $token" }
+            $registry = Invoke-RestMethod "$base/v1/actions" -Headers $headers -TimeoutSec 5
+            if ($registry.status -ne 'BRIDGE_ONLINE' -or $registry.actions.Count -ne 10) { throw 'REGISTRY_FAILED' }
+            $run = Invoke-RestMethod "$base/v1/run" -Headers $headers -Method Post -ContentType 'application/json' -Body '{"action":"git-status"}' -TimeoutSec 20
+            if ($run.status -ne 'LOCAL_EXECUTED' -or $run.exit_code -ne 0) { throw 'REAL_READ_ONLY_COMMAND_FAILED' }
+            $checks = @(
+              @{ body='{"action":"shell"}'; headers=$headers; status=403 },
+              @{ body='{"action":"docker-unpause-ola"}'; headers=$headers; status=403 },
+              @{ body='{"action":"git-status"}'; headers=@{ Origin='https://attacker.example'; Authorization="Bearer $token" }; status=403 },
+              @{ body='{"action":"git-status"}'; headers=@{ Origin='http://127.0.0.1:18081' }; status=401 }
+            )
+            foreach ($c in $checks) {
+              try {
+                Invoke-WebRequest "$base/v1/run" -Headers $c.headers -Method Post -ContentType 'application/json' -Body $c.body -UseBasicParsing -TimeoutSec 5 | Out-Null
+                throw 'UNSAFE_REQUEST_ACCEPTED'
+              } catch [System.Net.WebException] {
+                if (!$_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne $c.status) { throw }
+              }
+            }
+            Write-Host 'OLA_LOCAL_EXECUTOR_WINDOWS_HTTP=PASS'
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            Remove-Item $stdout,$stderr -Force -ErrorAction SilentlyContinue
+          }
+      - name: Run source contract tests
+        shell: powershell
+        run: |
+          python -m pip install pytest
+          python -m pytest --noconftest -q tests/test_local_executor_contract.py tests/test_command_center_contract.py tests/test_aurora_contract.py
+
+  api-auth-onboarding:
+    name: Authenticated API onboarding / SQLite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - name: Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install actual OLA dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+      - name: Exercise real keyed FastAPI session and onboarding
+        run: python -m pytest -q tests/test_operator_onboarding.py

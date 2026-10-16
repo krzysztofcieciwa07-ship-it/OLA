@@ -16,7 +16,7 @@ def test_frontier_baseline_vector():
         db.add(Tenant(id=tenant_id, name="frontier-baseline"))
         db.commit()
 
-    result = run_agent_task(tenant_id, "Calculate 17 * 23 and return the verified result.")
+    result = run_agent_task(tenant_id, "Calculate 17 * 23 and return the verified result.", allowed_tools=("safe_expression", "local_mcp_tool_registry.sha256"))
     assert result["status"] == "VERIFIED"
     assert result["final_result"] == "391"
     assert len(result["execution"]) == 6
@@ -31,8 +31,9 @@ def test_frontier_baseline_vector():
         ).all()
 
     chain = [
-        {"tenant_id": r.tenant_id, "seq": r.seq, "prev_hash": r.prev_hash,
-         "record_hash": r.record_hash, "payload_json": r.payload_json}
+        {"id": r.id, "tenant_id": r.tenant_id, "seq": r.seq,
+         "record_type": r.record_type, "hash_version": r.hash_version,
+         "prev_hash": r.prev_hash, "record_hash": r.record_hash, "payload_json": r.payload_json}
         for r in rows
     ]
     chain_ok, reason = verify_chain(chain)
