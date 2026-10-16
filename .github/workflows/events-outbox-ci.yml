@@ -1,13 +1,12 @@
 name: Events outbox isolated tests
 on:
+  push:
+    branches: [main]
   pull_request:
-    paths:
-      - 'ola_events/**'
-      - 'tests/test_ola_events_outbox.py'
-      - 'tests/conftest.py'
-      - 'requirements.txt'
-      - '.github/workflows/events-outbox-ci.yml'
   workflow_dispatch:
+
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 permissions:
   contents: read
@@ -20,6 +19,7 @@ jobs:
       - name: Checkout exact pull request source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.SOURCE_SHA }}
           persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

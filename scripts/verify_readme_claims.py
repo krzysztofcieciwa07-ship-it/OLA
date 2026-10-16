@@ -6,6 +6,8 @@ Re-runs the 4 core guarantees claimed in README.md as standalone checks,
 independent of the main test suite. Intended for CI and local pre-commit use.
 
 Usage:
+    # Required: a disposable local-test pepper (never a production secret).
+    export OLA_API_KEY_PEPPER=CI-ONLY-LOCAL-README-CLAIMS-DISPOSABLE-PEPPER
     python3 scripts/verify_readme_claims.py
 
 Exit code 0 = all guarantees hold. Non-zero = at least one broke.

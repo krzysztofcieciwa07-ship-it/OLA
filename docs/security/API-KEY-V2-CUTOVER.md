@@ -16,6 +16,14 @@
 
 **Safe rollback:** before accepting any new production writes, stop all writers and restore the offline full-database backup. Once new business writes occur, do NOT roll back a whole SQLite file blindly; use a reviewed forward-recovery plan, as rollback would lose accepted evidence/payments.
 
+**Interrupted rotation:** keep writers stopped and retain both recovery files. The tool atomically reserves new filenames, holds a SQLite writer lock across the complete snapshot and rotation, and fsyncs backup/receipt files and their containing directories before committing. A failure can leave a private receipt even if the transaction rolled back; an interruption can also arrive after the database committed. Never infer the outcome from the exit code or delete the receipt automatically. With the same deployment pepper, run:
+
+```sh
+python scripts/reissue_api_keys_v2.py --db /data/ola.db --receipt /secure/new-keys.json --verify-receipt
+```
+
+`RECEIPT_VERIFIED` means every current key ID, tenant and verifier matches the receipt. It does not attest delivery, client readiness or production GO. A blocked verification requires inspecting the retained database and backup offline before recovery; do not distribute unmatched credentials. Use new output paths for any reviewed retry because existing recovery files are never overwritten.
+
 **CI policy:** workflows intentionally set the documented **public, disposable CI test pepper** to keep deterministic isolated Docker tests reproducible. This is never a production secret and must not be copied to LIVE deployments.
 
 ## Verification requirements

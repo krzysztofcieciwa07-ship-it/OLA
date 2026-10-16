@@ -83,6 +83,7 @@ jobs:
       - name: Verify required evidence gates
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -111,9 +112,16 @@ jobs:
 
             if python - <<'PY'
           import json
+          import os
           import sys
 
           required_exact = [
+              "OLA CodeQL",
+              "OLA Supply Chain Evidence Gate",
+              "OLA AURORA End-to-End",
+              "AI Studio 3.6 Archive Bridge",
+              "Events outbox isolated tests",
+              "OLA Local Executor Windows Contract",
               "Nina TDD",
               "OLA DI-OS Product Gate",
               "NINA IGOR Ollama Full Flow",
@@ -138,23 +146,22 @@ jobs:
           with open("reference-runs.json", encoding="utf-8") as stream:
               reference_data = json.load(stream)
 
-          def newest_by_name(data):
+          def newest_by_name(data, expected_sha=None, expected_event=None):
               newest = {}
               for run in data.get("workflow_runs", []):
                   name = run.get("name")
-                  if name and name not in newest:
-                      newest[name] = {
-                          "id": run.get("id"),
-                          "status": run.get("status"),
-                          "conclusion": run.get("conclusion"),
-                          "head_sha": run.get("head_sha"),
-                          "event": run.get("event"),
-                          "html_url": run.get("html_url"),
-                      }
+                  if not name or run.get("event") != expected_event:
+                      continue
+                  if expected_sha is not None and run.get("head_sha") != expected_sha:
+                      continue
+                  previous = newest.get(name)
+                  rank = lambda r: (r.get("created_at", ""), r.get("run_attempt", 1), r.get("updated_at", ""), r.get("id", 0))
+                  if previous is None or rank(run) > rank(previous):
+                      newest[name] = run
               return newest
 
-          exact = newest_by_name(exact_data)
-          reference = newest_by_name(reference_data)
+          exact = newest_by_name(exact_data, os.environ["TARGET_SHA"], os.environ["GITHUB_EVENT_NAME"])
+          reference = newest_by_name(reference_data, expected_event="push")
 
           observed_exact = {name: exact.get(name) for name in required_exact}
           observed_reference = {name: reference.get(name) for name in required_reference}

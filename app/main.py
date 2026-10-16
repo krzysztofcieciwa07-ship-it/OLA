@@ -25,7 +25,7 @@ from .decision_report import build_decision_report
 from .decision_report_v2 import build_decision_report_v2
 from .execution_binding import prepare_binding, capture_source, validate_review_subject, digest, review_state
 from .chat_runtime import chat
-from .revenue import create_checkout, retrieve_checkout, payment_verified
+from .revenue import create_checkout, retrieve_checkout, payment_verified, InvalidCheckoutSessionId
 from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
@@ -236,6 +236,8 @@ def create_checkout_session(body: dict, x_api_key: str | None = Header(default=N
 def payment_success(session_id: str):
     try:
         session = retrieve_checkout(session_id)
+    except InvalidCheckoutSessionId as exc:
+        raise HTTPException(status_code=400, detail="invalid checkout session id") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"payment lookup failed: {exc.__class__.__name__}") from exc
     tenant_id = session.get("metadata", {}).get("tenant_id")

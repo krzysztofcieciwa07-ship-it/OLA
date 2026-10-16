@@ -35,12 +35,12 @@ def test_short_pepper_is_rejected(monkeypatch):
 def test_existing_legacy_hash_not_accepted_by_v2_auth(monkeypatch):
     monkeypatch.setenv("OLA_API_KEY_PEPPER", "a" * 64)
     tenant_id = str(uuid.uuid4())
-    raw = "legacy-key-" + uuid.uuid4().hex
+    raw = "legacy-v1-migration-fixture"
     with SessionLocal() as db:
         db.add(Tenant(id=tenant_id, name="legacy-migration-test"))
         db.flush()
         db.add(ApiKey(id=str(uuid.uuid4()), tenant_id=tenant_id,
-                      key_hash="0" * 64))
+                      key_hash="a601dce0f3dd9d947bd01d3d0950f5956e8e24da212b809b78cd5d11abf4f788"))
         db.commit()
     response = TestClient(app).post(
         "/evidence",
