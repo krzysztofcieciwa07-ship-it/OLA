@@ -72,7 +72,7 @@ def run() -> None:
             # A local response is not enough: the HTTP+Evidence readback below
             # additionally proves it came from the real Ollama transport.
             page.locator("#chatMessages .message.assistant").last.wait_for()
-            visible = page.locator("#chatMessages .message.assistant").last.inner_text()
+            visible = page.locator("#chatMessages .message.assistant").last.text_content()
             assert visible.startswith("NINA: ") and len(visible.strip()) > len("NINA: ")
             assert not errors, errors
             assert any(method == "POST" and url == BASE + "/chat" for method, url in chat_requests)
