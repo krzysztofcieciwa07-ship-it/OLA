@@ -49,8 +49,8 @@ def run() -> None:
         health = api.get("/health")
         assert health.status_code == 200 and health.json().get("status") == "ok"
 
-        with sync_playwright() as browser:
-            chromium = browser.chromium.launch(headless=True)
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             chat_requests = []
@@ -80,7 +80,7 @@ def run() -> None:
             # The UI must not serialize the session credential into rendered chat.
             assert key not in page.locator("#chatMessages").inner_text()
             page.screenshot(path=str(OUT / "aurora-live-ollama.png"), animations="disabled")
-            chromium.close()
+            browser.close()
 
         headers = {"X-API-Key": key}
         session = api.get("/auth/session", headers=headers)
