@@ -51,7 +51,7 @@ function Create-Preview {
  $actual=(& git.exe -C $repo rev-parse HEAD).Trim()
  if($LASTEXITCODE -ne 0 -or $actual -ne $ExpectedSha){throw 'SOURCE_SHA_MISMATCH'}
  $branch=(& git.exe -C $repo branch --show-current).Trim()
- if($branch -ne 'ui/ola-command-center-live-20261014'){throw 'UNEXPECTED_GIT_BRANCH'}
+ if($branch -notin @('ui/ola-command-center-live-20261014','integration/aurora-api-engine-zbook-20261016')){throw 'UNEXPECTED_GIT_BRANCH'}
  $dirty=@(& git.exe -C $repo status --porcelain)
  if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'DIRTY_CHECKOUT_BLOCKED'}
  if(!(Test-Path -LiteralPath (Join-Path $repo 'scripts\provision_local_operator.py'))){throw 'PROVISION_MODULE_MISSING'}

@@ -177,6 +177,21 @@ jobs:
               --expected-model "$OLLAMA_MODEL" \
               --expected-invocation-type "real_llm"
 
+      - name: Prepare browser and project runtime dependencies
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install browser for REAL AURORA HTTP + Ollama proof
+        run: |
+          python -m pip install -r requirements.txt playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: AURORA browser -> real HTTP API -> live Ollama -> saved evidence
+        env:
+          AURORA_EVIDENCE_DIR: aurora-live-ollama-evidence
+        run: |
+          set -euo pipefail
+          python tests/browser_aurora_ollama_live.py
+
       - name: Capture Ollama provider evidence
         shell: bash
         run: |
@@ -193,6 +208,7 @@ jobs:
             ollama-tags-before-pull.json
             ollama-models.json
             ollama-runtime-proof.json
+            aurora-live-ollama-evidence/
             ola-ollama-runtime.log
 
       - name: Capture OLA logs on runtime failure

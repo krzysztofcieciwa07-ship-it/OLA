@@ -5,6 +5,7 @@ on:
     paths:
       - 'workstation/OLA-Local-Executor.ps1'
       - 'workstation/OLA-Preview-Auth.ps1'
+      - 'workstation/START-OLA-ZBOOK.ps1'
       - 'scripts/provision_local_operator.py'
       - 'tests/test_operator_onboarding.py'
       - 'app/main.py'
@@ -16,6 +17,7 @@ on:
     paths:
       - 'workstation/OLA-Local-Executor.ps1'
       - 'workstation/OLA-Preview-Auth.ps1'
+      - 'workstation/START-OLA-ZBOOK.ps1'
       - 'scripts/provision_local_operator.py'
       - 'tests/test_operator_onboarding.py'
       - 'app/main.py'
@@ -52,6 +54,13 @@ jobs:
           if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host $_ }; throw 'AUTH_SCRIPT_SYNTAX_FAILED' }
           & $auth -SelfTest
           if ($LASTEXITCODE -ne 0) { throw 'AUTH_SCRIPT_SELFTEST_FAILED' }
+          $launcher = (Resolve-Path 'workstation/START-OLA-ZBOOK.ps1').Path
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($launcher, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host $_ }; throw 'ZBOOK_LAUNCHER_SYNTAX_FAILED' }
+          & $launcher -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw 'ZBOOK_LAUNCHER_SELFTEST_FAILED' }
       - name: Probe actual loopback HTTP, origin, token and rejected mutations
         shell: powershell
         run: |
