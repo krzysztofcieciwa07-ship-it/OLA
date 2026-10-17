@@ -6,12 +6,15 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse
 from sqlalchemy import select
-from .database import Base, engine, SessionLocal, install_append_only_triggers
+from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
 from .business_runtime import run_invoice_task
 from .nina import NinaOrchestrator, NinaTask
+from .nina_workflow import run_nina_workflow
+from .nina_workflow_gate import approve_workflow, WorkflowApprovalRejected
+from .workflow_engine import WorkflowPlanError
 from .igor import IgorVerifier
 from .replay import build_replay, verify_replay
 from .human_gate import HumanGate, ReviewDecision
@@ -52,32 +55,22 @@ def bearer_identity(authorization):
 
 
 def append_record(tenant_id, record_type, payload):
-    payload_json = canonical_json(payload)
+    return append_evidence_atomic(tenant_id, record_type, payload)
+
+
+def read_tenant_evidence(tenant_id):
+    """Read the complete tenant chain, not only current-run rows."""
     with SessionLocal() as db:
-        last = db.scalar(
+        rows = db.scalars(
             select(EvidenceRecord)
             .where(EvidenceRecord.tenant_id == tenant_id)
-            .order_by(EvidenceRecord.seq.desc())
-        )
-        seq = 0 if last is None else last.seq + 1
-        prev_hash = GENESIS_HASH if last is None else last.record_hash
-        record = EvidenceRecord(
-            id=str(uuid.uuid4()),
-            tenant_id=tenant_id,
-            seq=seq,
-            record_type=record_type,
-            payload_json=payload_json,
-            prev_hash=prev_hash,
-            record_hash=compute_record_hash(tenant_id, seq, prev_hash, payload_json),
-        )
-        db.add(record)
-        db.commit()
-        return {
-            "id": record.id,
-            "tenant_id": record.tenant_id,
-            "seq": record.seq,
-            "record_hash": record.record_hash,
-        }
+            .order_by(EvidenceRecord.seq.asc())
+        ).all()
+    return [{
+        "id": row.id, "tenant_id": row.tenant_id, "seq": row.seq,
+        "record_type": row.record_type, "prev_hash": row.prev_hash,
+        "record_hash": row.record_hash, "payload_json": row.payload_json,
+    } for row in rows]
 
 
 def run_controlled_audit(tenant_id, task, scenario):
@@ -252,6 +245,59 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
     return run_agent_task(tenant_id, task)
+
+
+
+@app.post("/nina-workflow")
+def create_nina_workflow(body: dict, x_api_key: str | None = Header(default=None)):
+    """Opt-in bounded DAG execution. No automatic production approval."""
+    tenant_id, requester_id = identity_from_key(x_api_key)
+    if os.getenv("OLA_PARALLEL_WORKFLOWS_ENABLED", "0") != "1":
+        raise HTTPException(status_code=503, detail="parallel NINA workflows are disabled")
+    task_text = body.get("task")
+    if not isinstance(task_text, str) or not task_text.strip():
+        raise HTTPException(status_code=400, detail="task is required")
+    requested_tools = body.get("requested_tools", ["llm_agent"])
+    if (not isinstance(requested_tools, list) or not requested_tools
+            or not all(isinstance(tool, str) for tool in requested_tools)):
+        raise HTTPException(status_code=400, detail="requested_tools must be nonempty strings")
+    nina_task = NinaTask.create(tenant_id, task_text, requested_tools)
+    policy = NinaOrchestrator().plan(nina_task)
+    if policy.status != "ALLOW":
+        return {"status": "BLOCK", "reason": policy.reason, "verified": False}
+    try:
+        return run_nina_workflow(
+            tenant_id=tenant_id,
+            requester_id=requester_id,
+            goal=task_text,
+            allowed_tools=policy.allowed_tools,
+            append=append_record,
+            fetch_records=read_tenant_evidence,
+        )
+    except WorkflowPlanError as exc:
+        return {"status": "BLOCK", "reason": str(exc), "verified": False}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"workflow runtime failed: {type(exc).__name__}") from exc
+
+
+
+@app.post("/nina-workflow/{run_id}/approve")
+def approve_nina_workflow(run_id: str, body: dict,
+                          authorization: str | None = Header(default=None)):
+    """Explicit second-identity review, bound to full IGOR report and evidence tip.
+
+    This does NOT grant deployment authority or approve a GitHub pull request.
+    """
+    tenant_id, approver_id = bearer_identity(authorization)
+    try:
+        return approve_workflow(
+            tenant_id=tenant_id, approver_id=approver_id, run_id=run_id,
+            tip_hash=body.get("tip_hash"),
+            report_digest=body.get("report_digest"),
+            reason=body.get("reason"),
+        )
+    except WorkflowApprovalRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
 
 @app.post("/nina-run")
