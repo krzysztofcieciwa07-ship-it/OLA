@@ -59,3 +59,62 @@ def test_workflow_endpoint_runs_real_route_with_mocked_external_model(monkeypatc
     assert body["human_gate"] == "NOT_APPROVED"
     assert len(body["evidence_ids"]) == 6
     assert calls == ["nina_dag_planner", "analyst", "reviewer"]
+
+
+def test_external_api_cannot_forge_dag_runtime_provenance():
+    """Untrusted callers must never create trusted workflow/approval events."""
+    from sqlalchemy import select
+    from app.models import EvidenceRecord
+
+    key = f"workflow-spoof-{uuid.uuid4()}"
+    _tenant(key)
+    client = TestClient(app)
+    for record_type in (
+        "workflow.planned", "task.started", "task.completed",
+        "workflow.completed", "human.workflow_approval",
+    ):
+        result = client.post("/evidence", headers={"X-API-Key": key},
+                             json={"record_type": record_type, "payload": {
+                                 "event": record_type, "requester_id": "faked-other-user",
+                             }})
+        assert result.status_code == 403, (record_type, result.text)
+
+    with SessionLocal() as db:
+        assert db.scalars(
+            select(EvidenceRecord).where(
+                EvidenceRecord.record_type.in_((
+                    "workflow.planned", "task.started", "task.completed",
+                    "workflow.completed", "human.workflow_approval",
+                ))
+            )
+        ).first() is None
+
+
+def test_external_api_still_accepts_unreserved_evidence():
+    key = f"workflow-evidence-{uuid.uuid4()}"
+    _tenant(key)
+    result = TestClient(app).post(
+        "/evidence", headers={"X-API-Key": key},
+        json={"record_type": "customer.proof", "payload": {"kind": "customer"}},
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["record_hash"]
+
+
+def test_nina_parallel_gate_checks_out_exact_head_on_pr_and_runs_on_main_push():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1]
+              / ".github/workflows/nina-parallel-dag.yml").read_text()
+    assert "\n  push:\n    branches: [main]\n" in source
+    assert "\n  pull_request:\n    branches: [main]\n" in source
+    assert "    paths:" not in source  # required gate cannot be skipped by path filters
+    assert "ref: \${{ github.event.pull_request.head.sha || github.sha }}" in source
+    assert "git rev-parse HEAD" in source
+
+
+def test_final_production_gate_attests_actual_checked_out_commit():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1]
+              / ".github/workflows/final-production-gate.yml").read_text()
+    assert "ref: \${{ steps.target.outputs.sha }}" in source
+    assert "git rev-parse HEAD" in source
