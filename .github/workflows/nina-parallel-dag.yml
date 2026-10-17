@@ -16,6 +16,7 @@ on:
       - 'tests/test_nina_workflow_gate.py'
       - 'tests/test_igor_workflow.py'
       - 'tests/test_evidence_concurrency.py'
+      - 'tests/test_payment_session_binding.py'
       - 'app/database.py'
       - 'app/agent_runtime.py'
       - 'app/business_runtime.py'
@@ -40,7 +41,7 @@ jobs:
       - name: Install locked requirements
         run: python -m pip install -r requirements.txt
       - name: Verify planner, scheduler, evidence, and API
-        run: python -m pytest -q tests/test_workflow_engine.py tests/test_nina_workflow.py tests/test_nina_workflow_api.py tests/test_igor_workflow.py tests/test_nina_workflow_gate.py tests/test_evidence_concurrency.py
+        run: python -m pytest -q tests/test_workflow_engine.py tests/test_nina_workflow.py tests/test_nina_workflow_api.py tests/test_igor_workflow.py tests/test_nina_workflow_gate.py tests/test_evidence_concurrency.py tests/test_payment_session_binding.py
 
   real-parallel-ollama:
     runs-on: ubuntu-latest
