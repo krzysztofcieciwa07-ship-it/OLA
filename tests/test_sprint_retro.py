@@ -23,6 +23,7 @@ def source_items():
     messages = [
         {"url": f"https://app.slack.com/archives/C123/p172000000000000{i}",
          "text": ("blocked by API" if i == 1 else "nice shipped 🎉"),
+         "sent_at": "2026-10-07T12:00:00Z",
          "reactions": ["tada"] if i > 1 else []}
         for i in range(1, 5)
     ]
@@ -85,10 +86,13 @@ def test_missing_connectors_fail_closed_before_writes():
     assert writes == []
 
 
-@pytest.mark.parametrize("modify", ["not_closed", "fake_link", "missing_cycle"])
+@pytest.mark.parametrize("modify", ["not_closed", "fake_link", "missing_cycle", "outside_window"])
 def test_bad_sources_or_uncited_claim_never_returns_document(monkeypatch, modify):
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", "retro-ci-head")
     tickets, messages = source_items()
+
+    if modify == "outside_window":
+        messages[0]["sent_at"] = "2026-12-20T00:00:00Z"
 
     def linear(cycle_id):
         return {"cycle_id": "wrong" if modify == "missing_cycle" else CYCLE,
