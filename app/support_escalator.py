@@ -225,7 +225,8 @@ def run_support_escalation(*, tenant_id, requester_id, conversation_id,
         raise EscalationBlocked("IGOR rejected escalation: " + igor["reason"])
     draft = result["results"]["draft"]
     common = {"run_id": result["run_id"], "correlation_id": correlation,
-              "conversation_id": conversation_id,
+              "conversation_id": conversation_id, "tenant_id": tenant_id,
+              "requester_id": requester_id, "source_commit": commit,
               "igor": igor, "human_gate": "NOT_APPROVED",
               "production_authorized": False, "verified": False}
     if draft["status"] == "CANNOT_REPRODUCE":
@@ -235,7 +236,7 @@ def run_support_escalation(*, tenant_id, requester_id, conversation_id,
             "jira_draft": draft}
 
 
-def publish_escalation(candidate, *, authorized=False,
+def publish_escalation(candidate, *, authorized=False, evidence_reader=None,
                        jira_create_or_get=None, slack_post_once=None,
                        intercom_note_once=None, intercom_mark_once=None):
     """Explicit host-authorized handoff. No automatic retries or silent rollback.
@@ -250,8 +251,27 @@ def publish_escalation(candidate, *, authorized=False,
     if authorized is not True:
         raise EscalationBlocked("external authorization required")
     if not all(callable(x) for x in (
-            jira_create_or_get, slack_post_once, intercom_note_once, intercom_mark_once)):
-        raise EscalationBlocked("authorized Jira/Slack/Intercom write adapters required")
+            evidence_reader, jira_create_or_get, slack_post_once,
+            intercom_note_once, intercom_mark_once)):
+        raise EscalationBlocked("fresh evidence + authorized Jira/Slack/Intercom write adapters required")
+    commit = candidate.get("source_commit")
+    if not isinstance(commit, str) or commit in ("", "UNKNOWN"):
+        raise EscalationBlocked("source SHA missing for mutation approval")
+    from .igor_support_escalation import verify_escalation_records
+    records = evidence_reader(candidate["tenant_id"])
+    fresh = verify_escalation_records(records,
+        tenant_id=candidate["tenant_id"], run_id=candidate["run_id"],
+        conversation_id=candidate["conversation_id"], expected_commit=commit)
+    if (fresh.get("status") != "VERIFIED"
+            or fresh.get("report_digest") != candidate["igor"].get("report_digest")
+            or fresh.get("chain_tip") != candidate["igor"].get("chain_tip")):
+        raise EscalationBlocked("fresh IGOR/source/chain evidence mismatch")
+    run_events = [json.loads(row["payload_json"]) for row in records
+                  if row["record_type"] == "task.completed"
+                  and json.loads(row["payload_json"]).get("run_id") == candidate["run_id"]
+                  and json.loads(row["payload_json"]).get("node_id") == "draft"]
+    if len(run_events) != 1 or run_events[0]["output"] != candidate.get("jira_draft"):
+        raise EscalationBlocked("Jira draft differs from immutable execution evidence")
     key = candidate["correlation_id"]
     draft = candidate["jira_draft"]
     if draft.get("status") != "REPRODUCED" or draft.get("correlation_id") != key:
