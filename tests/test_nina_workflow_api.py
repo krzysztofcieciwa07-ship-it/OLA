@@ -80,8 +80,14 @@ def test_external_api_cannot_forge_dag_runtime_provenance():
         assert result.status_code == 403, (record_type, result.text)
 
     with SessionLocal() as db:
+        tenant_id = db.scalar(
+            select(ApiKey.tenant_id).where(
+                ApiKey.key_hash == hashlib.sha256(key.encode()).hexdigest()
+            )
+        )
         assert db.scalars(
             select(EvidenceRecord).where(
+                EvidenceRecord.tenant_id == tenant_id,
                 EvidenceRecord.record_type.in_((
                     "workflow.planned", "task.started", "task.completed",
                     "workflow.completed", "human.workflow_approval",
