@@ -108,7 +108,7 @@ def test_nina_parallel_gate_checks_out_exact_head_on_pr_and_runs_on_main_push():
     assert "\n  push:\n    branches: [main]\n" in source
     assert "\n  pull_request:\n    branches: [main]\n" in source
     assert "    paths:" not in source  # required gate cannot be skipped by path filters
-    assert "ref: \${{ github.event.pull_request.head.sha || github.sha }}" in source
+    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in source
     assert "git rev-parse HEAD" in source
 
 
@@ -116,5 +116,5 @@ def test_final_production_gate_attests_actual_checked_out_commit():
     from pathlib import Path
     source = (Path(__file__).resolve().parents[1]
               / ".github/workflows/final-production-gate.yml").read_text()
-    assert "ref: \${{ steps.target.outputs.sha }}" in source
+    assert "ref: ${{ steps.target.outputs.sha }}" in source
     assert "git rev-parse HEAD" in source
