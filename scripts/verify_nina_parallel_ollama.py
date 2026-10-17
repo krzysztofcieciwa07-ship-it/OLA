@@ -76,7 +76,8 @@ def main():
               "Provide a brief practical recommendation for each."),
         allowed_tools=["llm_agent"],
         append=append_record, fetch_records=read_tenant_evidence,
-        planner=model_plan, require_overlap=True, expected_provider="ollama",
+        planner=lambda goal, tools: model_plan(goal, tools, independent_only=True),
+        require_overlap=True, expected_provider="ollama",
     )
     autonomous_evidence = read_tenant_evidence(autonomous_tenant_id)
     autonomous_igor = verify_dag_records(
