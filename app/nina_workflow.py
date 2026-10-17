@@ -17,7 +17,7 @@ def model_plan(goal, tools):
     contract = (
         'Respond with ONLY JSON: {"nodes":[{"id":"short_unique_id",'
         '"tool":"one_allowed_tool","task":"bounded instruction",'
-        '"needs":["predecessor_id"]}]}. Generate 1 to 16 useful nodes. '
+        '"needs":[]}]}. Generate 1 to 16 useful nodes. '
         'Use dependencies only when needed and parallel independent work. '
         'Every needs entry MUST match an actual id of another node in the '
         'same plan; for independent nodes use needs:[]. '
