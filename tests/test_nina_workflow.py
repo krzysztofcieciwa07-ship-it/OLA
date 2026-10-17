@@ -137,3 +137,53 @@ def test_live_ollama_planner_uses_json_format_and_sufficient_token_budget(monkey
     assert node_schema["additionalProperties"] is False
     assert node_schema["properties"]["tool"]["enum"] == ["llm_agent"]
     assert calls[0][1]["json"]["options"]["num_predict"] >= 192
+
+
+
+def test_planner_replans_rejected_dependency_but_never_executes_it(monkeypatch):
+    """A malformed model DAG is rejected; only a second valid model plan runs."""
+    import sys
+    from types import ModuleType
+    from app.nina_workflow import model_plan
+    mod = ModuleType("app.agent_runtime")
+    requests = []
+
+    def fake_llm(agent, task, context):
+        requests.append(context)
+        invalid = '{"nodes":[{"id":"analyst","tool":"llm_agent","task":"check TLS","needs":["missing"]}]}'
+        valid = ('{"nodes":[{"id":"analyst","tool":"llm_agent",'
+                 '"task":"check TLS","needs":[]},{"id":"auditor","tool":"llm_agent",'
+                 '"task":"check backups","needs":[]}]}')
+        return {"invocation_type": "real_llm", "response_id": f"planner-{len(requests)}",
+                "output": invalid if len(requests) == 1 else valid,
+                "provider": "ollama", "model": "qwen"}
+
+    mod._invoke_llm = fake_llm
+    monkeypatch.setitem(sys.modules, "app.agent_runtime", mod)
+    nodes, provenance = model_plan("Check two independent risks", ["llm_agent"])
+    assert len(nodes) == 2
+    assert len(requests) == 2
+    assert "revision" not in requests[0]
+    assert "unknown dependency" in requests[1]["revision"]
+    assert provenance["response_id"] == "planner-2"
+    assert provenance["attempts"] == 2
+
+
+def test_planner_exhaustion_blocks_without_static_fallback(monkeypatch):
+    import sys
+    from types import ModuleType
+    from app.nina_workflow import model_plan
+    mod = ModuleType("app.agent_runtime")
+    calls = []
+
+    def bad_llm(agent, task, context):
+        calls.append(context)
+        return {"invocation_type": "real_llm", "response_id": f"bad-{len(calls)}",
+                "provider": "ollama", "model": "qwen",
+                "output": '{"nodes":[{"id":"analyst","tool":"llm_agent","task":"x","needs":["unknown"]}]}'}
+
+    mod._invoke_llm = bad_llm
+    monkeypatch.setitem(sys.modules, "app.agent_runtime", mod)
+    with pytest.raises(WorkflowPlanError, match="after 3 attempts"):
+        model_plan("Check", ["llm_agent"])
+    assert len(calls) == 3
