@@ -163,6 +163,9 @@ def model_synthesize(tickets, messages):
         "Return ONLY JSON with keys went_well, dragged, try_next_sprint, "
         "process_change, confidence. Each section is a list of 3 to 5 objects "
         "with text and refs (1 to 3 exact source URLs from the input). "
+        "Identify shipped/slipped work, cycle times only when provided, and "
+        "explicit mid-sprint rescoping. Distinguish Slack 'blocked', 'surprised', "
+        "'nice' and celebration reactions; do not guess team sentiment. "
         "Never fabricate links, tickets, metrics or quotes. "
         "If evidence is insufficient, refuse rather than invent."
     )
