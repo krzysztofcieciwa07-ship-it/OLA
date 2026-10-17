@@ -196,6 +196,13 @@ def _invoke_llm(agent, task, context):
                 "required": ["nodes"],
                 "additionalProperties": False,
             }
+            if context.get("independent_only") is True:
+                # Independent goal: model still chooses task count/IDs/content,
+                # but cannot hallucinate dependencies on nonexistent DAG nodes.
+                nodes_schema = payload["format"]["properties"]["nodes"]
+                nodes_schema["minItems"] = 2
+                nodes_schema["maxItems"] = 4
+                nodes_schema["items"]["properties"]["needs"]["maxItems"] = 0
             options["num_predict"] = max(options.get("num_predict", 0), 256)
         response = httpx.post(
             f"{base_url}/api/chat",
