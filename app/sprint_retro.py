@@ -30,7 +30,7 @@ def _https_source(url, source):
     except ValueError:
         return False
     if (parsed.scheme != "https" or parsed.username or parsed.password
-            or not parsed.path or any(ch in url for ch in " ()<>[]\\r\\n")):
+            or not parsed.path or any(ord(ch) < 33 or ch in "()<>[]" for ch in url)):
         return False
     host = (parsed.hostname or "").lower()
     if source == "linear":
