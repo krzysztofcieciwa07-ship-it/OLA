@@ -19,23 +19,46 @@ def model_plan(goal, tools):
         '"tool":"one_allowed_tool","task":"bounded instruction",'
         '"needs":["predecessor_id"]}]}. Generate 1 to 16 useful nodes. '
         'Use dependencies only when needed and parallel independent work. '
+        'Every needs entry MUST match an actual id of another node in the '
+        'same plan; for independent nodes use needs:[]. '
         'No code fences, no prose. Never request tools outside allowed_tools.'
     )
-    try:
-        response = _invoke_llm("nina_dag_planner", goal, {"contract": contract, "allowed_tools": list(tools)})
-    except Exception as exc:
-        raise WorkflowPlanError(f"planner failed: {type(exc).__name__}") from exc
-    if (not response or response.get("invocation_type") != "real_llm"
-            or not response.get("response_id") or not response.get("output")):
-        raise WorkflowPlanError("real LLM planning and response provenance required")
-    try:
-        data = json.loads(response["output"])
-    except (ValueError, TypeError) as exc:
-        raise WorkflowPlanError("planner output is not strict JSON") from exc
-    return validate_plan(data, allowed_tools=set(tools)), {
-        "provider": response["provider"], "model": response["model"],
-        "response_id": response["response_id"], "prompt_digest": response.get("prompt_digest"),
-    }
+    rejection = None
+    for attempt in range(1, 4):
+        context = {"contract": contract, "allowed_tools": list(tools)}
+        if rejection:
+            # Only the deterministic validator's error, not previous model text.
+            # This requests correction from the model; Python never repairs an
+            # invalid DAG, silently drops dependencies, or runs fallback steps.
+            context["revision"] = (
+                f"Previous plan rejected: {rejection}. Generate a new plan with "
+                "all needs referencing defined node ids (or [] for independent "
+                "work), exact required fields, and only allowlisted tools."
+            )
+        try:
+            response = _invoke_llm("nina_dag_planner", goal, context)
+        except Exception as exc:
+            raise WorkflowPlanError(f"planner failed: {type(exc).__name__}") from exc
+        if (not response or response.get("invocation_type") != "real_llm"
+                or not response.get("response_id") or not response.get("output")):
+            raise WorkflowPlanError("real LLM planning and response provenance required")
+        try:
+            data = json.loads(response["output"])
+        except (ValueError, TypeError):
+            rejection = "planner output is not strict JSON"
+            continue
+        try:
+            nodes = validate_plan(data, allowed_tools=set(tools))
+        except WorkflowPlanError as exc:
+            rejection = str(exc)
+            continue
+        return nodes, {
+            "provider": response["provider"], "model": response["model"],
+            "response_id": response["response_id"],
+            "prompt_digest": response.get("prompt_digest"),
+            "attempts": attempt,
+        }
+    raise WorkflowPlanError(f"planner output invalid after 3 attempts: {rejection}")
 
 
 def execute_registered_node(node, deps):
