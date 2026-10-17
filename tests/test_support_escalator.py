@@ -138,7 +138,8 @@ def test_authorized_publish_is_idempotent_and_ordered(monkeypatch):
     def mark(key, payload):
         events.append(("mark", key))
         return {"status": "escalated"}
-    result = publish_escalation(candidate, authorized=True, jira_create_or_get=jira,
+    result = publish_escalation(candidate, authorized=True,
+        evidence_reader=read_tenant_evidence, jira_create_or_get=jira,
         slack_post_once=slack, intercom_note_once=note, intercom_mark_once=mark)
     assert result["status"] == "ESCALATED_RECORDED_UNATTESTED"
     assert [ev[0] for ev in events] == ["jira", "slack", "note", "mark"]
@@ -175,3 +176,22 @@ def test_igor_missing_records_never_returns_candidate(monkeypatch):
             intercom_reader=lambda _: conversation(), repro_runner=repro,
             code_searcher=code_search, append=append_record,
             fetch_records=lambda _: [])
+
+
+
+def test_forged_jira_draft_cannot_publish_even_with_authorization(monkeypatch):
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "escalator-test-sha")
+    candidate = run_support_escalation(
+        tenant_id="escalation-" + str(uuid.uuid4()), requester_id="support",
+        conversation_id="conv-4512", intercom_reader=lambda _: conversation(),
+        repro_runner=repro, code_searcher=code_search, append=append_record,
+        fetch_records=read_tenant_evidence)
+    candidate["jira_draft"]["summary"] = "FORGED TICKET"
+    writes = []
+    with pytest.raises(EscalationBlocked, match="differs from immutable"):
+        publish_escalation(candidate, authorized=True, evidence_reader=read_tenant_evidence,
+            jira_create_or_get=lambda *a: writes.append(a),
+            slack_post_once=lambda *a: writes.append(a),
+            intercom_note_once=lambda *a: writes.append(a),
+            intercom_mark_once=lambda *a: writes.append(a))
+    assert writes == []
