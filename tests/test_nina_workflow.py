@@ -164,6 +164,8 @@ def test_planner_replans_rejected_dependency_but_never_executes_it(monkeypatch):
     assert len(nodes) == 2
     assert len(requests) == 2
     assert "revision" not in requests[0]
+    assert '"needs":[]' in requests[0]["contract"]
+    assert "predecessor_id" not in requests[0]["contract"]
     assert "unknown dependency" in requests[1]["revision"]
     assert provenance["response_id"] == "planner-2"
     assert provenance["attempts"] == 2
