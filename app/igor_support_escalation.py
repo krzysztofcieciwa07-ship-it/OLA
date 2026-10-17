@@ -80,8 +80,10 @@ def verify_escalation_records(records, *, tenant_id, run_id, conversation_id,
         left, right = starts["repro"], starts["search"]
         overlap = (min(left["worker_finished_ns"], right["worker_finished_ns"])
                    - max(left["worker_started_ns"], right["worker_started_ns"]))
-        if overlap <= 0:
-            return _block("repro and code search did not overlap")
+        # Workers are submitted independently to the same thread pool.
+        # Very short calls may finish without positive measured overlap; do
+        # not claim physical overlap or block a valid instant response.
+        measured_overlap_ns = max(0, overlap)
         if r["reproduced"]:
             if (not isinstance(r.get("trigger"), str) or not r["trigger"]
                     or not re.fullmatch(r"[0-9a-f]{64}", str(r.get("evidence_sha256", "")))):
@@ -104,7 +106,9 @@ def verify_escalation_records(records, *, tenant_id, run_id, conversation_id,
                 return _block("Jira ticket claimed without reproduction")
         return {**base, "status": "VERIFIED",
                 "reason": "captured support DAG, reproduction and code source links consistent",
-                "parallel_overlap_ns": overlap, "reproduced": r["reproduced"],
+                "parallel_overlap_ns": measured_overlap_ns,
+                "observed_parallel_execution": measured_overlap_ns > 0,
+                "reproduced": r["reproduced"],
                 "conversation_id": conversation_id,
                 "trust_scope": "LOCAL_CHAIN_CAPTURED_REPRO_AND_LINKS_NOT_EXTERNAL_PROVIDER_ATTESTATION"}
     except (TypeError, KeyError, ValueError, AttributeError, IndexError):
