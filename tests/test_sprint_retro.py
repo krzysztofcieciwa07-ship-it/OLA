@@ -123,3 +123,56 @@ def test_document_never_promoted_when_igor_rejects_trace(monkeypatch):
             slack_reader=lambda *_: {"channel_id": "C123", "messages": messages},
             synthesizer=compose, append=append_record,
             fetch_records=lambda _: [])
+
+
+
+def test_igor_rejects_rehashed_evidence_with_invented_citation(monkeypatch):
+    """A recomputed local chain alone cannot authorize a fabricated link."""
+    import json
+    from app.hashchain import canonical_json, compute_record_hash
+    from app.workflow_engine import _digest
+    from app.igor_sprint_retro import verify_sprint_retro_records
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "retro-ci-head")
+    tickets, messages = source_items()
+    barrier = threading.Barrier(2, timeout=4)
+
+    def linear(_):
+        barrier.wait()
+        return {"cycle_id": CYCLE, "closed": True, "tickets": tickets}
+
+    def slack(channel, start, end):
+        barrier.wait()
+        return {"channel_id": channel, "messages": messages}
+
+    tenant = "retro-" + str(uuid.uuid4())
+    result = run_sprint_retro(tenant_id=tenant, requester_id="requester",
+        cycle_id=CYCLE, channel_id="C123", start=START, end=END,
+        linear_reader=linear, slack_reader=slack, synthesizer=compose,
+        append=append_record, fetch_records=read_tenant_evidence)
+    events = [json.loads(row["payload_json"]) for row in read_tenant_evidence(tenant)]
+    invented = "https://linear.app/demo/issue/LIN-FAKE"
+    synthesis = next(event for event in events
+                     if event.get("event") == "task.completed"
+                     and event.get("node_id") == "synthesis")
+    synthesis["output"]["went_well"][0]["refs"] = [invented]
+    synthesis["output_digest"] = _digest(synthesis["output"])
+    document_start = next(event for event in events
+                          if event.get("event") == "task.started"
+                          and event.get("node_id") == "document")
+    document_start["input_digest"] = _digest({
+        "task": "Produce one Markdown draft",
+        "deps": {"synthesis": synthesis["output"]},
+    })
+    previous = "0" * 64
+    forged = []
+    for seq, event in enumerate(events):
+        raw = canonical_json(event)
+        digest = compute_record_hash(tenant, seq, previous, raw)
+        forged.append({"tenant_id": tenant, "seq": seq, "prev_hash": previous,
+                       "record_hash": digest, "payload_json": raw,
+                       "record_type": event["event"]})
+        previous = digest
+    verdict = verify_sprint_retro_records(forged, tenant_id=tenant,
+         run_id=result["run_id"], cycle_id=CYCLE, expected_commit="retro-ci-head")
+    assert verdict["status"] == "BLOCK", verdict
+    assert "invented" in verdict["reason"], verdict
