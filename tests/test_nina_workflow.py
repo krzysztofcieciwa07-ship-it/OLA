@@ -128,5 +128,12 @@ def test_live_ollama_planner_uses_json_format_and_sufficient_token_budget(monkey
                            {"contract": "strict DAG JSON", "allowed_tools": ["llm_agent"]})
     assert response["invocation_type"] == "real_llm"
     assert len(calls) == 1
-    assert calls[0][1]["json"]["format"] == "json"
+    schema = calls[0][1]["json"]["format"]
+    assert schema["type"] == "object"
+    assert schema["required"] == ["nodes"]
+    assert schema["additionalProperties"] is False
+    node_schema = schema["properties"]["nodes"]["items"]
+    assert node_schema["required"] == ["id", "tool", "task", "needs"]
+    assert node_schema["additionalProperties"] is False
+    assert node_schema["properties"]["tool"]["enum"] == ["llm_agent"]
     assert calls[0][1]["json"]["options"]["num_predict"] >= 192
