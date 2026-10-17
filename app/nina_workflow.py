@@ -9,7 +9,7 @@ import os
 from .workflow_engine import WorkflowEngine, WorkflowPlanError, validate_plan
 
 
-def model_plan(goal, tools):
+def model_plan(goal, tools, *, independent_only=False):
     from .agent_runtime import _invoke_llm
 
     if not isinstance(goal, str) or not goal.strip() or len(goal) > 2000:
@@ -23,9 +23,18 @@ def model_plan(goal, tools):
         'same plan; for independent nodes use needs:[]. '
         'No code fences, no prose. Never request tools outside allowed_tools.'
     )
+    if independent_only:
+        contract += (
+            " The user needs independent work only: create TWO to FOUR "
+            "independent llm_agent nodes with needs:[] for every node. "
+            "Choose the node identities and the substantive tasks yourself. "
+            "Do not create imaginary dependencies or extra joins."
+        )
     rejection = None
     for attempt in range(1, 4):
         context = {"contract": contract, "allowed_tools": list(tools)}
+        if independent_only:
+            context["independent_only"] = True
         if rejection:
             # Only the deterministic validator's error, not previous model text.
             # This requests correction from the model; Python never repairs an
@@ -49,6 +58,10 @@ def model_plan(goal, tools):
             continue
         try:
             nodes = validate_plan(data, allowed_tools=set(tools))
+            if independent_only and (not 2 <= len(nodes) <= 4
+                                     or any(node.needs or node.tool != "llm_agent"
+                                            for node in nodes)):
+                raise WorkflowPlanError("independent plan must have 2-4 root LLM nodes")
         except WorkflowPlanError as exc:
             rejection = str(exc)
             continue
