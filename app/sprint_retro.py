@@ -29,7 +29,8 @@ def _https_source(url, source):
         parsed = urlsplit(url)
     except ValueError:
         return False
-    if parsed.scheme != "https" or parsed.username or parsed.password or not parsed.path:
+    if (parsed.scheme != "https" or parsed.username or parsed.password
+            or not parsed.path or any(ch in url for ch in " ()<>[]\\r\\n")):
         return False
     host = (parsed.hostname or "").lower()
     if source == "linear":
@@ -72,13 +73,14 @@ def _linear_data(data, cycle):
     return {"cycle_id": cycle, "closed": True, "tickets": result}
 
 
-def _slack_data(data, channel):
+def _slack_data(data, channel, start, end):
     if not isinstance(data, dict) or data.get("channel_id") != channel:
         raise RetroBlocked("Slack channel does not match requested scope")
     rows = data.get("messages")
     if not isinstance(rows, list) or not 1 <= len(rows) <= 24:
         raise RetroBlocked("Slack messages missing or unbounded")
     result, seen = [], set()
+    lower, upper = _window(start, end)
     for item in rows:
         if not isinstance(item, dict) or not _https_source(item.get("url"), "slack"):
             raise RetroBlocked("invalid Slack message permalink")
@@ -90,8 +92,15 @@ def _slack_data(data, channel):
         if not isinstance(reactions, list) or len(reactions) > 12 or not all(
                 isinstance(r, str) and 0 < len(r) <= 40 for r in reactions):
             raise RetroBlocked("invalid Slack reaction provenance")
+        when = item.get("sent_at")
+        try:
+            timestamp = datetime.fromisoformat(when.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            raise RetroBlocked("invalid Slack message timestamp") from None
+        if timestamp.tzinfo is None or not lower <= timestamp <= upper:
+            raise RetroBlocked("Slack message outside sprint time window")
         result.append({"url": url, "text": _text(item.get("text"), 500),
-                       "reactions": reactions})
+                       "sent_at": when, "reactions": reactions})
     return {"channel_id": channel, "messages": result}
 
 
@@ -176,6 +185,7 @@ def _window(start, end):
         raise RetroBlocked("invalid sprint time window") from exc
     if a.tzinfo is None or b.tzinfo is None or a >= b:
         raise RetroBlocked("sprint window must be offset-aware and ordered")
+    return a, b
 
 
 def run_sprint_retro(*, tenant_id, requester_id, cycle_id, channel_id, start, end,
@@ -209,14 +219,15 @@ def run_sprint_retro(*, tenant_id, requester_id, cycle_id, channel_id, start, en
     ]}, allowed_tools={"retro.linear.read", "retro.slack.read",
                        "retro.synthesize", "retro.render"})
     provenance = {"mode": "REVIEWED_RETRO_TEMPLATE_NOT_LLM_PLANNED",
-                  "cycle_id": cycle_id, "channel_id": channel_id}
+                  "cycle_id": cycle_id, "channel_id": channel_id,
+                  "start": start, "end": end}
     commit = os.getenv("OLA_RUNTIME_COMMIT", "UNKNOWN")
 
     def execute(node, deps):
         if node.id == "linear":
             return _linear_data(linear_reader(cycle_id), cycle_id)
         if node.id == "slack":
-            return _slack_data(slack_reader(channel_id, start, end), channel_id)
+            return _slack_data(slack_reader(channel_id, start, end), channel_id, start, end)
         if node.id == "synthesis":
             data = synth(deps["linear"]["tickets"], deps["slack"]["messages"])
             return _validate_synthesis(data, deps["linear"]["tickets"],
