@@ -137,6 +137,14 @@ def test_live_ollama_planner_uses_json_format_and_sufficient_token_budget(monkey
     assert node_schema["additionalProperties"] is False
     assert node_schema["properties"]["tool"]["enum"] == ["llm_agent"]
     assert calls[0][1]["json"]["options"]["num_predict"] >= 192
+    _invoke_llm("nina_dag_planner", "Two independent topics",
+                {"contract": "independent only", "allowed_tools": ["llm_agent"],
+                 "independent_only": True})
+    independent = calls[1][1]["json"]["format"]["properties"]["nodes"]
+    assert independent["minItems"] == 2
+    assert independent["maxItems"] == 4
+    assert independent["items"]["properties"]["needs"]["maxItems"] == 0
+
 
 
 
@@ -189,3 +197,33 @@ def test_planner_exhaustion_blocks_without_static_fallback(monkeypatch):
     with pytest.raises(WorkflowPlanError, match="after 3 attempts"):
         model_plan("Check", ["llm_agent"])
     assert len(calls) == 3
+
+
+
+def test_independent_goal_requires_model_chosen_parallel_nodes(monkeypatch):
+    import sys
+    from types import ModuleType
+    from app.nina_workflow import model_plan
+    mod = ModuleType("app.agent_runtime")
+    requests = []
+
+    def fake_planner(agent, goal, context):
+        requests.append(context)
+        invalid = ('{"nodes":[{"id":"first","tool":"llm_agent",'
+                   '"task":"TLS risk","needs":["missing"]}]}')
+        valid = ('{"nodes":[{"id":"tls","tool":"llm_agent","task":"TLS",'
+                 '"needs":[]},{"id":"backups","tool":"llm_agent",'
+                 '"task":"backup recovery","needs":[]}]}')
+        return {"invocation_type": "real_llm", "response_id": f"plan-{len(requests)}",
+                "provider": "ollama", "model": "qwen", "output":
+                invalid if len(requests) == 1 else valid}
+
+    mod._invoke_llm = fake_planner
+    monkeypatch.setitem(sys.modules, "app.agent_runtime", mod)
+    nodes, provenance = model_plan("Two independent issues", ["llm_agent"],
+                                   independent_only=True)
+    assert [node.id for node in nodes] == ["tls", "backups"]
+    assert all(not node.needs for node in nodes)
+    assert len(requests) == 2 and all(req["independent_only"] is True for req in requests)
+    assert provenance["attempts"] == 2
+    assert provenance["response_id"] == "plan-2"
