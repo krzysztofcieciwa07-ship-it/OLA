@@ -34,8 +34,21 @@ jobs:
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          ref: ${{ steps.target.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Assert checkout is the exact release source
+        shell: bash
+        env:
+          TARGET_SOURCE_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          set -euo pipefail
+          checked_out="$(git rev-parse HEAD)"
+          if [ "$checked_out" != "$TARGET_SOURCE_SHA" ]; then
+            echo "::error::Release source mismatch: $checked_out != $TARGET_SOURCE_SHA"
+            exit 1
+          fi
 
       - name: Verify required evidence gates
         env:
