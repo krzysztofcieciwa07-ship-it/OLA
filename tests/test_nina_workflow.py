@@ -98,3 +98,35 @@ def test_planner_makes_real_model_plan_with_provenance(monkeypatch):
     nodes, provenance = model_plan("plan", ["llm_agent"])
     assert nodes[0].id == "worker"
     assert provenance["response_id"] == "id"
+
+
+
+def test_live_ollama_planner_uses_json_format_and_sufficient_token_budget(monkeypatch):
+    """Real planner JSON is not subject to the 64-token worker response budget."""
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_MODEL", "qwen2.5:0.5b-instruct")
+    monkeypatch.setenv("OLA_OLLAMA_NUM_PREDICT", "64")
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"message": {"content": '{"nodes":[]}'}, "done": True}
+
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return FakeResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    response = _invoke_llm("nina_dag_planner", "Review resilience",
+                           {"contract": "strict DAG JSON", "allowed_tools": ["llm_agent"]})
+    assert response["invocation_type"] == "real_llm"
+    assert len(calls) == 1
+    assert calls[0][1]["json"]["format"] == "json"
+    assert calls[0][1]["json"]["options"]["num_predict"] >= 192
