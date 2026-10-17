@@ -169,7 +169,33 @@ def _invoke_llm(agent, task, context):
             # A JSON DAG needs more room than short worker answers. Ollama's
             # structured JSON mode keeps the plan machine-readable; validation
             # of allowed tools, dependencies and sizes still happens separately.
-            payload["format"] = "json"
+            allowed = context.get("allowed_tools", [])
+            if (not isinstance(allowed, list) or not allowed
+                    or not all(isinstance(tool, str) and tool for tool in allowed)):
+                raise ValueError("planner requires explicit allowlisted capabilities")
+            payload["format"] = {
+                "type": "object",
+                "properties": {
+                    "nodes": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 16,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string", "minLength": 1, "maxLength": 40},
+                                "tool": {"type": "string", "enum": allowed},
+                                "task": {"type": "string", "minLength": 1, "maxLength": 1000},
+                                "needs": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["id", "tool", "task", "needs"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["nodes"],
+                "additionalProperties": False,
+            }
             options["num_predict"] = max(options.get("num_predict", 0), 256)
         response = httpx.post(
             f"{base_url}/api/chat",
