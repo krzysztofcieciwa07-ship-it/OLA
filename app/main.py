@@ -235,11 +235,15 @@ def payment_success(session_id: str):
 @app.post("/evidence")
 def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
     tenant_id = tenant_from_key(x_api_key)
-    return append_record(
-        tenant_id,
-        body.get("record_type", "generic"),
-        body.get("payload", {}),
-    )
+    record_type = body.get("record_type", "generic")
+    if not isinstance(record_type, str) or not record_type.strip():
+        raise HTTPException(status_code=400, detail="record_type must be a nonempty string")
+    # Public tenant keys may submit customer evidence, but cannot impersonate
+    # trusted NINA execution, DAG timing, or Human Gate producers. The local
+    # hash chain proves record integrity, not who caused a record to be written.
+    if record_type.startswith(("workflow.", "task.", "human.")):
+        raise HTTPException(status_code=403, detail="reserved internal evidence type")
+    return append_record(tenant_id, record_type, body.get("payload", {}))
 
 
 @app.post("/audit")
