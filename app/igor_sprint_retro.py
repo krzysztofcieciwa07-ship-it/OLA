@@ -6,6 +6,7 @@ of messages or independent external provider attestation.
 """
 import hashlib
 import json
+from datetime import datetime
 from .igor_workflow import verify_dag_records
 
 
@@ -39,6 +40,17 @@ def verify_sprint_retro_records(records, *, tenant_id, run_id, cycle_id,
         if linear.get("cycle_id") != cycle_id or linear.get("closed") is not True:
             return _block("sprint cycle not closed or wrong")
         tickets, messages = linear["tickets"], slack["messages"]
+        planner = events[0]["planner"]
+        if slack.get("channel_id") != planner.get("channel_id"):
+            return _block("scoped Slack channel mismatch")
+        lower = datetime.fromisoformat(planner["start"].replace("Z", "+00:00"))
+        upper = datetime.fromisoformat(planner["end"].replace("Z", "+00:00"))
+        if lower.tzinfo is None or upper.tzinfo is None or lower >= upper:
+            return _block("invalid saved sprint window")
+        for msg in messages:
+            timestamp = datetime.fromisoformat(msg["sent_at"].replace("Z", "+00:00"))
+            if timestamp.tzinfo is None or not lower <= timestamp <= upper:
+                return _block("source message outside saved sprint window")
         links = {ticket["url"] for ticket in tickets} | {msg["url"] for msg in messages}
         if not tickets or not messages or not links:
             return _block("missing source links")
