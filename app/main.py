@@ -189,15 +189,32 @@ def payment_success(session_id: str):
     if not task:
         return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
 
+    # Different customers can buy the same audit task. Task text is not an
+    # order identity: only a webhook result for THIS Checkout Session may be
+    # returned to the caller. Legacy rows without checkout_session_id fail closed.
     with SessionLocal() as db:
-        completed = db.scalar(
+        candidates = db.scalars(
             select(StripeEvent).where(
                 StripeEvent.status == "COMPLETED",
                 StripeEvent.task == task,
             )
-        )
+        ).all()
+        matches = []
+        for candidate in candidates:
+            if not candidate.result_json:
+                continue
+            try:
+                recorded = json.loads(candidate.result_json)
+            except (ValueError, TypeError):
+                continue
+            if (isinstance(recorded, dict)
+                    and recorded.get("checkout_session_id") == session_id
+                    and recorded.get("status") == "COMPLETED"):
+                matches.append((candidate.run_id, recorded))
 
-    if completed is None:
+    if len(matches) > 1:
+        raise HTTPException(status_code=409, detail="conflicting Checkout Session executions")
+    if not matches:
         return {
             "status": "PAYMENT_CONFIRMED_EXECUTION_PENDING",
             "session_id": session_id,
@@ -210,8 +227,8 @@ def payment_success(session_id: str):
         "session_id": session_id,
         "task": task,
         "execution": "STRIPE_WEBHOOK",
-        "run_id": completed.run_id,
-        "result": json.loads(completed.result_json) if completed.result_json else None,
+        "run_id": matches[0][0],
+        "result": matches[0][1],
     }
 
 
