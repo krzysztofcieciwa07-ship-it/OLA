@@ -165,6 +165,12 @@ def _invoke_llm(agent, task, context):
             "stream": False,
             "options": options,
         }
+        if agent == "nina_dag_planner":
+            # A JSON DAG needs more room than short worker answers. Ollama's
+            # structured JSON mode keeps the plan machine-readable; validation
+            # of allowed tools, dependencies and sizes still happens separately.
+            payload["format"] = "json"
+            options["num_predict"] = max(options.get("num_predict", 0), 256)
         response = httpx.post(
             f"{base_url}/api/chat",
             headers={"Content-Type": "application/json"},
