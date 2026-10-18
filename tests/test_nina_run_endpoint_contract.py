@@ -1,3 +1,4 @@
+from app.api_key_hashing import api_key_fingerprint
 import hashlib
 import os
 import uuid
@@ -25,7 +26,7 @@ def test_nina_run_executes_chain_but_does_not_self_approve():
         db.add(ApiKey(
             id=str(uuid.uuid4()),
             tenant_id=tenant_id,
-            key_hash=hashlib.sha256(api_key.encode()).hexdigest(),
+            key_hash=api_key_fingerprint(api_key),
         ))
         db.commit()
 

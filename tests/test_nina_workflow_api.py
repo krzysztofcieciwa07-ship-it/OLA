@@ -1,3 +1,4 @@
+from app.api_key_hashing import api_key_fingerprint
 import hashlib
 import uuid
 
@@ -15,7 +16,7 @@ def _tenant(key):
         db.add(Tenant(id=tenant_id, name="parallel-workflow-test"))
         db.commit()
         db.add(ApiKey(id=str(uuid.uuid4()), tenant_id=tenant_id,
-                      key_hash=hashlib.sha256(key.encode()).hexdigest()))
+                      key_hash=api_key_fingerprint(key)))
         db.commit()
 
 
@@ -82,7 +83,7 @@ def test_external_api_cannot_forge_dag_runtime_provenance():
     with SessionLocal() as db:
         tenant_id = db.scalar(
             select(ApiKey.tenant_id).where(
-                ApiKey.key_hash == hashlib.sha256(key.encode()).hexdigest()
+                ApiKey.key_hash == api_key_fingerprint(key)
             )
         )
         assert db.scalars(

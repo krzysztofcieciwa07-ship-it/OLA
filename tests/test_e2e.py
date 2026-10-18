@@ -1,3 +1,4 @@
+from app.api_key_hashing import api_key_fingerprint
 import hashlib
 import uuid
 
@@ -26,12 +27,12 @@ def _seed_tenants():
             ApiKey(
                 id=str(uuid.uuid4()),
                 tenant_id=tenant_a_id,
-                key_hash=hashlib.sha256(key_a.encode()).hexdigest(),
+                key_hash=api_key_fingerprint(key_a),
             ),
             ApiKey(
                 id=str(uuid.uuid4()),
                 tenant_id=tenant_b_id,
-                key_hash=hashlib.sha256(key_b.encode()).hexdigest(),
+                key_hash=api_key_fingerprint(key_b),
             ),
         ]
     )

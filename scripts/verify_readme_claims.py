@@ -68,7 +68,8 @@ def _fresh_db():
 def _c1():
     from sqlalchemy import text
     from app.database import SessionLocal
-    from app.models import EvidenceRecord
+    from app.api_key_hashing import api_key_fingerprint
+from app.models import EvidenceRecord
 
     _fresh_db()
     db = SessionLocal()
@@ -118,8 +119,8 @@ def _c3():
     db.add_all([tA, tB]); db.commit()
     kA_raw, kB_raw = "key-a", "key-b"
     db.add_all([
-        ApiKey(id=str(uuid.uuid4()), tenant_id=tA.id, key_hash=hashlib.sha256(kA_raw.encode()).hexdigest()),
-        ApiKey(id=str(uuid.uuid4()), tenant_id=tB.id, key_hash=hashlib.sha256(kB_raw.encode()).hexdigest()),
+        ApiKey(id=str(uuid.uuid4()), tenant_id=tA.id, key_hash=api_key_fingerprint(kA_raw)),
+        ApiKey(id=str(uuid.uuid4()), tenant_id=tB.id, key_hash=api_key_fingerprint(kB_raw)),
     ])
     db.commit()
 
