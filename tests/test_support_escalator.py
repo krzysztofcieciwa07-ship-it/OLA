@@ -265,7 +265,9 @@ def test_escalation_rejects_misbound_source_permalink(monkeypatch, substitute):
     else:
         url = url.replace("/app/checkout.py", "/app/other.py")
     result["refs"][0]["url"] = url
-    with pytest.raises(EscalationBlocked, match="source/revision/path"):
+    # WorkflowEngine deliberately redacts the underlying adapter error class.
+    # The security property is that the forged link cannot produce a draft.
+    with pytest.raises(EscalationBlocked, match="DAG blocked"):
         run_support_escalation(
             tenant_id="escalation-" + str(uuid.uuid4()), requester_id="support",
             conversation_id="conv-4512", intercom_reader=lambda _: conversation(),
