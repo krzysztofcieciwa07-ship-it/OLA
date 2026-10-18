@@ -1,5 +1,4 @@
 import hashlib
-import hmac
 import uuid
 
 import pytest
@@ -16,8 +15,9 @@ def test_hash_is_keyed_and_not_raw_sha256(monkeypatch):
     result = api_key_fingerprint("abc")
     assert len(result) == 64
     assert result != hashlib.sha256(b"abc").hexdigest()
-    assert result == hmac.new(b"test-only-secret-0123456789abcdef-abcdefgh",
-                              b"abc", hashlib.sha256).hexdigest()
+    assert result == hashlib.scrypt(b"abc", salt=b"test-only-secret-0123456789abcdef-abcdefgh",
+                                   n=1 << 14, r=8, p=1, maxmem=64 * 1024 * 1024,
+                                   dklen=32).hex()
 
 
 def test_pepper_required_fail_closed(monkeypatch):
