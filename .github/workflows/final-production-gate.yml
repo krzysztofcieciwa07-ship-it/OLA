@@ -64,7 +64,8 @@ jobs:
           case "${GITHUB_EVENT_NAME}" in
             pull_request|push) event_filter="&event=${GITHUB_EVENT_NAME}" ;;
           esac
-          max_attempts=80
+          # Producer DAG gate permits up to 25 min; cover it plus queue latency.
+          max_attempts=120
           sleep_seconds=15
 
           for attempt in $(seq 1 "$max_attempts"); do

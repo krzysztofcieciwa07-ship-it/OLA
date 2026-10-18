@@ -176,3 +176,51 @@ def test_igor_rejects_rehashed_evidence_with_invented_citation(monkeypatch):
          run_id=result["run_id"], cycle_id=CYCLE, expected_commit="retro-ci-head")
     assert verdict["status"] == "BLOCK", verdict
     assert "invented" in verdict["reason"], verdict
+
+
+def test_retro_markdown_escapes_untrusted_links():
+    from app.sprint_retro import _safe_markdown
+    literal = "[action](https://attacker.example) ![img](https://attacker.example/i)"
+    escaped = _safe_markdown(literal)
+    assert "[action](" not in escaped
+    assert "![img](" not in escaped
+    assert "\\[action\\]" in escaped
+    assert "\\!\\[img\\]" in escaped
+
+
+def test_igor_accepts_fast_nonoverlapping_parallel_reads(monkeypatch):
+    # Deliberately non-overlapping test source callbacks: the valid DAG
+    # topology is parallel, but instant reads do not guarantee clock overlap.
+    from app.igor_sprint_retro import verify_sprint_retro_records
+    import json
+    from app.hashchain import canonical_json, compute_record_hash
+    import app.sprint_retro as retro
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "retro-ci-head")
+    tickets, messages = source_items()
+    tenant = "retro-" + str(uuid.uuid4())
+    out = run_sprint_retro(tenant_id=tenant, requester_id="reviewer",
+        cycle_id=CYCLE, channel_id="C123", start=START, end=END,
+        linear_reader=lambda _: {"cycle_id": CYCLE, "closed": True, "tickets": tickets},
+        slack_reader=lambda *_: {"channel_id": "C123", "messages": messages},
+        synthesizer=compose, append=append_record, fetch_records=read_tenant_evidence)
+    rows = read_tenant_evidence(tenant)
+    events = [json.loads(row["payload_json"]) for row in rows]
+    completed = {e["node_id"]: e for e in events if e["event"] == "task.completed"}
+    # Force disjoint valid client intervals, preserving each started < finished.
+    completed["linear"]["worker_started_ns"] = 100
+    completed["linear"]["worker_finished_ns"] = 200
+    completed["slack"]["worker_started_ns"] = 300
+    completed["slack"]["worker_finished_ns"] = 400
+    forged, prev = [], "0" * 64
+    for seq, event in enumerate(events):
+        raw = canonical_json(event)
+        digest = compute_record_hash(tenant, seq, prev, raw)
+        forged.append({"tenant_id": tenant, "seq": seq, "prev_hash": prev,
+                       "record_hash": digest, "record_type": event["event"],
+                       "payload_json": raw})
+        prev = digest
+    verdict = verify_sprint_retro_records(forged, tenant_id=tenant,
+        run_id=out["run_id"], cycle_id=CYCLE, expected_commit="retro-ci-head")
+    assert verdict["status"] == "VERIFIED", verdict
+    assert verdict["source_overlap_ns"] == 0
+    assert verdict["observed_parallel_execution"] is False

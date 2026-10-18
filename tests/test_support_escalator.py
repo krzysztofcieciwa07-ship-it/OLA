@@ -219,3 +219,33 @@ def test_intercom_identity_cannot_be_forged_in_query_or_other_path(monkeypatch):
                 code_searcher=lambda _: reads.append("search") or code_search(None),
                 append=append_record, fetch_records=read_tenant_evidence)
         assert reads == [], "Untrusted conversation must block before repro or code search"
+
+
+def test_jira_url_requires_exact_issue_path_not_prefix(monkeypatch):
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "escalator-test-sha")
+    candidate = run_support_escalation(
+        tenant_id="escalation-" + str(uuid.uuid4()), requester_id="support",
+        conversation_id="conv-4512", intercom_reader=lambda _: conversation(),
+        repro_runner=repro, code_searcher=code_search,
+        append=append_record, fetch_records=read_tenant_evidence)
+    touched = []
+    def wrong_jira(key, fields):
+        touched.append("jira")
+        return {"key": "ENG-38", "url": "https://demo.atlassian.net/browse/ENG-381"}
+    with pytest.raises(EscalationBlocked, match="partial external handoff"):
+        publish_escalation(candidate, authorized=True,
+            evidence_reader=read_tenant_evidence, jira_create_or_get=wrong_jira,
+            slack_post_once=lambda *a: touched.append("slack"),
+            intercom_note_once=lambda *a: touched.append("intercom"),
+            intercom_mark_once=lambda *a: touched.append("mark"))
+    assert touched == ["jira"]
+
+
+def test_escalator_markdown_escapes_untrusted_links():
+    from app.support_escalator import _safe_markdown
+    literal = "[action](https://attacker.example) ![img](https://attacker.example/i)"
+    escaped = _safe_markdown(literal)
+    assert "[action](" not in escaped
+    assert "![img](" not in escaped
+    assert "\\[action\\]" in escaped
+    assert "\\!\\[img\\]" in escaped

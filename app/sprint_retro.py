@@ -104,10 +104,13 @@ def _slack_data(data, channel, start, end):
     return {"channel_id": channel, "messages": result}
 
 
-def _safe_markdown(text):
-    # Evidence and generated summaries are untrusted text, not markup.
-    return re.sub(r"([\\\\`*_[\\]<>])", r"\\\\\\1", text).replace("\n", " ")
-
+def _safe_markdown(value):
+    """Escape untrusted text, never allowing rendered Markdown links or images."""
+    value = value.replace("\n", " ")
+    # Escape existing backslashes first; added escapes must not be doubled.
+    for char in ("\\", "`", "*", "_", "[", "]", "<", ">", "!"):
+        value = value.replace(char, "\\" + char)
+    return value
 
 def _validate_synthesis(value, tickets, messages):
     if not isinstance(value, dict) or set(value) != {

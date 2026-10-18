@@ -47,8 +47,12 @@ def _https(url, kind):
 
 
 def _safe_markdown(value):
-    return re.sub(r"([\\`*_\\[\\]<>])", r"\\\\\1", value.replace("\n", " "))
-
+    """Escape untrusted text, never allowing rendered Markdown links or images."""
+    value = value.replace("\n", " ")
+    # Escape existing backslashes first; added escapes must not be doubled.
+    for char in ("\\", "`", "*", "_", "[", "]", "<", ">", "!"):
+        value = value.replace(char, "\\" + char)
+    return value
 
 def _conversation(raw, conversation_id):
     if not isinstance(raw, dict) or raw.get("id") != conversation_id:
@@ -283,7 +287,7 @@ def publish_escalation(candidate, *, authorized=False, evidence_reader=None,
         if (not isinstance(jira, dict) or not re.fullmatch(
                 r"[A-Z][A-Z0-9]+-[1-9][0-9]*", str(jira.get("key", "")))
                 or not _https(jira.get("url"), "jira")
-                or jira["key"] not in jira["url"]):
+                or urlsplit(jira["url"]).path != "/browse/" + jira["key"]):
             raise EscalationBlocked("Jira did not confirm valid issue link")
         completed.append("jira")
         message = {"conversation_url": draft["conversation_url"], "jira_url": jira["url"],
