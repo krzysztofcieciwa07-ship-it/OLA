@@ -55,7 +55,7 @@ def test_igor_verifies_real_ollama_provenance():
         "payload_json": sealed_payload_json("provenance.runtime", payload),
     }
     record["record_hash"] = compute_record_hash_v2(
-        record["tenant_id"], record["seq"], record["prev_hash"], record["payload_json"]
+        record["tenant_id"], record["seq"], record["prev_hash"], record["record_type"], "ola_runtime", record["payload_json"]
     )
     result = IgorVerifier().verify_records(
         [record],
@@ -91,7 +91,7 @@ def test_igor_scopes_checks_to_current_run_but_verifies_full_chain():
         "payload_json": sealed_payload_json("provenance.runtime", first_payload),
     }
     first["record_hash"] = compute_record_hash_v2(
-        first["tenant_id"], first["seq"], first["prev_hash"], first["payload_json"]
+        first["tenant_id"], first["seq"], first["prev_hash"], first["record_type"], "ola_runtime", first["payload_json"]
     )
     second = {
         "id": "new",
@@ -103,7 +103,7 @@ def test_igor_scopes_checks_to_current_run_but_verifies_full_chain():
         "payload_json": sealed_payload_json("provenance.runtime", second_payload),
     }
     second["record_hash"] = compute_record_hash_v2(
-        second["tenant_id"], second["seq"], second["prev_hash"], second["payload_json"]
+        second["tenant_id"], second["seq"], second["prev_hash"], second["record_type"], "ola_runtime", second["payload_json"]
     )
 
     result = IgorVerifier().verify_records(
