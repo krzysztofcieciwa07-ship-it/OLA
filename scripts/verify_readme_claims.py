@@ -21,6 +21,7 @@ import tempfile
 import uuid
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from app.api_key_hashing import api_key_fingerprint
 
 TEST_DIR = tempfile.mkdtemp(prefix="ola_readme_claims_")
 TEST_DB = os.path.join(TEST_DIR, "claims.db")
@@ -71,8 +72,7 @@ def _fresh_db():
 def _c1():
     from sqlalchemy import text
     from app.database import SessionLocal
-    from app.api_key_hashing import api_key_fingerprint
-from app.models import EvidenceRecord
+    from app.models import EvidenceRecord
 
     _fresh_db()
     db = SessionLocal()
