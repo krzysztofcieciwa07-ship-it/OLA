@@ -1,3 +1,4 @@
+from app.api_key_hashing import api_key_fingerprint
 import hashlib
 import uuid
 
@@ -19,7 +20,7 @@ def setup_workflow(monkeypatch):
         db.commit()
         for key, identity in zip(keys, identities):
             db.add(ApiKey(id=identity, tenant_id=tenant,
-                          key_hash=hashlib.sha256(key.encode()).hexdigest()))
+                          key_hash=api_key_fingerprint(key)))
         db.commit()
     nodes = validate_plan({"nodes": [
         {"id": "task", "tool": "safe_expression", "task": "2+2", "needs": []},
@@ -72,7 +73,7 @@ def test_independent_report_can_reverify_after_human_approval(monkeypatch):
     report = result["igor"]
     decision = approval_request(keys[1], result["run_id"], report["chain_tip"], report["report_digest"])
     assert decision.status_code == 200, decision.text
-    key_hash = hashlib.sha256(keys[0].encode()).hexdigest()
+    key_hash = api_key_fingerprint(keys[0])
     with SessionLocal() as db:
         row = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
         tenant_id = row.tenant_id
