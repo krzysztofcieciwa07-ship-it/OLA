@@ -34,6 +34,8 @@ def identity_from_key(raw_key):
         raise HTTPException(status_code=401, detail="missing API key")
     try:
         key_hash = api_key_fingerprint(raw_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="invalid API key") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="API key verification unavailable") from exc
     with SessionLocal() as db:
