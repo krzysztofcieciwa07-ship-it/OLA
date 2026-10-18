@@ -158,3 +158,13 @@ def test_parallel_workflow_blocks_duplicate_or_unbounded_tools_before_planner(mo
         )
         assert response.status_code == 400, (bad_tools, response.text)
     assert invoked == []
+
+
+def test_real_ollama_gate_installs_checksum_verified_release():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] /
+              ".github/workflows/nina-parallel-dag.yml").read_text()
+    assert 'ollama_version="v0.40.6"' in source
+    assert "c164ab8b1b28e2a247c29719b8e404c423c5b83ae64c3ab4e59d50c7ff7fc5e0" in source
+    assert "sha256sum --check -" in source
+    assert "https://ollama.com/install.sh" not in source

@@ -73,8 +73,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL https://ollama.com/install.sh | sh
-          OLLAMA_NUM_PARALLEL=2 nohup ollama serve > /tmp/ola-parallel-ollama.log 2>&1 &
+          # Pin the official Ollama Linux AMD64 release and verify its
+          # GitHub-published archive SHA-256 before extracting or executing.
+          ollama_version="v0.40.6"
+          archive="${RUNNER_TEMP}/ollama-linux-amd64.tar.zst"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "https://github.com/ollama/ollama/releases/download/${ollama_version}/ollama-linux-amd64.tar.zst" \
+            --output "$archive"
+          echo "c164ab8b1b28e2a247c29719b8e404c423c5b83ae64c3ab4e59d50c7ff7fc5e0  $archive" | sha256sum --check -
+          if ! command -v zstd >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y zstd
+          fi
+          mkdir -p "$RUNNER_TEMP/ola-ollama"
+          zstd -dc "$archive" | tar -xf - -C "$RUNNER_TEMP/ola-ollama"
+          export PATH="$RUNNER_TEMP/ola-ollama/bin:$PATH"
+          echo "$RUNNER_TEMP/ola-ollama/bin" >> "$GITHUB_PATH"
+          OLLAMA_NUM_PARALLEL=2 nohup "$RUNNER_TEMP/ola-ollama/bin/ollama" serve > /tmp/ola-parallel-ollama.log 2>&1 &
           for i in $(seq 1 40); do
             if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
             sleep 2
