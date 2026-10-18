@@ -1,0 +1,10 @@
+# Proposed review ownership for the public OLA repository.
+# Effective enforcement requires branch protection/rulesets with mandatory
+# CODEOWNER review; at audit time main was unprotected. Not a legal title proof.
+/LICENSE @krzysztofcieciwa07-ship-it
+/README.md @krzysztofcieciwa07-ship-it
+/docs/LICENSING_AND_IP_BOUNDARIES_2026-10-18.md @krzysztofcieciwa07-ship-it
+/docs/PROPOSED_FUTURE_PROPRIETARY_TERMS.md @krzysztofcieciwa07-ship-it
+/docs/REPOSITORY_LICENSE_MATRIX_2026-10-18.md @krzysztofcieciwa07-ship-it
+/docs/OWNER_RIGHTS_DECISION_2026-10-18.md @krzysztofcieciwa07-ship-it
+/.github/CODEOWNERS @krzysztofcieciwa07-ship-it
