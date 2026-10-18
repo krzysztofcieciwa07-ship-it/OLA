@@ -54,7 +54,8 @@ def _conversation(raw, conversation_id):
     if not isinstance(raw, dict) or raw.get("id") != conversation_id:
         raise EscalationBlocked("conversation ID mismatch")
     url = raw.get("url")
-    if not _https(url, "intercom") or conversation_id not in url:
+    if (not _https(url, "intercom")
+            or urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1] != conversation_id):
         raise EscalationBlocked("missing authentic conversation permalink")
     customer = raw.get("customer")
     if not isinstance(customer, dict):
