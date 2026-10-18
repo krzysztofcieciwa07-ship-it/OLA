@@ -444,7 +444,8 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     igor_summary = {"status": igor.status, "reason": igor.reason, "checks": igor.checks}
     provenance = {
         "status": "VERIFIED" if (
-            runtime_commit
+            runtime.get("status") == "VERIFIED"
+            and runtime_commit
             and provider
             and model
             and invocation_type
