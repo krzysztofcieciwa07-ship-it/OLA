@@ -33,7 +33,7 @@ def append_evidence_atomic(tenant_id, record_type, payload, *, producer_id="ola_
     SQLite is still a single-writer backend; use a separately audited
     PostgreSQL implementation for high write throughput.
     """
-    from .hashchain import GENESIS_HASH, sealed_payload_json, compute_record_hash
+    from .hashchain import GENESIS_HASH, sealed_payload_json, compute_record_hash_v2
     from .models import EvidenceRecord
 
     if not isinstance(tenant_id, str) or not tenant_id:
@@ -51,7 +51,8 @@ def append_evidence_atomic(tenant_id, record_type, payload, *, producer_id="ola_
         seq = last.seq + 1 if last is not None else 0
         previous = last.record_hash if last is not None else GENESIS_HASH
         record_id = str(uuid.uuid4())
-        digest = compute_record_hash(tenant_id, seq, previous, payload_json)
+        digest = compute_record_hash_v2(tenant_id, seq, previous, record_type,
+                                        producer_id, payload_json)
         db.add(EvidenceRecord(
             id=record_id, tenant_id=tenant_id, seq=seq, record_type=record_type,
             payload_json=payload_json, prev_hash=previous, record_hash=digest,

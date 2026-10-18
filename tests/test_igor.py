@@ -1,7 +1,7 @@
 import json
 
 from app.igor import IgorVerifier
-from app.hashchain import compute_record_hash, sealed_payload_json
+from app.hashchain import compute_record_hash_v2, sealed_payload_json
 
 
 def _record(commit="abc", result="391"):
@@ -14,7 +14,7 @@ def _record(commit="abc", result="391"):
         "record_hash": "",
         "payload_json": sealed_payload_json("provenance.runtime", payload),
     }
-    record["record_hash"] = compute_record_hash(record["tenant_id"], record["seq"], record["prev_hash"], record["payload_json"])
+    record["record_hash"] = compute_record_hash_v2(record["tenant_id"], record["seq"], record["prev_hash"], record["record_type"], "ola_runtime", record["payload_json"])
     return record
 
 
@@ -54,7 +54,7 @@ def test_igor_verifies_real_ollama_provenance():
         "record_hash": "",
         "payload_json": sealed_payload_json("provenance.runtime", payload),
     }
-    record["record_hash"] = compute_record_hash(
+    record["record_hash"] = compute_record_hash_v2(
         record["tenant_id"], record["seq"], record["prev_hash"], record["payload_json"]
     )
     result = IgorVerifier().verify_records(
@@ -90,7 +90,7 @@ def test_igor_scopes_checks_to_current_run_but_verifies_full_chain():
         "record_hash": "",
         "payload_json": sealed_payload_json("provenance.runtime", first_payload),
     }
-    first["record_hash"] = compute_record_hash(
+    first["record_hash"] = compute_record_hash_v2(
         first["tenant_id"], first["seq"], first["prev_hash"], first["payload_json"]
     )
     second = {
@@ -102,7 +102,7 @@ def test_igor_scopes_checks_to_current_run_but_verifies_full_chain():
         "record_hash": "",
         "payload_json": sealed_payload_json("provenance.runtime", second_payload),
     }
-    second["record_hash"] = compute_record_hash(
+    second["record_hash"] = compute_record_hash_v2(
         second["tenant_id"], second["seq"], second["prev_hash"], second["payload_json"]
     )
 

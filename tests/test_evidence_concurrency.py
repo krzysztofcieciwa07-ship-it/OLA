@@ -91,7 +91,7 @@ def test_multiple_processes_share_sqlite_write_lock():
 
 def test_legacy_integrity_readable_but_not_authenticated():
     from app.hashchain import (
-        GENESIS_HASH, compute_record_hash, canonical_json, sealed_payload_json,
+        GENESIS_HASH, compute_record_hash, compute_record_hash_v2, canonical_json, sealed_payload_json,
         trusted_record, verify_chain,
     )
     raw = canonical_json({"event": "workflow.planned", "run_id": "old"})
@@ -101,7 +101,7 @@ def test_legacy_integrity_readable_but_not_authenticated():
     sealed = sealed_payload_json("workflow.planned", {"event": "workflow.planned", "run_id": "new"})
     new = {"tenant_id": "tenant", "seq": 1, "prev_hash": old["record_hash"],
            "record_type": "workflow.planned", "payload_json": sealed,
-           "record_hash": compute_record_hash("tenant", 1, old["record_hash"], sealed)}
+           "record_hash": compute_record_hash_v2("tenant", 1, old["record_hash"], "workflow.planned", "ola_runtime", sealed)}
     assert verify_chain([old, new]) == (True, "ok")
     assert trusted_record(old) is False
     assert trusted_record(new) is True
@@ -114,3 +114,21 @@ def test_public_evidence_cannot_mint_internal_provenance():
         sealed_payload_json("workflow.planned", {}, producer="tenant_api")
     with pytest.raises(ValueError, match="reserved metadata"):
         sealed_payload_json("customer.proof", {EVIDENCE_META_KEY: {"producer": "ola_runtime"}})
+
+
+def test_old_hash_with_forged_v2_metadata_cannot_be_promoted():
+    from app.hashchain import (
+        GENESIS_HASH, canonical_json, compute_record_hash, verify_chain,
+        EVIDENCE_META_KEY,
+    )
+    fake = canonical_json({
+        "event": "workflow.planned", "run_id": "attacker",
+        EVIDENCE_META_KEY: {
+            "version": 2, "record_type": "workflow.planned", "producer": "ola_runtime",
+        },
+    })
+    legacy_hash = compute_record_hash("tenant", 0, GENESIS_HASH, fake)
+    old = {"tenant_id": "tenant", "seq": 0, "prev_hash": GENESIS_HASH,
+           "record_type": "workflow.planned", "payload_json": fake,
+           "record_hash": legacy_hash}
+    assert verify_chain([old]) == (False, "record hash mismatch")

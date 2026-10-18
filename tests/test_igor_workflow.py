@@ -1,6 +1,6 @@
 import json
 
-from app.hashchain import canonical_json, compute_record_hash, sealed_payload_json, EVIDENCE_META_KEY
+from app.hashchain import canonical_json, compute_record_hash, compute_record_hash_v2, sealed_payload_json, EVIDENCE_META_KEY
 from app.igor_workflow import verify_dag_records
 from app.workflow_engine import WorkflowEngine, validate_plan
 
@@ -31,7 +31,7 @@ def rehash(events):
         event.pop(EVIDENCE_META_KEY, None)
         producer = "tenant_api" if event["event"] == "customer.proof" else "ola_runtime"
         raw = sealed_payload_json(event["event"], event, producer=producer)
-        current = compute_record_hash("tenant", seq, prev, raw)
+        current = compute_record_hash_v2("tenant", seq, prev, event["event"], producer, raw)
         records.append({"tenant_id": "tenant", "seq": seq, "prev_hash": prev,
                         "record_hash": current, "record_type": event["event"], "payload_json": raw})
         prev = current

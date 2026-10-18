@@ -79,19 +79,36 @@ def compute_record_hash(tenant_id, seq, prev_hash, payload_json):
     return hashlib.sha256(material).hexdigest()
 
 
+def compute_record_hash_v2(tenant_id, seq, prev_hash, record_type, producer, payload_json):
+    """Domain-separated V2: historical V1 digests cannot be reinterpreted."""
+    material = canonical_json({
+        "domain": "OLA-EVIDENCE-CHAIN-V2",
+        "tenant_id": tenant_id, "seq": seq, "prev_hash": prev_hash,
+        "record_type": record_type, "producer": producer, "payload_json": payload_json,
+    }).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
 def verify_chain(records):
     expected_prev = GENESIS_HASH
     expected_seq = 0
     for row in records:
         if row["seq"] != expected_seq or row["prev_hash"] != expected_prev:
             return False, "sequence or predecessor mismatch"
-        expected = compute_record_hash(row["tenant_id"], row["seq"],
-                                       row["prev_hash"], row["payload_json"])
-        if row["record_hash"] != expected:
-            return False, "record hash mismatch"
         bound, valid = _binding(row)
         if not valid:
             return False, "record type or producer binding mismatch"
+        if bound:
+            metadata = json.loads(row["payload_json"])[EVIDENCE_META_KEY]
+            expected = compute_record_hash_v2(
+                row["tenant_id"], row["seq"], row["prev_hash"],
+                row["record_type"], metadata["producer"], row["payload_json"]
+            )
+        else:
+            expected = compute_record_hash(row["tenant_id"], row["seq"],
+                                           row["prev_hash"], row["payload_json"])
+        if row["record_hash"] != expected:
+            return False, "record hash mismatch"
         expected_prev = row["record_hash"]
         expected_seq += 1
     return True, "ok"
