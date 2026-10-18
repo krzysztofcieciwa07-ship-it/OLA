@@ -87,6 +87,24 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
 .cc-live-output{max-height:410px;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;padding:13px;border-radius:9px;background:#031715;border:1px solid rgba(35,184,146,.27);font:11px/1.5 ui-monospace,monospace}
 @media(max-width:1100px){.cc-layers{grid-template-columns:repeat(3,minmax(90px,1fr))}}
 @media(max-width:690px){.cc-layers{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Operator experience: readable states, keyboard focus and responsive controls. */
+.runtime-guidance{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 16px;align-items:start;margin:0 0 18px;padding:14px 17px;border:1px solid rgba(250,187,112,.56);border-left:4px solid var(--warn);border-radius:12px;background:rgba(66,38,15,.86);color:#fff2d9}
+.runtime-guidance[hidden]{display:none}
+.runtime-guidance strong{font:700 12px/1.5 ui-monospace,Consolas,monospace;letter-spacing:.05em}
+.runtime-guidance p{font-size:13px;line-height:1.55}
+.runtime-guidance code{font-size:12px;color:#d2ffe8;overflow-wrap:anywhere}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #73f9ca;outline-offset:3px}
+@media(max-width:720px){
+ .cc-agents{display:flex;flex-wrap:wrap;grid-column:auto}
+ .cc-agents .cc-title,.cc-agents .cc-note{width:100%}
+ .cc-agent{flex:1 1 calc(50% - 8px);min-width:0;font-size:12px;min-height:44px}
+ .cc-title,.cc-foot,.cc-localnote{font-size:12px}
+ .cc-localform button,.cc-controls button,.quick-btn{min-height:44px}
+ .runtime-guidance{grid-template-columns:1fr}
+ .nav-btn{min-height:44px}
+ .dock-btn{min-width:42px;min-height:42px}
+}
 </style>
 </head>
 <body>
@@ -112,6 +130,10 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
   <div class="top-controls"><span class="top-chip" id="clock">--:--</span><span class="top-chip" title="Stan sprawdzany z API">API <span id="topLed" class="led wait"></span></span><span class="avatar" aria-hidden="true">O</span><span class="identity">OLA<small>Operator</small></span></div>
  </header>
 
+ <div id="runtimeGuidance" class="runtime-guidance" role="alert" hidden>
+  <strong>TRYB PLIKOWY · TYLKO PODGLĄD</strong>
+  <p>Ta strona jest otwarta z dysku (file://), dlatego nie ma połączenia z OLA Core. Otwórz istniejący panel przez <code>http://127.0.0.1:18080/</code> lub <code>http://127.0.0.1:18081/</code> po uruchomieniu właściwego serwera. Nie wpisuj kluczy API w podglądzie pliku.</p>
+ </div>
  <section class="cc-grid" aria-label="OLA Command Center — podłączone do istniejącego AURORA API">
   <aside class="cc-panel cc-agents" aria-label="Moduły systemu">
    <div class="cc-title">AGENT CORE / STATUS</div>
@@ -211,14 +233,18 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
  const navNames={home:'OLA AI CORE / CHAT',apps:'APLIKACJE OLA',chat:'NINA / CHAT',operations:'NINA → IGOR / EXECUTION',evidence:'EVIDENCE / FORENSIC',audit:'RECOVERY TEST / AUDIT',control:'OLA · CONTROL PLANE L1–L5',system:'STATUS SYSTEMU',settings:'USTAWIENIA SESJI'};
  const session={messages:[],lastCandidate:null,busy:false,epoch:0,activeControllers:new Set()};
  const friendly={VERIFIED:'VERIFIED',REVIEW:'REVIEW',BLOCK:'BLOCK',UNKNOWN:'UNKNOWN',PARTIAL:'PARTIAL',ALLOW:'ALLOW'};
+ const filePreview=location.protocol==='file:';
+ if(filePreview){$('runtimeGuidance').hidden=false;setText('healthMessage','Podgląd pliku — uruchom OLA przez serwer localhost');setText('sideStatus','TRYB PODGLĄDU');}
  function setText(id,value){$(id).textContent=String(value ?? 'UNKNOWN')}
  function log(text){const box=$('statusLog');if(box.firstElementChild?.textContent==='Oczekiwanie na pierwszy odczyt…')box.replaceChildren();const d=document.createElement('div');d.className='log-entry';d.textContent=new Date().toLocaleTimeString('pl-PL',{hour12:false})+'  '+text;box.prepend(d);while(box.children.length>25)box.lastElementChild.remove()}
  function toast(text){const el=$('toast');el.textContent=String(text);el.classList.remove('hidden')}
  function clearToast(){$('toast').classList.add('hidden');$('toast').textContent=''}
- function show(view){if(!navNames[view])return;Object.keys(navNames).forEach(name=>{$('panel-'+name).hidden=name!==view});document.querySelectorAll('[data-view]').forEach(btn=>btn.classList.toggle('active',btn.dataset.view===view));setText('windowTitle',navNames[view]);clearToast();if(window.innerWidth<781)$('workspacePanel').scrollIntoView({behavior:'smooth',block:'start'})}
+ document.addEventListener('keydown',e=>{if(e.key==='Escape')clearToast()});
+ function show(view){if(!navNames[view])return;Object.keys(navNames).forEach(name=>{$('panel-'+name).hidden=name!==view});document.querySelectorAll('[data-view]').forEach(btn=>btn.classList.toggle('active',btn.dataset.view===view));document.querySelectorAll('.nav-btn').forEach(btn=>{if(btn.dataset.view===view)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current')});setText('windowTitle',navNames[view]);clearToast();if(window.innerWidth<781)$('workspacePanel').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})}
  function key(){return $('apiKey').value.trim()}
  function requireKey(){if(!key()){show('settings');toast('Wprowadź klucz API OLA w Ustawieniach.');return null}return key()}
  async function api(path,{method='GET',payload,token,auth='key',timeout=18000}={}){
+  if(filePreview)throw new Error('Brak API w trybie file://. Uruchom OLA Core przez serwer localhost.');
   const controller=new AbortController();session.activeControllers.add(controller);const id=setTimeout(()=>controller.abort(),timeout);
   try{
    const headers={'Accept':'application/json'};
@@ -232,7 +258,7 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
  }
  async function busy(button,task){if(session.busy)return;session.busy=true;button.disabled=true;button.classList.add('loading');const original=button.textContent;button.textContent='Trwa…';try{await task()}catch(e){log('BŁĄD: '+e.message);toast(e.message)}finally{session.busy=false;button.disabled=false;button.classList.remove('loading');button.textContent=original}}
  function applyHealth(success,body){const status=success&&body&&body.status==='ok'?'ONLINE':'UNKNOWN';setText('healthStatus',status);setText('sideStatus',status==='ONLINE'?'OLA Core odpowiada':'Brak zweryfikowanego health');setText('healthMessage',status==='ONLINE'?'OLA Core /health: OK':'Brak potwierdzenia połączenia');setText('sideApi',status);setText('sysCore',status);$('topLed').className='led '+(status==='ONLINE'?'good':'bad');$('sideLed').className='led '+(status==='ONLINE'?'good':'bad');$('healthStatus').className='pill '+(status==='ONLINE'?'good':'bad');$('sideApi').className='pill '+(status==='ONLINE'?'good':'bad')}
- async function refreshHealth(){try{const data=await api('/health',{timeout:6500});applyHealth(true,data);log('GET /health → '+(data.status==='ok'?'ONLINE':'UNKNOWN'))}catch(e){applyHealth(false);log('GET /health → UNKNOWN ('+e.message+')')}}
+ async function refreshHealth(){if(filePreview){applyHealth(false);setText('healthMessage','Podgląd pliku — wymagany serwer OLA Core');return}try{const data=await api('/health',{timeout:6500});applyHealth(true,data);log('GET /health → '+(data.status==='ok'?'ONLINE':'UNKNOWN'))}catch(e){applyHealth(false);log('GET /health → UNKNOWN ('+e.message+')')}}
  function statusLabel(value){return friendly[value]||'UNKNOWN'}
  function appendMessage(role,text){const div=document.createElement('div');div.className='message '+role;div.textContent=(role==='user'?'Ty: ':role==='assistant'?'NINA: ':'')+String(text);$('chatMessages').appendChild(div);$('chatMessages').scrollTop=$('chatMessages').scrollHeight}
  function present(id,data){$(id).textContent=JSON.stringify(data,null,2)}
@@ -251,7 +277,7 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
  }
  document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>show(el.dataset.view)));
  $('searchForm').addEventListener('submit',e=>{e.preventDefault();const q=$('searchInput').value.trim().toLocaleLowerCase('pl-PL');const mapping=[['chat','chat'],['nina','chat'],['ai','chat'],['agent','operations'],['execute','operations'],['wykon','operations'],['igor','operations'],['evidence','evidence'],['dowod','evidence'],['replay','audit'],['audyt','audit'],['test','audit'],['system','system'],['health','system'],['settings','settings'],['ustaw','settings'],['app','apps']];const match=mapping.find(x=>q.includes(x[0]));if(match)show(match[1]);else toast('Nie znaleziono modułu. Sprawdź listę APPS.')});
- $('chatForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const input=$('chatInput');const text=input.value.trim();if(!text)return;busy($('chatSend'),async()=>{const next=[...session.messages,{role:'user',content:text}];const epoch=session.epoch;const result=await api('/chat',{method:'POST',payload:{messages:next},token,timeout:50000});if(epoch!==session.epoch)return;if(result.status!=='VERIFIED'||typeof result.message!=='string'){appendMessage('system','NINA BLOCK: '+String(result.reason||result.detail||result.status||'Niezweryfikowany wynik'));log('POST /chat → '+statusLabel(result.status));return}session.messages=next.concat({role:'assistant',content:result.message});appendMessage('user',text);appendMessage('assistant',result.message);input.value='';log('POST /chat → VERIFIED')})});
+ $('chatForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const input=$('chatInput');const text=input.value.trim();if(!text)return;busy($('chatSend'),async()=>{const next=[...session.messages.slice(-18),{role:'user',content:text}];const epoch=session.epoch;const result=await api('/chat',{method:'POST',payload:{messages:next},token,timeout:50000});if(epoch!==session.epoch)return;if(result.status!=='VERIFIED'||typeof result.message!=='string'){appendMessage('system','NINA BLOCK: '+String(result.reason||result.detail||result.status||'Niezweryfikowany wynik'));log('POST /chat → '+statusLabel(result.status));return}session.messages=next.concat({role:'assistant',content:result.message});appendMessage('user',text);appendMessage('assistant',result.message);input.value='';log('POST /chat → VERIFIED')})});
  $('runForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const task=$('runTask').value.trim();if(!task)return;busy($('runSend'),async()=>{session.lastCandidate=null;$('approveSend').disabled=true;const epoch=session.epoch;const result=await api('/nina-run',{method:'POST',payload:{task,requested_tools:['safe_expression']},token,timeout:110000});if(epoch!==session.epoch)return;present('runResult',result);updateGates(result);if(result.run_id&&result.tip_hash&&result.status_fields&&result.status_fields.HUMAN_GATE==='REVIEW'){session.lastCandidate={run_id:result.run_id,tip_hash:result.tip_hash};$('approveSend').disabled=false}log('POST /nina-run → '+statusLabel(result.status));if(result.status==='BLOCK')toast('NINA zwróciła BLOCK. Zobacz szczegóły w wyniku.')})});
  $('approvalForm').addEventListener('submit',e=>{e.preventDefault();const candidate=session.lastCandidate;const token=$('approverKey').value.trim();if(!candidate){toast('Najpierw uruchom zadanie NINA i uzyskaj kandydata.');return}if(!token){toast('Wymagany klucz drugiego operatora.');return}busy($('approveSend'),async()=>{const epoch=session.epoch;const result=await api('/nina-run/'+encodeURIComponent(candidate.run_id)+'/approve',{method:'POST',payload:{tip_hash:candidate.tip_hash,reason:'Manual approval from OLA Aurora console'},token,auth:'bearer',timeout:25000});if(epoch!==session.epoch)return;present('approvalResult',result);log('POST approval → '+statusLabel(result.status));if(result.status==='VERIFIED'){session.lastCandidate=null;$('approveSend').disabled=true;setText('humanStatus','VERIFIED')}else toast('Zatwierdzenie niezweryfikowane')})});
  $('evidenceForm').addEventListener('submit',e=>{e.preventDefault();const token=requireKey();if(!token)return;const id=$('evidenceId').value.trim();if(!/^[a-zA-Z0-9_-]{8,80}$/.test(id)){toast('Niepoprawny identyfikator dowodu.');return}const button=$('evidenceForm').querySelector('button');busy(button,async()=>{const epoch=session.epoch;const result=await api('/evidence/'+encodeURIComponent(id),{token});if(epoch!==session.epoch)return;present('evidenceResult',result);log('GET /evidence/{id} → OK')})});
@@ -385,10 +411,11 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
    if(busy) return;
    const token = $('localToken').value.trim();
    if(!token) { result('Najpierw uruchom wykonawcę na ZBooku i wklej lokalny token.'); return; }
-   busy=true; $('localConnect').disabled=true;
-   const before=epoch;
+   busy=true; $('localConnect').disabled=true;state('ŁĄCZENIE…');
+   const before=epoch, tokenAtStart=token;
    try {
      const info=await call('/v1/actions',undefined,before);
+     if(before!==epoch || $('localToken').value.trim()!==tokenAtStart)throw new Error('Token zmieniono podczas łączenia. Połącz ponownie.');
      if(info.status!=='BRIDGE_ONLINE'||!Array.isArray(info.actions)) throw new Error('Niepoprawny kontrakt wykonawcy');
      const allowed=new Map();
      const options=[];
@@ -408,7 +435,13 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
  });
  $('localDisconnect').addEventListener('click', forget);
  $('localToken').addEventListener('input', () => {
-   if(actions.size){epoch++;for(const c of inflight)c.abort();inflight.clear();actions.clear();$('localRun').disabled=true;$('localAction').disabled=true;state('NIEPODŁĄCZONE');}
+   epoch++;
+   for(const controller of inflight)controller.abort();
+   inflight.clear();actions.clear();
+   $('localAction').replaceChildren(new Option('Najpierw połącz wykonawcę',''));
+   $('localRun').disabled=true;$('localAction').disabled=true;
+   state('NIEPODŁĄCZONE');
+   result('Token zmieniono. Poprzednie połączenie i zatwierdzone akcje unieważniono.');
  });
  $('localRun').addEventListener('click', async () => {
    if(busy || $('localRun').disabled) return;
