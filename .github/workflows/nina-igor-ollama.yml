@@ -13,6 +13,8 @@ permissions:
   contents: read
 
 env:
+  # CI fixture only; NEVER use as a production secret.
+  OLA_API_KEY_PEPPER: ${{ github.sha }}
   OLA_LLM_PROVIDER: ollama
   OLA_LLM_MODE: required
   OLLAMA_MODEL: qwen2.5:0.5b-instruct
@@ -71,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --detach --rm \
+          docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" \
             --name ola-nina-ollama \
             --network host \
             -e OLA_EG_DB_PATH=/data/ola.db \
@@ -98,6 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           docker exec -i ola-nina-ollama python - <<'PY' > nina-igor-ollama-proof.json
+          from app.api_key_hashing import api_key_fingerprint
           import hashlib
           import json
           import sqlite3
@@ -111,7 +114,7 @@ jobs:
           db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tenant_id,"ci-nina-ollama"))
           db.execute(
               "INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",
-              (str(uuid.uuid4()),tenant_id,hashlib.sha256(raw_key.encode()).hexdigest()),
+              (str(uuid.uuid4()),tenant_id,api_key_fingerprint(raw_key)),
           )
           db.commit()
           db.close()
