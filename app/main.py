@@ -166,9 +166,9 @@ def create_checkout_session(body: dict, x_api_key: str | None = Header(default=N
     try:
         session = create_checkout(task.strip(), success_url, cancel_url, tenant_id)
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail="checkout unavailable") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"checkout creation failed: {exc.__class__.__name__}") from exc
+        raise HTTPException(status_code=502, detail="checkout unavailable") from exc
     append_record(tenant_id, "revenue.checkout_created", {"session_id": session.get("id"), "task": task.strip(), "amount": session.get("amount_total")})
     return {"status": "READY_FOR_PAYMENT", "session_id": session.get("id"), "checkout_url": session.get("url")}
 
@@ -178,7 +178,7 @@ def payment_success(session_id: str):
     try:
         session = retrieve_checkout(session_id)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"payment lookup failed: {exc.__class__.__name__}") from exc
+        raise HTTPException(status_code=502, detail="payment lookup unavailable") from exc
     tenant_id = session.get("metadata", {}).get("tenant_id")
     if not tenant_id:
         raise HTTPException(status_code=403, detail="payment session has no tenant provenance")
@@ -298,7 +298,7 @@ def create_nina_workflow(body: dict, x_api_key: str | None = Header(default=None
     except WorkflowPlanError as exc:
         return {"status": "BLOCK", "reason": str(exc), "verified": False}
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"workflow runtime failed: {type(exc).__name__}") from exc
+        raise HTTPException(status_code=503, detail="workflow runtime unavailable") from exc
 
 
 
