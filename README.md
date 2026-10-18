@@ -9,6 +9,8 @@ The Unlicense permits broad reuse, including commercial use. Simply changing
 this repository to private or replacing its LICENSE file would **not** revoke
 rights previously granted or remove existing public forks and copies.
 
+The project owner has chosen an **individual (natural-person)** model for rights to future original proprietary contributions, as no company has been established. The person's verified legal name and title to each contribution remain to be documented; this choice does not override Unlicense or third-party rights.
+
 The maintainers are reviewing the rights ownership, contributor provenance,
 repository visibility and licensing terms of **future, separately identified
 new components**. No new proprietary license has yet been approved for the
