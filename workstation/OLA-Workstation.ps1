@@ -8,7 +8,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 $RepoDir = Join-Path $Root "ola-source"
 $EvidenceDir = Join-Path $Root "workstation-evidence"
 $Container = "ola-workstation-v1"
-$Image = "ola-workstation:$($SourceCommit.Substring(0,12))"
+$Image = "ola-workstation:pending-source"
 $Port = 8000
 function Write-Gate($name, $status, $detail) { Write-Host ("[{0}] {1} - {2}" -f $status, $name, $detail) }
 New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
@@ -144,6 +144,7 @@ docker rm -f $Container | Out-Null
 ) {
     Write-Gate "SIGNER" "BLOCKED" "Configure OLA_SIGNER_FINGERPRINT"; exit 25
 }
+$Image = "ola-workstation:$($SourceCommit.Substring(0,12))"
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Write-Gate "GIT" "BLOCKED" "Git is not installed"; exit 20 }
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Gate "DOCKER" "BLOCKED" "Docker is not installed"; exit 21 }
 try { docker info | Out-Null } catch { Write-Gate "DOCKER_ENGINE" "BLOCKED" "Docker engine is not running"; exit 22 }
