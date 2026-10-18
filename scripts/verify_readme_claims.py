@@ -14,6 +14,7 @@ contaminate the result.
 """
 import atexit
 import os
+import secrets
 import shutil
 import sys
 import tempfile
@@ -24,6 +25,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 TEST_DIR = tempfile.mkdtemp(prefix="ola_readme_claims_")
 TEST_DB = os.path.join(TEST_DIR, "claims.db")
 os.environ["OLA_EG_DB_PATH"] = TEST_DB
+# Standalone test fixture; never use this ephemeral pepper for production.
+os.environ["OLA_API_KEY_PEPPER"] = secrets.token_hex(32)
 
 FAILURES = []
 
