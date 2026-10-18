@@ -124,3 +124,17 @@ def test_final_production_gate_attests_actual_checked_out_commit():
               / ".github/workflows/final-production-gate.yml").read_text()
     assert "ref: ${{ steps.target.outputs.sha }}" in source
     assert "git rev-parse HEAD" in source
+
+def test_workflow_runtime_error_does_not_expose_internal_exception(monkeypatch):
+    import app.main as main_module
+    key = f"workflow-redact-{uuid.uuid4()}"
+    _tenant(key)
+    monkeypatch.setenv("OLA_PARALLEL_WORKFLOWS_ENABLED", "1")
+    def broken_runtime(**kwargs):
+        raise RuntimeError("secret-internal-connector-details")
+    monkeypatch.setattr(main_module, "run_nina_workflow", broken_runtime)
+    response = TestClient(app).post(
+        "/nina-workflow", headers={"X-API-Key": key}, json={"task": "analyse"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "workflow runtime unavailable"
+    assert "secret" not in response.text
