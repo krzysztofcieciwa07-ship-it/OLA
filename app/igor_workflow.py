@@ -33,7 +33,10 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
         relevant = []
         for row in records:
             payload = json.loads(row["payload_json"])
-            if payload.get("run_id") == run_id and row["record_type"] != "human.workflow_approval":
+            # Untrusted customer records may share a run_id by accident or
+            # deliberately. They remain part of the full hash chain, but must
+            # never impersonate internal workflow/task execution events.
+            if payload.get("run_id") == run_id and row["record_type"].startswith(("workflow.", "task.")):
                 if payload.get("event") != row["record_type"]:
                     return _result("BLOCK", "event type mismatch")
                 relevant.append(payload)

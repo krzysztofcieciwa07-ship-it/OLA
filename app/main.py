@@ -11,7 +11,7 @@ from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
 from .business_runtime import run_invoice_task
-from .nina import NinaOrchestrator, NinaTask
+from .nina import NinaOrchestrator, NinaTask, REGISTERED_TOOLS
 from .nina_workflow import run_nina_workflow
 from .nina_workflow_gate import approve_workflow, WorkflowApprovalRejected
 from .workflow_engine import WorkflowPlanError
@@ -283,8 +283,12 @@ def create_nina_workflow(body: dict, x_api_key: str | None = Header(default=None
         raise HTTPException(status_code=400, detail="task is required")
     requested_tools = body.get("requested_tools", ["llm_agent"])
     if (not isinstance(requested_tools, list) or not requested_tools
-            or not all(isinstance(tool, str) for tool in requested_tools)):
+            or not all(isinstance(tool, str) and tool.strip() for tool in requested_tools)):
         raise HTTPException(status_code=400, detail="requested_tools must be nonempty strings")
+    # Bound provider prompt size and prevent duplicate capability amplification.
+    # This must happen before NINA or the LLM planner is invoked.
+    if len(requested_tools) > len(REGISTERED_TOOLS) or len(set(requested_tools)) != len(requested_tools):
+        raise HTTPException(status_code=400, detail="requested_tools must be unique and bounded")
     nina_task = NinaTask.create(tenant_id, task_text, requested_tools)
     policy = NinaOrchestrator().plan(nina_task)
     if policy.status != "ALLOW":

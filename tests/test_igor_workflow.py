@@ -79,3 +79,21 @@ def test_missing_node_or_duplicate_response_rejected():
     from app.workflow_engine import _digest
     values[1]["output_digest"] = _digest(values[1]["output"])
     assert check(rehash(events))["status"] == "BLOCK"
+
+def test_customer_evidence_with_matching_run_id_does_not_poison_dag_verification():
+    # The full tenant chain includes customer evidence, but only trusted
+    # workflow/task record types belong to the NINA execution trace.
+    events = [json.loads(row["payload_json"]) for row in proof()]
+    events.insert(-1, {"event": "customer.proof", "run_id": "run1",
+                       "note": "unrelated user evidence"})
+    report = check(rehash(events))
+    assert report["status"] == "VERIFIED", report
+    assert report["evidence_count"] == len(events) - 1
+
+
+def test_unexpected_internal_workflow_event_remains_blocked():
+    events = [json.loads(row["payload_json"]) for row in proof()]
+    events.insert(-1, {"event": "workflow.unexpected", "run_id": "run1",
+                       "requester_id": "person1", "planner": {"response_id": "p1"},
+                       "commit": "expected"})
+    assert check(rehash(events))["status"] == "BLOCK"

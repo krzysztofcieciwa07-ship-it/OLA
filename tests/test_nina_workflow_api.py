@@ -139,3 +139,22 @@ def test_workflow_runtime_error_does_not_expose_internal_exception(monkeypatch):
     assert response.status_code == 503
     assert response.json()["detail"] == "workflow runtime unavailable"
     assert "secret" not in response.text
+
+def test_parallel_workflow_blocks_duplicate_or_unbounded_tools_before_planner(monkeypatch):
+    import app.main as main_module
+
+    key = f"workflow-bounded-{uuid.uuid4()}"
+    _tenant(key)
+    monkeypatch.setenv("OLA_PARALLEL_WORKFLOWS_ENABLED", "1")
+    invoked = []
+    monkeypatch.setattr(main_module, "run_nina_workflow",
+                        lambda **kwargs: invoked.append(kwargs) or {"status": "SHOULD_NOT_EXECUTE"})
+    client = TestClient(app)
+    for bad_tools in (["llm_agent", "llm_agent"],
+                      ["llm_agent"] * 30, [""]):
+        response = client.post(
+            "/nina-workflow", headers={"X-API-Key": key},
+            json={"task": "review", "requested_tools": bad_tools},
+        )
+        assert response.status_code == 400, (bad_tools, response.text)
+    assert invoked == []
