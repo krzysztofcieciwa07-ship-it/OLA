@@ -180,3 +180,16 @@ def test_workstation_requires_signed_source_pin_and_hashing_module():
     assert "git verify-commit $SourceCommit" in source
     assert "app/api_key_hashing.py" in source
     assert source.index("git verify-commit") < source.index("docker build")
+
+
+def test_public_evidence_rejects_non_object_payload_without_poisoning_tenant():
+    key = f"evidence-schema-{uuid.uuid4()}"
+    _tenant(key)
+    client = TestClient(app)
+    for payload in (None, [], ["not-an-event"], "scalar", 42):
+        res = client.post("/evidence", headers={"X-API-Key": key},
+            json={"record_type": "customer.proof", "payload": payload})
+        assert res.status_code == 400, (payload, res.text)
+    valid = client.post("/evidence", headers={"X-API-Key": key},
+        json={"record_type": "customer.proof", "payload": {"kind": "valid"}})
+    assert valid.status_code == 200, valid.text

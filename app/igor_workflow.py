@@ -32,11 +32,14 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
             prev = digest
         relevant = []
         for row in records:
+            # Validate the complete hash chain, but never parse untrusted
+            # customer payload shapes as privileged workflow trace events.
+            if not row["record_type"].startswith(("workflow.", "task.")):
+                continue
             payload = json.loads(row["payload_json"])
-            # Untrusted customer records may share a run_id by accident or
-            # deliberately. They remain part of the full hash chain, but must
-            # never impersonate internal workflow/task execution events.
-            if payload.get("run_id") == run_id and row["record_type"].startswith(("workflow.", "task.")):
+            if not isinstance(payload, dict):
+                return _result("BLOCK", "trusted workflow event is not an object")
+            if payload.get("run_id") == run_id:
                 if payload.get("event") != row["record_type"]:
                     return _result("BLOCK", "event type mismatch")
                 relevant.append(payload)

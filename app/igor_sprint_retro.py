@@ -6,7 +6,9 @@ of messages or independent external provider attestation.
 """
 import hashlib
 import json
+import re
 from datetime import datetime
+from urllib.parse import urlsplit
 from .igor_workflow import verify_dag_records
 
 
@@ -74,6 +76,9 @@ def verify_sprint_retro_records(records, *, tenant_id, run_id, cycle_id,
         if lower.tzinfo is None or upper.tzinfo is None or lower >= upper:
             return _block("invalid saved sprint window")
         for msg in messages:
+            if not re.fullmatch(r"/archives/" + re.escape(planner["channel_id"]) + r"/p[0-9]+",
+                                urlsplit(msg["url"]).path):
+                return _block("Slack permalink channel differs from requested scope")
             timestamp = datetime.fromisoformat(msg["sent_at"].replace("Z", "+00:00"))
             if timestamp.tzinfo is None or not lower <= timestamp <= upper:
                 return _block("source message outside saved sprint window")

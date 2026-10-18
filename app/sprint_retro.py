@@ -85,6 +85,11 @@ def _slack_data(data, channel, start, end):
         if not isinstance(item, dict) or not _https_source(item.get("url"), "slack"):
             raise RetroBlocked("invalid Slack message permalink")
         url = item["url"]
+        # The permalink is authoritative for channel scope; the adapter's
+        # top-level channel_id is not enough to prevent cross-channel mixing.
+        if not re.fullmatch(r"/archives/" + re.escape(channel) + r"/p[0-9]+",
+                            urlsplit(url).path):
+            raise RetroBlocked("Slack permalink channel mismatch")
         if url in seen:
             raise RetroBlocked("duplicate Slack message")
         seen.add(url)

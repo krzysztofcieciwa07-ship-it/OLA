@@ -246,7 +246,10 @@ def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
     # hash chain proves record integrity, not who caused a record to be written.
     if record_type.startswith(("workflow.", "task.", "human.")):
         raise HTTPException(status_code=403, detail="reserved internal evidence type")
-    return append_record(tenant_id, record_type, body.get("payload", {}))
+    payload = body.get("payload", {})
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="evidence payload must be a JSON object")
+    return append_record(tenant_id, record_type, payload)
 
 
 @app.post("/audit")

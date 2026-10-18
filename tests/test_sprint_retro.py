@@ -86,13 +86,15 @@ def test_missing_connectors_fail_closed_before_writes():
     assert writes == []
 
 
-@pytest.mark.parametrize("modify", ["not_closed", "fake_link", "missing_cycle", "outside_window"])
+@pytest.mark.parametrize("modify", ["not_closed", "fake_link", "missing_cycle", "outside_window", "wrong_channel_link"])
 def test_bad_sources_or_uncited_claim_never_returns_document(monkeypatch, modify):
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", "retro-ci-head")
     tickets, messages = source_items()
 
     if modify == "outside_window":
         messages[0]["sent_at"] = "2026-12-20T00:00:00Z"
+    if modify == "wrong_channel_link":
+        messages[0]["url"] = messages[0]["url"].replace("/archives/C123/", "/archives/C999/")
 
     def linear(cycle_id):
         return {"cycle_id": "wrong" if modify == "missing_cycle" else CYCLE,
