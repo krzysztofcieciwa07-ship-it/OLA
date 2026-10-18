@@ -81,3 +81,56 @@ def test_independent_report_can_reverify_after_human_approval(monkeypatch):
     repeated_report = verify_dag_records(evidence, tenant_id=tenant_id,
                                          run_id=result["run_id"], expected_commit="verified-unit-commit")
     assert repeated_report["status"] == "VERIFIED", repeated_report
+
+
+def test_refresh_recovers_from_concurrent_tenant_evidence_without_mutation(monkeypatch):
+    from sqlalchemy import select
+    keys, identities, result = setup_workflow(monkeypatch)
+    report = result["igor"]
+    with SessionLocal() as db:
+        tenant = db.scalar(select(ApiKey.tenant_id).where(
+            ApiKey.key_hash == api_key_fingerprint(keys[0])))
+    append_record(tenant, "customer.proof", {"event": "external-note"})
+    stale = approval_request(keys[1], result["run_id"],
+                             report["chain_tip"], report["report_digest"])
+    assert stale.status_code == 409
+    before = len(read_tenant_evidence(tenant))
+    response = TestClient(app).get(
+        f"/nina-workflow/{result['run_id']}/report",
+        headers={"Authorization": f"Bearer {keys[1]}"})
+    assert response.status_code == 200, response.text
+    new = response.json()
+    assert new["tip_hash"] != report["chain_tip"]
+    assert new["report_digest"] != report["report_digest"]
+    assert new["production_authorized"] is False
+    assert len(read_tenant_evidence(tenant)) == before
+    approved = approval_request(keys[1], result["run_id"],
+                                new["tip_hash"], new["report_digest"])
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["production_authorized"] is False
+
+
+def test_approval_verification_does_not_hold_database_writer_lock(monkeypatch):
+    import sqlite3
+    import app.nina_workflow_gate as workflow_gate
+    from app.database import DB_PATH
+    keys, identities, result = setup_workflow(monkeypatch)
+    original = workflow_gate.verify_dag_records
+    observed = []
+    def checked(*args, **kwargs):
+        with sqlite3.connect(DB_PATH, timeout=0.05) as other_connection:
+            other_connection.execute("BEGIN IMMEDIATE")
+            other_connection.rollback()
+        observed.append("independent read completed without writer lock")
+        return original(*args, **kwargs)
+    monkeypatch.setattr(workflow_gate, "verify_dag_records", checked)
+    response = approval_request(keys[1], result["run_id"],
+        result["igor"]["chain_tip"], result["igor"]["report_digest"])
+    assert response.status_code == 200, response.text
+    assert observed == ["independent read completed without writer lock"]
+
+
+def test_refresh_report_requires_tenant_authentication(monkeypatch):
+    _, _, result = setup_workflow(monkeypatch)
+    r = TestClient(app).get(f"/nina-workflow/{result['run_id']}/report")
+    assert r.status_code == 401

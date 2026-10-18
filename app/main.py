@@ -309,6 +309,32 @@ def create_nina_workflow(body: dict, x_api_key: str | None = Header(default=None
 
 
 
+@app.get("/nina-workflow/{run_id}/report")
+def refresh_nina_workflow_report(run_id: str,
+                                 authorization: str | None = Header(default=None)):
+    """Read-only, tenant-scoped refresh for a stale tip-bound IGOR report."""
+    from .igor_workflow import verify_dag_records
+
+    tenant_id, _ = bearer_identity(authorization)
+    expected_commit = os.getenv("OLA_RUNTIME_COMMIT")
+    if not expected_commit:
+        raise HTTPException(status_code=409, detail="runtime source commit unknown")
+    evidence = read_tenant_evidence(tenant_id)
+    if any(row["record_type"] == "human.workflow_approval"
+           and json.loads(row["payload_json"]).get("run_id") == run_id for row in evidence):
+        raise HTTPException(status_code=409, detail="workflow already reviewed")
+    report = verify_dag_records(evidence, tenant_id=tenant_id, run_id=run_id,
+                                expected_commit=expected_commit)
+    if report["status"] != "VERIFIED":
+        raise HTTPException(status_code=409, detail="independent workflow verification unavailable")
+    return {
+        "run_id": run_id, "status": report["status"],
+        "tip_hash": report["chain_tip"], "report_digest": report["report_digest"],
+        "trust_scope": report["trust_scope"],
+        "human_gate": "NOT_APPROVED", "production_authorized": False,
+    }
+
+
 @app.post("/nina-workflow/{run_id}/approve")
 def approve_nina_workflow(run_id: str, body: dict,
                           authorization: str | None = Header(default=None)):

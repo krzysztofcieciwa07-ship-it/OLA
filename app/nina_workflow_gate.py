@@ -10,7 +10,7 @@ import uuid
 from sqlalchemy import select
 from .database import SessionLocal
 from .models import EvidenceRecord
-from .hashchain import canonical_json, compute_record_hash, GENESIS_HASH
+from .hashchain import canonical_json, compute_record_hash
 from .igor_workflow import verify_dag_records
 from .human_gate import HumanGate, ReviewDecision
 
@@ -28,12 +28,12 @@ def approve_workflow(*, tenant_id, approver_id, run_id, tip_hash, report_digest,
     expected_commit = os.getenv("OLA_RUNTIME_COMMIT")
     if not expected_commit:
         raise WorkflowApprovalRejected(409, "runtime source commit unknown")
+
+    # Read and verify outside the SQLite database-wide writer reservation.
+    # An independent tenant writer remains free while IGOR scans the evidence.
     with SessionLocal() as db:
-        # SQLite serializes this read-check-append as a single write transaction.
-        # If the DB engine changes, refuse until a matching lock is implemented.
         if db.bind.dialect.name != "sqlite":
             raise WorkflowApprovalRejected(503, "approval transaction policy missing for this database")
-        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
         rows = db.scalars(
             select(EvidenceRecord)
             .where(EvidenceRecord.tenant_id == tenant_id)
@@ -46,12 +46,12 @@ def approve_workflow(*, tenant_id, approver_id, run_id, tip_hash, report_digest,
             "record_hash": row.record_hash, "prev_hash": row.prev_hash,
             "record_type": row.record_type, "payload_json": row.payload_json,
         } for row in rows]
-        if any(row.record_type == "human.workflow_approval"
-               and json.loads(row.payload_json).get("run_id") == run_id for row in rows):
+        if any(row["record_type"] == "human.workflow_approval"
+               and json.loads(row["payload_json"]).get("run_id") == run_id for row in records):
             raise WorkflowApprovalRejected(409, "run already reviewed")
-        plan_events = [json.loads(row.payload_json) for row in rows
-                       if row.record_type == "workflow.planned"
-                       and json.loads(row.payload_json).get("run_id") == run_id]
+        plan_events = [json.loads(row["payload_json"]) for row in records
+                       if row["record_type"] == "workflow.planned"
+                       and json.loads(row["payload_json"]).get("run_id") == run_id]
         if len(plan_events) != 1:
             raise WorkflowApprovalRejected(409, "unique DAG plan evidence required")
         if plan_events[0].get("requester_id") == approver_id:
@@ -61,9 +61,24 @@ def approve_workflow(*, tenant_id, approver_id, run_id, tip_hash, report_digest,
         )
         if report["status"] != "VERIFIED" or report.get("report_digest") != report_digest:
             raise WorkflowApprovalRejected(409, "independent IGOR report does not match approved tip")
-        review = HumanGate.evaluate("VERIFIED", ReviewDecision(True, approver_id, reason))
-        if review.status != "VERIFIED":
-            raise WorkflowApprovalRejected(409, "human review gate denied")
+
+    review = HumanGate.evaluate("VERIFIED", ReviewDecision(True, approver_id, reason))
+    if review.status != "VERIFIED":
+        raise WorkflowApprovalRejected(409, "human review gate denied")
+
+    # Reacquire only the immutable chain tip under BEGIN IMMEDIATE.
+    # Any concurrent evidence or approval append invalidates the old consent.
+    with SessionLocal() as db:
+        if db.bind.dialect.name != "sqlite":
+            raise WorkflowApprovalRejected(503, "approval transaction policy missing for this database")
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        latest = db.scalar(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == tenant_id)
+            .order_by(EvidenceRecord.seq.desc())
+        )
+        if latest is None or latest.record_hash != tip_hash:
+            raise WorkflowApprovalRejected(409, "tip changed during independent review")
         payload = {
             "event": "human.workflow_approval", "run_id": run_id,
             "tenant_id": tenant_id, "approver_id": approver_id,
@@ -74,7 +89,7 @@ def approve_workflow(*, tenant_id, approver_id, run_id, tip_hash, report_digest,
             "decision": "APPROVED_FOR_REVIEW_ONLY",
         }
         raw = canonical_json(payload)
-        next_seq = rows[-1].seq + 1
+        next_seq = latest.seq + 1
         next_hash = compute_record_hash(tenant_id, next_seq, tip_hash, raw)
         db.add(EvidenceRecord(
             id=str(uuid.uuid4()), tenant_id=tenant_id, seq=next_seq,
