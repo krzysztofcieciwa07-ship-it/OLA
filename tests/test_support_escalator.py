@@ -210,7 +210,7 @@ def test_intercom_identity_cannot_be_forged_in_query_or_other_path(monkeypatch):
         bad = conversation()
         bad["url"] = url
         reads = []
-        with pytest.raises(EscalationBlocked, match="conversation permalink"):
+        with pytest.raises(EscalationBlocked, match="DAG blocked"):
             run_support_escalation(
                 tenant_id="escalation-" + str(uuid.uuid4()),
                 requester_id="support", conversation_id="conv-4512",
