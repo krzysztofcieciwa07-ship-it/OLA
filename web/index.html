@@ -232,7 +232,24 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
  }
  async function busy(button,task){if(session.busy)return;session.busy=true;button.disabled=true;button.classList.add('loading');const original=button.textContent;button.textContent='Trwa…';try{await task()}catch(e){log('BŁĄD: '+e.message);toast(e.message)}finally{session.busy=false;button.disabled=false;button.classList.remove('loading');button.textContent=original}}
  function applyHealth(success,body){const status=success&&body&&body.status==='ok'?'ONLINE':'UNKNOWN';setText('healthStatus',status);setText('sideStatus',status==='ONLINE'?'OLA Core odpowiada':'Brak zweryfikowanego health');setText('healthMessage',status==='ONLINE'?'OLA Core /health: OK':'Brak potwierdzenia połączenia');setText('sideApi',status);setText('sysCore',status);$('topLed').className='led '+(status==='ONLINE'?'good':'bad');$('sideLed').className='led '+(status==='ONLINE'?'good':'bad');$('healthStatus').className='pill '+(status==='ONLINE'?'good':'bad');$('sideApi').className='pill '+(status==='ONLINE'?'good':'bad')}
- async function refreshHealth(){try{const data=await api('/health',{timeout:6500});applyHealth(true,data);log('GET /health → '+(data.status==='ok'?'ONLINE':'UNKNOWN'))}catch(e){applyHealth(false);log('GET /health → UNKNOWN ('+e.message+')')}}
+ let healthGeneration=0;
+ async function refreshHealth({silent=false}={}){
+  const generation=++healthGeneration;
+  try{
+   const data=await api('/health',{timeout:6500});
+   if(generation!==healthGeneration || document.hidden)return;
+   const online=data && data.status==='ok';
+   applyHealth(online,data);
+   setText('healthMessage',online
+     ? 'OLA Core /health: OK · '+new Date().toLocaleTimeString('pl-PL',{hour12:false})+' (tylko API)'
+     : 'Brak potwierdzenia połączenia');
+   if(!silent)log('GET /health → '+(online?'ONLINE':'UNKNOWN'));
+  }catch(e){
+   if(generation!==healthGeneration || document.hidden)return;
+   applyHealth(false);
+   if(!silent)log('GET /health → UNKNOWN ('+e.message+')');
+  }
+ }
  function statusLabel(value){return friendly[value]||'UNKNOWN'}
  function appendMessage(role,text){const div=document.createElement('div');div.className='message '+role;div.textContent=(role==='user'?'Ty: ':role==='assistant'?'NINA: ':'')+String(text);$('chatMessages').appendChild(div);$('chatMessages').scrollTop=$('chatMessages').scrollHeight}
  function present(id,data){$(id).textContent=JSON.stringify(data,null,2)}
@@ -285,7 +302,16 @@ body{background:#030a0b}.sky{background:radial-gradient(ellipse at 55% 36%,rgba(
  $('clearLog').addEventListener('click',()=>{$('statusLog').replaceChildren()});
  $('refreshHealth').addEventListener('click',refreshHealth);$('healthFromSettings').addEventListener('click',refreshHealth);
  function updateClock(){const now=new Date();setText('clock',now.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'}));setText('sessionDate',now.toLocaleDateString('pl-PL',{day:'2-digit',month:'short',year:'numeric'}));setText('sessionTime',now.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit',second:'2-digit'}))}
- updateClock();setInterval(updateClock,1000);refreshHealth();
+ updateClock();setInterval(updateClock,1000);
+ document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){
+   healthGeneration++;
+   applyHealth(false);
+   setText('healthMessage','Brak aktualnego pomiaru (karta nieaktywna).');
+  }else refreshHealth({silent:true});
+ });
+ setInterval(()=>{if(!document.hidden)refreshHealth({silent:true})},15000);
+ refreshHealth();
 })();
 </script>
 
