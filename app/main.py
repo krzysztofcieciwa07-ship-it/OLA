@@ -244,12 +244,15 @@ def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
     # Public tenant keys may submit customer evidence, but cannot impersonate
     # trusted NINA execution, DAG timing, or Human Gate producers. The local
     # hash chain proves record integrity, not who caused a record to be written.
-    if record_type.startswith(("workflow.", "task.", "human.")):
+    from .hashchain import is_privileged_type, EVIDENCE_META_KEY
+    if is_privileged_type(record_type):
         raise HTTPException(status_code=403, detail="reserved internal evidence type")
     payload = body.get("payload", {})
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="evidence payload must be a JSON object")
-    return append_record(tenant_id, record_type, payload)
+    if EVIDENCE_META_KEY in payload:
+        raise HTTPException(status_code=400, detail="reserved evidence metadata")
+    return append_evidence_atomic(tenant_id, record_type, payload, producer_id="tenant_api")
 
 
 @app.post("/audit")

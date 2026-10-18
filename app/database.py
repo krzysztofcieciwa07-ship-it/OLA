@@ -24,7 +24,7 @@ def install_append_only_triggers():
         """)
 
 
-def append_evidence_atomic(tenant_id, record_type, payload):
+def append_evidence_atomic(tenant_id, record_type, payload, *, producer_id="ola_runtime"):
     """Serialize all evidence writers before reading a tenant tip.
 
     SQLite BEGIN IMMEDIATE acquires the database writer reservation before
@@ -33,14 +33,14 @@ def append_evidence_atomic(tenant_id, record_type, payload):
     SQLite is still a single-writer backend; use a separately audited
     PostgreSQL implementation for high write throughput.
     """
-    from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash
+    from .hashchain import GENESIS_HASH, sealed_payload_json, compute_record_hash
     from .models import EvidenceRecord
 
     if not isinstance(tenant_id, str) or not tenant_id:
         raise ValueError("tenant_id required for evidence append")
     if not isinstance(record_type, str) or not record_type:
         raise ValueError("record_type required for evidence append")
-    payload_json = canonical_json(payload)
+    payload_json = sealed_payload_json(record_type, payload, producer=producer_id)
     with SessionLocal() as db:
         if db.bind.dialect.name != "sqlite":
             raise RuntimeError("no atomic append policy for non-SQLite backend")

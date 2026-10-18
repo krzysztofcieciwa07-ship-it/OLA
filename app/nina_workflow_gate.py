@@ -10,7 +10,7 @@ import uuid
 from sqlalchemy import select
 from .database import SessionLocal
 from .models import EvidenceRecord
-from .hashchain import canonical_json, compute_record_hash
+from .hashchain import sealed_payload_json, compute_record_hash
 from .igor_workflow import verify_dag_records
 from .human_gate import HumanGate, ReviewDecision
 
@@ -88,7 +88,7 @@ def approve_workflow(*, tenant_id, approver_id, run_id, tip_hash, report_digest,
             "commit": expected_commit,
             "decision": "APPROVED_FOR_REVIEW_ONLY",
         }
-        raw = canonical_json(payload)
+        raw = sealed_payload_json("human.workflow_approval", payload)
         next_seq = latest.seq + 1
         next_hash = compute_record_hash(tenant_id, next_seq, tip_hash, raw)
         db.add(EvidenceRecord(
