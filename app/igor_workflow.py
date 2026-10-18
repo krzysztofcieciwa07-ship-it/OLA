@@ -136,12 +136,13 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
                               - max(left["worker_started_ns"], right["worker_started_ns"]))
         if require_overlap and overlap <= 0:
             return _result("BLOCK", "real LLM execution intervals did not overlap", overlap_ns=overlap)
-        report_digest = _hash({"tenant_id": tenant_id, "run_id": run_id, "chain_tip": prev,
+        chain_tip = records[-1]["record_hash"]
+        report_digest = _hash({"tenant_id": tenant_id, "run_id": run_id, "chain_tip": chain_tip,
                                "plan_digest": plan_event["plan_digest"], "completed": sorted(finishes),
                                "overlap_ns": overlap})
         return _result("VERIFIED", "captured DAG events and full tenant chain consistent",
                        verified_nodes=len(finishes), evidence_count=len(relevant),
-                       chain_tip=prev, plan_digest=plan_event["plan_digest"],
+                       chain_tip=chain_tip, plan_digest=plan_event["plan_digest"],
                        overlap_ns=overlap, report_digest=report_digest,
                        trust_scope="LOCAL_HASH_CHAIN_AND_CAPTURED_RUNTIME_EVENTS")
     except (TypeError, KeyError, ValueError, IndexError, AttributeError, OverflowError):
