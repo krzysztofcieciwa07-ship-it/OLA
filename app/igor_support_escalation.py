@@ -45,7 +45,7 @@ def verify_escalation_records(records, *, tenant_id, run_id, conversation_id,
     try:
         events = [json.loads(row["payload_json"]) for row in records
                   if json.loads(row["payload_json"]).get("run_id") == run_id
-                  and row["record_type"] != "human.workflow_approval"]
+                  and row["record_type"].startswith(("workflow.", "task."))]
         plan = events[0]
         expected = [
             ("intercom", "support.intercom.read", []),
@@ -77,6 +77,12 @@ def verify_escalation_records(records, *, tenant_id, run_id, conversation_id,
         for ref in s["refs"]:
             if ref.get("path") != s["component"] or not _permalink(ref.get("url"), "github"):
                 return _block("missing component source link")
+            link = urlsplit(ref["url"])
+            expected_path = ("/krzysztofcieciwa07-ship-it/OLA/blob/"
+                             + str(plan.get("commit")) + "/" + s["component"])
+            if (plan.get("commit") in (None, "UNKNOWN")
+                    or link.path != expected_path or link.query):
+                return _block("component permalink does not bind source SHA")
         left, right = starts["repro"], starts["search"]
         overlap = (min(left["worker_finished_ns"], right["worker_finished_ns"])
                    - max(left["worker_started_ns"], right["worker_started_ns"]))

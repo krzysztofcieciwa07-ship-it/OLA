@@ -1,5 +1,6 @@
 """Contract tests: Intercom -> parallel repro + code search -> IGOR -> Jira handoff."""
 import hashlib
+import os
 import threading
 import uuid
 
@@ -35,7 +36,7 @@ def repro(_):
 def code_search(_):
     return {
         "component": "app/checkout.py",
-        "refs": [{"url": "https://github.com/example/OLA/blob/abc123/app/checkout.py#L42",
+        "refs": [{"url": f"https://github.com/krzysztofcieciwa07-ship-it/OLA/blob/{os.getenv('OLA_RUNTIME_COMMIT', 'UNKNOWN')}/app/checkout.py#L42",
                   "path": "app/checkout.py"}],
     }
 
@@ -249,3 +250,24 @@ def test_escalator_markdown_escapes_untrusted_links():
     assert "![img](" not in escaped
     assert "\\[action\\]" in escaped
     assert "\\!\\[img\\]" in escaped
+
+
+
+@pytest.mark.parametrize("substitute", ["stale_commit", "wrong_repository", "other_path"])
+def test_escalation_rejects_misbound_source_permalink(monkeypatch, substitute):
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "escalator-test-sha")
+    result = code_search(None)
+    url = result["refs"][0]["url"]
+    if substitute == "stale_commit":
+        url = url.replace("escalator-test-sha", "obsolete-source")
+    elif substitute == "wrong_repository":
+        url = url.replace("/krzysztofcieciwa07-ship-it/OLA/", "/attacker/OLA/")
+    else:
+        url = url.replace("/app/checkout.py", "/app/other.py")
+    result["refs"][0]["url"] = url
+    with pytest.raises(EscalationBlocked, match="source/revision/path"):
+        run_support_escalation(
+            tenant_id="escalation-" + str(uuid.uuid4()), requester_id="support",
+            conversation_id="conv-4512", intercom_reader=lambda _: conversation(),
+            repro_runner=repro, code_searcher=lambda _: result,
+            append=append_record, fetch_records=read_tenant_evidence)

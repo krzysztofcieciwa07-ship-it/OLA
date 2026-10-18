@@ -14,6 +14,31 @@ def _block(reason):
     return {"status": "BLOCK", "reason": reason, "trust_scope": "CAPTURED_REFERENCES_ONLY"}
 
 
+def _literal(value):
+    """Independent Markdown text canonicalization, without importing NINA renderer."""
+    value = value.replace("\n", " ")
+    for char in ("\\", "`", "*", "_", "[", "]", "<", ">", "!"):
+        value = value.replace(char, "\\" + char)
+    return value
+
+
+def _expected_document(cycle_id, summary):
+    parts = ["# Sprint retro — " + _literal(cycle_id), "",
+             "Draft for human review. Links are source references; no automatic publishing.", ""]
+    for key, title in (("went_well", "Went well"), ("dragged", "Dragged"),
+                       ("try_next_sprint", "Try next sprint")):
+        parts.extend(["## " + title, ""])
+        for item in summary[key]:
+            refs = " ".join(f"[source {i+1}]({url})" for i, url in enumerate(item["refs"]))
+            parts.append("- " + _literal(item["text"]) + " — " + refs)
+        parts.append("")
+    parts.extend(["## Proposed single process change", "",
+                  _literal(summary["process_change"]), "",
+                  "Estimated confidence: " + str(round(summary["confidence"] * 100))
+                  + "% (qualitative estimate, not measured adoption).", ""])
+    return "\n".join(parts)
+
+
 def verify_sprint_retro_records(records, *, tenant_id, run_id, cycle_id,
                                 expected_commit=None):
     base = verify_dag_records(records, tenant_id=tenant_id, run_id=run_id,
@@ -22,7 +47,8 @@ def verify_sprint_retro_records(records, *, tenant_id, run_id, cycle_id,
         return _block("DAG evidence: " + base["reason"])
     try:
         events = [json.loads(row["payload_json"]) for row in records
-                  if json.loads(row["payload_json"]).get("run_id") == run_id]
+                  if json.loads(row["payload_json"]).get("run_id") == run_id
+                  and row["record_type"].startswith(("workflow.", "task."))]
         graph = events[0]["nodes"]
         expected = [
             ("linear", "retro.linear.read", []),
@@ -82,6 +108,14 @@ def verify_sprint_retro_records(records, *, tenant_id, run_id, cycle_id,
                 or "## Proposed single process change" not in markdown
                 or markdown.count("## Proposed single process change") != 1):
             return _block("single process change not recorded")
+        confidence = summary.get("confidence")
+        if (not isinstance(confidence, (int, float)) or isinstance(confidence, bool)
+                or not 0 <= confidence <= 1):
+            return _block("invalid document confidence")
+        # An independently recomputed digest of tampered Markdown can be valid.
+        # Verify the full semantic rendering against the recorded synthesis.
+        if markdown != _expected_document(cycle_id, summary):
+            return _block("document differs from recorded synthesis")
         beginnings = {event["node_id"]: event for event in events
                       if event.get("event") == "task.completed"}
         left, right = beginnings["linear"], beginnings["slack"]

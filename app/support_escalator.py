@@ -122,7 +122,7 @@ def _repro(raw):
     }
 
 
-def _code_search(raw):
+def _code_search(raw, expected_commit):
     if not isinstance(raw, dict):
         raise EscalationBlocked("missing code search")
     component = _str(raw.get("component"), "suspected component", 160)
@@ -138,6 +138,12 @@ def _code_search(raw):
             raise EscalationBlocked("untrusted code reference")
         if _str(ref.get("path"), "code path", 160) != component:
             raise EscalationBlocked("component and reference path disagree")
+        source = urlsplit(ref["url"])
+        expected_path = ("/krzysztofcieciwa07-ship-it/OLA/blob/"
+                         + expected_commit + "/" + component)
+        if (expected_commit == "UNKNOWN" or source.path != expected_path
+                or source.query):
+            raise EscalationBlocked("code permalink source/revision/path mismatch")
         safe_refs.append({"path": component, "url": ref["url"]})
     return {"component": component, "refs": safe_refs}
 
@@ -208,7 +214,7 @@ def run_support_escalation(*, tenant_id, requester_id, conversation_id,
         if node.id == "repro":
             return _repro(repro_runner(deps["intercom"]))
         if node.id == "search":
-            return _code_search(code_searcher(deps["intercom"]))
+            return _code_search(code_searcher(deps["intercom"]), commit)
         if node.id == "draft":
             return _draft(deps["intercom"], deps["repro"], deps["search"], correlation)
         raise EscalationBlocked("unknown escalation capability")

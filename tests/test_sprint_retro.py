@@ -224,3 +224,42 @@ def test_igor_accepts_fast_nonoverlapping_parallel_reads(monkeypatch):
     assert verdict["status"] == "VERIFIED", verdict
     assert verdict["source_overlap_ns"] == 0
     assert verdict["observed_parallel_execution"] is False
+
+
+
+def test_rehashed_retrospective_document_must_match_recorded_synthesis(monkeypatch):
+    from app.igor_sprint_retro import verify_sprint_retro_records
+    from app.workflow_engine import _digest
+    from app.hashchain import canonical_json, compute_record_hash
+    import hashlib
+    import json
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "retro-ci-head")
+    tickets, messages = source_items()
+    tenant = "retro-" + str(uuid.uuid4())
+    out = run_sprint_retro(tenant_id=tenant, requester_id="reviewer",
+        cycle_id=CYCLE, channel_id="C123", start=START, end=END,
+        linear_reader=lambda _: {"cycle_id": CYCLE, "closed": True, "tickets": tickets},
+        slack_reader=lambda *_: {"channel_id": "C123", "messages": messages},
+        synthesizer=compose, append=append_record, fetch_records=read_tenant_evidence)
+    events = [json.loads(row["payload_json"]) for row in read_tenant_evidence(tenant)]
+    document = next(event for event in events if event.get("event") == "task.completed"
+                    and event.get("node_id") == "document")
+    content = document["output"]["markdown"]
+    assert "Shipped work referenced by 0" in content
+    document["output"]["markdown"] = content.replace(
+        "Shipped work referenced by 0", "Falsified business outcome", 1)
+    document["output"]["sha256"] = hashlib.sha256(
+        document["output"]["markdown"].encode()).hexdigest()
+    document["output_digest"] = _digest(document["output"])
+    records, prev = [], "0" * 64
+    for seq, event in enumerate(events):
+        raw = canonical_json(event)
+        digest = compute_record_hash(tenant, seq, prev, raw)
+        records.append({"tenant_id": tenant, "seq": seq, "prev_hash": prev,
+                        "record_hash": digest, "record_type": event["event"],
+                        "payload_json": raw})
+        prev = digest
+    verdict = verify_sprint_retro_records(records, tenant_id=tenant,
+        run_id=out["run_id"], cycle_id=CYCLE, expected_commit="retro-ci-head")
+    assert verdict["status"] == "BLOCK", verdict
+    assert "differs" in verdict["reason"]
