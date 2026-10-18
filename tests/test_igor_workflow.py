@@ -1,6 +1,6 @@
 import json
 
-from app.hashchain import canonical_json, compute_record_hash
+from app.hashchain import canonical_json, compute_record_hash, sealed_payload_json, EVIDENCE_META_KEY
 from app.igor_workflow import verify_dag_records
 from app.workflow_engine import WorkflowEngine, validate_plan
 
@@ -27,7 +27,10 @@ def rehash(events):
     records = []
     prev = "0" * 64
     for seq, event in enumerate(events):
-        raw = canonical_json(event)
+        event = dict(event)
+        event.pop(EVIDENCE_META_KEY, None)
+        producer = "tenant_api" if event["event"] == "customer.proof" else "ola_runtime"
+        raw = sealed_payload_json(event["event"], event, producer=producer)
         current = compute_record_hash("tenant", seq, prev, raw)
         records.append({"tenant_id": "tenant", "seq": seq, "prev_hash": prev,
                         "record_hash": current, "record_type": event["event"], "payload_json": raw})
@@ -97,3 +100,25 @@ def test_unexpected_internal_workflow_event_remains_blocked():
                        "requester_id": "person1", "planner": {"response_id": "p1"},
                        "commit": "expected"})
     assert check(rehash(events))["status"] == "BLOCK"
+
+
+def test_v1_forged_customer_trace_never_promotes_to_trusted_workflow():
+    legacy = []
+    prev = "0" * 64
+    for seq, row in enumerate(proof()):
+        payload = json.loads(row["payload_json"])
+        payload.pop(EVIDENCE_META_KEY)
+        raw = canonical_json(payload)
+        digest = compute_record_hash("tenant", seq, prev, raw)
+        legacy.append({**row, "seq": seq, "prev_hash": prev,
+                       "record_hash": digest, "payload_json": raw})
+        prev = digest
+    assert check(legacy)["status"] == "BLOCK"
+
+
+def test_v2_type_tamper_is_detected_even_when_hash_is_unchanged():
+    from app.hashchain import verify_chain
+    forged = proof()
+    forged[0]["record_type"] = "customer.proof"
+    assert verify_chain(forged) == (False, "record type or producer binding mismatch")
+    assert check(forged)["status"] == "BLOCK"

@@ -434,6 +434,10 @@ def verify_agent_run(tenant_id, run_id):
         return {"status": "BLOCK", "reason": "agent instances or contexts are not unique", "evidence_count": len(run_rows)}
     chain = [{"tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash, "record_hash": row.record_hash, "record_type": row.record_type, "payload_json": row.payload_json} for row in rows]
     chain_ok, reason = verify_chain(chain)
+    from .hashchain import trusted_record
+    if chain_ok and not all(trusted_record({"record_type": row.record_type, "payload_json": row.payload_json})
+                            for row in run_rows):
+        return {"status": "BLOCK", "reason": "legacy or untrusted agent evidence", "evidence_count": len(run_rows)}
     if not chain_ok:
         return {"status": "BLOCK", "reason": reason, "evidence_count": len(run_rows)}
     return {"status": "VERIFIED", "reason": "independent agent identities, contexts, execution evidence and hash-chain verification passed", "evidence_count": len(run_rows)}

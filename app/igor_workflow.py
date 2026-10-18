@@ -6,6 +6,8 @@ attestation that requests were truly handled by the named LLM provider.
 import hashlib
 import json
 
+from .hashchain import verify_chain, trusted_record
+
 
 def _hash(value):
     material = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -21,15 +23,11 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
     if not records:
         return _result("UNKNOWN", "no tenant evidence")
     try:
-        prev = "0" * 64
-        for seq, row in enumerate(records):
-            if row["tenant_id"] != tenant_id or row["seq"] != seq or row["prev_hash"] != prev:
-                return _result("BLOCK", "tenant chain sequence or predecessor mismatch")
-            raw = row["payload_json"]
-            digest = hashlib.sha256(f"{tenant_id}|{seq}|{prev}|{raw}".encode()).hexdigest()
-            if row["record_hash"] != digest:
-                return _result("BLOCK", "tenant chain hash mismatch")
-            prev = digest
+        if any(row.get("tenant_id") != tenant_id for row in records):
+            return _result("BLOCK", "tenant provenance mismatch")
+        chain_ok, chain_reason = verify_chain(records)
+        if not chain_ok:
+            return _result("BLOCK", "tenant chain " + chain_reason)
         relevant = []
         for row in records:
             # Validate the complete hash chain, but never parse untrusted
@@ -40,6 +38,8 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
             if not isinstance(payload, dict):
                 return _result("BLOCK", "trusted workflow event is not an object")
             if payload.get("run_id") == run_id:
+                if not trusted_record(row):
+                    return _result("BLOCK", "legacy or untrusted workflow producer")
                 if payload.get("event") != row["record_type"]:
                     return _result("BLOCK", "event type mismatch")
                 relevant.append(payload)

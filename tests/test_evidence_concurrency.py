@@ -33,7 +33,7 @@ def get_chain(tenant_id):
                              .order_by(EvidenceRecord.seq.asc())).all()
         return [{
             "tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash,
-            "record_hash": row.record_hash, "payload_json": row.payload_json,
+            "record_hash": row.record_hash, "record_type": row.record_type, "payload_json": row.payload_json,
         } for row in records]
 
 
@@ -87,3 +87,30 @@ def test_multiple_processes_share_sqlite_write_lock():
     chain = get_chain(tenant)
     assert len(chain) == 64
     assert verify_chain(chain) == (True, "ok")
+
+
+def test_legacy_integrity_readable_but_not_authenticated():
+    from app.hashchain import (
+        GENESIS_HASH, compute_record_hash, canonical_json, sealed_payload_json,
+        trusted_record, verify_chain,
+    )
+    raw = canonical_json({"event": "workflow.planned", "run_id": "old"})
+    old = {"tenant_id": "tenant", "seq": 0, "prev_hash": GENESIS_HASH,
+           "record_type": "workflow.planned", "payload_json": raw,
+           "record_hash": compute_record_hash("tenant", 0, GENESIS_HASH, raw)}
+    sealed = sealed_payload_json("workflow.planned", {"event": "workflow.planned", "run_id": "new"})
+    new = {"tenant_id": "tenant", "seq": 1, "prev_hash": old["record_hash"],
+           "record_type": "workflow.planned", "payload_json": sealed,
+           "record_hash": compute_record_hash("tenant", 1, old["record_hash"], sealed)}
+    assert verify_chain([old, new]) == (True, "ok")
+    assert trusted_record(old) is False
+    assert trusted_record(new) is True
+
+
+def test_public_evidence_cannot_mint_internal_provenance():
+    import pytest
+    from app.hashchain import EVIDENCE_META_KEY, sealed_payload_json
+    with pytest.raises(ValueError, match="public producer"):
+        sealed_payload_json("workflow.planned", {}, producer="tenant_api")
+    with pytest.raises(ValueError, match="reserved metadata"):
+        sealed_payload_json("customer.proof", {EVIDENCE_META_KEY: {"producer": "ola_runtime"}})
