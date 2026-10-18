@@ -65,7 +65,7 @@ def verify_escalation_records(records, *, tenant_id, run_id, conversation_id,
         c, r, s, d = (starts[n]["output"] for n in ("intercom", "repro", "search", "draft"))
         if (c.get("id") != conversation_id
                 or not _permalink(c.get("url"), "intercom")
-                or conversation_id not in c["url"]):
+                or urlsplit(c["url"]).path.rstrip("/").rsplit("/", 1)[-1] != conversation_id):
             return _block("invalid Intercom conversation identity")
         if not isinstance(c.get("steps"), list) or not c["steps"]:
             return _block("missing customer reproduction steps")
