@@ -5,7 +5,9 @@ Nie należy kopiować tego tekstu do głównego `LICENSE` i publikować jako obo
 
 ## PROPOSED LICENSE — FUTURE ORIGINAL WORKS ONLY
 
-Copyright (c) [YEAR] [VERIFIED LEGAL RIGHTS HOLDER]. All rights reserved.
+Copyright (c) [YEAR] [FULL LEGAL NAME OF NATURAL PERSON — TO BE VERIFIED]. All rights reserved.
+
+Proposed owner: **individual creator / natural person controlling OLA di-OS** (the user), NOT a company. GitHub handles are administrative identifiers, not a substitute for legal authorship or signed ownership proof. No personally identifiable legal name has been verified or published. This draft is NOT an executed signature or license grant.
 
 These terms apply ONLY to original components specifically enumerated in
 [SCHEDULE OF NEW WORKS / REPOSITORY / RELEASE AND INITIAL COMMIT SHA],
