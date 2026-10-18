@@ -50,6 +50,9 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce exact-source security checkout contract
+        run: python -m unittest discover -s tests -p "test_release_source_binding.py"
+
       - name: Verify required evidence gates
         env:
           GH_TOKEN: ${{ github.token }}
@@ -230,7 +233,7 @@ jobs:
         run: |
           set -euo pipefail
           status="BLOCKED"
-          if [ "${{ job.status }}" = "success" ]; then status="VERIFIED"; fi
+          if [ "${{ job.status }}" = "success" ]; then status="ATTESTED_PENDING_HUMAN"; fi
           cat > production-manifest.json <<EOF
           {
             "schema": "ola-production-evidence-v1",
