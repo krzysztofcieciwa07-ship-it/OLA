@@ -13,6 +13,21 @@
 4. `krzysztofcieciwa07-ship-it/Vantage-v0.3` ma widoczność PRIVATE, lecz **oddzielne** `krzys167-crypto/Vantage-v0.3` ma widoczność PUBLIC.
 5. Nie dokonano pełnego audytu wszystkich historycznych wydań, forków osób trzecich, zależności ani statusu znaków towarowych.
 
+## Decyzja właściciela z 2026-10-18: osoba fizyczna
+
+Operator projektu wskazał, że **nie ma firmy** i chce zachować prawa majątkowe do **własnych, przyszłych, oryginalnych modułów** we własnym imieniu jako osoba fizyczna. Status: **USER-DECLARED OWNER MODEL / LEGAL TITLE UNVERIFIED**.
+
+- Nie wpisywać fikcyjnej spółki ani nie zgadywać nazwiska z loginu GitHub.
+- Dokładna tożsamość prawna, kraj prawa właściwego, relacje pracy/zlecenia oraz wkład współautorów muszą być zweryfikowane **przed** podpisaniem właściwej umowy lub zamieszczeniem imiennego copyright notice.
+- Dwa profile GitHub nie dowodzą, że wszystkie commity są utworami jednej osoby.
+- Jeżeli nowy kod powstawał w ramach stosunku pracy, sprawdzić przepisy i umowę: np. belgijskie przepisy przewidują odrębne reguły dla programów tworzonych przez pracownika.
+- Docelowe przyszłe repo prywatne ma być własnością osoby fizycznej lub jej kontrolowanego konta; po założeniu firmy dopiero osobnym pisemnym dokumentem można rozważyć licencję lub przeniesienie majątkowych praw autorskich.
+- Git commit, wpis w README i czat **nie są podpisaną umową przeniesienia praw**, a ten dokument nie ustala wyłącznej własności wcześniejszych utworów Unlicense.
+
+Wymagane dane do formalnego dokumentu: pełne imię i nazwisko właściciela (przechowywać prywatnie do zatwierdzenia publikacji), identyfikacja objętych nowych utworów i ich początkowych SHA, data skuteczności, lista współtwórców i udokumentowane prawa do wkładów zewnętrznych.
+
+Źródło właściwego rozróżnienia: https://economie.fgov.be/en/themes/intellectual-property/intellectual-property-rights/copyright-and-related-rights/copyright/intellectual-property-software/creation-computer-program/who-holds-copyright-software
+
 ## Co Unlicense oznacza i czego NIE możemy obiecać
 
 Unlicense stanowi bardzo szerokie zezwolenie / deklarację oddania dzieła do domeny publicznej. Osoby korzystające z wcześniej opublikowanych wersji mogły nabyć uprawnienia do ich kopiowania, modyfikacji, dystrybucji i komercyjnego użycia. Usunięcie pliku, zamknięcie repozytorium lub dopisanie tekstu „All Rights Reserved” NIE cofa automatycznie tych praw, kopii ani wcześniejszych forków. Nie należy usuwać historii, aby stwarzać przeciwne wrażenie.
