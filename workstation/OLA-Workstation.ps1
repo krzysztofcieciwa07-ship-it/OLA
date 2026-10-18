@@ -14,6 +14,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Write-Gate "GIT" "BL
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Gate "DOCKER" "BLOCKED" "Docker is not installed"; exit 21 }
 try { docker info | Out-Null } catch { Write-Gate "DOCKER_ENGINE" "BLOCKED" "Docker engine is not running"; exit 22 }
 Write-Gate "PREREQUISITES" "VERIFIED" "Git and Docker are available"
+if (-not $env:OLA_API_KEY_PEPPER -or $env:OLA_API_KEY_PEPPER.Length -lt 32) { Write-Gate "API_KEY_PEPPER" "BLOCKED" "Configure the secret for this workstation"; exit 24 }
 if (Test-Path $RepoDir) { Remove-Item -Recurse -Force $RepoDir }
 git clone $RepoUrl $RepoDir | Out-Host
 Set-Location $RepoDir
@@ -31,7 +32,7 @@ docker run --rm $Image python -m pytest -q | Tee-Object -FilePath (Join-Path $Ev
 if ($LASTEXITCODE -ne 0) { Write-Gate "PYTEST" "BLOCKED" "pytest failed"; exit 50 }
 Write-Gate "PYTEST" "VERIFIED" "pytest passed"
 docker rm -f $Container 2>$null | Out-Null
-docker run -d --name $Container -p ("${Port}:8000") -e OLA_LLM_MODE=deterministic -e OLA_RUNTIME_COMMIT=$SourceCommit $Image | Set-Content (Join-Path $EvidenceDir "container-id.txt")
+docker run -d --name $Container -e OLA_API_KEY_PEPPER=$env:OLA_API_KEY_PEPPER -p ("${Port}:8000") -e OLA_LLM_MODE=deterministic -e OLA_RUNTIME_COMMIT=$SourceCommit $Image | Set-Content (Join-Path $EvidenceDir "container-id.txt")
 $healthy = $false
 for ($i=0; $i -lt 30; $i++) {
   try { $h = Invoke-RestMethod "http://127.0.0.1:$Port/health" -TimeoutSec 3; if ($h.status -eq "ok") { $healthy = $true; break } } catch {}
@@ -41,7 +42,7 @@ if (-not $healthy) { docker logs $Container | Set-Content (Join-Path $EvidenceDi
 Write-Gate "RUNTIME_HEALTH" "VERIFIED" "health endpoint"
 $rawKey = "ola-workstation-key"
 $tenantId = [guid]::NewGuid().ToString()
-docker exec $Container python -c "import hashlib,sqlite3,uuid; db=sqlite3.connect('/data/ola.db'); tid='$tenantId'; key='$rawKey'; db.execute('INSERT INTO tenants(id,name) VALUES (?,?)',(tid,'ola-workstation')); db.execute('INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)',(str(uuid.uuid4()),tid,hashlib.sha256(key.encode()).hexdigest())); db.commit(); db.close()" | Out-Null
+docker exec $Container python -c "import hashlib,sqlite3,uuid; db=sqlite3.connect('/data/ola.db'); tid='$tenantId'; key='$rawKey'; db.execute('INSERT INTO tenants(id,name) VALUES (?,?)',(tid,'ola-workstation')); db.execute('INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)',(str(uuid.uuid4()),tid,__import__('app.api_key_hashing',fromlist=['api_key_fingerprint']).api_key_fingerprint(key))); db.commit(); db.close()" | Out-Null
 $headers = @{ "X-API-Key" = $rawKey; "Content-Type" = "application/json" }
 $body = @{ task = "Calculate 17 * 23 and return the verified result." } | ConvertTo-Json
 $agentResult = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$Port/agent-run" -Headers $headers -Body $body -TimeoutSec 30
