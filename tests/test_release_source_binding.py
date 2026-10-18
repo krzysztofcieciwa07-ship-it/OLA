@@ -43,5 +43,16 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('python -m unittest discover -s tests -p "test_release_source_binding.py"', content)
 
 
+    def test_automated_runtime_never_claims_human_approval(self):
+        proof = (ROOT / ".github/workflows/nina-real-runtime-provenance.yml").read_text(encoding="utf-8")
+        igor = (ROOT / ".github/workflows/igor-independent-evidence.yml").read_text(encoding="utf-8")
+        self.assertIn('"human_gate":"PENDING"', proof)
+        self.assertNotIn('"human_gate":"VERIFIED"', proof)
+        self.assertIn('assert d["human_gate"]=="PENDING"', proof)
+        self.assertIn('assert record_hash==hashlib.sha256(', proof)
+        self.assertNotIn('assert record_hash==api_key_fingerprint(', proof)
+        self.assertIn('assert d["human_gate"]=="PENDING"', igor)
+
+
 if __name__ == "__main__":
     unittest.main()
