@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 import uuid
@@ -8,6 +7,7 @@ from starlette.responses import FileResponse
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
+from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
 from .business_runtime import run_invoice_task
@@ -32,7 +32,10 @@ install_append_only_triggers()
 def identity_from_key(raw_key):
     if not raw_key:
         raise HTTPException(status_code=401, detail="missing API key")
-    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    try:
+        key_hash = api_key_fingerprint(raw_key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="API key verification unavailable") from exc
     with SessionLocal() as db:
         key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
         if key is None:
@@ -296,7 +299,7 @@ def create_nina_workflow(body: dict, x_api_key: str | None = Header(default=None
             fetch_records=read_tenant_evidence,
         )
     except WorkflowPlanError as exc:
-        return {"status": "BLOCK", "reason": str(exc), "verified": False}
+        return {"status": "BLOCK", "reason": "workflow plan rejected", "verified": False}
     except Exception as exc:
         raise HTTPException(status_code=503, detail="workflow runtime unavailable") from exc
 
@@ -602,7 +605,7 @@ def create_business_invoice_run(body: dict, x_api_key: str | None = Header(defau
     try:
         return run_invoice_task(tenant_id, task)
     except (ValueError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="invalid invoice input") from exc
 
 
 @app.get("/evidence/{record_id}")
