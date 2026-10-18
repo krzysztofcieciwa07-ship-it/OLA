@@ -168,3 +168,15 @@ def test_real_ollama_gate_installs_checksum_verified_release():
     assert "c164ab8b1b28e2a247c29719b8e404c423c5b83ae64c3ab4e59d50c7ff7fc5e0" in source
     assert "sha256sum --check -" in source
     assert "https://ollama.com/install.sh" not in source
+
+
+def test_workstation_requires_signed_source_pin_and_hashing_module():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] /
+              "workstation/OLA-Workstation.ps1").read_text()
+    assert "426e781ba6e8bc2c17f6ed3bf1150372d673bc07" not in source
+    assert "OLA_WORKSTATION_SOURCE_SHA" in source
+    assert "OLA_SIGNER_FINGERPRINT" in source
+    assert "git verify-commit $SourceCommit" in source
+    assert "app/api_key_hashing.py" in source
+    assert source.index("git verify-commit") < source.index("docker build")

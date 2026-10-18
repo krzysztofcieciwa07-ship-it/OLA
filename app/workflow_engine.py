@@ -7,6 +7,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import re
 import time
 import uuid
@@ -70,10 +71,14 @@ def validate_plan(data, *, allowed_tools, max_nodes=16):
 
 
 class WorkflowEngine:
-    def __init__(self, *, max_workers=4):
+    def __init__(self, *, max_workers=4, deadline_seconds=300):
         if not isinstance(max_workers, int) or isinstance(max_workers, bool) or not 1 <= max_workers <= 8:
             raise ValueError("worker count outside policy")
+        if (isinstance(deadline_seconds, bool) or not isinstance(deadline_seconds, (int, float))
+                or not math.isfinite(deadline_seconds) or not 0 < deadline_seconds <= 3600):
+            raise ValueError("workflow deadline outside policy")
         self.max_workers = max_workers
+        self.deadline_seconds = deadline_seconds
 
     def run(self, nodes, execute, record=None, *, run_id=None):
         """Execute a previously validated plan; record is a synchronous event sink.
@@ -93,6 +98,8 @@ class WorkflowEngine:
         results = {}
         failures = {}
         running = {}
+        deadline = time.monotonic() + self.deadline_seconds
+        timed_out = False
         def measured_execution(node, deps):
             started = time.perf_counter_ns()
             value = execute(node, deps)
@@ -101,6 +108,15 @@ class WorkflowEngine:
 
         with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="ola-nina") as pool:
             while pending or running:
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    for future, node in list(running.items()):
+                        future.cancel()  # Only cancels tasks not yet started.
+                        failures[node.id] = "TimeoutError"
+                        record({"event": "task.failed", "run_id": run_id,
+                                "node_id": node.id, "error_class": "TimeoutError"})
+                    running.clear()
+                    break
                 if not failures:
                     for node_id, node in list(pending.items()):
                         if len(running) >= self.max_workers:
@@ -114,7 +130,17 @@ class WorkflowEngine:
                         del pending[node_id]
                 if not running:
                     break
-                done, _ = wait(running, return_when=FIRST_COMPLETED)
+                done, _ = wait(running, timeout=max(0, deadline - time.monotonic()),
+                               return_when=FIRST_COMPLETED)
+                if not done:
+                    timed_out = True
+                    for future, node in list(running.items()):
+                        future.cancel()
+                        failures[node.id] = "TimeoutError"
+                        record({"event": "task.failed", "run_id": run_id,
+                                "node_id": node.id, "error_class": "TimeoutError"})
+                    running.clear()
+                    break
                 for future in done:
                     node = running.pop(future)
                     try:
@@ -130,6 +156,11 @@ class WorkflowEngine:
                         failures[node.id] = type(exc).__name__
                         record({"event": "task.failed", "run_id": run_id, "node_id": node.id,
                                 "error_class": type(exc).__name__})
+        # Python cannot forcibly stop a running worker; the pool waits for
+        # in-flight calls to settle before publishing any terminal result.
+        # Expired workflows must never schedule dependants or claim VERIFIED.
+        if timed_out or time.monotonic() > deadline:
+            failures.setdefault("workflow_deadline", "TimeoutError")
         status = "BLOCK" if failures or pending else "COMPLETED_UNVERIFIED"
         record({"event": "workflow.failed" if status == "BLOCK" else "workflow.completed",
                 "run_id": run_id, "status": status, "completed": sorted(results),

@@ -76,3 +76,28 @@ def test_rejects_extra_fields_and_oversized_plans():
             {"id": f"a{i}", "tool": "sha256", "task": "x", "needs": []}
             for i in range(17)
         ]}, allowed_tools={"sha256"})
+
+
+def test_workflow_deadline_blocks_downstream_and_never_claims_success():
+    plan = validate_plan({"nodes": [
+        {"id": "slow", "tool": "safe_expression", "task": "one", "needs": []},
+        {"id": "dependent", "tool": "safe_expression", "task": "two", "needs": ["slow"]},
+    ]}, allowed_tools={"safe_expression"})
+    executed, events = [], []
+    def execute(node, _):
+        executed.append(node.id)
+        if node.id == "slow":
+            time.sleep(0.10)
+        return "done"
+    result = WorkflowEngine(max_workers=1, deadline_seconds=0.02).run(
+        plan, execute, events.append)
+    assert result["status"] == "BLOCK"
+    assert "workflow_deadline" in result["failed"]
+    assert "dependent" not in executed
+    assert events[-1]["event"] == "workflow.failed"
+
+
+@pytest.mark.parametrize("deadline", [None, 0, -5, float("nan"), float("inf"), True])
+def test_invalid_workflow_deadline_fails_closed(deadline):
+    with pytest.raises(ValueError, match="workflow deadline"):
+        WorkflowEngine(deadline_seconds=deadline)
