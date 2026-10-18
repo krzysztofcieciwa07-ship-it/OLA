@@ -53,3 +53,50 @@ def test_missing_pepper_rejects_api_auth_even_if_db_has_key(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         identity_from_key("any-key")
     assert exc.value.status_code == 503
+
+
+def test_oversized_key_rejected_before_expensive_hash(monkeypatch):
+    from app import api_key_hashing as hashing
+    monkeypatch.setenv("OLA_API_KEY_PEPPER", "test-only-secret-0123456789abcdef-abcdefgh")
+    def fail_if_hashed(*args, **kwargs):
+        raise AssertionError("scrypt must not run for oversized key")
+    monkeypatch.setattr(hashing.hashlib, "scrypt", fail_if_hashed)
+    with pytest.raises(ValueError, match="too long"):
+        hashing.api_key_fingerprint("A" * 513)
+    with pytest.raises(HTTPException) as exc:
+        identity_from_key("A" * 513)
+    assert exc.value.status_code == 401
+
+
+def test_scrypt_capacity_fails_closed_without_waiting(monkeypatch):
+    from app import api_key_hashing as hashing
+    monkeypatch.setenv("OLA_API_KEY_PEPPER", "test-only-secret-0123456789abcdef-abcdefgh")
+    class BusySlots:
+        def acquire(self, *, blocking):
+            assert blocking is False
+            return False
+        def release(self):
+            raise AssertionError("unacquired slot must never be released")
+    monkeypatch.setattr(hashing, "_SCRYPT_SLOTS", BusySlots())
+    with pytest.raises(RuntimeError, match="capacity"):
+        hashing.api_key_fingerprint("candidate")
+
+
+def test_scrypt_slot_released_on_hash_error(monkeypatch):
+    from app import api_key_hashing as hashing
+    monkeypatch.setenv("OLA_API_KEY_PEPPER", "test-only-secret-0123456789abcdef-abcdefgh")
+    class Slots:
+        released = False
+        def acquire(self, *, blocking):
+            assert blocking is False
+            return True
+        def release(self):
+            self.released = True
+    slots = Slots()
+    monkeypatch.setattr(hashing, "_SCRYPT_SLOTS", slots)
+    def fail(*args, **kwargs):
+        raise RuntimeError("cryptographic failure")
+    monkeypatch.setattr(hashing.hashlib, "scrypt", fail)
+    with pytest.raises(RuntimeError, match="cryptographic failure"):
+        hashing.api_key_fingerprint("candidate")
+    assert slots.released is True
