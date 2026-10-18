@@ -195,3 +195,27 @@ def test_forged_jira_draft_cannot_publish_even_with_authorization(monkeypatch):
             intercom_note_once=lambda *a: writes.append(a),
             intercom_mark_once=lambda *a: writes.append(a))
     assert writes == []
+
+
+
+def test_intercom_identity_cannot_be_forged_in_query_or_other_path(monkeypatch):
+    """Source identity must be the actual final conversation URL path segment."""
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "escalator-test-sha")
+    cases = (
+        "https://app.intercom.com/a/inbox/demo/inbox/shared/all/conversation/another?claimed=conv-4512",
+        "https://app.intercom.com/a/inbox/demo/inbox/shared/all/conversation/conv-4512-other",
+        "https://app.intercom.com/a/inbox/demo/inbox/shared/all/conversation/another#conv-4512",
+    )
+    for url in cases:
+        bad = conversation()
+        bad["url"] = url
+        reads = []
+        with pytest.raises(EscalationBlocked, match="conversation permalink"):
+            run_support_escalation(
+                tenant_id="escalation-" + str(uuid.uuid4()),
+                requester_id="support", conversation_id="conv-4512",
+                intercom_reader=lambda _: bad,
+                repro_runner=lambda _: reads.append("repro") or repro(None),
+                code_searcher=lambda _: reads.append("search") or code_search(None),
+                append=append_record, fetch_records=read_tenant_evidence)
+        assert reads == [], "Untrusted conversation must block before repro or code search"
