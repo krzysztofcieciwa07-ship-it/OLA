@@ -81,7 +81,7 @@ function createConsole(approve) {
     throw new Error(`Unexpected request: ${url}`);
   };
   vm.runInNewContext(script, {
-    document: {getElementById: el, querySelectorAll: () => [], createElement: () => new Element()},
+    document: {getElementById: el, querySelectorAll: () => [], createElement: () => new Element(), addEventListener() {}},
     window: {innerWidth: 1280, location: {hostname: 'example.invalid', protocol: 'http:'}},
     fetch, AbortController,
     setTimeout: () => 0, clearTimeout() {}, setInterval() {},
