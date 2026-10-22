@@ -669,3 +669,13 @@ def get_evidence(record_id: str, x_api_key: str | None = Header(default=None)):
             "prev_hash": record.prev_hash,
             "record_hash": record.record_hash,
         }
+
+# Additive OLA public marketing pages; existing "/" Command Center stays unchanged.
+from fastapi.staticfiles import StaticFiles as OlaPublicStaticFiles
+_ola_public_dir = Path(__file__).resolve().parent.parent / "web" / "site"
+if _ola_public_dir.is_dir():
+    app.mount("/site", OlaPublicStaticFiles(directory=str(_ola_public_dir), html=True), name="ola-public-site")
+
+@app.get("/app", include_in_schema=False)
+def ola_command_center_alias():
+    return FileResponse(Path(__file__).resolve().parent.parent / "web" / "index.html", media_type="text/html")
