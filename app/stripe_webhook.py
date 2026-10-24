@@ -62,6 +62,8 @@ def _metadata_task(session: dict) -> str | None:
 
 
 def _validate_checkout(session: dict) -> str:
+    if not isinstance(session.get("id"), str) or not session["id"].startswith("cs_"):
+        raise HTTPException(status_code=400, detail="checkout session id is required")
     metadata = session.get("metadata") or {}
     if metadata.get("offer") != OLA_OFFER:
         raise HTTPException(status_code=400, detail="unsupported Stripe offer")
@@ -116,14 +118,14 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
 
     session = event.get("data", {}).get("object", {})
     task = _validate_checkout(session)
-    tenant_id = (session.get("metadata") or {}).get("tenant_id") or os.getenv("OLA_STRIPE_TENANT_ID", "")
+    tenant_id = (session.get("metadata") or {}).get("tenant_id")
     if not tenant_id:
         raise HTTPException(status_code=500, detail="Stripe session has no tenant provenance")
 
     with SessionLocal() as db:
         existing = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
         if existing is not None:
-            if existing.status == "COMPLETED" and existing.result_json:
+            if existing.status in {"COMPLETED", "BLOCKED", "PENDING_INDEPENDENT_VERIFICATION"} and existing.result_json:
                 return json.loads(existing.result_json)
             raise HTTPException(status_code=409, detail="Stripe event is already being processed")
 
