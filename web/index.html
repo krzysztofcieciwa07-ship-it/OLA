@@ -10,6 +10,7 @@
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}button,input,textarea,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.55;cursor:wait}a{color:var(--accent)}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .shell{display:grid;grid-template-columns:234px minmax(0,1fr);min-height:100vh}.sidebar{padding:25px 15px;background:#0c101b;border-right:1px solid var(--line)}.brand{padding:6px 12px 24px;font-size:20px;letter-spacing:.035em;font-weight:780}.brand span{color:var(--accent)}.brand small{display:block;font-size:10px;font-weight:500;letter-spacing:.22em;color:var(--muted);text-transform:uppercase}.nav{display:grid;gap:6px}.nav button{border:1px solid transparent;border-radius:10px;background:transparent;color:var(--muted);padding:12px 13px;text-align:left}.nav button[aria-selected="true"],.nav button:hover{background:#1c293d;border-color:#314766;color:#fff}.sidefoot{font-size:12px;color:var(--muted);margin:32px 12px 0}
 .main{padding:29px clamp(18px,4vw,58px);max-width:1400px;width:100%;margin:auto}.top{display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;margin-bottom:29px}.eyebrow{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}h1{margin:5px 0 7px;font-size:clamp(28px,3vw,39px);line-height:1.15;letter-spacing:-.045em}h2{font-size:20px;margin:0 0 8px}h3{font-size:14px;margin:0 0 8px}p{margin:0 0 15px;color:var(--muted)}.status{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:8px 13px;font-size:12px;color:var(--muted)}.status[data-status="ok"]{color:var(--good);border-color:#236450}.status[data-status="error"]{color:var(--bad);border-color:#743b44}
+.topcontrols{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.language{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}.language select{min-height:36px;width:auto;padding:5px 28px 5px 10px}.access-status{font-size:12px;color:var(--warn)}.access-status[data-status="ok"]{color:var(--good)}
 .grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr);gap:17px}.card{background:linear-gradient(150deg,#131b2b,#101622);border:1px solid var(--line);border-radius:17px;padding:24px;min-width:0}.card+.card{margin-top:0}.stack{display:grid;gap:16px}.metricgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.metric{padding:18px;border:1px solid var(--line);border-radius:13px;background:#111827}.metric strong{display:block;font-size:19px;word-break:break-word}.label,small{font-size:12px;color:var(--muted)}label{display:block;margin:14px 0 6px;font-size:12px;font-weight:680;color:#bdc9db}input,textarea,select{display:block;width:100%;min-height:42px;border:1px solid #334058;border-radius:10px;background:#090e19;color:#f4f7fc;padding:11px 12px}textarea{min-height:115px;resize:vertical}input::placeholder,textarea::placeholder{color:#66768d}.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}.primary,.secondary{border-radius:10px;padding:11px 18px;font-weight:650}.primary{background:#81bcfa;border:1px solid #81bcfa;color:#06111e}.primary:hover:not(:disabled){background:#aad5ff}.secondary{color:var(--text);background:#1b2638;border:1px solid #344660}.secondary:hover:not(:disabled){background:#263750}.hint{font-size:12px;color:var(--muted);margin:9px 0 0}.alert{padding:12px 14px;border-left:3px solid var(--warn);background:#282218;border-radius:5px;color:#f4ddb1;margin-bottom:16px;font-size:13px}.result{display:none;margin-top:15px;padding:16px;background:#080e17;border:1px solid var(--line);border-radius:11px;overflow-wrap:anywhere}.result.visible{display:block}.result pre{white-space:pre-wrap;word-break:break-word;font-size:12px;margin:8px 0 0;max-height:420px;overflow:auto;color:#ccdaef}.result .state{font-size:12px;font-weight:740;color:var(--warn)}.result[data-kind="ok"] .state{color:var(--good)}.result[data-kind="error"] .state{color:var(--bad)}.view[hidden]{display:none!important}.chatlog{border:1px solid var(--line);border-radius:12px;padding:14px;min-height:290px;max-height:430px;overflow:auto;background:#0b111c}.message{padding:12px 14px;border-radius:12px;background:#1c2839;margin:0 0 11px;white-space:pre-wrap;overflow-wrap:anywhere}.message.user{background:#173249;margin-left:12%}.message .who{display:block;font-size:11px;color:var(--accent);font-weight:700;margin-bottom:4px}.muted{color:var(--muted)}.keyrow{display:flex;gap:12px;align-items:end;flex-wrap:wrap}.keyrow .keybox{flex:1;min-width:225px}.keyrow .keybox label{margin-top:0}.divider{height:1px;background:var(--line);margin:18px 0}.checkboxes{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px}.checkboxes label,.consent{display:flex;align-items:center;gap:8px;margin:0;font-size:13px;font-weight:500}.checkboxes input,.consent input{min-height:0;width:auto}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.footnote{margin-top:25px;color:#75869e;font-size:12px}
 @media(max-width:850px){.shell{grid-template-columns:1fr}.sidebar{padding:14px;border-right:0;border-bottom:1px solid var(--line)}.brand{padding:0 6px 11px}.nav{display:flex;overflow-x:auto;gap:6px}.nav button{white-space:nowrap}.sidefoot{display:none}.grid{grid-template-columns:1fr}.main{padding:22px 15px}.metricgrid{grid-template-columns:1fr}.card{padding:19px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}
@@ -24,6 +25,7 @@
   <button type="button" data-tab="overview" aria-selected="true">Przegląd</button>
   <button type="button" data-tab="chat" aria-selected="false">NINA · Czat</button>
   <button type="button" data-tab="workflow" aria-selected="false">Przepływ pracy</button>
+  <button type="button" data-tab="demo" aria-selected="false">NINA + IGOR · Demo</button>
   <button type="button" data-tab="execution" aria-selected="false">Wykonanie + IGOR</button>
   <button type="button" data-tab="evidence" aria-selected="false">Dowody</button>
   <button type="button" data-tab="audit" aria-selected="false">Audyt kontrolowany</button>
@@ -31,10 +33,12 @@
  <p class="sidefoot">Panel korzysta z istniejącego API OLA. Nie oznacza zatwierdzenia produkcyjnego.</p>
 </aside>
 <main class="main">
- <header class="top"><div><div class="eyebrow">Autonomia · Dowody · Kontrola</div><h1 id="page-title">Centrum operacyjne</h1><p id="page-desc">Rzeczywiste endpointy. Statusy tylko z odpowiedzi API.</p></div><span id="health" class="status" role="status" aria-live="polite">API: sprawdzanie…</span></header>
+ <header class="top"><div><div class="eyebrow">Autonomia · Dowody · Kontrola</div><h1 id="page-title">Centrum operacyjne</h1><p id="page-desc">Rzeczywiste endpointy. Statusy tylko z odpowiedzi API.</p></div><div class="topcontrols"><label class="language" for="ui-language">Język <select id="ui-language" aria-label="Język interfejsu"><option value="pl">Polski</option><option value="en">English</option><option value="fr">Français</option></select></label><span id="health" class="status" role="status" aria-live="polite">API: sprawdzanie…</span></div></header>
  <section class="card" aria-label="Połączenie z API" style="margin-bottom:17px">
-  <div class="keyrow"><div class="keybox"><label for="api-key">Klucz dostępu OLA (X-API-Key)</label><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Klucz API dla bieżącej sesji"></div><button id="clear-key" class="secondary" type="button">Wyczyść klucz</button><button id="health-check" class="secondary" type="button">Sprawdź API</button></div>
-  <p class="hint">Klucz pozostaje tylko w pamięci tej karty; nie używamy localStorage ani cookies. Zamknięcie lub odświeżenie usuwa go.</p>
+  <form id="access-form" class="keyrow"><div class="keybox"><label for="api-key">Dostęp za pomocą klucza OLA (X-API-Key)</label><input id="api-key" type="password" autocomplete="off" spellcheck="false" required placeholder="Klucz API dla bieżącej sesji"></div><button id="connect-key" class="primary" type="submit">Połącz i zweryfikuj</button><button id="clear-key" class="secondary" type="button">Rozłącz</button><button id="health-check" class="secondary" type="button">Sprawdź API</button></form>
+  <p id="access-status" class="access-status" role="status" aria-live="polite">NIEPOŁĄCZONO — wprowadź swój klucz API.</p>
+  <div id="access-result" class="result" role="status" aria-live="polite"></div>
+  <p class="hint">To dostęp techniczny za pomocą klucza API, nie logowanie e-mail/hasłem. Klucz pozostaje tylko w pamięci karty, bez localStorage i cookies; odświeżenie rozłącza sesję.</p>
  </section>
  <section id="view-overview" class="view stack">
   <div class="metricgrid"><div class="metric"><div class="label">Połączenie HTTP</div><strong id="api-metric">UNKNOWN</strong></div><div class="metric"><div class="label">Ostatnia operacja</div><strong id="operation-metric">NIE URUCHOMIONO</strong></div><div class="metric"><div class="label">Autoryzacja produkcji</div><strong>UNVERIFIED</strong></div></div>
@@ -47,6 +51,15 @@
   <div class="grid"><article class="card"><h2>NINA · Autonomous DAG</h2><p>Planowanie i wykonanie przez istniejący <span class="mono">POST /nina-workflow</span>. Backend może zwrócić 503, jeżeli flaga funkcji jest wyłączona.</p><form id="workflow-form"><label for="workflow-task">Cel przepływu pracy</label><textarea id="workflow-task" required maxlength="2000" placeholder="Przeanalizuj zagadnienie i przygotuj niezależną weryfikację"></textarea><div class="checkboxes"><label><input type="checkbox" name="tool" value="llm_agent" checked>LLM Agent</label><label><input type="checkbox" name="tool" value="safe_expression">Safe expression</label><label><input type="checkbox" name="tool" value="local_mcp_tool_registry.sha256">SHA-256</label></div><div class="actions"><button class="primary" type="submit">Uruchom DAG</button></div></form><div id="workflow-result" class="result" role="status" aria-live="polite"></div></article>
   <article class="card"><h2>IGOR · raport przepływu</h2><p>Odczyt bieżącego raportu dla podanego <span class="mono">run_id</span>. Raport wiąże się z aktualnym końcem łańcucha dowodowego.</p><form id="report-form"><label for="report-id">Run ID</label><input id="report-id" required placeholder="Identyfikator z odpowiedzi workflow"><div class="actions"><button class="secondary" type="submit">Pobierz raport</button></div></form><div id="report-result" class="result" role="status" aria-live="polite"></div><div class="divider"></div><h3>Human Gate — tylko ocena workflow</h3><p>Wymaga osobnej tożsamości recenzenta, dokładnego tip hash i digestu z aktualnego raportu. Nie jest zatwierdzeniem wdrożenia.</p><form id="approval-form"><label for="reviewer-key">Osobny klucz recenzenta (Bearer)</label><input id="reviewer-key" type="password" autocomplete="off" spellcheck="false" placeholder="Inny klucz API niż wykonawcy"><label for="approval-reason">Uzasadnienie</label><textarea id="approval-reason" required placeholder="Co zostało niezależnie sprawdzone?"></textarea><label class="consent"><input id="approval-confirm" type="checkbox" required>Rozumiem, że to zatwierdzenie workflow, nie produkcji</label><div class="actions"><button class="secondary" type="submit">Zatwierdź aktualny raport</button></div></form><div id="approval-result" class="result" role="status" aria-live="polite"></div></article></div>
  </section>
+ <section id="view-demo" class="view" hidden>
+  <div class="alert" role="status">TRYB DEMO / EXTERNAL / UNVERIFIED. Ten widok nie uruchamia operacji OLA i nie udostępnia zewnętrznemu Replit żadnych kluczy API, tokenów ani danych bieżącego tenanta.</div>
+  <div class="grid">
+    <article class="card"><h2>NINA · demonstracja</h2><p>Demonstracja sekwencji sześciu agentów: planner → researcher → tool-user → executor → reflector → verifier. Raport NINA z 18.10.2026 pokazał tylko lokalny przebieg; prawdziwe wykonanie pozostawało UNVERIFIED.</p><div class="actions"><a class="primary" href="https://27acc968-f66b-4d46-93ce-a5326a9401ec-00-2p456pk13d7yv.archer.replit.dev/" target="_blank" rel="noopener noreferrer">Otwórz NINA Demo ↗</a></div><p class="hint">Podany przez użytkownika adres Replit jest środowiskiem podglądu; jego aktualna dostępność nie jest potwierdzona.</p></article>
+    <article class="card"><h2>IGOR · demonstracja</h2><p>Niezależna kontrola raportu JSON: zgodność SHA-256 treści artefaktów i rekordu, kolejność etapów, chronologia oraz wykrycie zmian. IGOR Demo nie wydaje podpisu, nie zatwierdza produkcji i nie zamienia braku źródeł na VERIFIED.</p><div class="actions"><a class="secondary" href="https://replit.com/replid/27acc968-f66b-4d46-93ce-a5326a9401ec" target="_blank" rel="noopener noreferrer">Otwórz projekt demo w Replit ↗</a></div><p class="hint">Kod i aktualizacje demonstracji są obsługiwane w tym samym istniejącym projekcie Replit. Działanie IGOR Demo: UNVERIFIED do zakończenia i testu aktualizacji.</p></article>
+  </div>
+  <div class="actions"><button class="secondary" type="button" data-go="execution">Przejdź do NINA + IGOR przez prawdziwe API OLA</button></div>
+  <p class="hint">DEMO i LIVE mają oddzielne granice zaufania. Nie przesyłaj klucza X-API-Key do witryny demonstracyjnej.</p>
+ </section>
  <section id="view-execution" class="view" hidden><article class="card"><h2>NINA → Evidence → IGOR → Replay</h2><p>Istniejąca ścieżka <span class="mono">POST /nina-run</span>, z decyzją, dowodami i bramką człowieka. Wynik uruchomienia nie jest automatycznie zgodą na produkcję.</p><form id="execution-form"><label for="execution-task">Zadanie</label><textarea id="execution-task" required placeholder="Opisz zadanie do weryfikowalnego wykonania"></textarea><label for="execution-tool">Żądana możliwość</label><select id="execution-tool"><option value="safe_expression">Safe expression</option><option value="llm_agent">LLM agent — wymaga realnego wywołania</option><option value="local_mcp_tool_registry.sha256">SHA-256</option></select><div class="actions"><button class="primary" type="submit">Wykonaj i zweryfikuj</button></div></form><div id="execution-result" class="result" role="status" aria-live="polite"></div></article></section>
  <section id="view-evidence" class="view" hidden><article class="card"><h2>Odczyt dowodu</h2><p><span class="mono">GET /evidence/{record_id}</span> — tylko dla bieżącego tenanta i istniejącego identyfikatora. Wynik jest rekordem, nie niezależnym poświadczeniem źródła.</p><form id="evidence-form"><label for="evidence-id">Evidence record ID</label><input id="evidence-id" required placeholder="UUID rekordu"><div class="actions"><button class="primary" type="submit">Pobierz dowód</button></div></form><div id="evidence-result" class="result" role="status" aria-live="polite"></div></article></section>
  <section id="view-audit" class="view" hidden><article class="card"><h2>Audyt kontrolowany</h2><div class="alert">To scenariusz symulowany <span class="mono">fault_then_recovery</span>, nie naprawa rzeczywistej awarii ani dowód gotowości produkcyjnej.</div><form id="audit-form"><label for="audit-task">Opis kontrolowanego testu</label><textarea id="audit-task" required placeholder="Test fault → recovery → verification"></textarea><div class="actions"><button class="primary" type="submit">Uruchom symulację</button></div></form><div id="audit-result" class="result" role="status" aria-live="polite"></div></article></section>
@@ -54,28 +67,154 @@
 </main></div>
 <script>
 "use strict";
+// Static UI copy is translated from the original Polish DOM text. API results,
+// user messages and evidence records remain byte-for-byte unchanged.
+const UI_COPY={
+ "Moduły systemu":["System modules","Modules du système"],
+ "Przegląd":["Overview","Vue d’ensemble"],
+ "NINA · Czat":["NINA · Chat","NINA · Discussion"],
+ "Przepływ pracy":["Workflow","Flux de travail"],
+ "NINA + IGOR · Demo":["NINA + IGOR · Demo","NINA + IGOR · Démo"],
+ "Wykonanie + IGOR":["Execution + IGOR","Exécution + IGOR"],
+ "Dowody":["Evidence","Preuves"],
+ "Audyt kontrolowany":["Controlled audit","Audit contrôlé"],
+ "Panel korzysta z istniejącego API OLA. Nie oznacza zatwierdzenia produkcyjnego.":["The panel uses the existing OLA API. This is not production approval.","Le panneau utilise l’API OLA existante. Cela ne constitue pas une approbation de production."],
+ "Autonomia · Dowody · Kontrola":["Autonomy · Evidence · Control","Autonomie · Preuves · Contrôle"],
+ "Centrum operacyjne":["Operations center","Centre opérationnel"],
+ "Rzeczywiste endpointy. Statusy tylko z odpowiedzi API.":["Real API endpoints. Statuses come only from API responses.","Véritables endpoints API. Les statuts proviennent uniquement des réponses API."],
+ "Język":["Language","Langue"],
+ "Język interfejsu":["Interface language","Langue de l’interface"],
+ "API: sprawdzanie…":["API: checking…","API : vérification…"],
+ "Połączenie z API":["API connection","Connexion à l’API"],
+ "Dostęp za pomocą klucza OLA (X-API-Key)":["Access using an OLA key (X-API-Key)","Accès avec une clé OLA (X-API-Key)"],
+ "Klucz API dla bieżącej sesji":["API key for this session","Clé API pour cette session"],
+ "Połącz i zweryfikuj":["Connect and verify","Connecter et vérifier"],
+ "Rozłącz":["Disconnect","Déconnecter"],
+ "Sprawdź API":["Check API","Vérifier l’API"],
+ "NIEPOŁĄCZONO — wprowadź swój klucz API.":["NOT CONNECTED — enter your API key.","NON CONNECTÉ — saisissez votre clé API."],
+ "To dostęp techniczny za pomocą klucza API, nie logowanie e-mail/hasłem. Klucz pozostaje tylko w pamięci karty, bez localStorage i cookies; odświeżenie rozłącza sesję.":["This is technical access via API key, not email/password login. The key stays in this tab’s memory, without localStorage or cookies; refreshing disconnects.","Il s’agit d’un accès technique par clé API, pas d’une connexion par e-mail et mot de passe. La clé reste en mémoire de cet onglet, sans localStorage ni cookies ; l’actualisation déconnecte."],
+ "Połączenie HTTP":["HTTP connection","Connexion HTTP"],
+ "Ostatnia operacja":["Last operation","Dernière opération"],
+ "NIE URUCHOMIONO":["NOT RUN","NON EXÉCUTÉ"],
+ "Autoryzacja produkcji":["Production approval","Approbation de production"],
+ "Jeden system, konkretne działania":["One system, real actions","Un système, des actions concrètes"],
+ "Użyj czatu NINA, uruchom kontrolowany przepływ DAG albo wykonanie z weryfikacją IGOR. Wyniki i identyfikatory pochodzą z backendu — nie z demonstracyjnych danych.":["Chat with NINA, run a controlled DAG workflow or execute with IGOR verification. Results and IDs come from the backend, not demo data.","Discutez avec NINA, lancez un flux DAG contrôlé ou exécutez avec vérification IGOR. Les résultats et identifiants proviennent du backend, pas de données de démonstration."],
+ "Rozmawiaj z NINA":["Chat with NINA","Parler à NINA"],
+ "Uruchom workflow":["Run workflow","Lancer le flux"],
+ "Granica zaufania":["Trust boundary","Limite de confiance"],
+ "API online":["API online","API en ligne"],
+ "oznacza wyłącznie odpowiedź z":["only means a response from","signifie uniquement une réponse de"],
+ ". IGOR kontroluje dowody, ale sam nie zastępuje niezależnego podpisu ani zgody na produkcję.":[". IGOR checks evidence but does not replace an independent signature or production approval.",". IGOR vérifie les preuves, sans remplacer une signature indépendante ni l’approbation de production."],
+ "Brak automatycznego merge, deployu i Human Gate z poziomu tego panelu.":["No automatic merge, deployment or Human Gate approval from this panel.","Aucun merge, déploiement ni Human Gate automatique depuis ce panneau."],
+ "NINA · Rozmowa":["NINA · Conversation","NINA · Conversation"],
+ "Rozmowa z modelem przez":["Model conversation via","Conversation avec le modèle via"],
+ ". Odpowiedź modelu nie jest dowodem wykonania zadania.":[". A model reply is not proof of task execution.",". Une réponse du modèle ne prouve pas l’exécution d’une tâche."],
+ "Witaj. Wybierz zadanie albo zapytaj o możliwości systemu.":["Welcome. Choose a task or ask about the system.","Bienvenue. Choisissez une tâche ou posez une question sur le système."],
+ "Wiadomość":["Message","Message"],
+ "Napisz do NINA...":["Write to NINA...","Écrivez à NINA..."],
+ "Wyślij":["Send","Envoyer"],
+ "Wyczyść rozmowę":["Clear chat","Effacer la conversation"],
+ "Ctrl+Enter wysyła wiadomość. Nie wklejaj sekretów ani danych wrażliwych.":["Ctrl+Enter sends a message. Do not paste secrets or sensitive data.","Ctrl+Entrée envoie un message. Ne collez pas de secrets ni de données sensibles."],
+ "NINA · Autonomous DAG":["NINA · Autonomous DAG","NINA · DAG autonome"],
+ "Planowanie i wykonanie przez istniejący":["Planning and execution via the existing","Planification et exécution via l’endpoint existant"],
+ ". Backend może zwrócić 503, jeżeli flaga funkcji jest wyłączona.":[". The backend may return 503 if the feature is disabled.",". Le backend peut répondre 503 si la fonction est désactivée."],
+ "Cel przepływu pracy":["Workflow goal","Objectif du flux"],
+ "Przeanalizuj zagadnienie i przygotuj niezależną weryfikację":["Analyze the issue and prepare independent verification","Analyser le sujet et préparer une vérification indépendante"],
+ "Uruchom DAG":["Run DAG","Lancer le DAG"],
+ "IGOR · raport przepływu":["IGOR · workflow report","IGOR · rapport du flux"],
+ "Odczyt bieżącego raportu dla podanego":["Read the current report for","Lire le rapport actuel pour"],
+ ". Raport wiąże się z aktualnym końcem łańcucha dowodowego.":[". The report is bound to the current evidence-chain tip.",". Le rapport est lié à l’extrémité actuelle de la chaîne de preuves."],
+ "Identyfikator z odpowiedzi workflow":["Identifier from workflow response","Identifiant de la réponse du flux"],
+ "Pobierz raport":["Get report","Obtenir le rapport"],
+ "Human Gate — tylko ocena workflow":["Human Gate — workflow review only","Human Gate — examen du flux uniquement"],
+ "Wymaga osobnej tożsamości recenzenta, dokładnego tip hash i digestu z aktualnego raportu. Nie jest zatwierdzeniem wdrożenia.":["Requires a separate reviewer identity, exact tip hash and digest of the current report. Not deployment approval.","Exige une identité distincte du réviseur, le hash exact de tête et l’empreinte du rapport actuel. Ce n’est pas une approbation du déploiement."],
+ "Osobny klucz recenzenta (Bearer)":["Separate reviewer key (Bearer)","Clé distincte du réviseur (Bearer)"],
+ "Inny klucz API niż wykonawcy":["A different API key from the executor","Une clé API différente de celle de l’exécutant"],
+ "Uzasadnienie":["Reason","Justification"],
+ "Co zostało niezależnie sprawdzone?":["What was independently verified?","Qu’est-ce qui a été vérifié indépendamment ?"],
+ "Rozumiem, że to zatwierdzenie workflow, nie produkcji":["I understand this approves the workflow, not production","Je comprends que cela approuve le flux, pas la production"],
+ "Zatwierdź aktualny raport":["Approve current report","Approuver le rapport actuel"],
+ "TRYB DEMO / EXTERNAL / UNVERIFIED. Ten widok nie uruchamia operacji OLA i nie udostępnia zewnętrznemu Replit żadnych kluczy API, tokenów ani danych bieżącego tenanta.":["DEMO / EXTERNAL / UNVERIFIED. This view does not run OLA operations or share API keys, tokens or tenant data with Replit.","DÉMO / EXTERNE / NON VÉRIFIÉ. Cette vue n’exécute aucune opération OLA et ne partage ni clés API, ni jetons, ni données du tenant avec Replit."],
+ "NINA · demonstracja":["NINA · demonstration","NINA · démonstration"],
+ "Demonstracja sekwencji sześciu agentów: planner → researcher → tool-user → executor → reflector → verifier. Raport NINA z 18.10.2026 pokazał tylko lokalny przebieg; prawdziwe wykonanie pozostawało UNVERIFIED.":["Six-agent demonstration: planner → researcher → tool-user → executor → reflector → verifier. The NINA report of 18 Oct 2026 showed only a local run; real execution remained UNVERIFIED.","Démonstration de six agents : planner → researcher → tool-user → executor → reflector → verifier. Le rapport NINA du 18 octobre 2026 ne montrait qu’une exécution locale ; l’exécution réelle restait NON VÉRIFIÉE."],
+ "Otwórz NINA Demo ↗":["Open NINA Demo ↗","Ouvrir la démo NINA ↗"],
+ "Podany przez użytkownika adres Replit jest środowiskiem podglądu; jego aktualna dostępność nie jest potwierdzona.":["The user-supplied Replit address is a preview; current availability is unverified.","L’adresse Replit fournie est un aperçu ; sa disponibilité actuelle n’est pas vérifiée."],
+ "IGOR · demonstracja":["IGOR · demonstration","IGOR · démonstration"],
+ "Niezależna kontrola raportu JSON: zgodność SHA-256 treści artefaktów i rekordu, kolejność etapów, chronologia oraz wykrycie zmian. IGOR Demo nie wydaje podpisu, nie zatwierdza produkcji i nie zamienia braku źródeł na VERIFIED.":["Independent JSON report checks: SHA-256 consistency, stage order, chronology and tamper detection. IGOR Demo does not sign, approve production or turn missing sources into VERIFIED.","Contrôle indépendant du rapport JSON : cohérence SHA-256, ordre des étapes, chronologie et détection de modifications. La démo IGOR ne signe pas, n’approuve pas la production et ne transforme pas l’absence de sources en VÉRIFIÉ."],
+ "Otwórz projekt demo w Replit ↗":["Open demo project in Replit ↗","Ouvrir le projet de démo dans Replit ↗"],
+ "Kod i aktualizacje demonstracji są obsługiwane w tym samym istniejącym projekcie Replit. Działanie IGOR Demo: UNVERIFIED do zakończenia i testu aktualizacji.":["The same existing Replit project holds demo updates. IGOR Demo remains UNVERIFIED until completion and testing.","Le même projet Replit existant contient les mises à jour. La démo IGOR reste NON VÉRIFIÉE jusqu’à la fin des tests."],
+ "Przejdź do NINA + IGOR przez prawdziwe API OLA":["Open NINA + IGOR on the real OLA API","Accéder à NINA + IGOR via la véritable API OLA"],
+ "DEMO i LIVE mają oddzielne granice zaufania. Nie przesyłaj klucza X-API-Key do witryny demonstracyjnej.":["DEMO and LIVE have separate trust boundaries. Never send X-API-Key to the demo site.","DÉMO et LIVE ont des limites de confiance distinctes. Ne transmettez jamais X-API-Key au site de démo."],
+ "Istniejąca ścieżka":["Existing route","Route existante"],
+ ", z decyzją, dowodami i bramką człowieka. Wynik uruchomienia nie jest automatycznie zgodą na produkcję.":[", with decision, evidence and Human Gate. A run result does not automatically approve production.",", avec décision, preuves et Human Gate. Le résultat ne constitue pas une approbation automatique de production."],
+ "Zadanie":["Task","Tâche"],
+ "Opisz zadanie do weryfikowalnego wykonania":["Describe a verifiable task","Décrivez une tâche vérifiable"],
+ "Żądana możliwość":["Requested capability","Capacité demandée"],
+ "LLM agent — wymaga realnego wywołania":["LLM agent — real invocation required","Agent LLM — appel réel requis"],
+ "Wykonaj i zweryfikuj":["Execute and verify","Exécuter et vérifier"],
+ "Odczyt dowodu":["Read evidence","Lire une preuve"],
+ "— tylko dla bieżącego tenanta i istniejącego identyfikatora. Wynik jest rekordem, nie niezależnym poświadczeniem źródła.":["— only for the current tenant and an existing ID. This is a record, not independent source attestation.","— uniquement pour le tenant actuel et un identifiant existant. Il s’agit d’un enregistrement, pas d’une attestation indépendante de source."],
+ "Evidence record ID":["Evidence record ID","ID de la preuve"],
+ "UUID rekordu":["Record UUID","UUID de l’enregistrement"],
+ "Pobierz dowód":["Get evidence","Obtenir la preuve"],
+ "To scenariusz symulowany":["This is a simulated scenario","Il s’agit d’un scénario simulé"],
+ ", nie naprawa rzeczywistej awarii ani dowód gotowości produkcyjnej.":[", not real incident recovery or proof of production readiness.",", ni une réparation réelle ni une preuve de préparation à la production."],
+ "Opis kontrolowanego testu":["Controlled test description","Description du test contrôlé"],
+ "Test fault → recovery → verification":["Test fault → recovery → verification","Test panne → récupération → vérification"],
+ "Uruchom symulację":["Run simulation","Lancer la simulation"],
+ "OLA DI-OS · UI używa same-origin HTTP API. UNKNOWN pozostaje UNKNOWN do otrzymania rzeczywistej odpowiedzi. Nie przechowujemy kluczy w przeglądarce.":["OLA DI-OS · The UI uses same-origin HTTP API. UNKNOWN stays UNKNOWN until a real response arrives. Keys are never stored persistently in the browser.","OLA DI-OS · L’interface utilise une API HTTP de même origine. UNKNOWN reste UNKNOWN jusqu’à réception d’une réponse réelle. Les clés ne sont jamais stockées durablement dans le navigateur."],
+ "Interfejs konwersacyjny OLA.":["OLA conversational interface.","Interface conversationnelle OLA."],
+ "Planowanie DAG, IGOR i jawna zgoda recenzenta.":["DAG planning, IGOR and explicit reviewer approval.","Planification DAG, IGOR et approbation explicite du réviseur."],
+ "Zewnętrzna demonstracja bez uprawnień do OLA i bez statusu LIVE.":["External demo without OLA privileges or LIVE status.","Démo externe sans droits OLA ni statut LIVE."],
+ "Wykonanie zadania":["Task execution","Exécution de tâche"],
+ "Uruchom NINA i zobacz dowody oraz wynik weryfikacji.":["Run NINA and view evidence and verification results.","Lancez NINA et consultez les preuves et les résultats de vérification."],
+ "Łańcuch dowodowy":["Evidence chain","Chaîne de preuves"],
+ "Odczyt konkretnego rekordu w zakresie tenanta.":["Read a tenant-scoped record.","Lire un enregistrement limité au tenant."],
+ "Symulacja fault/recovery; nie rzeczywista naprawa.":["Fault/recovery simulation; not real remediation.","Simulation de panne/récupération ; pas de réparation réelle."],
+ "API odpowiada":["API responding","API répond"],
+ "API: status nieznany":["API: unknown status","API : statut inconnu"],
+ "API niedostępne":["API unavailable","API indisponible"],
+ "Trwa sprawdzanie uprawnień…":["Verifying access…","Vérification de l’accès…"],
+ "POŁĄCZONO — uwierzytelniony dostęp API (bez zgody produkcyjnej).":["CONNECTED — authenticated API access (not production approval).","CONNECTÉ — accès API authentifié (sans approbation de production)."],
+ "Połączono":["Connected","Connecté"],
+ "ODRZUCONO — ":["REJECTED — ","REFUSÉ — "],
+ "BŁĄD / NIEPOTWIERDZONE":["ERROR / UNVERIFIED","ERREUR / NON VÉRIFIÉ"],
+ "BLOCK / ERROR":["BLOCK / ERROR","BLOCAGE / ERREUR"]
+};
+const localeIndex={en:0,fr:1};let currentLocale="pl",activeTab="overview";
+const staticText=[],staticAttrs=[];
+function tr(source){return UI_COPY[source]?.[localeIndex[currentLocale]]||source;}
+function initTranslation(){const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let node;while((node=walker.nextNode())){if(!node.textContent.trim()||node.parentElement?.closest("script,style"))continue;staticText.push([node,node.textContent]);}document.querySelectorAll("[placeholder],[aria-label],[title]").forEach(element=>{for(const attr of ["placeholder","aria-label","title"]){const value=element.getAttribute(attr);if(value)staticAttrs.push([element,attr,value]);}});}
+function applyLocale(){document.documentElement.lang=currentLocale;staticText.forEach(([node,original])=>{const source=original.trim();node.textContent=original.replace(source,tr(source));});staticAttrs.forEach(([element,attr,original])=>element.setAttribute(attr,tr(original)));selectTab(activeTab);}
 const $ = id => document.getElementById(id);
-const titles={overview:["Centrum operacyjne","Rzeczywiste endpointy. Statusy tylko z odpowiedzi API."],chat:["NINA · Czat","Interfejs konwersacyjny OLA."],workflow:["Przepływ pracy","Planowanie DAG, IGOR i jawna zgoda recenzenta."],execution:["Wykonanie zadania","Uruchom NINA i zobacz dowody oraz wynik weryfikacji."],evidence:["Łańcuch dowodowy","Odczyt konkretnego rekordu w zakresie tenanta."],audit:["Audyt kontrolowany","Symulacja fault/recovery; nie rzeczywista naprawa."]};
-let history=[],latestReport=null,latestRun="";
-function selectTab(name){if(!titles[name])return;document.querySelectorAll(".view").forEach(view=>view.hidden=view.id!=="view-"+name);document.querySelectorAll("[data-tab]").forEach(button=>button.setAttribute("aria-selected",String(button.dataset.tab===name)));$("page-title").textContent=titles[name][0];$("page-desc").textContent=titles[name][1];}
+const titles={overview:["Centrum operacyjne","Rzeczywiste endpointy. Statusy tylko z odpowiedzi API."],chat:["NINA · Czat","Interfejs konwersacyjny OLA."],workflow:["Przepływ pracy","Planowanie DAG, IGOR i jawna zgoda recenzenta."],demo:["NINA + IGOR · Demo","Zewnętrzna demonstracja bez uprawnień do OLA i bez statusu LIVE."],execution:["Wykonanie zadania","Uruchom NINA i zobacz dowody oraz wynik weryfikacji."],evidence:["Łańcuch dowodowy","Odczyt konkretnego rekordu w zakresie tenanta."],audit:["Audyt kontrolowany","Symulacja fault/recovery; nie rzeczywista naprawa."]};
+let history=[],latestReport=null,latestRun="",connectedKey="",accessGeneration=0;
+const activeRequests=new Set();
+function selectTab(name){if(!titles[name])return;activeTab=name;document.querySelectorAll(".view").forEach(view=>view.hidden=view.id!=="view-"+name);document.querySelectorAll("[data-tab]").forEach(button=>button.setAttribute("aria-selected",String(button.dataset.tab===name)));$("page-title").textContent=tr(titles[name][0]);$("page-desc").textContent=tr(titles[name][1]);}
 document.querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click",()=>selectTab(b.dataset.tab)));
 document.querySelectorAll("[data-go]").forEach(b=>b.addEventListener("click",()=>selectTab(b.dataset.go)));
-function requiredKey(){const key=$("api-key").value.trim();if(!key)throw new Error("Podaj klucz API OLA w górnym polu.");return key;}
+function requiredKey(){if(!connectedKey)throw new Error("Najpierw połącz i zweryfikuj klucz API OLA.");return connectedKey;}
 async function api(path,{method="GET",body,key,timeout=60000,bearer=false}={}){
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
+ const controller=new AbortController(),generation=accessGeneration,timer=setTimeout(()=>controller.abort(),timeout);activeRequests.add(controller);
  try{const headers={"Accept":"application/json"};if(body!==undefined)headers["Content-Type"]="application/json";if(key)headers[bearer?"Authorization":"X-API-Key"]=bearer?"Bearer "+key:key;
  const response=await fetch(path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal,cache:"no-store",credentials:"omit"});
  const data=await response.json().catch(()=>null);
- if(!response.ok){const explanation=data&&typeof data.detail==="string"?data.detail:"HTTP "+response.status;throw new Error(explanation+" ("+response.status+")");}
+ if(!response.ok){if(response.status===401&&path!=="/auth/me"&&key&&key===connectedKey)clearAccess();const explanation=data&&typeof data.detail==="string"?data.detail:"HTTP "+response.status;throw new Error(explanation+" ("+response.status+")");}
+ if(generation!==accessGeneration)throw new Error("Sesja została zakończona");
  if(!data||typeof data!=="object")throw new Error("API zwróciło niepoprawny JSON");return data;
- }catch(error){if(error.name==="AbortError")throw new Error("Przekroczono czas odpowiedzi API");throw error;}finally{clearTimeout(timer);}
+ }catch(error){if(error.name==="AbortError")throw new Error("Żądanie przerwane lub przekroczono czas API");throw error;}finally{clearTimeout(timer);activeRequests.delete(controller);}
 }
 function show(id,title,data,kind){const area=$(id);area.classList.add("visible");area.dataset.kind=kind;area.replaceChildren();const label=document.createElement("div");label.className="state";label.textContent=title;const pre=document.createElement("pre");pre.textContent=typeof data==="string"?data:JSON.stringify(data,null,2);area.append(label,pre);}
 function operation(status){$("operation-metric").textContent=status;}
-function withForm(id,handler){const form=$(id);form.addEventListener("submit",async event=>{event.preventDefault();const button=form.querySelector('button[type="submit"]');if(button.disabled)return;button.disabled=true;try{await handler();}catch(error){const target=id.replace("-form","-result");show(target,"BŁĄD / NIEPOTWIERDZONE",error.message||String(error),"error");operation("BLOCK / ERROR");}finally{button.disabled=false;}});}
-async function checkHealth(){try{const data=await api("/health",{timeout:8000});const ok=data.status==="ok";$("health").textContent=ok?"API odpowiada":"API: status nieznany";$("health").dataset.status=ok?"ok":"error";$("api-metric").textContent=ok?"ONLINE":"UNKNOWN";}catch(error){$("health").textContent="API niedostępne";$("health").dataset.status="error";$("api-metric").textContent="OFFLINE";}}
+function withForm(id,handler){const form=$(id);form.addEventListener("submit",async event=>{event.preventDefault();const button=form.querySelector('button[type="submit"]');if(button.disabled)return;const generation=accessGeneration;button.disabled=true;try{await handler();}catch(error){if(generation!==accessGeneration)return;const target=id.replace("-form","-result");show(target,tr("BŁĄD / NIEPOTWIERDZONE"),error.message||String(error),"error");operation(tr("BLOCK / ERROR"));}finally{button.disabled=id==="access-form"&&Boolean(connectedKey);}});}
+let healthMessage="API: sprawdzanie…",accessMessage="NIEPOŁĄCZONO — wprowadź swój klucz API.",accessDetail="";
+function setAccess(message,status,detail=""){accessMessage=message;accessDetail=detail;$("access-status").textContent=tr(message)+detail;$("access-status").dataset.status=status;}
+function setHealth(message,status,metric){healthMessage=message;$("health").textContent=tr(message);$("health").dataset.status=status;$("api-metric").textContent=metric;}
+async function checkHealth(){try{const data=await api("/health",{timeout:8000});const ok=data.status==="ok";setHealth(ok?"API odpowiada":"API: status nieznany",ok?"ok":"error",ok?"ONLINE":"UNKNOWN");}catch(error){setHealth("API niedostępne","error","OFFLINE");}}
 $("health-check").addEventListener("click",checkHealth);
-$("clear-key").addEventListener("click",()=>{$("api-key").value="";$("reviewer-key").value="";latestReport=null;latestRun="";history=[];$("chat-log").replaceChildren();$("report-result").replaceChildren();$("report-result").classList.remove("visible");});
+function clearAccess(){accessGeneration++;activeRequests.forEach(request=>request.abort());connectedKey="";$("api-key").value="";$("reviewer-key").value="";latestReport=null;latestRun="";history=[];$("chat-log").replaceChildren();document.querySelectorAll(".result").forEach(area=>{area.replaceChildren();area.classList.remove("visible")});setAccess("NIEPOŁĄCZONO — wprowadź swój klucz API.","error");$("api-key").disabled=false;$("connect-key").disabled=false;$("connect-key").textContent=tr("Połącz i zweryfikuj");}
+$("clear-key").addEventListener("click",clearAccess);
+withForm("access-form",async()=>{const candidate=$("api-key").value.trim();if(!candidate)throw new Error("Klucz API jest wymagany.");connectedKey="";setAccess("Trwa sprawdzanie uprawnień…","pending");try{const identity=await api("/auth/me",{key:candidate,timeout:15000});if(identity.status!=="authenticated"||identity.auth_method!=="api_key"||typeof identity.tenant_id!=="string")throw new Error("Niepełne potwierdzenie uwierzytelnienia");connectedKey=candidate;$("api-key").value="";$("api-key").disabled=true;setAccess("POŁĄCZONO — uwierzytelniony dostęp API (bez zgody produkcyjnej).","ok");$("connect-key").textContent=tr("Połączono");}catch(error){connectedKey="";$("api-key").value="";setAccess("ODRZUCONO — ","error",error.message);throw error;}});
 function addMessage(who,text,role){const item=document.createElement("div");item.className="message "+role;const heading=document.createElement("span");heading.className="who";heading.textContent=who;item.append(heading,document.createTextNode(text));$("chat-log").append(item);$("chat-log").scrollTop=$("chat-log").scrollHeight;}
 withForm("chat-form",async()=>{const content=$("chat-input").value.trim();if(!content)return;const key=requiredKey();const candidate=history.concat({role:"user",content});const data=await api("/chat",{method:"POST",body:{messages:candidate.slice(-20)},key});if(data.status==="BLOCK"||typeof data.message!=="string"||!data.message.trim()){show("chat-result","NINA BLOCK",data.reason||"Model nie zwrócił odpowiedzi","error");return;}history=candidate.concat({role:"assistant",content:data.message});addMessage("Ty",content,"user");addMessage("NINA",data.message,"assistant");$("chat-input").value="";$("chat-result").classList.remove("visible");operation("CHAT: odpowiedź");});
 $("clear-chat").addEventListener("click",()=>{history=[];$("chat-log").replaceChildren();$("chat-result").classList.remove("visible");});
@@ -86,6 +225,9 @@ withForm("approval-form",async()=>{const requester=requiredKey(),reviewer=$("rev
 withForm("execution-form",async()=>{const task=$("execution-task").value.trim();if(!task)return;const data=await api("/nina-run",{method:"POST",body:{task,requested_tools:[$("execution-tool").value]},key:requiredKey(),timeout:120000});show("execution-result","NINA + IGOR: "+(data.status||"UNKNOWN"),data,data.status==="BLOCK"?"error":"ok");operation("EXEC: "+(data.status||"UNKNOWN"));});
 withForm("evidence-form",async()=>{const id=$("evidence-id").value.trim();if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new Error("Nieprawidłowy identyfikator dowodu");const data=await api("/evidence/"+encodeURIComponent(id),{key:requiredKey()});show("evidence-result","EVIDENCE: odczytano",data,"ok");operation("EVIDENCE: odczyt");});
 withForm("audit-form",async()=>{const task=$("audit-task").value.trim();if(!task)return;const data=await api("/audit",{method:"POST",body:{task,scenario:"fault_then_recovery"},key:requiredKey()});show("audit-result","SYMULACJA: "+(data.status||"UNKNOWN"),data,data.status==="VERIFIED"?"ok":"error");operation("AUDIT: "+(data.status||"UNKNOWN"));});
+initTranslation();
+$("ui-language").addEventListener("change",event=>{if(!["pl","en","fr"].includes(event.target.value))return;currentLocale=event.target.value;applyLocale();$("connect-key").textContent=tr(connectedKey?"Połączono":"Połącz i zweryfikuj");$("access-status").textContent=tr(accessMessage)+accessDetail;$("health").textContent=tr(healthMessage);});
+applyLocale();
 checkHealth();
 </script>
 </body>

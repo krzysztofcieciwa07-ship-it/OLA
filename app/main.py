@@ -2,7 +2,7 @@ import json
 import os
 import uuid
 from pathlib import Path
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request, Response
 from starlette.responses import FileResponse
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
@@ -137,6 +137,17 @@ def run_controlled_audit(tenant_id, task, scenario):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/auth/me")
+def current_api_identity(response: Response, x_api_key: str | None = Header(default=None)):
+    """Validate the existing tenant API key without issuing a second credential.
+
+    This is API-key access, not an email/password user login or production approval.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    tenant_id, _ = identity_from_key(x_api_key)
+    return {"status": "authenticated", "tenant_id": tenant_id, "auth_method": "api_key"}
 
 
 @app.get("/")
