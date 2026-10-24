@@ -69,7 +69,7 @@ def _validate_checkout(session: dict) -> str:
         raise HTTPException(status_code=400, detail="unsupported Stripe offer")
     if metadata.get("product") not in {None, OLA_PRODUCT}:
         raise HTTPException(status_code=400, detail="unsupported Stripe product")
-    if session.get("payment_status") != "paid" or session.get("status") not in {None, "complete"}:
+    if session.get("payment_status") != "paid" or session.get("status") != "complete":
         raise HTTPException(status_code=400, detail="payment is not confirmed")
     if session.get("currency") != "eur" or session.get("amount_total") != 9900:
         raise HTTPException(status_code=400, detail="unexpected payment amount or currency")
@@ -166,6 +166,9 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
                 db.commit()
         raise
 
+    # An absent or malformed agent result is never completion evidence.
+    if not isinstance(runtime, dict):
+        runtime = {}
     delivery_status = _delivery_status(runtime)
     result = {
         "status": delivery_status,
