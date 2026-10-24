@@ -87,6 +87,16 @@ def _validate_checkout(session: dict) -> str:
     return task
 
 
+def _delivery_status(runtime: dict) -> str:
+    """Fail closed: a successful local agent run is not an independent audit."""
+    if not isinstance(runtime, dict) or runtime.get("status") != "VERIFIED":
+        return "BLOCKED"
+    if not runtime.get("run_id") or not runtime.get("evidence_ids"):
+        return "BLOCKED"
+    # Only an independent evidence review and delivery gate may mark COMPLETED.
+    return "PENDING_INDEPENDENT_VERIFICATION"
+
+
 def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
     if not verify_stripe_signature(payload, signature_header, secret):
@@ -154,8 +164,9 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
                 db.commit()
         raise
 
+    delivery_status = _delivery_status(runtime)
     result = {
-        "status": "COMPLETED",
+        "status": delivery_status,
         "event_id": event_id,
         "checkout_session_id": session.get("id"),
         "payment": "CONFIRMED",
@@ -167,12 +178,13 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     }
     _append_evidence(
         tenant_id,
-        "stripe.ola_execution_completed",
+        "stripe.ola_execution_recorded",
         {
             "stripe_event_id": event_id,
             "checkout_session_id": session.get("id"),
             "ola_run_id": runtime.get("run_id"),
             "ola_status": runtime.get("status", "UNKNOWN"),
+            "delivery_status": delivery_status,
             "ola_final_result": runtime.get("final_result"),
             "payment_evidence_id": payment_evidence_id,
         },
@@ -180,7 +192,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
 
     with SessionLocal() as db:
         completed = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
-        completed.status = "COMPLETED"
+        completed.status = delivery_status
         completed.run_id = runtime.get("run_id")
         completed.result_json = canonical_json(result)
         db.commit()
