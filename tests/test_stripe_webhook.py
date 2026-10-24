@@ -3,7 +3,7 @@ import hmac
 
 import pytest
 
-from app.stripe_webhook import _validate_checkout, verify_stripe_signature
+from app.stripe_webhook import _validate_checkout, _delivery_status, verify_stripe_signature
 
 
 SECRET = "whsec_test_ola"
@@ -73,3 +73,20 @@ def test_paid_checkout_uses_metadata_task_without_custom_fields():
     session = _paid_session()
     assert "custom_fields" not in session
     assert _validate_checkout(session) == "Audit this company workflow for evidence gaps."
+
+
+@pytest.mark.parametrize("runtime", [
+    {"status": "BLOCK", "run_id": "r1", "evidence_ids": ["e1"]},
+    {"status": "UNKNOWN", "run_id": "r1", "evidence_ids": ["e1"]},
+    {"status": "VERIFIED", "run_id": None, "evidence_ids": ["e1"]},
+    {"status": "VERIFIED", "run_id": "r1", "evidence_ids": []},
+    {},
+])
+def test_audit_cannot_be_delivered_with_incomplete_or_blocked_execution(runtime):
+    assert _delivery_status(runtime) == "BLOCKED"
+
+
+def test_agent_verified_is_not_independent_approval():
+    runtime = {"status": "VERIFIED", "run_id": "r1", "evidence_ids": ["e1"]}
+    assert _delivery_status(runtime) == "PENDING_INDEPENDENT_VERIFICATION"
+    assert _delivery_status(runtime) != "COMPLETED"
