@@ -36,8 +36,8 @@ def tenant_id(monkeypatch):
     return tenant
 
 
-def _signed_event(tenant_id):
-    session_id = "cs_test_" + uuid.uuid4().hex
+def _signed_event(tenant_id, session_id=None):
+    session_id = session_id or "cs_test_" + uuid.uuid4().hex
     event_id = "evt_test_" + uuid.uuid4().hex
     event = {
         "id": event_id, "type": "checkout.session.completed",
@@ -92,9 +92,19 @@ def _simulate_crash_after_completed_local_evidence(tenant_id, monkeypatch):
     return session_id, event_id
 
 
-def test_verified_local_crash_recovers_only_to_pending_review(tenant_id, monkeypatch):
+@pytest.mark.parametrize("uncertain_status", ["FAILED", "PROCESSING"])
+def test_verified_local_crash_recovers_only_to_pending_review(
+    tenant_id, monkeypatch, uncertain_status,
+):
     session_id, event_id = _simulate_crash_after_completed_local_evidence(
         tenant_id, monkeypatch)
+    if uncertain_status == "PROCESSING":
+        # Simulate a process killed after its final evidence append, before
+        # the webhook was able to update the mutable state rows.
+        with SessionLocal() as db:
+            db.get(StripeCheckoutClaim, session_id).status = "PROCESSING"
+            db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id)).status = "PROCESSING"
+            db.commit()
     before = _records(tenant_id)
     assert _chain_ok(before) == (True, "ok")
 
@@ -126,6 +136,23 @@ def test_verified_local_crash_recovers_only_to_pending_review(tenant_id, monkeyp
     repeated = reconcile_checkout(session_id, apply=True)
     assert repeated["applied"] is False
     assert len(_records(tenant_id)) == len(after)
+
+
+def test_webhook_redelivery_after_recovery_never_executes_again(tenant_id, monkeypatch):
+    session_id, _ = _simulate_crash_after_completed_local_evidence(tenant_id, monkeypatch)
+    assert reconcile_checkout(session_id, apply=True)["status"] == "RECORDED_PENDING_REVIEW"
+    before = len(_records(tenant_id))
+
+    def forbidden_runtime(*_args):
+        pytest.fail("recovery must never re-execute this paid order")
+
+    monkeypatch.setattr(stripe_webhook, "run_agent_task", forbidden_runtime)
+    _, _, raw, signature = _signed_event(tenant_id, session_id=session_id)
+    response = TestClient(app).post("/stripe/webhook", content=raw,
+                                    headers={"Stripe-Signature": signature})
+    assert response.status_code == 200
+    assert response.json()["status"] == PENDING_REVIEW
+    assert len(_records(tenant_id)) == before
 
 
 def test_no_completion_proof_never_enables_rerun(tenant_id):
