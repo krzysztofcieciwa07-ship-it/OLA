@@ -38,17 +38,54 @@ IGOR/Human Gate approval and a separate release/delivery gate are implemented.
   tied to an order. All such rows must be reconciled with Stripe and immutable
   payment evidence before enabling this change in production.
 - No automatic retries are performed after an uncertain agent/evidence outcome:
-  a worker must prove whether execution already happened before any release.
+  absence of records is **not** proof that execution did not happen.
 - This implementation deliberately supports only SQLite's writer reservation.
   A PostgreSQL fulfillment backend needs a separate transactional admission
   review and currently receives HTTP 503.
+
+### Recovery CLI (operator-only)
+
+From the repository root, with `OLA_EG_DB_PATH` pointing to the intended OLA
+SQLite database (verify that path before running):
+
+```bash
+# Read-only inspection; does not call Stripe or run an agent.
+python -m scripts.reconcile_stripe_orders cs_test_example
+
+# Only if complete local payment + agent + finish evidence verifies.
+python -m scripts.reconcile_stripe_orders cs_test_example --apply
+```
+
+The default is read-only. `--apply` cannot retry an audit or mark an order
+`COMPLETED`. For `PROCESSING`/`FAILED`, it requires all of the following:
+
+1. Valid **entire tenant hash-chain**, with trusted server-bound v2 records.
+2. Exactly one matching payment event and one final execution event, with the
+   original Checkout Session, Stripe event ID, tenant, task and payment
+   evidence ID coherently bound.
+3. A unique agent `run_id` with every expected agent record between payment
+   and completion, plus `verify_agent_run` returning `VERIFIED`.
+4. Consistent mutable claim/event state, with no pre-existing result to replace.
+
+On success, the transaction atomically updates only the two mutable order
+states to `PENDING_INDEPENDENT_VERIFICATION`, restores their result data, and
+appends `execution.stripe_order_reconciled` to the append-only evidence chain.
+There is **no customer delivery** and no independent Human Gate approval.
+
+If final execution evidence is absent, ambiguous, tampered with, or submitted
+through the tenant API rather than the trusted runtime writer, recovery stays
+`UNCERTAIN`/`BLOCKED`; retry is forbidden. The mechanism cannot conclude
+`NOT_EXECUTED` from missing evidence. Any decision to rerun such work requires
+external incident reconciliation and a separately designed, authorized recovery
+policy. CLI access must be restricted to an operator with access to the OLA DB;
+it is not exposed as a public HTTP endpoint.
 
 ## Remaining production gates
 
 - Review and back up the actual deployed database; confirm the new table can be
   created and existing orders reconciled. No production migration was run.
-- Add independent IGOR/Human Gate delivery authorization and a recoverable
-  order state machine, without caller-supplied approval shortcuts.
+- Add independently authorized IGOR/Human Gate customer delivery, and a
+  separately audited recovery path for cases where no execution proof exists.
 - Integrate the execution safety gate on **every** runtime entry point,
   including the Stripe webhook (PR #120 currently protects `/agent-run` only).
 - Decide whether to support delayed payment methods; currently only
@@ -56,5 +93,5 @@ IGOR/Human Gate approval and a separate release/delivery gate are implemented.
 - Verify Stripe test-mode webhook, real Checkout Session/tenant binding,
   exact-source CI, signed release provenance and independent review before GO.
 
-Run locally: `python -m pytest -q tests/test_stripe_webhook_flow.py`, followed
-by `python -m pytest -q`. No Stripe credentials are required for these tests.
+Run locally: `python -m pytest -q tests/test_stripe_recovery.py`, then
+`python -m pytest -q`. No Stripe credentials are required for these tests.
