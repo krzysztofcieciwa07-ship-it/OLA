@@ -21,7 +21,7 @@ from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
 from .decision_report import build_decision_report
 from .chat_runtime import chat
-from .revenue import create_checkout, retrieve_checkout, payment_verified
+from .revenue import create_checkout_once, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
@@ -162,20 +162,27 @@ def chat_endpoint(body: dict, x_api_key: str | None = Header(default=None)):
 
 
 @app.post("/checkout")
-def create_checkout_session(body: dict, x_api_key: str | None = Header(default=None)):
+def create_checkout_session(body: dict, x_api_key: str | None = Header(default=None),
+                            idempotency_key: str | None = Header(default=None)):
     tenant_id = tenant_from_key(x_api_key)
     task = body.get("task")
     if not isinstance(task, str) or not task.strip():
         raise HTTPException(status_code=400, detail="task is required")
+    if (not isinstance(idempotency_key, str)
+            or not 16 <= len(idempotency_key) <= 128
+            or not all(ch.isascii() and (ch.isalnum() or ch in "_-" ) for ch in idempotency_key)):
+        raise HTTPException(status_code=400, detail="Idempotency-Key (16-128 URL-safe characters) required")
     success_url = body.get("success_url") or "http://localhost:8000/payment-success"
     cancel_url = body.get("cancel_url") or "http://localhost:8000/"
     try:
-        session = create_checkout(task.strip(), success_url, cancel_url, tenant_id)
+        session = create_checkout_once(task.strip(), success_url, cancel_url,
+                                       tenant_id, idempotency_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="checkout idempotency conflict") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="checkout unavailable") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="checkout unavailable") from exc
-    append_record(tenant_id, "revenue.checkout_created", {"session_id": session.get("id"), "task": task.strip(), "amount": session.get("amount_total")})
     return {"status": "READY_FOR_PAYMENT", "session_id": session.get("id"), "checkout_url": session.get("url")}
 
 

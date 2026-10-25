@@ -3,7 +3,7 @@ import hmac
 
 import pytest
 
-from app.stripe_webhook import _validate_checkout, verify_stripe_signature
+from app.stripe_webhook import _validate_checkout, _delivery_status, verify_stripe_signature
 
 
 SECRET = "whsec_test_ola"
@@ -18,6 +18,7 @@ def _signature(payload: bytes) -> str:
 
 def _paid_session():
     return {
+        "id": "cs_test_ola_checkout",
         "metadata": {
             "offer": "ola-execution-audit",
             "product": "OLA Execution Audit",
@@ -73,3 +74,37 @@ def test_paid_checkout_uses_metadata_task_without_custom_fields():
     session = _paid_session()
     assert "custom_fields" not in session
     assert _validate_checkout(session) == "Audit this company workflow for evidence gaps."
+
+
+@pytest.mark.parametrize("runtime", [
+    {"status": "BLOCK", "run_id": "r1", "evidence_ids": ["e1"]},
+    {"status": "UNKNOWN", "run_id": "r1", "evidence_ids": ["e1"]},
+    {"status": "VERIFIED", "run_id": None, "evidence_ids": ["e1"]},
+    {"status": "VERIFIED", "run_id": "r1", "evidence_ids": []},
+    {},
+])
+def test_audit_cannot_be_delivered_with_incomplete_or_blocked_execution(runtime):
+    assert _delivery_status(runtime) == "BLOCKED"
+
+
+def test_agent_verified_is_not_independent_approval():
+    runtime = {"status": "VERIFIED", "run_id": "r1", "evidence_ids": ["e1"]}
+    assert _delivery_status(runtime) == "PENDING_INDEPENDENT_VERIFICATION"
+    assert _delivery_status(runtime) != "COMPLETED"
+
+
+@pytest.mark.parametrize("override", [
+    {"id": None},
+    {"id": "invalid_session"},
+    {"metadata": {"offer": "ola-execution-audit", "task": "audit"}},
+])
+def test_checkout_requires_session_identity_and_offer_metadata(override):
+    session = _paid_session()
+    session.update(override)
+    if "metadata" in override:
+        # Metadata without tenant provenance is rejected by the event handler,
+        # not by the price/task validator.
+        assert _validate_checkout(session) == "audit"
+    else:
+        with pytest.raises(Exception):
+            _validate_checkout(session)
