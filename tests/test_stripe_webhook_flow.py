@@ -3,8 +3,10 @@
 import hashlib
 import hmac
 import json
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +16,7 @@ from app import stripe_webhook
 from app.database import SessionLocal
 from app.hashchain import verify_chain
 from app.main import app
-from app.models import EvidenceRecord, StripeEvent, Tenant
+from app.models import EvidenceRecord, StripeCheckoutClaim, StripeEvent, Tenant
 
 
 TEST_WEBHOOK_SECRET = "whsec_local_test_only"
@@ -170,3 +172,142 @@ def test_malformed_runtime_result_is_blocked_and_evidenced(tenant_id, monkeypatc
     assert [r.record_type for r in _records_for(tenant_id)] == [
         "stripe.payment_confirmed", "stripe.ola_execution_recorded",
     ]
+
+
+def test_two_stripe_events_for_one_checkout_execute_only_once(tenant_id, monkeypatch):
+    calls = []
+    monkeypatch.setattr(stripe_webhook, "run_agent_task", lambda *_: (
+        calls.append(True) or {
+            "status": "VERIFIED", "run_id": "run-dedup",
+            "evidence_ids": ["evidence-dedup"],
+        }
+    ))
+    checkout_id = "cs_test_" + uuid.uuid4().hex
+    first_id, first_payload, first_sig = _signed_event(
+        tenant_id, session_overrides={"id": checkout_id})
+    second_id, second_payload, second_sig = _signed_event(
+        tenant_id, session_overrides={"id": checkout_id})
+    assert first_id != second_id
+
+    first = _post_webhook(first_payload, first_sig)
+    second = _post_webhook(second_payload, second_sig)
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    assert calls == [True]
+    assert len(_records_for(tenant_id)) == 2
+
+
+def test_concurrent_distinct_events_for_one_checkout_do_not_both_run(tenant_id, monkeypatch):
+    started, release = threading.Event(), threading.Event()
+    calls = []
+
+    def local_runtime(*_args):
+        calls.append(True)
+        started.set()
+        assert release.wait(timeout=10)
+        return {"status": "VERIFIED", "run_id": "run-concurrent",
+                "evidence_ids": ["evidence-concurrent"]}
+
+    monkeypatch.setattr(stripe_webhook, "run_agent_task", local_runtime)
+    checkout_id = "cs_test_" + uuid.uuid4().hex
+    _, first_payload, first_sig = _signed_event(
+        tenant_id, session_overrides={"id": checkout_id})
+    _, second_payload, second_sig = _signed_event(
+        tenant_id, session_overrides={"id": checkout_id})
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(_post_webhook, first_payload, first_sig)
+        try:
+            assert started.wait(timeout=10)
+            second = executor.submit(_post_webhook, second_payload, second_sig).result(timeout=10)
+        finally:
+            release.set()
+        first = first_future.result(timeout=10)
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert calls == [True]
+    assert len(_records_for(tenant_id)) == 2
+
+
+def test_legacy_checkout_without_unique_claim_requires_reconciliation(tenant_id, monkeypatch):
+    checkout_id = "cs_test_" + uuid.uuid4().hex
+    with SessionLocal() as db:
+        db.add(StripeEvent(
+            id=str(uuid.uuid4()), event_id="evt_legacy_" + uuid.uuid4().hex,
+            status="PENDING_INDEPENDENT_VERIFICATION", task="Audit this workflow",
+            result_json=json.dumps({"status": "PENDING_INDEPENDENT_VERIFICATION",
+                                    "checkout_session_id": checkout_id}),
+        ))
+        db.commit()
+    calls = []
+    monkeypatch.setattr(stripe_webhook, "run_agent_task", lambda *_: calls.append(True))
+    _, payload, signature = _signed_event(tenant_id, session_overrides={"id": checkout_id})
+    response = _post_webhook(payload, signature)
+    assert response.status_code == 409
+    assert calls == []
+
+
+def test_reused_checkout_with_conflicting_tenant_is_denied(tenant_id, monkeypatch):
+    other_tenant = str(uuid.uuid4())
+    with SessionLocal() as db:
+        db.add(Tenant(id=other_tenant, name="other-tenant-replay-test"))
+        db.commit()
+    calls = []
+    monkeypatch.setattr(stripe_webhook, "run_agent_task", lambda *_: (
+        calls.append(True) or {"status": "VERIFIED", "run_id": "r1", "evidence_ids": ["e1"]}
+    ))
+    checkout_id = "cs_test_" + uuid.uuid4().hex
+    _, payload, signature = _signed_event(tenant_id, session_overrides={"id": checkout_id})
+    assert _post_webhook(payload, signature).status_code == 200
+
+    _, other_payload, other_sig = _signed_event(
+        other_tenant, session_overrides={"id": checkout_id})
+    conflict = _post_webhook(other_payload, other_sig)
+    assert conflict.status_code == 409
+    assert calls == [True]
+    with SessionLocal() as db:
+        claim = db.get(StripeCheckoutClaim, checkout_id)
+        assert claim.tenant_id == tenant_id
+
+
+def test_evidence_failure_stops_runtime_and_marks_checkout_for_reconciliation(
+    tenant_id, monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(stripe_webhook, "run_agent_task", lambda *_: calls.append(True))
+
+    def fail_evidence(*_args):
+        raise RuntimeError("evidence write unavailable")
+
+    monkeypatch.setattr(stripe_webhook, "_append_evidence", fail_evidence)
+    event_id, payload, signature = _signed_event(tenant_id)
+    session_id = json.loads(payload)["data"]["object"]["id"]
+    with pytest.raises(RuntimeError, match="evidence write unavailable"):
+        _post_webhook(payload, signature)
+    assert calls == []
+    with SessionLocal() as db:
+        claim = db.get(StripeCheckoutClaim, session_id)
+        event = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
+        assert claim.status == event.status == "FAILED"
+
+
+def test_failed_runtime_cannot_auto_retry_via_new_stripe_event(tenant_id, monkeypatch):
+    calls = []
+
+    def failed_runtime(*_args):
+        calls.append(True)
+        raise RuntimeError("runtime failed")
+
+    monkeypatch.setattr(stripe_webhook, "run_agent_task", failed_runtime)
+    session_id = "cs_test_" + uuid.uuid4().hex
+    _, first_payload, first_sig = _signed_event(
+        tenant_id, session_overrides={"id": session_id})
+    _, second_payload, second_sig = _signed_event(
+        tenant_id, session_overrides={"id": session_id})
+    with pytest.raises(RuntimeError, match="runtime failed"):
+        _post_webhook(first_payload, first_sig)
+    assert _post_webhook(second_payload, second_sig).status_code == 409
+    assert calls == [True]
+    with SessionLocal() as db:
+        assert db.get(StripeCheckoutClaim, session_id).status == "FAILED"

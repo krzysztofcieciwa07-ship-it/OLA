@@ -41,3 +41,15 @@ class StripeEvent(Base):
     run_id = Column(String(36), nullable=True)
     task = Column(Text, nullable=True)
     result_json = Column(Text, nullable=True)
+
+
+class StripeCheckoutClaim(Base):
+    """One durable execution claim per paid Stripe Checkout Session."""
+
+    __tablename__ = "stripe_checkout_claims"
+    session_id = Column(String(255), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False)
+    event_id = Column(String(255), nullable=False)
+    task = Column(Text, nullable=False)
+    status = Column(String(32), nullable=False)
+    result_json = Column(Text, nullable=True)

@@ -6,13 +6,13 @@ import time
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from .agent_runtime import run_agent_task
 from .database import SessionLocal, append_evidence_atomic
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash
-from .models import EvidenceRecord, StripeEvent
+from .models import EvidenceRecord, StripeCheckoutClaim, StripeEvent
 
 
 STRIPE_SIGNATURE_TOLERANCE_SECONDS = 300
@@ -118,16 +118,43 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
 
     session = event.get("data", {}).get("object", {})
     task = _validate_checkout(session)
+    session_id = session["id"]
     tenant_id = (session.get("metadata") or {}).get("tenant_id")
     if not tenant_id:
         raise HTTPException(status_code=500, detail="Stripe session has no tenant provenance")
 
     with SessionLocal() as db:
+        if db.bind.dialect.name != "sqlite":
+            raise HTTPException(status_code=503, detail="checkout claim locking is unavailable")
+        # Serialize admission across processes before starting any agent.
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        claim = db.get(StripeCheckoutClaim, session_id)
+        if claim is not None and (claim.tenant_id != tenant_id or claim.task != task):
+            raise HTTPException(status_code=409, detail="Checkout Session identity conflict")
         existing = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
         if existing is not None:
-            if existing.status in {"COMPLETED", "BLOCKED", "PENDING_INDEPENDENT_VERIFICATION"} and existing.result_json:
-                return json.loads(existing.result_json)
-            raise HTTPException(status_code=409, detail="Stripe event is already being processed")
+            if (claim is not None
+                    and existing.status in {"COMPLETED", "BLOCKED", "PENDING_INDEPENDENT_VERIFICATION"}
+                    and existing.result_json):
+                recorded = json.loads(existing.result_json)
+                if recorded.get("checkout_session_id") == session_id:
+                    return recorded
+            raise HTTPException(status_code=409, detail="Stripe event requires reconciliation")
+
+        if claim is not None:
+            if (claim.status in {"COMPLETED", "BLOCKED", "PENDING_INDEPENDENT_VERIFICATION"}
+                    and claim.result_json):
+                return json.loads(claim.result_json)
+            raise HTTPException(status_code=409, detail="Checkout Session requires reconciliation")
+
+        # Older rows were keyed only by Stripe event ID. A second event for
+        # such a Checkout Session must not silently trigger another execution.
+        legacy = db.scalar(select(StripeEvent.id).where(
+            StripeEvent.result_json.is_not(None),
+            func.json_extract(StripeEvent.result_json, "$.checkout_session_id") == session_id,
+        ))
+        if legacy is not None:
+            raise HTTPException(status_code=409, detail="legacy Checkout Session requires reconciliation")
 
         record = StripeEvent(
             id=str(uuid.uuid4()),
@@ -135,6 +162,10 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
             status="PROCESSING",
             task=task,
         )
+        db.add(StripeCheckoutClaim(
+            session_id=session_id, tenant_id=tenant_id, event_id=event_id,
+            task=task, status="PROCESSING",
+        ))
         db.add(record)
         try:
             db.commit()
@@ -142,64 +173,68 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
             db.rollback()
             raise HTTPException(status_code=409, detail="Stripe event is already being processed") from None
 
-    payment_evidence_id = _append_evidence(
-        tenant_id,
-        "stripe.payment_confirmed",
-        {
-            "stripe_event_id": event_id,
-            "checkout_session_id": session.get("id"),
-            "offer": OLA_OFFER,
-            "product": OLA_PRODUCT,
-            "amount_total": session.get("amount_total"),
-            "currency": session.get("currency"),
-            "task": task,
-        },
-    )
-
     try:
+        payment_evidence_id = _append_evidence(
+            tenant_id,
+            "stripe.payment_confirmed",
+            {
+                "stripe_event_id": event_id,
+                "checkout_session_id": session_id,
+                "offer": OLA_OFFER,
+                "product": OLA_PRODUCT,
+                "amount_total": session.get("amount_total"),
+                "currency": session.get("currency"),
+                "task": task,
+            },
+        )
         runtime = run_agent_task(tenant_id, task)
+        # An absent or malformed agent result is never completion evidence.
+        if not isinstance(runtime, dict):
+            runtime = {}
+        delivery_status = _delivery_status(runtime)
+        result = {
+            "status": delivery_status,
+            "event_id": event_id,
+            "checkout_session_id": session_id,
+            "payment": "CONFIRMED",
+            "ola_status": runtime.get("status", "UNKNOWN"),
+            "ola_run_id": runtime.get("run_id"),
+            "ola_final_result": runtime.get("final_result"),
+            "payment_evidence_id": payment_evidence_id,
+            "ola_evidence_ids": runtime.get("evidence_ids", []),
+        }
+        _append_evidence(
+            tenant_id,
+            "stripe.ola_execution_recorded",
+            {
+                "stripe_event_id": event_id,
+                "checkout_session_id": session_id,
+                "ola_run_id": runtime.get("run_id"),
+                "ola_status": runtime.get("status", "UNKNOWN"),
+                "delivery_status": delivery_status,
+                "ola_final_result": runtime.get("final_result"),
+                "payment_evidence_id": payment_evidence_id,
+            },
+        )
     except Exception:
         with SessionLocal() as db:
             failed = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
             if failed is not None:
                 failed.status = "FAILED"
-                db.commit()
+            claim = db.get(StripeCheckoutClaim, session_id)
+            if claim is not None:
+                claim.status = "FAILED"
+            db.commit()
         raise
-
-    # An absent or malformed agent result is never completion evidence.
-    if not isinstance(runtime, dict):
-        runtime = {}
-    delivery_status = _delivery_status(runtime)
-    result = {
-        "status": delivery_status,
-        "event_id": event_id,
-        "checkout_session_id": session.get("id"),
-        "payment": "CONFIRMED",
-        "ola_status": runtime.get("status", "UNKNOWN"),
-        "ola_run_id": runtime.get("run_id"),
-        "ola_final_result": runtime.get("final_result"),
-        "payment_evidence_id": payment_evidence_id,
-        "ola_evidence_ids": runtime.get("evidence_ids", []),
-    }
-    _append_evidence(
-        tenant_id,
-        "stripe.ola_execution_recorded",
-        {
-            "stripe_event_id": event_id,
-            "checkout_session_id": session.get("id"),
-            "ola_run_id": runtime.get("run_id"),
-            "ola_status": runtime.get("status", "UNKNOWN"),
-            "delivery_status": delivery_status,
-            "ola_final_result": runtime.get("final_result"),
-            "payment_evidence_id": payment_evidence_id,
-        },
-    )
 
     with SessionLocal() as db:
         completed = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
         completed.status = delivery_status
         completed.run_id = runtime.get("run_id")
         completed.result_json = canonical_json(result)
+        claim = db.get(StripeCheckoutClaim, session_id)
+        claim.status = delivery_status
+        claim.result_json = canonical_json(result)
         db.commit()
 
     return result
