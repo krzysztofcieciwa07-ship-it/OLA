@@ -4,6 +4,41 @@ Status: **LOCAL VERIFIED / PRODUCTION NO-GO**. Only signed synthetic Stripe
 webhooks and mocked agent execution have been tested. This is not proof of a
 real charge, independent customer delivery, or successful Stripe LIVE operation.
 
+## Checkout creation (before the charge)
+
+`POST /checkout` now requires an `Idempotency-Key` header containing a fresh
+client-generated, URL-safe random identifier (16–128 characters, e.g. a UUID).
+**The client must reuse the same identifier on every network retry of that
+specific purchase**; a different purchase requires a new identifier. Reusing
+the key with changed task, URLs, tenant or configured Stripe price gives 409.
+
+`StripeCheckoutRequest` stores the tenant-scoped SHA-256 key, exact request
+fingerprint, creation state and Checkout Session identity in SQLite. Before
+calling Stripe, a `CREATING` intent is committed under `BEGIN IMMEDIATE`.
+Stripe receives the derived scoped hash as its own `Idempotency-Key`.
+Repeated requests with the same key return the stored Checkout Session only
+after creation and `revenue.checkout_created` hash-chain append both succeed.
+The provider call is *never reissued* for a recorded key:
+
+- `READY`: return the exact persisted session and URL, without a second event.
+- `CREATING`: a call may be in flight or the process may have crashed; 503.
+- `UNCERTAIN`: Stripe may have created a session before the network error; 503.
+- `EVIDENCE_PENDING`: payment URL was persisted but the hash-chain recording
+  was not confirmed; 503.
+
+Any of the latter three states requires manual, read-only Stripe reconciliation
+before changes to the durable request record. Do not delete the intent, rotate
+its key, or silently call Stripe again to clear a transient timeout: its
+idempotency retention may have expired. This protects *retries sharing a key*,
+not two purchases submitted under different keys. It does not by itself prove
+whether a customer was charged; the original signed webhook still governs
+payment confirmation and downstream execution.
+
+The new table is created by startup `Base.metadata.create_all`, but production
+database compatibility, backups, actual migrations and existing client updates
+have not been verified. Existing checkout clients **must** be updated to supply
+the header before rollout; a request without it now returns HTTP 400.
+
 ## Durable admission
 
 `StripeCheckoutClaim` is a separate SQLite table keyed by the exact Stripe
@@ -82,8 +117,10 @@ it is not exposed as a public HTTP endpoint.
 
 ## Remaining production gates
 
-- Review and back up the actual deployed database; confirm the new table can be
-  created and existing orders reconciled. No production migration was run.
+- Review and back up the actual deployed database; confirm both new tables can
+  be created and existing orders reconciled. No production migration was run.
+- Update every checkout caller with stable per-purchase `Idempotency-Key` and
+  test real Stripe Checkout creation, timeouts and ambiguous requests in TEST.
 - Add independently authorized IGOR/Human Gate customer delivery, and a
   separately audited recovery path for cases where no execution proof exists.
 - Integrate the execution safety gate on **every** runtime entry point,

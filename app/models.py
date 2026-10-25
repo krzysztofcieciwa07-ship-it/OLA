@@ -53,3 +53,15 @@ class StripeCheckoutClaim(Base):
     task = Column(Text, nullable=False)
     status = Column(String(32), nullable=False)
     result_json = Column(Text, nullable=True)
+
+
+class StripeCheckoutRequest(Base):
+    """Durable checkout creation intent; never reissue uncertain Stripe calls."""
+
+    __tablename__ = "stripe_checkout_requests"
+    key_hash = Column(String(64), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False)
+    request_hash = Column(String(64), nullable=False)
+    status = Column(String(32), nullable=False)
+    session_id = Column(String(255), nullable=True)
+    checkout_url = Column(Text, nullable=True)
