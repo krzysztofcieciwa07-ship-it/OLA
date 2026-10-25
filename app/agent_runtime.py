@@ -186,6 +186,27 @@ def _invoke_llm(agent, task, context):
             "response_id": response_id,
         }
 
+    if provider == "huggingface":
+        from .huggingface_runtime import DEFAULT_MODEL, invoke_huggingface_chat
+
+        model = os.getenv("OLA_LLM_MODEL", DEFAULT_MODEL)
+        completion = invoke_huggingface_chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": prompt},
+            ],
+            timeout=float(os.getenv("OLA_LLM_TIMEOUT", "60")),
+        )
+        return {
+            "provider": "huggingface",
+            "model": model,
+            "invocation_type": "real_llm",
+            "prompt_digest": _digest(prompt),
+            "output": completion["output"],
+            "response_id": completion["response_id"],
+        }
+
     if mode == "required":
         raise RuntimeError(f"OLA_LLM_MODE=required but unsupported provider: {provider}")
     return None
