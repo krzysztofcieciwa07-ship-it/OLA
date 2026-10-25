@@ -66,6 +66,8 @@ def create_checkout_once(task, success_url, cancel_url, tenant_id, client_key):
     price_id = os.getenv("OLA_STRIPE_PRICE_ID")
     if not price_id:
         raise RuntimeError("OLA_STRIPE_PRICE_ID is not configured")
+    if not os.getenv("STRIPE_SECRET_KEY"):
+        raise RuntimeError("STRIPE_SECRET_KEY is not configured")
     key_hash = hashlib.sha256(
         f"ola.checkout.v1\0{tenant_id}\0{client_key}".encode()
     ).hexdigest()

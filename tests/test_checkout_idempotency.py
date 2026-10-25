@@ -28,6 +28,7 @@ def checkout_client(monkeypatch):
                       key_hash=api_key_fingerprint(api_key)))
         db.commit()
     monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_local_checkout_only")
     return tenant, {"X-API-Key": api_key}, TestClient(app)
 
 
@@ -119,6 +120,18 @@ def test_network_ambiguity_cannot_trigger_checkout_retry(checkout_client, monkey
             StripeCheckoutRequest.tenant_id == tenant))
         assert row.status == "UNCERTAIN"
     assert _tenant_evidence(tenant) == []
+
+
+def test_missing_provider_config_rejects_before_creating_intent(checkout_client, monkeypatch):
+    tenant, headers, client = checkout_client
+    monkeypatch.delenv("STRIPE_SECRET_KEY")
+    calls = []
+    monkeypatch.setattr(revenue, "create_checkout", lambda *a, **kw: calls.append(True))
+    assert _post(client, headers, "checkout-" + uuid.uuid4().hex).status_code == 503
+    assert not calls
+    with SessionLocal() as db:
+        assert db.scalars(select(StripeCheckoutRequest).where(
+            StripeCheckoutRequest.tenant_id == tenant)).all() == []
 
 
 def test_crash_after_external_checkout_before_db_result_blocks_retry(checkout_client, monkeypatch):
