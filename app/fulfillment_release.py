@@ -177,7 +177,7 @@ def _require_order_and_proof(db, manifest, rows):
     return claim, event
 
 
-def reserve_delivery(manifest, signatures, *, igor_public_key, owner_public_key):
+def reserve_delivery(manifest, signatures, *, igor_public_key, owner_public_key, dry_run=False):
     """Reserve one exact delivery intent after independent signature/proof checks.
 
     No execution, entitlement grant, email, URL creation or customer dispatch.
@@ -260,6 +260,13 @@ def reserve_delivery(manifest, signatures, *, igor_public_key, owner_public_key)
             raise ValueError("agent execution evidence is not session-bound")
         if verify_agent_run(manifest["tenant_id"], manifest["run_id"]).get("status") != "VERIFIED":
             raise ValueError("IGOR runtime evidence verification did not pass")
+
+        if dry_run:
+            # All policy, chain, runtime, signer and binding checks passed.
+            # Zero mutations: no delivery receipt, no order state change.
+            return {"status": "READY_TO_RESERVE",
+                    "session_id": manifest["session_id"],
+                    "delivery_sent": False}
 
         reservation_id = str(uuid.uuid4())
         payload = {
