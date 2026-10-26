@@ -65,3 +65,21 @@ class StripeCheckoutRequest(Base):
     status = Column(String(32), nullable=False)
     session_id = Column(String(255), nullable=True)
     checkout_url = Column(Text, nullable=True)
+
+
+class DeliveryArtifactOutbox(Base):
+    """Operator-staged artifact; never a delivery, payment proof or entitlement.
+
+    One immutable delivery candidate per independent signed reservation.
+    No customer email, raw report, or bearer token is stored.
+    """
+
+    __tablename__ = "delivery_artifact_outbox"
+    reservation_id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False)
+    session_id = Column(String(255), nullable=False)
+    status = Column(String(48), nullable=False)
+    artifact_filename = Column(String(128), nullable=False)
+    artifact_sha256 = Column(String(64), nullable=False)
+    recipient_sha256 = Column(String(64), nullable=False)
+    evidence_hash = Column(String(64), nullable=False)
