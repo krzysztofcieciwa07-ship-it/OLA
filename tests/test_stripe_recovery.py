@@ -71,19 +71,34 @@ def _chain_ok(rows):
 
 
 def _simulate_crash_after_completed_local_evidence(tenant_id, monkeypatch):
-    real_append = stripe_webhook._append_evidence
+    """Construct a historical crash snapshot: past runtime already completed.
 
-    def append_then_crash(tenant, record_type, payload):
-        evidence_id = real_append(tenant, record_type, payload)
-        if record_type == "stripe.ola_execution_recorded":
-            raise RuntimeError("crash after final evidence append")
-        return evidence_id
-
-    monkeypatch.setattr(stripe_webhook, "_append_evidence", append_then_crash)
-    session_id, event_id, raw, signature = _signed_event(tenant_id)
-    with pytest.raises(RuntimeError, match="crash after final evidence append"):
-        TestClient(app).post("/stripe/webhook", content=raw,
-                             headers={"Stripe-Signature": signature})
+    The current signed webhook must NEVER execute. We seed the persisted old
+    PROCESSING->FAILED state and independent existing agent evidence directly,
+    so recovery tests still prove old transactions cannot be rerun or forged.
+    """
+    session_id, event_id, _raw, _signature = _signed_event(tenant_id)
+    task = "Audit this workflow"
+    with SessionLocal() as db:
+        db.add(StripeCheckoutClaim(session_id=session_id, tenant_id=tenant_id,
+                                   event_id=event_id, task=task, status="FAILED"))
+        db.add(StripeEvent(id=str(uuid.uuid4()), event_id=event_id,
+                           status="FAILED", task=task))
+        db.commit()
+    payment_id = append_evidence_atomic(tenant_id, "stripe.payment_confirmed", {
+        "stripe_event_id": event_id, "checkout_session_id": session_id,
+        "offer": "ola-execution-audit", "product": "OLA Execution Audit",
+        "amount_total": 9900, "currency": "eur", "task": task,
+    })["id"]
+    actual = agent_runtime.run_agent_task(tenant_id, task)
+    assert actual["status"] == "VERIFIED"
+    append_evidence_atomic(tenant_id, "stripe.ola_execution_recorded", {
+        "stripe_event_id": event_id, "checkout_session_id": session_id,
+        "ola_run_id": actual["run_id"], "ola_status": actual["status"],
+        "delivery_status": PENDING_REVIEW,
+        "ola_final_result": actual.get("final_result"),
+        "payment_evidence_id": payment_id,
+    })
     with SessionLocal() as db:
         claim = db.get(StripeCheckoutClaim, session_id)
         event = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))

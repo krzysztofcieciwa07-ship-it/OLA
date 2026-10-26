@@ -134,7 +134,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
         existing = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
         if existing is not None:
             if (claim is not None
-                    and existing.status in {"COMPLETED", "BLOCKED", "PENDING_INDEPENDENT_VERIFICATION"}
+                    and existing.status in {"COMPLETED", "BLOCKED", "PENDING_INDEPENDENT_VERIFICATION", "PENDING_HUMAN_AUTHORIZATION"}
                     and existing.result_json):
                 recorded = json.loads(existing.result_json)
                 if recorded.get("checkout_session_id") == session_id:
@@ -142,7 +142,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
             raise HTTPException(status_code=409, detail="Stripe event requires reconciliation")
 
         if claim is not None:
-            if (claim.status in {"COMPLETED", "BLOCKED", "PENDING_INDEPENDENT_VERIFICATION"}
+            if (claim.status in {"COMPLETED", "BLOCKED", "PENDING_INDEPENDENT_VERIFICATION", "PENDING_HUMAN_AUTHORIZATION"}
                     and claim.result_json):
                 return json.loads(claim.result_json)
             raise HTTPException(status_code=409, detail="Checkout Session requires reconciliation")
@@ -187,33 +187,31 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
                 "task": task,
             },
         )
-        runtime = run_agent_task(tenant_id, task)
-        # An absent or malformed agent result is never completion evidence.
-        if not isinstance(runtime, dict):
-            runtime = {}
-        delivery_status = _delivery_status(runtime)
+        # A signed Stripe webhook authenticates a payment event, not permission
+        # to execute arbitrary buyer-supplied task text. No authenticated,
+        # action-bound human-approval token is available at this boundary.
+        # Payment is durable; fulfillment must be separately admitted.
+        delivery_status = "PENDING_HUMAN_AUTHORIZATION"
         result = {
             "status": delivery_status,
             "event_id": event_id,
             "checkout_session_id": session_id,
             "payment": "CONFIRMED",
-            "ola_status": runtime.get("status", "UNKNOWN"),
-            "ola_run_id": runtime.get("run_id"),
-            "ola_final_result": runtime.get("final_result"),
+            "ola_status": "NOT_EXECUTED",
+            "ola_run_id": None,
+            "ola_final_result": None,
             "payment_evidence_id": payment_evidence_id,
-            "ola_evidence_ids": runtime.get("evidence_ids", []),
+            "ola_evidence_ids": [],
         }
         _append_evidence(
             tenant_id,
-            "stripe.ola_execution_recorded",
+            "stripe.fulfillment_held",
             {
                 "stripe_event_id": event_id,
                 "checkout_session_id": session_id,
-                "ola_run_id": runtime.get("run_id"),
-                "ola_status": runtime.get("status", "UNKNOWN"),
-                "delivery_status": delivery_status,
-                "ola_final_result": runtime.get("final_result"),
                 "payment_evidence_id": payment_evidence_id,
+                "delivery_status": delivery_status,
+                "reason": "independent_execution_authorization_absent",
             },
         )
     except Exception:
@@ -230,7 +228,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     with SessionLocal() as db:
         completed = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
         completed.status = delivery_status
-        completed.run_id = runtime.get("run_id")
+        completed.run_id = None
         completed.result_json = canonical_json(result)
         claim = db.get(StripeCheckoutClaim, session_id)
         claim.status = delivery_status
