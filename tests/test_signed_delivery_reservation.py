@@ -5,6 +5,8 @@ Synthetic Ed25519 signers are used only inside these tests, not production.
 import base64
 import hashlib
 import json
+import os
+import sys
 import subprocess
 import time
 import uuid
@@ -259,3 +261,36 @@ def test_dry_run_validates_without_reserving(tenant_id, tmp_path, monkeypatch):
         assert db.get(StripeCheckoutClaim, manifest["session_id"]).status == (
             "PENDING_INDEPENDENT_VERIFICATION"
         )
+
+
+def test_operator_cli_dry_run_before_apply(tenant_id, tmp_path, monkeypatch):
+    manifest = _make_order(tenant_id, monkeypatch, execution_proven=True)
+    signatures, igor_pub, owner_pub = _approved(tmp_path, monkeypatch, manifest)
+    manifest_path = tmp_path / "manifest.json"
+    signatures_path = tmp_path / "approvals.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    signatures_path.write_text(json.dumps(signatures), encoding="utf-8")
+    command = [
+        sys.executable, "-m", "scripts.reserve_signed_delivery",
+        "--manifest", str(manifest_path), "--approvals", str(signatures_path),
+        "--igor-public", str(igor_pub), "--owner-public", str(owner_pub),
+    ]
+    before = len(_records(tenant_id))
+    probe = subprocess.run(command, capture_output=True, text=True,
+                           env=dict(os.environ), timeout=25)
+    assert probe.returncode == 0, probe.stderr
+    assert json.loads(probe.stdout)["status"] == "READY_TO_RESERVE"
+    assert len(_records(tenant_id)) == before
+
+    applied = subprocess.run(command + ["--apply"], capture_output=True,
+                             text=True, env=dict(os.environ), timeout=25)
+    assert applied.returncode == 0, applied.stderr
+    assert json.loads(applied.stdout)["status"] == "DELIVERY_RESERVED"
+    assert len(_records(tenant_id)) == before + 1
+    assert _records(tenant_id)[-1].record_type == "execution.delivery_reserved"
+
+    repeated = subprocess.run(command + ["--apply"], capture_output=True,
+                              text=True, env=dict(os.environ), timeout=25)
+    assert repeated.returncode == 0, repeated.stderr
+    assert json.loads(repeated.stdout)["status"] == "ALREADY_RESERVED"
+    assert len(_records(tenant_id)) == before + 1
