@@ -9,6 +9,7 @@ from sqlalchemy import select
 import app.main as main_module
 from app.database import SessionLocal
 from app.hashchain import verify_chain
+from app.api_key_hashing import api_key_fingerprint
 from app.execution_safety_gate import ExecutionDecision
 from app.models import ApiKey, EvidenceRecord, Tenant
 
@@ -20,7 +21,7 @@ def _tenant():
         db.add(Tenant(id=tenant_id, name="agent-run-gate-test"))
         db.flush()
         db.add(ApiKey(id=str(uuid.uuid4()), tenant_id=tenant_id,
-                      key_hash=hashlib.sha256(key.encode()).hexdigest()))
+                      key_hash=api_key_fingerprint(key)))
         db.commit()
     return tenant_id, {"X-API-Key": key}
 
