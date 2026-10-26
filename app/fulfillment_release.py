@@ -203,6 +203,23 @@ def reserve_delivery(manifest, signatures, *, igor_public_key, owner_public_key,
                     and reservation.get("manifest_sha256") == digest
                     and reservation.get("delivery_sent") is False
                     and event.result_json == claim.result_json):
+                # Idempotency is not permission to trust a mutable order row.
+                # Revalidate the whole chain and the original append-only
+                # reservation proof before reporting an existing reservation.
+                verified_rows = _chain_rows(db, manifest["tenant_id"])
+                matches = [row for row in verified_rows if
+                           row.record_type == RECORD_TYPE and
+                           row.record_hash == reservation.get("evidence_record_hash")]
+                if len(matches) != 1:
+                    raise ValueError("delivery Evidence reservation proof missing")
+                proof_row = matches[0]
+                proof = _trusted_payload(proof_row)
+                if (proof.get("reservation_id") != reservation["id"]
+                        or proof.get("approval_manifest_sha256") != digest
+                        or proof.get("approved_tip") != manifest["evidence_tip"]
+                        or proof_row.prev_hash != manifest["evidence_tip"]
+                        or proof.get("delivery_sent") is not False):
+                    raise ValueError("delivery Evidence reservation proof conflicts")
                 return {"status": "ALREADY_RESERVED", "session_id": manifest["session_id"],
                         "delivery_sent": False, "reservation_id": reservation["id"]}
             raise ValueError("reserved order conflict; no second delivery possible")
