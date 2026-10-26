@@ -125,6 +125,11 @@ def stage_delivery(tenant_id, session_id, reservation_id, filename,
             raise ValueError("atomic delivery staging backend is unavailable")
         if not dry_run:
             db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        # Before reading tenant Evidence, ensure the authenticated operator
+        # selected an order that actually belongs to this tenant.
+        claim_owner = db.get(StripeCheckoutClaim, session_id)
+        if claim_owner is None or claim_owner.tenant_id != tenant_id:
+            raise ValueError("order tenant mismatch")
         rows = _chain_rows(db, tenant_id)
         record = _validated_reservation(
             db, tenant_id, session_id, reservation_id,
