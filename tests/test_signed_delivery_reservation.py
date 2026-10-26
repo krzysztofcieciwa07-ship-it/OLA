@@ -242,3 +242,20 @@ def test_replay_with_changed_recipient_never_reserves_second_delivery(
 
 def _review_private(tmp_path, role):
     return tmp_path / (role + "-private.pem")
+
+
+def test_dry_run_validates_without_reserving(tenant_id, tmp_path, monkeypatch):
+    manifest = _make_order(tenant_id, monkeypatch, execution_proven=True)
+    signatures, igor_pub, owner_pub = _approved(tmp_path, monkeypatch, manifest)
+    before = len(_records(tenant_id))
+    outcome = reserve_delivery(
+        manifest, signatures, igor_public_key=igor_pub,
+        owner_public_key=owner_pub, dry_run=True,
+    )
+    assert outcome["status"] == "READY_TO_RESERVE"
+    assert outcome["delivery_sent"] is False
+    assert len(_records(tenant_id)) == before
+    with SessionLocal() as db:
+        assert db.get(StripeCheckoutClaim, manifest["session_id"]).status == (
+            "PENDING_INDEPENDENT_VERIFICATION"
+        )
