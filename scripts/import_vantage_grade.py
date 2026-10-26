@@ -29,8 +29,8 @@ MAX_PUBLIC_KEY_BYTES = 8192
 MAX_API_RESPONSE = 128 * 1024
 RECORD_TYPE = "external.vantage.grade"
 META = {"version": 2, "record_type": RECORD_TYPE, "producer": "tenant_api"}
-SHA256 = re.compile(r"[0-9a-f]{64}\\Z")
-HEX_HASH = re.compile(r"[0-9a-f]{64}\\Z")
+SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+HEX_HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 
 class _NoRedirect(HTTPRedirectHandler):
