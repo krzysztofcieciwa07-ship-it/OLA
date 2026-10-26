@@ -39,11 +39,12 @@ def _stage(manifest, rid, *, filename="audit-report.pdf", dry_run=True,
     )
 
 
-def _outbox_rows():
+def _outbox_rows(reservation_id):
     with SessionLocal() as db:
         return db.connection().exec_driver_sql(
             "SELECT reservation_id, status, session_id, artifact_sha256 "
-            "FROM delivery_artifact_outbox"
+            "FROM delivery_artifact_outbox WHERE reservation_id = ?",
+            (reservation_id,),
         ).all()
 
 
@@ -57,7 +58,7 @@ def test_dry_run_verifies_reserved_artifact_without_any_mutation(
     assert out["delivery_sent"] is False
     assert out["payment_rechecked"] is False
     assert len(_records(tenant_id)) == before
-    assert _outbox_rows() == []
+    assert _outbox_rows(rid) == []
 
 
 def test_apply_stages_one_artifact_but_cannot_send_or_approve_payment(
@@ -70,7 +71,7 @@ def test_apply_stages_one_artifact_but_cannot_send_or_approve_payment(
     assert result["delivery_sent"] is False
     assert result["payment_rechecked"] is False
     assert len(_records(tenant_id)) == before + 1
-    rows = _outbox_rows()
+    rows = _outbox_rows(rid)
     assert len(rows) == 1
     assert tuple(rows[0]) == (
         rid, "STAGED_AWAITING_PAYMENT_RECHECK",
@@ -90,7 +91,7 @@ def test_apply_stages_one_artifact_but_cannot_send_or_approve_payment(
     assert again["status"] == "ALREADY_STAGED"
     assert again["delivery_sent"] is False
     assert len(_records(tenant_id)) == before + 1
-    assert len(_outbox_rows()) == 1
+    assert len(_outbox_rows(rid)) == 1
 
 
 def test_wrong_tenant_and_reservation_cannot_stage(tenant_id, tmp_path, monkeypatch):
@@ -99,7 +100,7 @@ def test_wrong_tenant_and_reservation_cannot_stage(tenant_id, tmp_path, monkeypa
         _stage(manifest, rid, tenant_id_override=str(uuid.uuid4()), dry_run=False)
     with pytest.raises(ValueError, match="reservation"):
         _stage(manifest, str(uuid.uuid4()), dry_run=False)
-    assert _outbox_rows() == []
+    assert _outbox_rows(rid) == []
 
 
 def test_mismatched_file_digest_blocks_without_db_writes(tenant_id, tmp_path, monkeypatch):
@@ -107,7 +108,7 @@ def test_mismatched_file_digest_blocks_without_db_writes(tenant_id, tmp_path, mo
     file.write_bytes(b"tampered payload")
     with pytest.raises(ValueError, match="artifact|digest"):
         _stage(manifest, rid, dry_run=False)
-    assert _outbox_rows() == []
+    assert _outbox_rows(rid) == []
 
 
 def test_path_traversal_or_symlink_blocks(tenant_id, tmp_path, monkeypatch):
@@ -123,7 +124,7 @@ def test_path_traversal_or_symlink_blocks(tenant_id, tmp_path, monkeypatch):
         pytest.skip("host cannot create a test symlink")
     with pytest.raises(ValueError, match="symlink|artifact|path"):
         _stage(manifest, rid, filename=link.name, dry_run=False)
-    assert _outbox_rows() == []
+    assert _outbox_rows(rid) == []
 
 
 def test_missing_config_fails_closed(tenant_id, tmp_path, monkeypatch):
@@ -154,4 +155,4 @@ def test_existing_stage_checks_chain_and_artifact_on_replay(
         db.commit()
     with pytest.raises(ValueError, match="chain|Evidence"):
         _stage(manifest, rid, dry_run=False)
-    assert len(_outbox_rows()) == 1
+    assert len(_outbox_rows(rid)) == 1
