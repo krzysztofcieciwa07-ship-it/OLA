@@ -294,3 +294,25 @@ def test_operator_cli_dry_run_before_apply(tenant_id, tmp_path, monkeypatch):
     assert repeated.returncode == 0, repeated.stderr
     assert json.loads(repeated.stdout)["status"] == "ALREADY_RESERVED"
     assert len(_records(tenant_id)) == before + 1
+
+
+def test_replayed_reservation_blocks_if_chain_was_tampered(
+    tenant_id, tmp_path, monkeypatch,
+):
+    manifest = _make_order(tenant_id, monkeypatch, execution_proven=True)
+    signatures, igor_pub, owner_pub = _approved(tmp_path, monkeypatch, manifest)
+    assert _reserve(manifest, signatures, (igor_pub, owner_pub))["status"] == "DELIVERY_RESERVED"
+    # Append a malformed but syntactically valid record as a tampering signal.
+    # No direct mutation of the append-only evidence table is permitted.
+    with SessionLocal() as db:
+        tip = db.scalar(select(EvidenceRecord).where(
+            EvidenceRecord.tenant_id == tenant_id
+        ).order_by(EvidenceRecord.seq.desc()))
+        db.add(EvidenceRecord(
+            id=str(uuid.uuid4()), tenant_id=tenant_id, seq=tip.seq + 1,
+            record_type="tamper.probe", payload_json="{}",
+            prev_hash=tip.record_hash, record_hash="f" * 64,
+        ))
+        db.commit()
+    with pytest.raises(ValueError, match="Evidence|evidence|chain"):
+        _reserve(manifest, signatures, (igor_pub, owner_pub))
