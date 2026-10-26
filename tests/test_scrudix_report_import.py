@@ -8,6 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+TEST_API_KEY_SALT = b"scrudix-test-api-key-salt"
+
 from app.database import SessionLocal
 from app.hashchain import verify_chain
 from app.main import app
@@ -37,7 +39,12 @@ def _tenant():
         db.add(Tenant(id=tenant_id, name="scrudix-import-test"))
         db.flush()
         db.add(ApiKey(id=str(uuid.uuid4()), tenant_id=tenant_id,
-                      key_hash=hashlib.sha256(api_key.encode()).hexdigest()))
+                      key_hash=hashlib.pbkdf2_hmac(
+                          "sha256",
+                          api_key.encode("utf-8"),
+                          TEST_API_KEY_SALT,
+                          600_000,
+                      ).hex()))
         db.commit()
     return tenant_id, api_key
 
