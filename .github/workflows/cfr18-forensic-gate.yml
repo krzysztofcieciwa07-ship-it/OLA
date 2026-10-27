@@ -164,11 +164,75 @@ jobs:
           print(json.dumps(proof, sort_keys=True))
           PY
 
+      - name: Live fault and opt-in recovery
+        run: |
+          set -euo pipefail
+          export SOURCE_SHA="$(git rev-parse HEAD)"
+          docker compose down --remove-orphans
+          mkdir -p data
+          rm -f data/flowai.db data/flowai.db-wal data/flowai.db-shm
+          FAULT_VARIANT=silent_loss RECOVER_STALE_PROCESSING=0 docker compose up -d --force-recreate
+          trap 'docker compose down --remove-orphans || true' EXIT
+          python3 - <<'PY'
+          import json, time
+          from urllib.request import Request, urlopen
+          def req(path, data=None):
+              r=Request("http://127.0.0.1:8080"+path, data=data,
+                        headers={"Content-Type":"application/json"})
+              with urlopen(r,timeout=3) as f: return json.load(f)
+          for _ in range(80):
+              try:
+                  if req("/health")["status"] == "ok": break
+              except OSError: pass
+              time.sleep(.2)
+          else: raise AssertionError("API not ready")
+          created=req("/api/generate",b"{}")
+          job_id=created["job_id"]
+          for _ in range(80):
+              job=req("/api/job/"+str(job_id))
+              if job["status"]=="processing": break
+              time.sleep(.2)
+          else: raise AssertionError("fault not observed")
+          assert job["attempts"]==1
+          open("evidence/fault-job-id","w").write(str(job_id))
+          PY
+          docker compose stop worker
+          FAULT_VARIANT=double_process RECOVER_STALE_PROCESSING=1 docker compose up -d --no-deps --force-recreate worker
+          python3 - <<'PY'
+          import json, os, sqlite3, time
+          from pathlib import Path
+          from urllib.request import urlopen
+          jid=int(Path("evidence/fault-job-id").read_text())
+          def req(path):
+              with urlopen("http://127.0.0.1:8080"+path,timeout=3) as f:
+                  return json.load(f)
+          for _ in range(100):
+              job=req("/api/job/"+str(jid))
+              if job["status"]=="done": break
+              time.sleep(.2)
+          else: raise AssertionError("recovery not completed")
+          assert job["attempts"]==2,job
+          workflows=req("/api/workflows")
+          assert sum(x["workflow_id"]==job["workflow_id"] for x in workflows)==1
+          with sqlite3.connect("data/flowai.db") as db:
+              events=[r[0] for r in db.execute(
+                  "SELECT type FROM events WHERE job_id=?",(jid,))]
+          assert "recovery_requeued" in events,events
+          proof={"source_sha":os.environ["SOURCE_SHA"],
+                 "fault":"silent_loss","observed_processing_attempts":1,
+                 "recovery":"opt_in_requeue","completed_attempts":job["attempts"],
+                 "matching_effects":1,"recovery_event":"recovery_requeued",
+                 "clean_replay":"NOT_VERIFIED","independent_igor":"NOT_VERIFIED"}
+          Path("evidence/fault-recovery.json").write_text(json.dumps(proof,sort_keys=True,indent=2)+"\\n")
+          print(json.dumps(proof,sort_keys=True))
+          PY
+
       - name: Assert evidence files exist
         run: |
           set -euo pipefail
           test -s evidence/.chain.jsonl
           test -s evidence/runtime-smoke.json
+          test -s evidence/fault-recovery.json
 
       - name: Publish gate evidence
         if: always()
