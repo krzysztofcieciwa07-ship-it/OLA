@@ -15,6 +15,7 @@ services:
       DB_PATH: /data/flowai.db
       FAULT_VARIANT: ${FAULT_VARIANT:-double_process}
       KILL_DELAY_MS: ${KILL_DELAY_MS:-500}
+      RECOVER_STALE_PROCESSING: ${RECOVER_STALE_PROCESSING:-0}
     volumes:
       - ./data:/data
     depends_on: [api]
