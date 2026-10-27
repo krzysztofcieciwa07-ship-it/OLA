@@ -227,12 +227,42 @@ jobs:
           print(json.dumps(proof,sort_keys=True))
           PY
 
+      - name: Independent isolated replay and evidence consistency
+        run: |
+          set -euo pipefail
+          export SOURCE_SHA="$(git rev-parse HEAD)"
+          python3 ci/clean_replay.py
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          from ci.evidence_vault import verify_chain
+          root=Path("evidence")
+          names=["runtime-smoke.json","fault-recovery.json","clean-replay.json"]
+          docs=[json.loads((root/name).read_text()) for name in names]
+          assert all(x["source_sha"]==os.environ["SOURCE_SHA"] for x in docs)
+          assert docs[0]["job_status"]=="done" and docs[0]["matching_workflows"]==1
+          assert docs[1]["completed_attempts"]==2 and docs[1]["matching_effects"]==1
+          assert docs[2]["deterministic_replay"]=="PASS"
+          assert docs[2]["cycles"][0]==docs[2]["cycles"][1]
+          assert verify_chain()["valid"] is False, "negative tamper fixture unexpectedly valid"
+          report={"source_sha":os.environ["SOURCE_SHA"],
+                  "independent_consistency":"PASS",
+                  "negative_tamper_rejected":True,
+                  "clean_sqlite_replay":"PASS",
+                  "full_docker_replay":"NOT_VERIFIED",
+                  "independent_igor":"NOT_VERIFIED"}
+          (root/"replay-verification.json").write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
+          print(json.dumps(report,sort_keys=True))
+          PY
+
       - name: Assert evidence files exist
         run: |
           set -euo pipefail
           test -s evidence/.chain.jsonl
           test -s evidence/runtime-smoke.json
           test -s evidence/fault-recovery.json
+          test -s evidence/clean-replay.json
+          test -s evidence/replay-verification.json
 
       - name: Publish gate evidence
         if: always()
