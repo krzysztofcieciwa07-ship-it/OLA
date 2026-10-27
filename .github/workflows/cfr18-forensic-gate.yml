@@ -223,7 +223,7 @@ jobs:
                  "recovery":"opt_in_requeue","completed_attempts":job["attempts"],
                  "matching_effects":1,"recovery_event":"recovery_requeued",
                  "clean_replay":"NOT_VERIFIED","independent_igor":"NOT_VERIFIED"}
-          Path("evidence/fault-recovery.json").write_text(json.dumps(proof,sort_keys=True,indent=2)+"\\n")
+          Path("evidence/fault-recovery.json").write_text(json.dumps(proof,sort_keys=True,indent=2)+"\n")
           print(json.dumps(proof,sort_keys=True))
           PY
 
