@@ -13,26 +13,39 @@ permissions:
 
 env:
   # CI fixture only; NEVER use as a production secret.
-  OLA_API_KEY_PEPPER: ${{ github.sha }}
+  EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  OLA_API_KEY_PEPPER: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   provenance-mutation:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout exact PR source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
+      - name: Assert exact source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$EXPECTED_SOURCE_SHA" ]; then
+            echo "::error::Source checkout mismatch: $actual != $EXPECTED_SOURCE_SHA"
+            exit 1
+          fi
+          echo "EXACT_SOURCE_SHA_VERIFIED=$actual"
+
       - name: Build deployment image
-        run: docker build --tag ola:${GITHUB_SHA} .
+        run: docker build --tag ola:${EXPECTED_SOURCE_SHA} .
 
       - name: Start deployment image with source provenance
         run: |
           set -euo pipefail
           docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" --name ola-provenance -p 8000:8000 \
-            -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" \
-            ola:${GITHUB_SHA}
+            -e OLA_RUNTIME_COMMIT="${EXPECTED_SOURCE_SHA}" \
+            ola:${EXPECTED_SOURCE_SHA}
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then exit 0; fi
             sleep 1
@@ -42,7 +55,7 @@ jobs:
 
       - name: Clean evidence must verify
         env:
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
           EXPECTED_TASK: Calculate 17 * 23 and return the verified result.
           EXPECTED_RESULT: "391"
         run: |
@@ -78,7 +91,7 @@ jobs:
 
       - name: Evidence tamper must be rejected
         env:
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
           EXPECTED_TASK: Calculate 17 * 23 and return the verified result.
           EXPECTED_RESULT: "391"
         run: |
