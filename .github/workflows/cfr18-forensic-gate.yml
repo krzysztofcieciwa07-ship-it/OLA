@@ -274,7 +274,7 @@ jobs:
               row["hash"]=hashlib.sha256(json.dumps(row,sort_keys=True).encode()).hexdigest()
               rows.append(row)
               prev=row["hash"]
-          (root/"valid-chain.jsonl").write_text("".join(json.dumps(x,sort_keys=True)+"\\n" for x in rows))
+          (root/"valid-chain.jsonl").write_text("".join(json.dumps(x,sort_keys=True)+"\n" for x in rows))
           PY
           python3 ci/independent_verify.py --evidence evidence --sha "$SOURCE_SHA"
 
