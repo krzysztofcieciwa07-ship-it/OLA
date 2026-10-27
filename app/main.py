@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import uuid
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse
@@ -30,6 +31,7 @@ from .stripe_webhook import process_checkout_event
 app = FastAPI(title="OLA Execution Gate")
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
+BUSINESS_INVOICE_GATE = ExecutionSafetyGate(allowed_actions={"run_invoice_task"})
 Base.metadata.create_all(bind=engine)
 install_append_only_triggers()
 
@@ -667,15 +669,72 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
 
 @app.post("/business-invoice-run")
 def create_business_invoice_run(body: dict, x_api_key: str | None = Header(default=None)):
+    """Explicitly opted-in, bounded *deterministic demo*, never a payment API.
+
+    This independent execution ingress must not bypass /agent-run's admission
+    policy. No HTTP caller can supply its own risk level or human approval.
+    """
     tenant_id = tenant_from_key(x_api_key)
     invoice = body.get("invoice")
     if not isinstance(invoice, dict):
         raise HTTPException(status_code=400, detail="invoice object is required")
+
+    # A financial-looking result must not execute by default. Even in a demo,
+    # accept only a small, exact schema and a bounded, finite test amount.
+    valid_demo = False
+    required = {"invoice_id", "supplier", "currency", "net", "vat_rate"}
+    if (set(invoice) == required
+            and isinstance(invoice.get("invoice_id"), str)
+            and 1 <= len(invoice["invoice_id"]) <= 64
+            and isinstance(invoice.get("supplier"), str)
+            and 1 <= len(invoice["supplier"].strip()) <= 128
+            and invoice.get("currency") == "EUR"
+            and type(invoice.get("net")) in {int, float}
+            and type(invoice.get("vat_rate")) in {int, float}):
+        try:
+            net = Decimal(str(invoice["net"]))
+            rate = Decimal(str(invoice["vat_rate"]))
+            valid_demo = (net.is_finite() and rate.is_finite()
+                          and Decimal("0") <= net <= Decimal("10000")
+                          and net.as_tuple().exponent >= -2
+                          and rate == Decimal("0.21"))
+        except (InvalidOperation, ValueError):
+            valid_demo = False
+
+    enabled = os.getenv("OLA_BUSINESS_INVOICE_DEMO_ENABLED") == "1"
+    risk = "LOW" if enabled and valid_demo else "HIGH"
     task = "INVOICE_JSON:" + canonical_json(invoice)
+    allowed = False
     try:
-        return run_invoice_task(tenant_id, task)
+        decision = BUSINESS_INVOICE_GATE.execute(
+            agent_id="business-invoice-demo", action="run_invoice_task",
+            effect=lambda: None, risk=risk, human_approved=False,
+        )
+        allowed = (risk == "LOW" and isinstance(decision, ExecutionDecision)
+                   and decision.status == "ALLOW")
+        reason = ("bounded_demo_opt_in" if allowed else
+                  "demo_disabled_or_invoice_outside_policy")
+    except Exception:
+        reason = "gate_exception"
+
+    try:
+        append_record(tenant_id, "execution.safety_gate", {
+            "decision": "ALLOW" if allowed else "DENY",
+            "agent_id": "business-invoice-demo", "action": "run_invoice_task",
+            "risk": risk, "reason": reason,
+            "task_sha256": hashlib.sha256(task.encode()).hexdigest(),
+        })
+    except Exception as exc:
+        raise HTTPException(status_code=403, detail="gate evidence unavailable") from exc
+    if not allowed:
+        raise HTTPException(status_code=403, detail=reason)
+
+    try:
+        result = run_invoice_task(tenant_id, task)
     except (ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail="invalid invoice input") from exc
+    return {**result, "production_authorized": False,
+            "external_effects_executed": False}
 
 
 @app.get("/evidence/{record_id}")
