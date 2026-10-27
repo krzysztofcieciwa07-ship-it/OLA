@@ -89,5 +89,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cfr18-forensic-gate-${{ github.event.pull_request.head.sha || github.sha }}
-          path: scenarios/cfr-18/evidence
+          path: scenarios/cfr-18/evidence/.chain.jsonl
+          include-hidden-files: true
           if-no-files-found: error
