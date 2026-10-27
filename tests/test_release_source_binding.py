@@ -36,6 +36,45 @@ class ReleaseSourceBindingTest(unittest.TestCase):
                 self.assertIn('if [ "$checked_out" != "$EXPECTED_SOURCE_SHA" ]; then', content)
                 self.assertIn('exit 1', content)
 
+
+    def test_runtime_gate_producers_bind_to_exact_pr_source(self):
+        # Regression: pull_request default checkout/github.sha can be a
+        # synthetic merge commit rather than the reviewed PR head.
+        producers = (
+            ".github/workflows/e2e.yml",
+            ".github/workflows/provenance-gate-final.yml",
+            ".github/workflows/provenance-mutation.yml",
+        )
+        for filename in producers:
+            with self.subTest(workflow=filename):
+                content = (ROOT / filename).read_text(encoding="utf-8")
+                lines = content.splitlines()
+                self.assertIn("EXPECTED_SOURCE_SHA: " + SOURCE, content)
+                self.assertIn("OLA_API_KEY_PEPPER: " + SOURCE, content)
+                checkouts = [
+                    index for index, line in enumerate(lines)
+                    if "uses: actions/checkout@" in line
+                ]
+                self.assertGreater(len(checkouts), 0)
+                for index in checkouts:
+                    block = "\n".join(lines[index + 1:index + 9])
+                    self.assertIn("ref: " + SOURCE, block)
+                    self.assertIn("persist-credentials: false", block)
+                self.assertIn('actual="$(git rev-parse HEAD)"', content)
+                self.assertIn('if [ "$actual" != "$EXPECTED_SOURCE_SHA" ]; then', content)
+                self.assertIn('echo "::error::Source checkout mismatch:', content)
+                self.assertIn("exit 1", content)
+                self.assertIn("EXACT_SOURCE_SHA_VERIFIED=$actual", content)
+                self.assertIn("docker build --tag ola:${EXPECTED_SOURCE_SHA} .", content)
+                self.assertIn('OLA_RUNTIME_COMMIT="${EXPECTED_SOURCE_SHA}"', content)
+                self.assertIn("EXPECTED_COMMIT: " + SOURCE, content)
+                self.assertNotIn("${GITHUB_SHA}", content)
+                self.assertNotIn("EXPECTED_COMMIT: ${{ github.sha }}", content)
+
+        e2e = (ROOT / producers[0]).read_text(encoding="utf-8")
+        self.assertIn("name: ola-runtime-e2e-" + SOURCE, e2e)
+        self.assertIn('"commit=${EXPECTED_SOURCE_SHA}"', e2e)
+
     def test_release_manifest_never_calls_green_ci_production_verified(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn('status="ATTESTED_PENDING_HUMAN"', content)
