@@ -255,6 +255,29 @@ jobs:
           print(json.dumps(report,sort_keys=True))
           PY
 
+      - name: Commit positive SHA-bound evidence chain
+        run: |
+          set -euo pipefail
+          export SOURCE_SHA="$(git rev-parse HEAD)"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path("evidence")
+          names=("runtime-smoke.json","fault-recovery.json","clean-replay.json","replay-verification.json")
+          digests={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in names}
+          genesis=hashlib.sha256(b"CFR-18-GENESIS").hexdigest()
+          rows=[]
+          prev=genesis
+          for kind,payload in (("session_start",{"source_sha":os.environ["SOURCE_SHA"]}),
+                               ("evidence_commit",{"source_sha":os.environ["SOURCE_SHA"],"sha256":digests})):
+              row={"ts":"2026-01-01T00:00:00+00:00","type":kind,"payload":payload,"prev_hash":prev}
+              row["hash"]=hashlib.sha256(json.dumps(row,sort_keys=True).encode()).hexdigest()
+              rows.append(row)
+              prev=row["hash"]
+          (root/"valid-chain.jsonl").write_text("".join(json.dumps(x,sort_keys=True)+"\\n" for x in rows))
+          PY
+          python3 ci/independent_verify.py --evidence evidence --sha "$SOURCE_SHA"
+
       - name: Assert evidence files exist
         run: |
           set -euo pipefail
@@ -263,6 +286,7 @@ jobs:
           test -s evidence/fault-recovery.json
           test -s evidence/clean-replay.json
           test -s evidence/replay-verification.json
+          test -s evidence/valid-chain.jsonl
 
       - name: Publish gate evidence
         if: always()
@@ -272,3 +296,26 @@ jobs:
           path: scenarios/cfr-18/evidence
           include-hidden-files: true
           if-no-files-found: error
+
+  independent-evidence-gate:
+    needs: forensic-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact source SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fetch producer artifact without producer workspace
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cfr18-forensic-gate-${{ github.event.pull_request.head.sha || github.sha }}
+          path: isolated-evidence
+      - name: Verify evidence in separate job
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 scenarios/cfr-18/ci/independent_verify.py --evidence isolated-evidence --sha "$SOURCE_SHA"
