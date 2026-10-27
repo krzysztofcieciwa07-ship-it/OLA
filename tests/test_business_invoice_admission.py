@@ -1,6 +1,9 @@
 """Regression tests for the separate invoice execution ingress."""
 import hashlib
 import json
+import os
+import subprocess
+import sys
 import uuid
 
 import pytest
@@ -138,3 +141,26 @@ def test_gate_evidence_failure_blocks_invoice(identity, monkeypatch):
         "/business-invoice-run", headers=headers, json={"invoice": VALID},
     )
     assert response.status_code == 403
+
+
+def test_independent_verifier_requires_bounded_demo_admission(
+    identity, monkeypatch,
+):
+    tenant_id, headers = identity
+    monkeypatch.setenv("OLA_BUSINESS_INVOICE_DEMO_ENABLED", "1")
+    response = TestClient(main.app).post(
+        "/business-invoice-run", headers=headers, json={"invoice": VALID},
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "VERIFIED"
+    proof = subprocess.run([
+        sys.executable, "scripts/verify_business_invoice.py",
+        "--db", os.environ["OLA_EG_DB_PATH"], "--tenant-id", tenant_id,
+        "--run-id", result["run_id"],
+        "--invoice-json", canonical_json(VALID), "--expect-gate",
+    ], capture_output=True, text=True)
+    assert proof.returncode == 0, proof.stdout + proof.stderr
+    data = json.loads(proof.stdout)
+    assert data["admission_gate_verified"] is True
+    assert data["evidence_count"] == 7

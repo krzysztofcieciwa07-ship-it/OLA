@@ -41,3 +41,9 @@ provider-backed payment/delivery reconciliation.
 The regression suite covers default deny, malformed/excessive amounts,
 currency/VAT bypass, opt-in execution ordering, broken gate, and Evidence
 failure. No live provider calls or transfers are performed by these tests.
+
+The isolated HTTP E2E runs the independent invoice verifier with
+`--expect-gate`, requiring **seven** full-chain records: a trusted, exact-task
+`ALLOW` decision followed by the six deterministic agent records. The direct
+runtime unit test keeps its older six-agent-only verification mode; it does
+not imply that direct calls are an approved customer ingress.
