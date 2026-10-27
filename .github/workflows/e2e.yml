@@ -227,13 +227,14 @@ jobs:
           assert result["status"] == "VERIFIED", result
           assert result["agents"] == ["codeact","react","agentic_rag","mcp_tool_use","self_reflection","multi_agent"], result
           assert result["evidence_count"] == 6, result
+          assert result["production_authorized"] is False and result["external_effects_executed"] is False, result
           final = result["final_result"]
           assert final["invoice_id"] == invoice["invoice_id"], final
           assert final["net"] == 1000.0 and final["vat"] == 210.0 and final["gross"] == 1210.0, final
           assert final["payment_decision"] == "APPROVE_FOR_TEST_TRANSFER", final
           assert final["transfer_amount"] == 1210.0, final
           assert final["transfer_status"] == "READY_NOT_SENT", final
-          verifier = subprocess.run(["python", "scripts/verify_business_invoice.py", "--db", db_path, "--tenant-id", tenant_id, "--run-id", result["run_id"], "--invoice-json", json.dumps(invoice, sort_keys=True, separators=(",", ":"))], capture_output=True, text=True)
+          verifier = subprocess.run(["python", "scripts/verify_business_invoice.py", "--db", db_path, "--tenant-id", tenant_id, "--run-id", result["run_id"], "--invoice-json", json.dumps(invoice, sort_keys=True, separators=(",", ":")), "--expect-gate"], capture_output=True, text=True)
           print(verifier.stdout)
           if verifier.returncode != 0:
               print("STDERR:", verifier.stderr, file=sys.stderr)

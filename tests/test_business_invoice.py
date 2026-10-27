@@ -48,3 +48,15 @@ def test_six_agents_produce_verified_invoice_result_and_external_verifier_passes
     assert proof["independent_instance_count"] == 6
     assert proof["independent_context_count"] == 6
     assert proof["transfer_status"] == "READY_NOT_SENT"
+
+    # Direct runtime-only proof cannot masquerade as HTTP-admitted execution.
+    gated = subprocess.run(
+        [sys.executable, "scripts/verify_business_invoice.py",
+         "--db", os.environ["OLA_EG_DB_PATH"],
+         "--tenant-id", tenant_id, "--run-id", result["run_id"],
+         "--invoice-json", json.dumps(INVOICE, sort_keys=True, separators=(",", ":")),
+         "--expect-gate"],
+        capture_output=True, text=True,
+    )
+    assert gated.returncode != 0
+    assert json.loads(gated.stderr or gated.stdout)["status"] == "BLOCK"

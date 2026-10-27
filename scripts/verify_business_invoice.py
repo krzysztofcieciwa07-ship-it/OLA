@@ -34,6 +34,8 @@ def main():
     parser.add_argument("--tenant-id", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--invoice-json", required=True)
+    parser.add_argument("--expect-gate", action="store_true",
+                        help="require trusted invoice admission before the six agent records")
     args = parser.parse_args()
 
     invoice = json.loads(args.invoice_json)
@@ -49,12 +51,15 @@ def main():
     ).fetchall()
     db.close()
 
-    if len(rows) != 6:
-        fail(f"expected 6 evidence records, got {len(rows)}")
+    expected_count = 7 if args.expect_gate else 6
+    if len(rows) != expected_count:
+        fail(f"expected {expected_count} evidence records, got {len(rows)}")
 
-    expected_types = [f"agent.{role}" for role in ROLES]
+    expected_types = (["execution.safety_gate"] if args.expect_gate else []) + [
+        f"agent.{role}" for role in ROLES
+    ]
     if [row[2] for row in rows] != expected_types:
-        fail("agent evidence order/type mismatch")
+        fail("gate/agent evidence order/type mismatch")
 
     expected_prev = GENESIS
     instances = set()
@@ -80,9 +85,21 @@ def main():
         if record_hash != expected_hash:
             fail("hash-chain record hash mismatch")
         expected_prev = record_hash
+        if args.expect_gate and expected_seq == 0:
+            expected_task = "INVOICE_JSON:" + canonical(invoice)
+            if (payload.get("decision") != "ALLOW"
+                    or payload.get("risk") != "LOW"
+                    or payload.get("action") != "run_invoice_task"
+                    or payload.get("agent_id") != "business-invoice-demo"
+                    or payload.get("reason") != "bounded_demo_opt_in"
+                    or payload.get("task_sha256") != hashlib.sha256(
+                        expected_task.encode("utf-8")).hexdigest()):
+                fail("invoice safety gate proof missing or not bound to task")
+            continue
         payloads.append(payload)
         agent = payload.get("agent")
-        if agent != ROLES[expected_seq]:
+        role_index = expected_seq - int(args.expect_gate)
+        if agent != ROLES[role_index]:
             fail("agent identity/order mismatch")
         if payload.get("run_id") != args.run_id:
             fail("run_id mismatch")
@@ -133,7 +150,8 @@ def main():
         "net": expected_net,
         "vat": expected_vat,
         "gross": expected_gross,
-        "evidence_count": 6,
+        "evidence_count": expected_count,
+        "admission_gate_verified": args.expect_gate,
         "independent_instance_count": len(instances),
         "independent_context_count": len(contexts),
         "payment_decision": final["payment_decision"],
