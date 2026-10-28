@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import uuid
@@ -205,7 +206,7 @@ def payment_success(session_id: str):
     with SessionLocal() as db:
         candidates = db.scalars(
             select(StripeEvent).where(
-                StripeEvent.status == "COMPLETED",
+                StripeEvent.status.in_(["COMPLETED", "EXECUTION_BLOCKED"]),
                 StripeEvent.task == task,
             )
         ).all()
@@ -219,7 +220,7 @@ def payment_success(session_id: str):
                 continue
             if (isinstance(recorded, dict)
                     and recorded.get("checkout_session_id") == session_id
-                    and recorded.get("status") == "COMPLETED"):
+                    and recorded.get("status") in {"COMPLETED", "EXECUTION_BLOCKED"}):
                 matches.append((candidate.run_id, recorded))
 
     if len(matches) > 1:
@@ -233,7 +234,7 @@ def payment_success(session_id: str):
         }
 
     return {
-        "status": "COMPLETED",
+        "status": matches[0][1]["status"],
         "session_id": session_id,
         "task": task,
         "execution": "STRIPE_WEBHOOK",
@@ -279,8 +280,8 @@ def create_audit(body: dict, x_api_key: str | None = Header(default=None)):
 def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
     tenant_id = tenant_from_key(x_api_key)
     task = body.get("task")
-    if not task:
-        raise HTTPException(status_code=400, detail="task is required")
+    if not isinstance(task, str) or not task.strip() or len(task) > 4096:
+        raise HTTPException(status_code=400, detail="task must be a nonempty string of at most 4096 characters")
 
     # Preserve the original task-only API with a registered default identity.
     agent_id = body.get("agent_id", "agent-001")
@@ -313,13 +314,14 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
             "decision": "ALLOW" if allowed else "DENY",
             "agent_id": agent_id, "risk": risk, "reason": reason,
             "action": "run_agent_task",
+            "authorization_scope": "request_profile_not_runtime_actor",
             "task_sha256": hashlib.sha256(canonical_json(task).encode()).hexdigest(),
         })
     except Exception as exc:
         raise HTTPException(status_code=403, detail="gate evidence unavailable") from exc
     if not allowed:
         raise HTTPException(status_code=403, detail=reason)
-    return run_agent_task(tenant_id, task)
+    return run_agent_task(tenant_id, task, authorized_profile_id=agent_id)
 
 
 
@@ -409,11 +411,14 @@ def approve_nina_workflow(run_id: str, body: dict,
 def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     tenant_id, requester_id = identity_from_key(x_api_key)
     task_text = body.get("task")
-    if not task_text:
-        raise HTTPException(status_code=400, detail="task is required")
+    if not isinstance(task_text, str) or not task_text.strip() or len(task_text) > 4096:
+        raise HTTPException(status_code=400, detail="task must be a nonempty string of at most 4096 characters")
     requested_tools = body.get("requested_tools", ["safe_expression"])
-    if not isinstance(requested_tools, list):
-        raise HTTPException(status_code=400, detail="requested_tools must be a list")
+    if (not isinstance(requested_tools, list) or not requested_tools
+            or len(requested_tools) > len(REGISTERED_TOOLS)
+            or any(not isinstance(tool, str) or not tool.strip() for tool in requested_tools)
+            or len(set(requested_tools)) != len(requested_tools)):
+        raise HTTPException(status_code=400, detail="requested_tools must be unique nonempty strings within limit")
 
     nina_task = NinaTask.create(tenant_id, task_text, requested_tools)
     nina = NinaOrchestrator()
@@ -433,6 +438,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     runtime = nina.execute(nina_task)
     run_id = runtime["runtime"]["run_id"]
     execution = runtime["runtime"].get("execution", [])
+    real_llm_invocations = sum(item.get("invocation_type") == "real_llm" for item in execution)
     runtime_commit = os.getenv("OLA_RUNTIME_COMMIT")
     provider = execution[0].get("provider") if execution else None
     model = execution[0].get("model") if execution else None
@@ -449,7 +455,8 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
             "provider": provider,
             "model": model,
             "invocation_type": invocation_type,
-            "llm_invocations": len(execution),
+            "llm_invocations": real_llm_invocations,
+            "model_steps": len(execution),
             "response_ids": response_ids,
             "requester_id": requester_id,
         },
@@ -516,7 +523,8 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
         "provider": provider,
         "model": model,
         "invocation_type": invocation_type,
-        "llm_invocations": len(execution),
+        "llm_invocations": real_llm_invocations,
+        "model_steps": len(execution),
     }
     igor_summary = {"status": igor.status, "reason": igor.reason, "checks": igor.checks}
     provenance = {
@@ -535,7 +543,8 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
         "provider": provider,
         "model": model,
         "invocation_type": invocation_type,
-        "llm_invocations": len(execution),
+        "llm_invocations": real_llm_invocations,
+        "model_steps": len(execution),
         "response_ids": response_ids,
     }
     report = build_decision_report(

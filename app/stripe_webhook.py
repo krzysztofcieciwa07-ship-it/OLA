@@ -113,7 +113,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     with SessionLocal() as db:
         existing = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
         if existing is not None:
-            if existing.status == "COMPLETED" and existing.result_json:
+            if existing.status in {"COMPLETED", "EXECUTION_BLOCKED"} and existing.result_json:
                 return json.loads(existing.result_json)
             raise HTTPException(status_code=409, detail="Stripe event is already being processed")
 
@@ -154,12 +154,20 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
                 db.commit()
         raise
 
+    verified = runtime.get("status") == "VERIFIED"
+    event_status = "COMPLETED" if verified else "EXECUTION_BLOCKED"
     result = {
-        "status": "COMPLETED",
+        "status": event_status,
         "event_id": event_id,
         "checkout_session_id": session.get("id"),
         "payment": "CONFIRMED",
         "ola_status": runtime.get("status", "UNKNOWN"),
+        "ola_truth": runtime.get("truth", {
+            "answer_correctness": "UNKNOWN",
+            "reason": "runtime did not provide an independent factual-verification statement",
+        }),
+        "production_decision": "NO_GO",
+        "human_gate": "PENDING_HUMAN",
         "ola_run_id": runtime.get("run_id"),
         "ola_final_result": runtime.get("final_result"),
         "payment_evidence_id": payment_evidence_id,
@@ -167,12 +175,14 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     }
     _append_evidence(
         tenant_id,
-        "stripe.ola_execution_completed",
+        "stripe.ola_execution_completed" if verified else "stripe.ola_execution_blocked",
         {
             "stripe_event_id": event_id,
             "checkout_session_id": session.get("id"),
             "ola_run_id": runtime.get("run_id"),
             "ola_status": runtime.get("status", "UNKNOWN"),
+            "ola_truth": result["ola_truth"],
+            "production_decision": "NO_GO",
             "ola_final_result": runtime.get("final_result"),
             "payment_evidence_id": payment_evidence_id,
         },
@@ -180,7 +190,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
 
     with SessionLocal() as db:
         completed = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
-        completed.status = "COMPLETED"
+        completed.status = event_status
         completed.run_id = runtime.get("run_id")
         completed.result_json = canonical_json(result)
         db.commit()
