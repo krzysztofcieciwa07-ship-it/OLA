@@ -1,34 +1,31 @@
-name: Python Package using Conda
+name: OLA Python Package Gate
 
-on: [push]
+on: [push, pull_request]
+
+permissions:
+  contents: read
 
 jobs:
   build-linux:
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 5
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v3
-      with:
-        python-version: '3.10'
-    - name: Add conda to system path
-      run: |
-        # $CONDA is an environment variable pointing to the root of the miniconda directory
-        echo $CONDA/bin >> $GITHUB_PATH
-    - name: Install dependencies
-      run: |
-        conda env update --file environment.yml --name base
-    - name: Lint with flake8
-      run: |
-        conda install flake8
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Test with pytest
-      run: |
-        conda install pytest
-        pytest
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt flake8==7.4.1
+      - name: Check Python syntax
+        run: python -m compileall -q app scripts tests evidence_graph.py
+      - name: Check syntax and undefined names
+        run: python -m flake8 app scripts tests evidence_graph.py --count --select=E9,F63,F7,F82 --show-source --statistics
+      - name: Run full test suite
+        env:
+          OLA_LLM_PROVIDER: none
+          OLA_LLM_MODE: deterministic
+        run: python -m pytest -q
+      - name: Verify exact source provenance and local test proof
+        env:
+          OLA_LLM_PROVIDER: none
+          OLA_LLM_MODE: deterministic
+        run: python scripts/ola_truth_cycle.py --repo . --output-dir "$RUNNER_TEMP/ola_truth_reports" --timeout 180
