@@ -10,6 +10,7 @@ from sqlalchemy import select
 from .database import SessionLocal, append_evidence_atomic
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .models import EvidenceRecord
+from .truth_contract import describe_execution_truth
 
 
 AGENT_ROLES = [
@@ -54,7 +55,7 @@ def _safe_expression(task):
 
     try:
         return str(evaluate(tree.body))
-    except ValueError:
+    except (ValueError, ArithmeticError, OverflowError):
         return "task accepted: expression outside safe execution policy"
 
 
@@ -285,12 +286,14 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
     return result
 
 
-def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution):
+def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution,
+                           authorized_profile_id=None):
     agent_instance_id = str(uuid.uuid4())
     context = {
         "run_id": run_id,
         "agent": agent,
         "agent_instance_id": agent_instance_id,
+        "authorized_profile_id": authorized_profile_id,
         "task": task,
         "previous_output": previous_output,
         "upstream_agents": [item["agent"] for item in execution],
@@ -298,6 +301,7 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
     output = {
         "agent": agent,
         "agent_instance_id": agent_instance_id,
+        "authorized_profile_id": authorized_profile_id,
         "execution_boundary": "independent",
         "context_digest": _digest(canonical_json(context)),
         "task": task,
@@ -310,13 +314,18 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
     return saved["id"], output
 
 
-def run_agent_task(tenant_id, task):
+def run_agent_task(tenant_id, task, *, authorized_profile_id=None):
+    if not isinstance(task, str) or not task.strip() or len(task) > 4096:
+        raise ValueError("task must be a nonempty string of at most 4096 characters")
     run_id = str(uuid.uuid4())
     evidence_ids = []
     execution = []
     previous_output = {"task": task}
     for agent in AGENT_ROLES:
-        evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
+        evidence_id, output = _append_agent_evidence(
+            tenant_id, run_id, agent, task, previous_output, execution,
+            authorized_profile_id=authorized_profile_id,
+        )
         evidence_ids.append(evidence_id)
         execution.append(output)
         previous_output = output
@@ -324,9 +333,11 @@ def run_agent_task(tenant_id, task):
     final_result = execution[-1].get("final_result") if execution else None
     result = {
         "run_id": run_id,
+        "authorized_profile_id": authorized_profile_id,
         "task": task,
         "final_result": final_result,
         "status": verification["status"],
+        "truth": describe_execution_truth(execution, verification["status"]),
         "agents": AGENT_ROLES,
         "evidence_count": len(evidence_ids),
         "evidence_ids": evidence_ids,
@@ -336,12 +347,7 @@ def run_agent_task(tenant_id, task):
 
 
 def run_multi_agent_task(tenant_id, task, agents):
-    """Execute each registered agent instance and return independently checkable runtime evidence.
-
-    This boundary deliberately does not claim external LLM inference. It proves that the
-    registered 391-agent runtime instances execute distinct work units and communicate in
-    a deterministic chain.
-    """
+    """Compute a deterministic per-profile digest graph, NOT 391 agent executions."""
     if not agents:
         raise ValueError("agent registry must not be empty")
     agent_ids = [agent.agent_id for agent in agents]
@@ -371,7 +377,7 @@ def run_multi_agent_task(tenant_id, task, agents):
             "sequence": index,
             "input_digest": previous_digest,
             "output_digest": output_digest,
-            "status": "VERIFIED",
+            "status": "DIGEST_COMPUTED",
         }
         execution.append(execution_record)
         if index:
@@ -382,21 +388,26 @@ def run_multi_agent_task(tenant_id, task, agents):
             })
         previous_digest = output_digest
 
-    cooperation_verified = (
+    digest_structure_verified = (
         len(execution) == len(agents)
         and len({item["output_digest"] for item in execution}) == len(agents)
         and len(communication_edges) == len(agents) - 1
-        and all(item["status"] == "VERIFIED" for item in execution)
+        and all(item["status"] == "DIGEST_COMPUTED" for item in execution)
     )
     return {
         "run_id": run_id,
         "tenant_id": tenant_id,
         "task": task,
-        "status": "VERIFIED" if cooperation_verified else "BLOCK",
+        "status": "SIMULATED" if digest_structure_verified else "BLOCK",
+        "verification_scope": "deterministic_digest_structure_only",
+        "answer_correctness": "UNKNOWN",
+        "real_llm_invocations": 0,
         "agent_count": len(agents),
         "agent_ids": agent_ids,
         "communication_edges": communication_edges,
-        "cooperation_verified": cooperation_verified,
+        "cooperation_verified": False,
+        "digest_structure_verified": digest_structure_verified,
+        "communication_edges_type": "in_memory_digest_links_not_agent_messages",
         "execution": execution,
     }
 

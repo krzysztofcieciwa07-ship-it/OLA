@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 import app.main as main_module
+from app.api_key_hashing import api_key_fingerprint
 from app.database import SessionLocal
 from app.hashchain import verify_chain
 from app.execution_safety_gate import ExecutionDecision
@@ -20,7 +21,7 @@ def _tenant():
         db.add(Tenant(id=tenant_id, name="agent-run-gate-test"))
         db.flush()
         db.add(ApiKey(id=str(uuid.uuid4()), tenant_id=tenant_id,
-                      key_hash=hashlib.sha256(key.encode()).hexdigest()))
+                      key_hash=api_key_fingerprint(key)))
         db.commit()
     return tenant_id, {"X-API-Key": key}
 
@@ -33,7 +34,7 @@ def _evidence(tenant_id):
         return [(row.record_type, json.loads(row.payload_json), {
             "tenant_id": row.tenant_id, "seq": row.seq,
             "prev_hash": row.prev_hash, "record_hash": row.record_hash,
-            "payload_json": row.payload_json,
+            "record_type": row.record_type, "payload_json": row.payload_json,
         }) for row in rows]
 
 
@@ -56,12 +57,38 @@ def test_registered_low_risk_agent_is_allowed_and_decision_is_chained(monkeypatc
     assert rows[0][0] == "execution.safety_gate"
     assert rows[0][1]["decision"] == "ALLOW"
     assert rows[0][1]["agent_id"] == "agent-001"
+    assert rows[0][1]["authorization_scope"] == "request_profile_not_runtime_actor"
     assert rows[0][1]["risk"] == "LOW"
     assert rows[0][1]["reason"] == "allowlisted_action"
     assert rows[0][1]["task_sha256"] == hashlib.sha256(
         json.dumps("Calculate 17 * 23", separators=(",", ":")).encode()
     ).hexdigest()
     assert verify_chain([row[2] for row in rows]) == (True, "ok")
+    assert all(row[1]["authorized_profile_id"] == "agent-001" for row in rows[1:])
+    assert response.json()["authorized_profile_id"] == "agent-001"
+    assert response.json()["truth"]["answer_correctness"] == "UNKNOWN"
+    assert response.json()["truth"]["real_llm_invocations"] == 0
+
+
+@pytest.mark.parametrize("invalid_task", [123, ["unsafe"], {"x": 1}, "", " " * 12])
+def test_invalid_agent_run_task_is_http_400_with_no_side_effects(invalid_task):
+    tenant_id, headers = _tenant()
+    response = TestClient(main_module.app).post(
+        "/agent-run", headers=headers, json={"task": invalid_task},
+    )
+    assert response.status_code == 400
+    assert not _evidence(tenant_id)
+
+
+def test_division_by_zero_never_becomes_http_500(monkeypatch):
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "none")
+    tenant_id, headers = _tenant()
+    response = TestClient(main_module.app).post(
+        "/agent-run", headers=headers, json={"task": "Calculate 1/0"},
+    )
+    assert response.status_code == 200, response.text
+    assert "outside safe execution policy" in response.json()["execution"][0]["tool_output"]
+    assert response.json()["truth"]["answer_correctness"] == "UNKNOWN"
 
 
 def test_unknown_agent_is_denied_without_execution(monkeypatch):

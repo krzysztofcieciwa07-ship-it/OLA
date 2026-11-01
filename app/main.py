@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import uuid
@@ -6,7 +7,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
-from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
+from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent, StripeCheckoutClaim
 from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
@@ -23,7 +24,7 @@ from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
 from .decision_report import build_decision_report
 from .chat_runtime import chat
-from .revenue import create_checkout, retrieve_checkout, payment_verified
+from .revenue import create_checkout, create_checkout_once, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
@@ -166,81 +167,68 @@ def chat_endpoint(body: dict, x_api_key: str | None = Header(default=None)):
 
 
 @app.post("/checkout")
-def create_checkout_session(body: dict, x_api_key: str | None = Header(default=None)):
+def create_checkout_session(body: dict, x_api_key: str | None = Header(default=None),
+                            idempotency_key: str | None = Header(default=None)):
     tenant_id = tenant_from_key(x_api_key)
     task = body.get("task")
     if not isinstance(task, str) or not task.strip():
         raise HTTPException(status_code=400, detail="task is required")
+    if (not isinstance(idempotency_key, str)
+            or not 16 <= len(idempotency_key) <= 128
+            or not all(ch.isascii() and (ch.isalnum() or ch in "_-" ) for ch in idempotency_key)):
+        raise HTTPException(status_code=400, detail="Idempotency-Key (16-128 URL-safe characters) required")
     success_url = body.get("success_url") or "http://localhost:8000/payment-success"
     cancel_url = body.get("cancel_url") or "http://localhost:8000/"
     try:
-        session = create_checkout(task.strip(), success_url, cancel_url, tenant_id)
+        session = create_checkout_once(task.strip(), success_url, cancel_url,
+                                       tenant_id, idempotency_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="checkout idempotency conflict") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="checkout unavailable") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="checkout unavailable") from exc
-    append_record(tenant_id, "revenue.checkout_created", {"session_id": session.get("id"), "task": task.strip(), "amount": session.get("amount_total")})
     return {"status": "READY_FOR_PAYMENT", "session_id": session.get("id"), "checkout_url": session.get("url")}
 
 
 @app.get("/payment-success")
-def payment_success(session_id: str):
+def payment_success(session_id: str, x_api_key: str | None = Header(default=None)):
+    """Authenticated order status only — NEVER a report/delivery endpoint."""
+    tenant_id = tenant_from_key(x_api_key)
+    with SessionLocal() as db:
+        claim = db.get(StripeCheckoutClaim, session_id)
+        if claim is None or claim.tenant_id != tenant_id:
+            raise HTTPException(status_code=404, detail="order not found")
+        event = db.scalar(select(StripeEvent).where(
+            StripeEvent.event_id == claim.event_id
+        ))
+        if (event is None or event.status != claim.status
+                or event.task != claim.task):
+            raise HTTPException(status_code=409, detail="order requires reconciliation")
+        order_status = claim.status
+
     try:
         session = retrieve_checkout(session_id)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="payment lookup unavailable") from exc
-    tenant_id = session.get("metadata", {}).get("tenant_id")
-    if not tenant_id:
-        raise HTTPException(status_code=403, detail="payment session has no tenant provenance")
+    if (not isinstance(session, dict)
+            or session.get("id") != session_id
+            or not isinstance(session.get("metadata"), dict)
+            or session["metadata"].get("tenant_id") != tenant_id
+            or session["metadata"].get("task") != claim.task):
+        raise HTTPException(status_code=404, detail="order not found")
     if not payment_verified(session):
-        append_record(tenant_id, "revenue.payment_blocked", {"session_id": session_id, "payment_status": session.get("payment_status"), "status": session.get("status")})
-        return {"status": "BLOCK", "reason": "payment not verified", "session_id": session_id}
-    task = session.get("metadata", {}).get("task")
-    if not task:
-        return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
-
-    # Different customers can buy the same audit task. Task text is not an
-    # order identity: only a webhook result for THIS Checkout Session may be
-    # returned to the caller. Legacy rows without checkout_session_id fail closed.
-    with SessionLocal() as db:
-        candidates = db.scalars(
-            select(StripeEvent).where(
-                StripeEvent.status == "COMPLETED",
-                StripeEvent.task == task,
-            )
-        ).all()
-        matches = []
-        for candidate in candidates:
-            if not candidate.result_json:
-                continue
-            try:
-                recorded = json.loads(candidate.result_json)
-            except (ValueError, TypeError):
-                continue
-            if (isinstance(recorded, dict)
-                    and recorded.get("checkout_session_id") == session_id
-                    and recorded.get("status") == "COMPLETED"):
-                matches.append((candidate.run_id, recorded))
-
-    if len(matches) > 1:
-        raise HTTPException(status_code=409, detail="conflicting Checkout Session executions")
-    if not matches:
-        return {
-            "status": "PAYMENT_CONFIRMED_EXECUTION_PENDING",
-            "session_id": session_id,
-            "task": task,
-            "execution": "STRIPE_WEBHOOK",
-        }
-
-    return {
-        "status": "COMPLETED",
-        "session_id": session_id,
-        "task": task,
-        "execution": "STRIPE_WEBHOOK",
-        "run_id": matches[0][0],
-        "result": matches[0][1],
+        return {"status": "PAYMENT_NOT_VERIFIED", "session_id": session_id}
+    # Stripe payment is not a receipt. Even a legacy local COMPLETED row
+    # cannot disclose customer output absent independently proven delivery.
+    safe_statuses = {
+        "PROCESSING", "FAILED", "BLOCKED",
+        "PENDING_HUMAN_AUTHORIZATION",
+        "PENDING_INDEPENDENT_VERIFICATION",
+        "DELIVERY_RESERVED",
     }
-
+    safe_status = order_status if order_status in safe_statuses else "RECONCILIATION_REQUIRED"
+    return {"status": safe_status, "session_id": session_id}
 
 @app.post("/evidence")
 def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
@@ -279,8 +267,8 @@ def create_audit(body: dict, x_api_key: str | None = Header(default=None)):
 def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
     tenant_id = tenant_from_key(x_api_key)
     task = body.get("task")
-    if not task:
-        raise HTTPException(status_code=400, detail="task is required")
+    if not isinstance(task, str) or not task.strip() or len(task) > 4096:
+        raise HTTPException(status_code=400, detail="task must be a nonempty string of at most 4096 characters")
 
     # Preserve the original task-only API with a registered default identity.
     agent_id = body.get("agent_id", "agent-001")
@@ -313,13 +301,14 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
             "decision": "ALLOW" if allowed else "DENY",
             "agent_id": agent_id, "risk": risk, "reason": reason,
             "action": "run_agent_task",
+            "authorization_scope": "request_profile_not_runtime_actor",
             "task_sha256": hashlib.sha256(canonical_json(task).encode()).hexdigest(),
         })
     except Exception as exc:
         raise HTTPException(status_code=403, detail="gate evidence unavailable") from exc
     if not allowed:
         raise HTTPException(status_code=403, detail=reason)
-    return run_agent_task(tenant_id, task)
+    return run_agent_task(tenant_id, task, authorized_profile_id=agent_id)
 
 
 
@@ -409,11 +398,14 @@ def approve_nina_workflow(run_id: str, body: dict,
 def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     tenant_id, requester_id = identity_from_key(x_api_key)
     task_text = body.get("task")
-    if not task_text:
-        raise HTTPException(status_code=400, detail="task is required")
+    if not isinstance(task_text, str) or not task_text.strip() or len(task_text) > 4096:
+        raise HTTPException(status_code=400, detail="task must be a nonempty string of at most 4096 characters")
     requested_tools = body.get("requested_tools", ["safe_expression"])
-    if not isinstance(requested_tools, list):
-        raise HTTPException(status_code=400, detail="requested_tools must be a list")
+    if (not isinstance(requested_tools, list) or not requested_tools
+            or len(requested_tools) > len(REGISTERED_TOOLS)
+            or any(not isinstance(tool, str) or not tool.strip() for tool in requested_tools)
+            or len(set(requested_tools)) != len(requested_tools)):
+        raise HTTPException(status_code=400, detail="requested_tools must be unique nonempty strings within limit")
 
     nina_task = NinaTask.create(tenant_id, task_text, requested_tools)
     nina = NinaOrchestrator()
@@ -433,6 +425,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     runtime = nina.execute(nina_task)
     run_id = runtime["runtime"]["run_id"]
     execution = runtime["runtime"].get("execution", [])
+    real_llm_invocations = sum(item.get("invocation_type") == "real_llm" for item in execution)
     runtime_commit = os.getenv("OLA_RUNTIME_COMMIT")
     provider = execution[0].get("provider") if execution else None
     model = execution[0].get("model") if execution else None
@@ -449,7 +442,8 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
             "provider": provider,
             "model": model,
             "invocation_type": invocation_type,
-            "llm_invocations": len(execution),
+            "llm_invocations": real_llm_invocations,
+            "model_steps": len(execution),
             "response_ids": response_ids,
             "requester_id": requester_id,
         },
@@ -516,7 +510,8 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
         "provider": provider,
         "model": model,
         "invocation_type": invocation_type,
-        "llm_invocations": len(execution),
+        "llm_invocations": real_llm_invocations,
+        "model_steps": len(execution),
     }
     igor_summary = {"status": igor.status, "reason": igor.reason, "checks": igor.checks}
     provenance = {
@@ -535,7 +530,8 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
         "provider": provider,
         "model": model,
         "invocation_type": invocation_type,
-        "llm_invocations": len(execution),
+        "llm_invocations": real_llm_invocations,
+        "model_steps": len(execution),
         "response_ids": response_ids,
     }
     report = build_decision_report(
