@@ -9,3 +9,4 @@ urllib3==2.8.0
 wheel==0.48.0
 
 cryptography==50.0.2
+stripe==16.1.0
