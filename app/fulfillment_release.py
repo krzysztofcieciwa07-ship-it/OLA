@@ -11,13 +11,14 @@ import hmac
 import json
 import os
 import re
-import subprocess
-import tempfile
 import time
 import uuid
 from pathlib import Path
 
 from sqlalchemy import select
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from .agent_runtime import AGENT_ROLES, verify_agent_run
 from .database import SessionLocal
@@ -99,29 +100,15 @@ def _check_signature(role, manifest, encoded, public_pem):
         raise ValueError("invalid Ed25519 signature size")
     raw = canonical_json({"domain": DOMAIN, "role": role, "manifest": manifest}).encode("utf-8")
     try:
-        with tempfile.TemporaryDirectory(prefix="ola_delivery_verify_") as directory:
-            folder = Path(directory)
-            pub = folder / "key.pem"
-            msg = folder / "message.bin"
-            signature = folder / "sig.bin"
-            pub.write_bytes(public_pem)
-            msg.write_bytes(raw)
-            signature.write_bytes(sig)
-            key_type = subprocess.run(
-                ["openssl", "pkey", "-pubin", "-in", str(pub), "-text", "-noout"],
-                capture_output=True, timeout=10, check=False,
-            )
-            if key_type.returncode != 0 or b"ED25519" not in key_type.stdout.upper():
-                raise ValueError("trusted key is not an Ed25519 public key")
-            result = subprocess.run(
-                ["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(pub),
-                 "-rawin", "-in", str(msg), "-sigfile", str(signature)],
-                capture_output=True, timeout=10, check=False,
-            )
-            if result.returncode != 0:
-                raise ValueError("signed approval signature invalid")
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
-        raise ValueError("signature verification unavailable") from exc
+        key = serialization.load_pem_public_key(public_pem)
+    except (ValueError, TypeError, UnsupportedAlgorithm) as exc:
+        raise ValueError("trusted public-key encoding invalid") from exc
+    if not isinstance(key, Ed25519PublicKey):
+        raise ValueError("trusted key is not an Ed25519 public key")
+    try:
+        key.verify(sig, raw)
+    except (InvalidSignature, ValueError) as exc:
+        raise ValueError("signed approval signature invalid") from exc
 
 
 def _attested(manifest, signatures, igor_public_key, owner_public_key):
