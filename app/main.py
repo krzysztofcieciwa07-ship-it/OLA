@@ -7,7 +7,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
-from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
+from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent, StripeCheckoutClaim
 from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
@@ -24,7 +24,7 @@ from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
 from .decision_report import build_decision_report
 from .chat_runtime import chat
-from .revenue import create_checkout, retrieve_checkout, payment_verified
+from .revenue import create_checkout, create_checkout_once, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
@@ -167,81 +167,68 @@ def chat_endpoint(body: dict, x_api_key: str | None = Header(default=None)):
 
 
 @app.post("/checkout")
-def create_checkout_session(body: dict, x_api_key: str | None = Header(default=None)):
+def create_checkout_session(body: dict, x_api_key: str | None = Header(default=None),
+                            idempotency_key: str | None = Header(default=None)):
     tenant_id = tenant_from_key(x_api_key)
     task = body.get("task")
     if not isinstance(task, str) or not task.strip():
         raise HTTPException(status_code=400, detail="task is required")
+    if (not isinstance(idempotency_key, str)
+            or not 16 <= len(idempotency_key) <= 128
+            or not all(ch.isascii() and (ch.isalnum() or ch in "_-" ) for ch in idempotency_key)):
+        raise HTTPException(status_code=400, detail="Idempotency-Key (16-128 URL-safe characters) required")
     success_url = body.get("success_url") or "http://localhost:8000/payment-success"
     cancel_url = body.get("cancel_url") or "http://localhost:8000/"
     try:
-        session = create_checkout(task.strip(), success_url, cancel_url, tenant_id)
+        session = create_checkout_once(task.strip(), success_url, cancel_url,
+                                       tenant_id, idempotency_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="checkout idempotency conflict") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="checkout unavailable") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="checkout unavailable") from exc
-    append_record(tenant_id, "revenue.checkout_created", {"session_id": session.get("id"), "task": task.strip(), "amount": session.get("amount_total")})
     return {"status": "READY_FOR_PAYMENT", "session_id": session.get("id"), "checkout_url": session.get("url")}
 
 
 @app.get("/payment-success")
-def payment_success(session_id: str):
+def payment_success(session_id: str, x_api_key: str | None = Header(default=None)):
+    """Authenticated order status only — NEVER a report/delivery endpoint."""
+    tenant_id = tenant_from_key(x_api_key)
+    with SessionLocal() as db:
+        claim = db.get(StripeCheckoutClaim, session_id)
+        if claim is None or claim.tenant_id != tenant_id:
+            raise HTTPException(status_code=404, detail="order not found")
+        event = db.scalar(select(StripeEvent).where(
+            StripeEvent.event_id == claim.event_id
+        ))
+        if (event is None or event.status != claim.status
+                or event.task != claim.task):
+            raise HTTPException(status_code=409, detail="order requires reconciliation")
+        order_status = claim.status
+
     try:
         session = retrieve_checkout(session_id)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="payment lookup unavailable") from exc
-    tenant_id = session.get("metadata", {}).get("tenant_id")
-    if not tenant_id:
-        raise HTTPException(status_code=403, detail="payment session has no tenant provenance")
+    if (not isinstance(session, dict)
+            or session.get("id") != session_id
+            or not isinstance(session.get("metadata"), dict)
+            or session["metadata"].get("tenant_id") != tenant_id
+            or session["metadata"].get("task") != claim.task):
+        raise HTTPException(status_code=404, detail="order not found")
     if not payment_verified(session):
-        append_record(tenant_id, "revenue.payment_blocked", {"session_id": session_id, "payment_status": session.get("payment_status"), "status": session.get("status")})
-        return {"status": "BLOCK", "reason": "payment not verified", "session_id": session_id}
-    task = session.get("metadata", {}).get("task")
-    if not task:
-        return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
-
-    # Different customers can buy the same audit task. Task text is not an
-    # order identity: only a webhook result for THIS Checkout Session may be
-    # returned to the caller. Legacy rows without checkout_session_id fail closed.
-    with SessionLocal() as db:
-        candidates = db.scalars(
-            select(StripeEvent).where(
-                StripeEvent.status.in_(["COMPLETED", "EXECUTION_BLOCKED"]),
-                StripeEvent.task == task,
-            )
-        ).all()
-        matches = []
-        for candidate in candidates:
-            if not candidate.result_json:
-                continue
-            try:
-                recorded = json.loads(candidate.result_json)
-            except (ValueError, TypeError):
-                continue
-            if (isinstance(recorded, dict)
-                    and recorded.get("checkout_session_id") == session_id
-                    and recorded.get("status") in {"COMPLETED", "EXECUTION_BLOCKED"}):
-                matches.append((candidate.run_id, recorded))
-
-    if len(matches) > 1:
-        raise HTTPException(status_code=409, detail="conflicting Checkout Session executions")
-    if not matches:
-        return {
-            "status": "PAYMENT_CONFIRMED_EXECUTION_PENDING",
-            "session_id": session_id,
-            "task": task,
-            "execution": "STRIPE_WEBHOOK",
-        }
-
-    return {
-        "status": matches[0][1]["status"],
-        "session_id": session_id,
-        "task": task,
-        "execution": "STRIPE_WEBHOOK",
-        "run_id": matches[0][0],
-        "result": matches[0][1],
+        return {"status": "PAYMENT_NOT_VERIFIED", "session_id": session_id}
+    # Stripe payment is not a receipt. Even a legacy local COMPLETED row
+    # cannot disclose customer output absent independently proven delivery.
+    safe_statuses = {
+        "PROCESSING", "FAILED", "BLOCKED",
+        "PENDING_HUMAN_AUTHORIZATION",
+        "PENDING_INDEPENDENT_VERIFICATION",
+        "DELIVERY_RESERVED",
     }
-
+    safe_status = order_status if order_status in safe_statuses else "RECONCILIATION_REQUIRED"
+    return {"status": safe_status, "session_id": session_id}
 
 @app.post("/evidence")
 def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
