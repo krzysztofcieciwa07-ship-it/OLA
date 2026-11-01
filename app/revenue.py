@@ -1,5 +1,4 @@
 import hashlib
-import http.client
 import re
 import hmac
 import json
@@ -12,6 +11,7 @@ from sqlalchemy import select
 
 from .database import SessionLocal, append_evidence_atomic
 from .models import StripeCheckoutRequest
+from stripe import StripeClient
 
 PRODUCT_NAME = "OLA Execution Audit"
 OFFER = "ola-execution-audit"
@@ -139,32 +139,19 @@ def create_checkout_once(task, success_url, cancel_url, tenant_id, client_key):
 
 
 def retrieve_checkout(session_id):
-    """Retrieve only a syntactically valid Checkout Session from fixed Stripe host.
-
-    The caller controls neither the TLS endpoint nor redirect behavior.
-    """
+    """Retrieve through the official fixed-endpoint Stripe SDK, not a caller URL."""
     if (not isinstance(session_id, str)
             or re.fullmatch(r"cs_(?:test|live)_[A-Za-z0-9_]{1,240}", session_id) is None):
         raise ValueError("invalid Checkout Session identifier")
     secret = os.getenv("STRIPE_SECRET_KEY")
     if not secret:
         raise RuntimeError("STRIPE_SECRET_KEY is not configured")
-    conn = http.client.HTTPSConnection("api.stripe.com", timeout=30)
-    try:
-        conn.request(
-            "GET",
-            "/v1/checkout/sessions/" + urllib.parse.quote(session_id, safe=""),
-            headers={"Authorization": f"Bearer {secret}"},
-        )
-        response = conn.getresponse()
-        if response.status != 200:
-            raise RuntimeError("Stripe Checkout Session lookup failed")
-        session = json.loads(response.read())
-        if not isinstance(session, dict) or session.get("id") != session_id:
-            raise RuntimeError("Stripe returned an unrelated Checkout Session")
-        return session
-    finally:
-        conn.close()
+    stripe_session = StripeClient(secret).v1.checkout.sessions.retrieve(session_id)
+    session = (stripe_session.to_dict() if hasattr(stripe_session, "to_dict")
+               else dict(stripe_session))
+    if not isinstance(session, dict) or session.get("id") != session_id:
+        raise RuntimeError("Stripe returned an unrelated Checkout Session")
+    return session
 
 
 def payment_verified(session):
