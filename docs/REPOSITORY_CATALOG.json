@@ -1,0 +1,110 @@
+{
+  "schema": "ola.public-repositories.v1",
+  "snapshot_date": "2026-11-02",
+  "owner": "krzysztofcieciwa07-ship-it",
+  "scope": "PUBLIC_ONLY",
+  "total": 9,
+  "release_gate": "BLOCKED",
+  "note": "Classification is a dated GitHub snapshot, not a deployment proof. Private repos excluded; secrets and passwords never tracked here.",
+  "repositories": [
+    {
+      "name": "OLA",
+      "full_name": "krzysztofcieciwa07-ship-it/OLA",
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA",
+      "role": "CORE",
+      "fork": false,
+      "parent": null,
+      "default_branch": "main",
+      "status": "SOURCE_PRESENT_RUNTIME_NOT_VERIFIED",
+      "next": "Scalić tylko zweryfikowany backend i interfejs; udokumentować E2E na tym samym commicie."
+    },
+    {
+      "name": "vantage",
+      "full_name": "krzysztofcieciwa07-ship-it/vantage",
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/vantage",
+      "role": "SECURITY_GATE",
+      "fork": false,
+      "parent": null,
+      "default_branch": "main",
+      "status": "PROTOTYPE_CI_ISSUE",
+      "next": "Naprawić niezależną weryfikację provenance; udokumentować test negatywny i podpisy."
+    },
+    {
+      "name": "ola-evidence-gateway",
+      "full_name": "krzysztofcieciwa07-ship-it/ola-evidence-gateway",
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/ola-evidence-gateway",
+      "role": "EVIDENCE_SPECIFICATION",
+      "fork": true,
+      "parent": "krzys167-crypto/ola-evidence-gateway",
+      "default_branch": "main",
+      "status": "DOCUMENTATION_ONLY",
+      "next": "Wybrać: specyfikacja w OLA docs albo realny osobny serwis z testami; skorygować niepowiązaną stronę."
+    },
+    {
+      "name": "quantum-ai-chatbot",
+      "full_name": "krzysztofcieciwa07-ship-it/quantum-ai-chatbot",
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/quantum-ai-chatbot",
+      "role": "SEPARATE_EXPERIMENT",
+      "fork": true,
+      "parent": "krzys167-crypto/quantum-ai-chatbot",
+      "default_branch": "main",
+      "status": "IMPLEMENTATION_NOT_OLA_VERIFIED",
+      "next": "Oddzielić od NOVA; przegląd pliku .env i połączeń OAuth; testy security."
+    },
+    {
+      "name": "ai",
+      "full_name": "krzysztofcieciwa07-ship-it/ai",
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/ai",
+      "role": "EXTERNAL_REFERENCE",
+      "fork": true,
+      "parent": "krzys167-crypto/ai",
+      "default_branch": "main",
+      "status": "FORK_NOT_OLA_INTEGRATED",
+      "next": "Traktować jako źródło AI SDK, nie własny runtime OLA."
+    },
+    {
+      "name": "cli",
+      "full_name": "krzysztofcieciwa07-ship-it/cli",
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/cli",
+      "role": "EXTERNAL_REFERENCE",
+      "fork": true,
+      "parent": "cli/cli",
+      "default_branch": "trunk",
+      "status": "FORK_NOT_OLA_INTEGRATED",
+      "next": "Oddzielić od Codex CLI i własnego kodu OLA."
+    },
+    {
+      "name": "MetaGPT",
+      "full_name": "krzysztofcieciwa07-ship-it/MetaGPT",
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/MetaGPT",
+      "role": "EXTERNAL_REFERENCE",
+      "fork": true,
+      "parent": "krzys167-crypto/MetaGPT",
+      "default_branch": "main",
+      "status": "FORK_NOT_OLA_INTEGRATED",
+      "next": "Ocenić przydatność jako referencji, bez deklarowania integracji."
+    },
+    {
+      "name": "swarmclaw",
+      "full_name": "krzysztofcieciwa07-ship-it/swarmclaw",
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/swarmclaw",
+      "role": "EXTERNAL_REFERENCE",
+      "fork": true,
+      "parent": "krzys167-crypto/swarmclaw",
+      "default_branch": "main",
+      "status": "FORK_NOT_OLA_INTEGRATED",
+      "next": "Traktować jako framework referencyjny; nie mieszać bez audytu licencji i ryzyka."
+    },
+    {
+      "name": "uygulamali-kriptografi",
+      "full_name": "krzysztofcieciwa07-ship-it/uygulamali-kriptografi",
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/uygulamali-kriptografi",
+      "role": "EDUCATIONAL_REFERENCE",
+      "fork": true,
+      "parent": "krzys167-crypto/uygulamali-kriptografi",
+      "default_branch": "master",
+      "status": "EDUCATIONAL_FORK",
+      "next": "Zachować jako materiał referencyjny, bez przypisywania funkcji OLA."
+    }
+  ]
+}
