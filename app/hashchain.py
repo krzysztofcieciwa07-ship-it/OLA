@@ -11,7 +11,8 @@ EVIDENCE_META_KEY = "__ola_evidence_v2__"
 TRUSTED_PRODUCER = "ola_runtime"
 PUBLIC_PRODUCER = "tenant_api"
 PRIVILEGED_PREFIXES = ("workflow.", "task.", "human.", "agent.",
-                       "provenance.", "decision.", "execution.", "verification.")
+                       "provenance.", "decision.", "execution.", "verification.",
+                       "integration.autogpt.")
 
 
 def canonical_json(value):

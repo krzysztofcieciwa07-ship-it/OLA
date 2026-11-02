@@ -43,7 +43,8 @@ footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px
   <form id="task-form"><label for="key">Klucz API OLA</label><input id="key" type="password" autocomplete="off" placeholder="X-API-Key" required>
   <p class="hint">Klucz nie jest zapisywany w pamięci trwałej przeglądarki. Nie wklejaj sekretów do polecenia.</p>
   <label for="input">Polecenie</label><textarea id="input" maxlength="2000" placeholder="Przeanalizuj, zweryfikuj źródła i przedstaw rezultat" required></textarea>
-  <div class="actions"><button type="submit" id="chat-button">Rozmawiaj z NINĄ</button><button type="button" id="run-button" class="primary">Uruchom przez NINĘ</button></div></form>
+  <div class="actions"><button type="submit" id="chat-button">Rozmawiaj z NINĄ</button><button type="button" id="run-button" class="primary">Uruchom przez NINĘ</button><button type="button" id="autogpt-button">NINA + AutoGPT</button></div></form>
+  <p class="hint">AutoGPT to opcjonalna usługa zewnętrzna: polecenie może trafić do innego dostawcy i spowodować koszty. Każde zlecenie wymaga osobnego potwierdzenia.</p>
   <div class="result" id="result" role="status" aria-live="polite"><p>Brak wykonania. Wpisz polecenie, aby rozpocząć.</p></div>
 </div><aside><h2>Dowód wykonania</h2>
   <div class="detail"><span>Wykonanie</span><span id="runtime-status" class="status">NOT_RUN</span></div>
@@ -52,6 +53,7 @@ footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px
   <div class="detail"><span>Run ID</span><strong id="run-id">—</strong></div>
   <div class="detail"><span>Dowody</span><strong id="evidence-count">0</strong></div>
   <button type="button" id="report-button" disabled>Sprawdź raport IGORA</button>
+  <button type="button" id="autogpt-poll-button" disabled>Sprawdź wynik AutoGPT</button>
   <p class="hint">COMPLETED_UNVERIFIED oznacza ukończenie zadania, ale nie potwierdza niezależnego wyniku ani zgody na wdrożenie.</p>
 </aside></section>
 <footer>OLA di-OS · Bez automatycznego zatwierdzania działań zewnętrznych · Wynik nie jest promowany do VERIFIED przez interfejs.</footer>
@@ -61,7 +63,8 @@ footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px
 const el = selector => document.querySelector(selector);
 const keyInput = el("#key"), taskInput = el("#input"), result = el("#result");
 const chatButton = el("#chat-button"), runButton = el("#run-button"), reportButton = el("#report-button");
-let messages = [], activeRunId = null;
+const autogptButton = el("#autogpt-button"), autogptPollButton = el("#autogpt-poll-button");
+let messages = [], activeRunId = null, activeExternalRunId = null, pendingExternalOperation = null;
 function showStatus(selector, value) {
   const target = el(selector), status = typeof value === "string" && value ? value : "UNKNOWN";
   target.textContent = status;
@@ -73,7 +76,11 @@ function line(label, value) {
   entry.className = "entry"; heading.textContent = label; body.textContent = String(value ?? "UNKNOWN");
   entry.append(heading, body); result.appendChild(entry);
 }
-function busy(value) { chatButton.disabled = runButton.disabled = value; reportButton.disabled = value || !activeRunId; }
+function busy(value) {
+  chatButton.disabled = runButton.disabled = autogptButton.disabled = value;
+  reportButton.disabled = value || !activeRunId;
+  autogptPollButton.disabled = value || !activeExternalRunId;
+}
 function credentials() {
   const key = keyInput.value.trim(), task = taskInput.value.trim();
   if (!key || !task) { keyInput.reportValidity(); taskInput.reportValidity(); return null; }
@@ -96,7 +103,7 @@ async function sendChat(event) {
 }
 async function runWorkflow() {
   const data = credentials(); if (!data) return;
-  busy(true); activeRunId = null; clearResult(); line("OLA", "Oczekiwanie na odpowiedź serwera…");
+  busy(true); activeRunId = null; activeExternalRunId = null; clearResult(); line("OLA", "Oczekiwanie na odpowiedź serwera…");
   showStatus("#runtime-status","UNKNOWN"); showStatus("#igor-status","UNKNOWN"); showStatus("#gate-status","NOT_APPROVED");
   el("#run-id").textContent = "—"; el("#evidence-count").textContent = "0";
   try {
@@ -120,6 +127,55 @@ async function runWorkflow() {
   } catch (_) { clearResult(); showStatus("#runtime-status","UNKNOWN"); line("BŁĄD","Brak potwierdzenia wykonania. Zweryfikuj dowody przed ponowieniem."); }
   finally { busy(false); }
 }
+async function runAutoGPT() {
+  const data = credentials(); if (!data) return;
+  if (!window.confirm("Zlecić zadanie przez AutoGPT? Polecenie trafi do zewnętrznej usługi i może naliczyć koszty.")) return;
+  if (!globalThis.crypto || typeof crypto.randomUUID !== "function") {
+    clearResult(); line("BLOKADA", "Bezpieczny identyfikator operacji jest niedostępny."); return;
+  }
+  if (!pendingExternalOperation || pendingExternalOperation.task !== data.task) {
+    pendingExternalOperation = {task: data.task, operation_id: crypto.randomUUID()};
+  }
+  busy(true); activeRunId = null; activeExternalRunId = null;
+  clearResult(); line("AutoGPT", "Oczekiwanie na potwierdzenie przyjęcia zadania…");
+  showStatus("#runtime-status", "UNKNOWN"); showStatus("#igor-status", "UNKNOWN");
+  showStatus("#gate-status", "NOT_APPROVED");
+  el("#run-id").textContent = "—"; el("#evidence-count").textContent = "0";
+  try {
+    const response = await fetch("/nina-autogpt", {
+      method:"POST", headers:{"Content-Type":"application/json","X-API-Key":data.key},
+      body:JSON.stringify(pendingExternalOperation),
+    });
+    const body = await readJson(response); clearResult();
+    if (!response.ok) {
+      showStatus("#runtime-status","BLOCK"); line("BLOKADA",body.detail || `HTTP ${response.status}`);
+      line("Bezpieczeństwo", "Nie powtarzaj z nowym identyfikatorem bez sprawdzenia zlecenia w AutoGPT."); return;
+    }
+    activeExternalRunId = typeof body.run_id === "string" ? body.run_id : null;
+    showStatus("#runtime-status",body.status); showStatus("#igor-status",body.igor);
+    showStatus("#gate-status",body.human_gate);
+    el("#run-id").textContent = activeExternalRunId || "—";
+    el("#evidence-count").textContent = Array.isArray(body.evidence_ids) ? String(body.evidence_ids.length) : "—";
+    line("AutoGPT",`Przyjęto zlecenie. Zdalny status: ${body.remote_status || "UNKNOWN"}`);
+    line("IGOR", "UNKNOWN — zdalne wykonanie nie jest dowodem OLA.");
+    pendingExternalOperation = null;
+  } catch (_) { clearResult(); showStatus("#runtime-status","UNKNOWN"); line("BŁĄD", "Nieznany wynik zewnętrznego zlecenia. Wstrzymaj ponowienie do uzgodnienia stanu."); }
+  finally { busy(false); }
+}
+async function pollAutoGPT() {
+  if (!activeExternalRunId || !keyInput.value.trim()) return;
+  busy(true);
+  try {
+    const response = await fetch(`/nina-autogpt/${encodeURIComponent(activeExternalRunId)}`, {headers:{"X-API-Key":keyInput.value.trim()}});
+    const body = await readJson(response); clearResult();
+    if (!response.ok) { line("AutoGPT",body.detail || `HTTP ${response.status}`); return; }
+    showStatus("#runtime-status",body.status); showStatus("#igor-status",body.igor);
+    line("Status AutoGPT",body.remote_status || "UNKNOWN");
+    if (body.outputs) line("Zdalny rezultat — niezweryfikowany",JSON.stringify(body.outputs).slice(0,8000));
+    line("Human Gate",body.human_gate || "NOT_APPROVED");
+  } catch (_) { clearResult(); showStatus("#runtime-status","UNKNOWN"); line("AutoGPT","Nie udało się odczytać stanu zlecenia."); }
+  finally { busy(false); }
+}
 async function refreshReport() {
   if (!activeRunId || !keyInput.value.trim()) return;
   busy(true);
@@ -136,6 +192,8 @@ async function refreshReport() {
 el("#task-form").addEventListener("submit",sendChat);
 runButton.addEventListener("click",runWorkflow);
 reportButton.addEventListener("click",refreshReport);
+autogptButton.addEventListener("click",runAutoGPT);
+autogptPollButton.addEventListener("click",pollAutoGPT);
 </script>
 </body>
 </html>

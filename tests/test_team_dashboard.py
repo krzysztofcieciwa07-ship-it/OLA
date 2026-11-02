@@ -51,9 +51,14 @@ def test_dashboard_uses_separate_authenticated_conversation_and_workflow():
     parsed.feed(html)
     script = "\n".join(parsed.scripts)
     assert {"key", "input"} <= parsed.labels
-    assert {"run-button", "chat-button", "report-button", "result"} <= parsed.ids
+    assert {"run-button", "chat-button", "report-button", "result",
+            "autogpt-button", "autogpt-poll-button"} <= parsed.ids
     assert 'fetch("/chat"' in script
     assert 'fetch("/nina-workflow"' in script
+    assert 'fetch("/nina-autogpt"' in script
+    assert 'window.confirm("Zlecić zadanie przez AutoGPT?' in script
+    assert 'crypto.randomUUID()' in script
+    assert 'pendingExternalOperation' in script
     assert 'requested_tools:["llm_agent"]' in script
     assert "Object.entries(body.results)" in script
     assert 'Authorization:`Bearer ${keyInput.value.trim()}`' in script

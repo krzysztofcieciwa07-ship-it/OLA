@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import uuid
@@ -8,7 +9,7 @@ from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
 from .api_key_hashing import api_key_fingerprint
-from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
+from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain, trusted_record
 from .agent_runtime import run_agent_task
 from .agent_registry import build_agent_registry
 from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
@@ -21,6 +22,7 @@ from .igor import IgorVerifier
 from .replay import build_replay, verify_replay
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
+from .autogpt_v2 import AutoGPTV2Client, AutoGPTBridgeError
 from .decision_report import build_decision_report
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
@@ -357,6 +359,109 @@ def create_nina_workflow(body: dict, x_api_key: str | None = Header(default=None
         return {"status": "BLOCK", "reason": "workflow plan rejected", "verified": False}
     except Exception as exc:
         raise HTTPException(status_code=503, detail="workflow runtime unavailable") from exc
+
+
+def _autogpt_owner_identity(raw_key):
+    tenant_id, requester_id = identity_from_key(raw_key)
+    if os.getenv("OLA_AUTOGPT_ENABLED") != "1":
+        raise HTTPException(status_code=503, detail="AutoGPT bridge is disabled")
+    owner_tenant = os.getenv("OLA_AUTOGPT_OWNER_TENANT_ID")
+    if not owner_tenant:
+        raise HTTPException(status_code=503, detail="AutoGPT owner boundary is not configured")
+    if tenant_id != owner_tenant:
+        raise HTTPException(status_code=403, detail="AutoGPT access denied")
+    return tenant_id, requester_id
+
+
+def _autogpt_events(tenant_id):
+    records = read_tenant_evidence(tenant_id)
+    chain_ok, _ = verify_chain(records)
+    if not chain_ok:
+        raise HTTPException(status_code=409, detail="evidence chain unavailable")
+    for record in records:
+        if record["record_type"] not in {"integration.autogpt.requested", "integration.autogpt.accepted"}:
+            continue
+        if not trusted_record(record):
+            raise HTTPException(status_code=409, detail="untrusted AutoGPT evidence")
+        try:
+            payload = json.loads(record["payload_json"])
+        except (ValueError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            yield record["record_type"], payload
+
+
+@app.post("/nina-autogpt")
+def start_nina_autogpt(body: dict, x_api_key: str | None = Header(default=None)):
+    """Owner-initiated paid external run. Remote completion is NOT OLA proof."""
+    tenant_id, requester_id = _autogpt_owner_identity(x_api_key)
+    task = body.get("task")
+    operation_id = body.get("operation_id")
+    if not isinstance(task, str) or not task.strip() or len(task) > 2000:
+        raise HTTPException(status_code=400, detail="task outside policy")
+    try:
+        operation_id = str(uuid.UUID(operation_id))
+    except (TypeError, ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="operation_id must be a UUID") from None
+    task = task.strip()
+    task_digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
+    existing = [(event_type, payload) for event_type, payload in _autogpt_events(tenant_id)
+                if payload.get("operation_id") == operation_id]
+    if existing:
+        if any(payload.get("task_sha256") != task_digest for _, payload in existing):
+            raise HTTPException(status_code=409, detail="operation_id reused for another task")
+        accepted = [payload for kind, payload in existing if kind == "integration.autogpt.accepted"]
+        if accepted:
+            return {"status": "EXTERNAL_PENDING_UNVERIFIED", "run_id": accepted[-1]["run_id"],
+                    "remote_status": accepted[-1]["remote_status"], "igor": "UNKNOWN",
+                    "human_gate": "NOT_APPROVED", "verified": False, "reused": True}
+        # Network failures may have happened after remote acceptance. Never
+        # blindly resubmit; AutoGPT's idempotency guarantee expires after 24h.
+        raise HTTPException(status_code=409, detail="external outcome unknown; reconcile manually")
+    try:
+        client = AutoGPTV2Client.from_environment()
+    except AutoGPTBridgeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    idempotency_key = hashlib.sha256(f"ola-autogpt-v2:{tenant_id}:{operation_id}".encode()).hexdigest()
+    try:
+        requested = append_record(tenant_id, "integration.autogpt.requested", {
+            "operation_id": operation_id, "task_sha256": task_digest,
+            "agent_id": client.agent_id, "requester_id": requester_id,
+            "idempotency_sha256": hashlib.sha256(idempotency_key.encode()).hexdigest(),
+        })
+    except Exception:
+        raise HTTPException(status_code=503, detail="external dispatch evidence unavailable") from None
+    try:
+        remote = client.start(task, idempotency_key=idempotency_key)
+    except AutoGPTBridgeError:
+        raise HTTPException(status_code=502, detail="external outcome unknown; reconcile manually") from None
+    try:
+        accepted = append_record(tenant_id, "integration.autogpt.accepted", {
+            "operation_id": operation_id, "task_sha256": task_digest,
+            "run_id": remote["run_id"], "remote_status": remote["remote_status"],
+            "agent_id": client.agent_id, "requester_id": requester_id,
+        })
+    except Exception:
+        raise HTTPException(status_code=503, detail="external receipt evidence unavailable") from None
+    return {"status": "EXTERNAL_PENDING_UNVERIFIED", "run_id": remote["run_id"],
+            "remote_status": remote["remote_status"], "igor": "UNKNOWN",
+            "human_gate": "NOT_APPROVED", "verified": False, "reused": False,
+            "evidence_ids": [requested["id"], accepted["id"]]}
+
+
+@app.get("/nina-autogpt/{run_id}")
+def poll_nina_autogpt(run_id: str, x_api_key: str | None = Header(default=None)):
+    """Read-only remote observation; tenant-owned runs only, no promotion."""
+    tenant_id, _ = _autogpt_owner_identity(x_api_key)
+    if not any(payload.get("run_id") == run_id for kind, payload in _autogpt_events(tenant_id)
+               if kind == "integration.autogpt.accepted"):
+        raise HTTPException(status_code=404, detail="run not found")
+    try:
+        remote = AutoGPTV2Client.from_environment().poll(run_id)
+    except AutoGPTBridgeError:
+        raise HTTPException(status_code=503, detail="external run status unavailable") from None
+    return {"status": "EXTERNAL_OBSERVED_UNVERIFIED", **remote, "igor": "UNKNOWN",
+            "human_gate": "NOT_APPROVED", "verified": False}
 
 
 
