@@ -1,0 +1,45 @@
+name: OLA Local Staging Rehearsal
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      OLA_RUNTIME_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      OLA_LLM_MODE: deterministic
+    steps:
+      - name: Checkout exact candidate without persistent credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Generate disposable CI-only pepper without printing its value
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, secrets
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+              f.write("OLA_API_KEY_PEPPER=" + secrets.token_hex(32) + "\n")
+          PY
+
+      - name: Real Docker Compose restart and V2 evidence rehearsal
+        run: python scripts/staging_rehearsal.py
+
+      - name: Upload sanitized run proof
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-staging-proof-${{ github.event.pull_request.head.sha || github.sha }}
+          path: staging-proof.json
+          if-no-files-found: error
+          retention-days: 14
