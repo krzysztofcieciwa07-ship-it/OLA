@@ -1,10 +1,11 @@
 import hashlib
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, JSONResponse
 from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
@@ -144,6 +145,48 @@ def run_controlled_audit(tenant_id, task, scenario):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+def core_readiness():
+    """Read-only local CORE readiness, never whole-system production acceptance.
+
+    /health is liveness only. /readyz requires source provenance marker, an
+    active authentication pepper, a responsive SQLite engine and evidence
+    append-only DB triggers. No secrets or database paths enter the response.
+    """
+    failed = []
+    source = os.getenv("OLA_RUNTIME_COMMIT", "")
+    if re.fullmatch(r"[a-fA-F0-9]{40}", source) is None:
+        failed.append("source_commit")
+
+    pepper = os.getenv("OLA_API_KEY_PEPPER", "")
+    if len(pepper.encode("utf-8")) < 32:
+        failed.append("api_key_pepper")
+
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql("SELECT 1").scalar_one()
+            triggers = set(conn.exec_driver_sql(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='trigger' AND tbl_name='evidence_records'"
+            ).scalars())
+        if not {"evidence_no_update", "evidence_no_delete"} <= triggers:
+            failed.append("evidence_append_only")
+    except Exception:
+        # Never surface exception details: they may disclose internal paths.
+        failed.append("evidence_store")
+
+    return JSONResponse(
+        status_code=503 if failed else 200,
+        content={
+            "core_status": "BLOCKED" if failed else "READY",
+            "system_acceptance": "NOT_VERIFIED",
+            "source_commit": source if "source_commit" not in failed else None,
+            "failed_checks": failed,
+            "scope": "local_core_only",
+        },
+    )
 
 
 @app.get("/")
