@@ -45,4 +45,6 @@ Aktualizacja: **2026-11-02** · właściciel: `krzysztofcieciwa07-ship-it` · za
 - Żadne tokeny, hasła, klucze prywatne ani lokalne `.env` nie trafiają do katalogu.
 - Przed uznaniem statusu za zielony wymagać artefaktu, SHA, testu negatywnego i zakresu weryfikacji.
 
-Maszynowy rejestr: [REPOSITORY_CATALOG.json](REPOSITORY_CATALOG.json).
+Maszynowy rejestr: [REPOSITORY_CATALOG.json](REPOSITORY_CATALOG.json).  
+Proponowane opisy, topics i homepage: [REPOSITORY_METADATA_PLAN.md](REPOSITORY_METADATA_PLAN.md).  
+Powiązana historia konsolidacji i zachowania provenance: [issue #19](https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/19).
