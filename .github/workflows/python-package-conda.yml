@@ -1,39 +1,54 @@
-name: Python Package using Conda
+name: OLA Python Compatibility Gate
 
-on: [push]
+# Replaces a nonfunctional Conda template that referenced missing environment.yml.
+# Keep the historical path for traceability; execute real source+contract checks.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-linux:
+  python-contract:
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 5
-
+    timeout-minutes: 20
+    env:
+      OLA_LLM_MODE: deterministic
+      # Test fixture only. Do not reuse for deployment.
+      OLA_API_KEY_PEPPER: ${{ github.sha }}
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-    - name: Set up Python 3.10
-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-      with:
-        python-version: '3.10'
-    - name: Add conda to system path
-      run: |
-        # $CONDA is an environment variable pointing to the root of the miniconda directory
-        echo $CONDA/bin >> $GITHUB_PATH
-    - name: Install dependencies
-      run: |
-        conda env update --file environment.yml --name base
-    - name: Lint with flake8
-      run: |
-        conda install flake8
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Test with pytest
-      run: |
-        conda install pytest
-        pytest
+      - name: Checkout exact source without stored credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify source commit identity
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install pinned project dependencies and linter
+        run: |
+          python -m pip install -r requirements.txt flake8==7.3.0
+          python -m pip check
+
+      - name: Check syntax and undefined names
+        run: |
+          python -m compileall -q app scripts tests
+          python -m flake8 app scripts tests --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Run full contract suite
+        run: python -m pytest -q
