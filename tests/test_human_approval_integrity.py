@@ -1,3 +1,6 @@
+import pytest
+from conftest import bound_candidate_fields, review_body
+pytestmark = pytest.mark.usefixtures("local_binding_source")
 """Red-phase regression tests for human approval evidence integrity."""
 import hashlib
 import json
@@ -23,7 +26,8 @@ def setup_review():
         db.flush()
         db.add_all([
             ApiKey(id=requester_id, tenant_id=tenant_id, key_hash=hash_api_key(requester_key)),
-            ApiKey(id=approver_id, tenant_id=tenant_id, key_hash=hash_api_key(approver_key)),
+            ApiKey(id=approver_id, tenant_id=tenant_id, key_hash=hash_api_key(approver_key),
+                   access_scope="REVIEW_RESULT"),
         ])
         db.commit()
     return tenant_id, requester_id, approver_key
@@ -32,6 +36,7 @@ def setup_review():
 def candidate(tenant_id, requester_id, run_id, policy="VERIFIED"):
     return append_record(tenant_id, "decision.candidate", {
         "run_id": run_id, "requester_id": requester_id,
+        **bound_candidate_fields(tenant_id, requester_id, run_id),
         "status_fields": {
             "RUNTIME": "VERIFIED", "EVIDENCE": "VERIFIED",
             "REPLAY_INTEGRITY": "VERIFIED", "POLICY": policy,
@@ -43,10 +48,14 @@ def candidate(tenant_id, requester_id, run_id, policy="VERIFIED"):
 
 
 def approve(approver_key, run_id, tip_hash):
+    from sqlalchemy import select
+    with SessionLocal() as db:
+        key = db.scalar(select(ApiKey).where(ApiKey.key_hash == hash_api_key(approver_key)))
+        tenant = key.tenant_id
     return TestClient(app).post(
         f"/nina-run/{run_id}/approve",
         headers={"Authorization": f"Bearer {approver_key}"},
-        json={"tip_hash": tip_hash},
+        json=review_body(tenant, run_id, tip_hash),
     )
 
 

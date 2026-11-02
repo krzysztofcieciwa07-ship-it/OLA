@@ -21,7 +21,8 @@ def _tenant_keys():
         db.flush()
         db.add_all((
             ApiKey(id=owner_id, tenant_id=tenant, key_hash=hash_api_key(owner_key)),
-            ApiKey(id=reviewer_id, tenant_id=tenant, key_hash=hash_api_key(reviewer_key)),
+            ApiKey(id=reviewer_id, tenant_id=tenant, key_hash=hash_api_key(reviewer_key),
+                   access_scope="REVIEW_RESULT"),
         ))
         db.commit()
     return owner_key, reviewer_key, owner_id

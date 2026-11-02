@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, Column, String, Integer, Text, ForeignKey, UniqueConstraint, text
 from .database import Base
 
 
@@ -18,6 +18,12 @@ class ApiKey(Base):
     id = Column(String(36), primary_key=True)
     tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
     key_hash = Column(String(64), nullable=False, unique=True)
+    access_scope = Column(String(32), nullable=False, server_default=text("'OLA_CORE'"))
+    revoked_at = Column(Integer, nullable=True)
+    __table_args__ = (
+        CheckConstraint("access_scope IN ('OLA_CORE','REVIEW_RESULT')",
+                        name="ck_api_keys_access_scope"),
+    )
 
 
 class EvidenceRecord(Base):
@@ -43,3 +49,14 @@ class StripeEvent(Base):
     run_id = Column(String(36), nullable=True)
     task = Column(Text, nullable=True)
     result_json = Column(Text, nullable=True)
+
+
+class ExecutionPermit(Base):
+    __tablename__ = "execution_permits"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), nullable=False, index=True)
+    subject_json = Column(Text, nullable=False)
+    subject_digest = Column(String(64), nullable=False)
+    state = Column(String(16), nullable=False)
+    approval_json = Column(Text, nullable=True)
+    receipt_json = Column(Text, nullable=True)

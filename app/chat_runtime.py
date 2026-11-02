@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 
-from .hashchain import canonical_json
+from .provider_response import parse_provider_response
 
 SYSTEM_PROMPT = (
     "You are NINA, a precise OLA DI-OS assistant. "
@@ -60,9 +60,6 @@ def _real_chat(provider: str, model: str, messages: list[dict[str, str]]) -> tup
             timeout=timeout,
         )
         response.raise_for_status()
-        data = response.json()
-        output = data.get("message", {}).get("content")
-        response_id = data.get("id") or "ollama:" + _digest(canonical_json(data))
     else:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -78,21 +75,7 @@ def _real_chat(provider: str, model: str, messages: list[dict[str, str]]) -> tup
             timeout=timeout,
         )
         response.raise_for_status()
-        data = response.json()
-        output = data.get("output_text")
-        if not output:
-            fragments = []
-            for item in data.get("output", []):
-                for part in item.get("content", []):
-                    if part.get("type") in ("output_text", "text") and isinstance(part.get("text"), str):
-                        fragments.append(part["text"])
-            output = "\n".join(fragments)
-        response_id = data.get("id")
-    if not isinstance(output, str) or not output.strip():
-        raise ValueError("provider returned empty response")
-    if not isinstance(response_id, str) or not response_id:
-        raise ValueError("provider did not supply response identity")
-    return output, response_id
+    return parse_provider_response(provider, response.json())
 
 
 def chat(tenant_id: str, messages: list[dict[str, str]]) -> dict[str, Any]:

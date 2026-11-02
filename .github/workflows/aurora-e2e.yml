@@ -5,12 +5,25 @@ on:
     paths:
       - 'web/index.html'
       - 'tests/test_aurora_contract.py'
+      - 'tests/*.test.cjs'
+      - 'tests/helpers/**'
       - 'tests/browser_aurora_real_api.py'
+      - 'scripts/provision_local_operator.py'
+      - 'scripts/provision_additional_tenant_key.py'
+      - 'scripts/provision_reviewer_credential.py'
+      - 'scripts/revoke_tenant_credential.py'
+      - 'app/credential_access.py'
+      - 'app/main.py'
+      - 'app/models.py'
+      - 'app/database.py'
       - '.github/workflows/aurora-e2e.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  OLA_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   aurora-api-browser:
@@ -24,7 +37,10 @@ jobs:
       - name: Checkout exact PR source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Verify exact candidate source
+        run: python -c "import os, subprocess; actual=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(); assert actual == os.environ['OLA_CANDIDATE_SHA'], 'source SHA mismatch'; print('SOURCE_SHA='+actual)"
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -34,6 +50,8 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install playwright==1.57.0
           python -m playwright install --with-deps chromium
+      - name: Isolated UI session regressions
+        run: node --test tests/*.test.cjs
       - name: AURORA source contract
         run: python -m pytest tests/test_aurora_contract.py -q
       - name: Browser to real OLA Core routes

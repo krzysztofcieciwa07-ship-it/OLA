@@ -1,8 +1,10 @@
 import ast
 import hashlib
 import json
+import math
 import operator
 import os
+import re
 import uuid
 
 import httpx
@@ -11,6 +13,8 @@ from sqlalchemy import select
 from .database import SessionLocal
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .models import EvidenceRecord
+from .provider_response import parse_provider_response
+from .tool_authorization import ToolScope, ToolAuthorizationError
 
 
 AGENT_ROLES = [
@@ -35,27 +39,40 @@ def _digest(value):
 
 
 def _safe_expression(task):
-    lowered = task.lower()
-    if "calculate" in lowered:
-        expression = task[lowered.index("calculate") + len("calculate"):].strip()
+    command = re.match(r"\s*calculate\b", task, flags=re.IGNORECASE)
+    explicit_calculation = command is not None
+    if explicit_calculation:
+        expression = task[command.end():].strip()
     else:
         expression = task.strip()
     expression = expression.replace("?", "").split(" and ")[0].strip()
     try:
         tree = ast.parse(expression, mode="eval")
-    except SyntaxError:
+    except SyntaxError as exc:
+        if explicit_calculation:
+            raise ValueError("invalid arithmetic expression") from exc
         return "task accepted: no executable arithmetic expression supplied"
 
     def evaluate(node):
         if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return node.value
-        if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BINOPS:
-            return _SAFE_BINOPS[type(node.op)](evaluate(node.left), evaluate(node.right))
-        raise ValueError("unsafe expression")
+            value = node.value
+        elif isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BINOPS:
+            value = _SAFE_BINOPS[type(node.op)](evaluate(node.left), evaluate(node.right))
+        else:
+            raise ValueError("unsafe expression")
+        # Check each operand/result before its parent can mask an overflow,
+        # e.g. 1 / (1e308 * 1e308). Integers need no float conversion.
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ArithmeticError("non-finite arithmetic value")
+        return value
 
     try:
         return str(evaluate(tree.body))
+    except ArithmeticError as exc:
+        raise ValueError("arithmetic expression could not be computed") from exc
     except ValueError:
+        if explicit_calculation:
+            raise
         return "task accepted: expression outside safe execution policy"
 
 
@@ -128,24 +145,14 @@ def _invoke_llm(agent, task, context):
             timeout=float(os.getenv("OLA_LLM_TIMEOUT", "30")),
         )
         response.raise_for_status()
-        body = response.json()
-        output = body.get("output_text")
-        if not output:
-            parts = []
-            for item in body.get("output", []):
-                for content in item.get("content", []):
-                    if content.get("type") in {"output_text", "text"} and content.get("text"):
-                        parts.append(content["text"])
-            output = "\\n".join(parts)
-        if not output:
-            raise RuntimeError("OpenAI response contained no output text")
+        output, response_id = parse_provider_response(provider, response.json())
         return {
             "provider": "openai",
             "model": model,
             "invocation_type": "real_llm",
             "prompt_digest": _digest(prompt),
             "output": output,
-            "response_id": body.get("id"),
+            "response_id": response_id,
         }
 
     if provider == "ollama":
@@ -173,11 +180,7 @@ def _invoke_llm(agent, task, context):
             timeout=float(os.getenv("OLA_LLM_TIMEOUT", "60")),
         )
         response.raise_for_status()
-        body = response.json()
-        output = body.get("message", {}).get("content")
-        if not output:
-            raise RuntimeError("Ollama response contained no message content")
-        response_id = body.get("id") or f"ollama:{_digest(canonical_json(body))}"
+        output, response_id = parse_provider_response(provider, response.json())
         return {
             "provider": "ollama",
             "model": model,
@@ -202,7 +205,11 @@ def _invoke_local_deterministic_model(agent, task, context):
     }
 
 
-def _execute_agent(agent, tenant_id, task, previous_output, execution):
+def _execute_agent(agent, tenant_id, task, previous_output, execution, scope):
+    if agent == "codeact":
+        scope.require("safe_expression", tenant_id, task)
+    elif agent == "mcp_tool_use":
+        scope.require("local_mcp_tool_registry.sha256", tenant_id, task)
     context = {
         "task": task,
         "previous_output": previous_output,
@@ -210,6 +217,7 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
     }
     model = _invoke_llm(agent, task, context) or _invoke_local_deterministic_model(agent, task, context)
     if agent == "codeact":
+        scope.require("safe_expression", tenant_id, task)
         tool_output = _safe_expression(task)
         result = {"capability": "executed_safe_expression", "tool": "safe_expression", "tool_output": tool_output, "result": f"safe execution returned {tool_output}"}
     elif agent == "react":
@@ -219,6 +227,7 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
         data = _run_rag(tenant_id, task)
         result = {"capability": "retrieved_prior_evidence", "tool": "evidence_retriever", "tool_output": json.dumps(data, sort_keys=True), "result": data["result"]}
     elif agent == "mcp_tool_use":
+        scope.require("local_mcp_tool_registry.sha256", tenant_id, task)
         value = _mcp_tool_call("sha256", {"value": previous_output.get("tool_output", task)})
         result = {"capability": "invoked_tool", "tool": "local_mcp_tool_registry.sha256", "tool_output": value, "result": "invoked a registered tool through the tool-use boundary"}
     elif agent == "self_reflection":
@@ -247,7 +256,7 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
     return result
 
 
-def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution):
+def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution, scope):
     agent_instance_id = str(uuid.uuid4())
     context = {
         "run_id": run_id,
@@ -264,7 +273,8 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "context_digest": _digest(canonical_json(context)),
         "task": task,
         "input_digest": _digest(json.dumps(previous_output, sort_keys=True)),
-        **_execute_agent(agent, tenant_id, task, previous_output, execution),
+        **_execute_agent(agent, tenant_id, task, previous_output, execution, scope),
+        "authorized_tools": sorted(scope.allowed),
         "status": "VERIFIED",
         "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
     }
@@ -275,23 +285,28 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
     return record["id"], output
 
 
-def run_agent_task(tenant_id, task):
+def run_agent_task(tenant_id, task, *, allowed_tools=()):
     run_id = str(uuid.uuid4())
     evidence_ids = []
     execution = []
     previous_output = {"task": task}
+    scope = None
     for agent in AGENT_ROLES:
         try:
-            evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
+            if scope is None:
+                scope = ToolScope.create(tenant_id, task, allowed_tools)
+                scope.preflight()
+            evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution, scope)
         except (httpx.HTTPError, RuntimeError, ValueError, TimeoutError, LookupError, json.JSONDecodeError) as exc:
             # Never fall back silently to a deterministic model when real LLM is required.
             # Preserve partial evidence, but mark the entire run BLOCK.
             from .main import append_record
+            reason_code = "TOOL_SCOPE_DENIED" if isinstance(exc, ToolAuthorizationError) else "MODEL_OR_TOOL_UNAVAILABLE"
             failure = append_record(tenant_id, "runtime.blocked", {
                 "run_id": run_id,
                 "agent": agent,
                 "status": "BLOCK",
-                "reason_code": "MODEL_OR_TOOL_UNAVAILABLE",
+                "reason_code": reason_code,
                 "error_type": type(exc).__name__,
                 "completed_agents": len(execution),
             })
@@ -301,7 +316,7 @@ def run_agent_task(tenant_id, task):
                 "task": task,
                 "final_result": None,
                 "status": "BLOCK",
-                "reason": "MODEL_OR_TOOL_UNAVAILABLE",
+                "reason": reason_code,
                 "agents": AGENT_ROLES,
                 "evidence_count": len(evidence_ids),
                 "evidence_ids": evidence_ids,

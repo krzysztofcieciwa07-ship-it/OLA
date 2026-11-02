@@ -3,12 +3,14 @@ import json
 import os
 import re
 import uuid
+import time
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
-from .database import Base, engine, SessionLocal, install_append_only_triggers, ensure_evidence_hash_schema
+from .database import (Base, engine, SessionLocal, install_append_only_triggers,
+                       ensure_evidence_hash_schema, ensure_api_key_access_schema)
 from .api_key_crypto import hash_api_key, KeyConfigurationError
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
@@ -21,17 +23,25 @@ from .control_plane import get_overview, get_run_detail
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain
 from .decision_report import build_decision_report
+from .decision_report_v2 import build_decision_report_v2
+from .execution_binding import prepare_binding, capture_source, validate_review_subject, digest, review_state
+from .credential_access import (CORE_SCOPE, REVIEW_SCOPE, SCOPES,
+                                credential_status, read_current_review)
+from .request_authority import (RequestAuthorityMiddleware, bind_core_authority,
+                                assert_core_write_authorized)
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
+app.add_middleware(RequestAuthorityMiddleware)
 Base.metadata.create_all(bind=engine)
 ensure_evidence_hash_schema()
+ensure_api_key_access_schema()
 install_append_only_triggers()
 
 
-def identity_from_key(raw_key):
+def credential_from_key(raw_key, *, db=None, required_scope=None):
     if not raw_key:
         raise HTTPException(status_code=401, detail="missing API key")
     try:
@@ -41,11 +51,27 @@ def identity_from_key(raw_key):
     except KeyConfigurationError:
         # A missing pepper is a deployment defect, never a bad user credential.
         raise HTTPException(status_code=503, detail="OLA API authentication is not configured") from None
-    with SessionLocal() as db:
-        key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
-        if key is None:
+    def lookup(session):
+        key = session.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash)
+                             .execution_options(populate_existing=True))
+        if key is None or key.revoked_at is not None:
             raise HTTPException(status_code=401, detail="invalid API key")
-        return key.tenant_id, key.id
+        if key.access_scope not in SCOPES:
+            raise HTTPException(status_code=503, detail="OLA credential scope is not configured")
+        if required_scope is not None and key.access_scope != required_scope:
+            raise HTTPException(status_code=403, detail=required_scope + " credential required")
+        if required_scope == CORE_SCOPE:
+            bind_core_authority(key.tenant_id, key.id, key.key_hash)
+        return key.tenant_id, key.id, key.access_scope
+    if db is not None:
+        return lookup(db)
+    with SessionLocal() as session:
+        return lookup(session)
+
+
+def identity_from_key(raw_key):
+    tenant_id, key_id, _ = credential_from_key(raw_key, required_scope=CORE_SCOPE)
+    return tenant_id, key_id
 
 
 def tenant_from_key(raw_key):
@@ -53,13 +79,18 @@ def tenant_from_key(raw_key):
     return tenant_id
 
 
-def bearer_identity(authorization):
+def bearer_identity(authorization, *, db=None, required_scope=None):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing bearer token")
     token = authorization[7:].strip()
     if not token:
         raise HTTPException(status_code=401, detail="missing bearer token")
-    return identity_from_key(token)
+    tenant_id, key_id, _ = credential_from_key(token, db=db, required_scope=required_scope)
+    return tenant_id, key_id
+
+
+def reviewer_bearer_identity(authorization, *, db=None):
+    return bearer_identity(authorization, db=db, required_scope=REVIEW_SCOPE)
 
 
 def append_record(tenant_id, record_type, payload):
@@ -69,6 +100,7 @@ def append_record(tenant_id, record_type, payload):
         # Without this reservation concurrent agent/audit writes can choose
         # the same sequence number and fail with an unhandled unique-key race.
         db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        assert_core_write_authorized(db, tenant_id)
         last = db.scalar(
             select(EvidenceRecord)
             .where(EvidenceRecord.tenant_id == tenant_id)
@@ -166,8 +198,8 @@ def run_controlled_audit(tenant_id, task, scenario):
 @app.get("/auth/session")
 def get_current_operator(x_api_key: str | None = Header(default=None)):
     """Read-only credential check. Never issues credentials or exposes raw keys."""
-    tenant_id, key_id = identity_from_key(x_api_key)
-    return {"authenticated": True, "tenant_id": tenant_id, "credential_id": key_id, "scope": "OLA_CORE"}
+    tenant_id, key_id, scope = credential_from_key(x_api_key)
+    return {"authenticated": True, "tenant_id": tenant_id, "credential_id": key_id, "scope": scope}
 
 
 @app.get("/control/overview")
@@ -307,6 +339,7 @@ def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
         "run_id", "commit", "task", "result", "tool_output",
         "provider", "model", "invocation_type", "response_ids",
         "status_fields", "requester_id", "approver_id",
+        "requester_credential_scope", "approver_credential_scope",
         "candidate_status", "human_approved", "record_hash", "prev_hash",
     }
     if reserved.intersection(payload):
@@ -335,7 +368,7 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
     task = body.get("task")
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
-    return run_agent_task(tenant_id, task)
+    return run_agent_task(tenant_id, task, allowed_tools=body.get("requested_tools", []))
 
 
 @app.post("/nina-run")
@@ -344,7 +377,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     task_text = body.get("task")
     if not task_text:
         raise HTTPException(status_code=400, detail="task is required")
-    requested_tools = body.get("requested_tools", ["safe_expression"])
+    requested_tools = body.get("requested_tools", [])
     if not isinstance(requested_tools, list):
         raise HTTPException(status_code=400, detail="requested_tools must be a list")
 
@@ -363,10 +396,22 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
             "status": "BLOCK",
         }
 
+    try:
+        execution_binding = prepare_binding(tenant_id, requester_id, task_text, requested_tools)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # Capture the policy decision before invoking the executor.
+    append_record(tenant_id, "execution.authorization", {
+        "task_id": nina_task.task_id, "execution_binding": execution_binding,
+    })
     runtime = nina.execute(nina_task)
+    source_after = capture_source()
+    if source_after != execution_binding["source"]:
+        append_record(tenant_id, "execution.binding_failed", {"task_id": nina_task.task_id})
+        raise HTTPException(status_code=409, detail="source changed during execution; result blocked")
     run_id = runtime["runtime"]["run_id"]
     execution = runtime["runtime"].get("execution", [])
-    runtime_commit = os.getenv("OLA_RUNTIME_COMMIT")
+    runtime_commit = execution_binding["source"]["sha"]
     provider = execution[0].get("provider") if execution else None
     model = execution[0].get("model") if execution else None
     invocation_type = execution[0].get("invocation_type") if execution else None
@@ -483,6 +528,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
         human_approved=review.approved,
         human_actor=review.actor,
         human_reason=review.reason,
+        execution_binding=execution_binding,
     )
 
     replay_integrity_status = (
@@ -500,14 +546,25 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     execution_allowed_status = NinaIgorChain.derive_status(status_fields)
     status_fields["EXECUTION_ALLOWED"] = execution_allowed_status
     derived_status = execution_allowed_status
+    report_v2 = build_decision_report_v2(
+        legacy_report=report, source_sha=runtime_commit,
+        evidence_root=record_dicts[-1]["record_hash"] if record_dicts else None,
+        policy_digest=execution_binding["policy_digest"], human_approval_digest=None,
+    )
+    review_issued_at = int(time.time())
     candidate_record = append_record(
         tenant_id,
         "decision.candidate",
         {
             "run_id": run_id,
             "requester_id": requester_id,
+            "requester_credential_scope": CORE_SCOPE,
             "status_fields": status_fields,
             "candidate_status": derived_status,
+            "decision_report_v2": report_v2,
+            "execution_binding": execution_binding,
+            "review_issued_at": review_issued_at,
+            "review_expires_at": review_issued_at + 900,
         },
     )
     tip_hash = candidate_record["record_hash"]
@@ -525,6 +582,9 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
         "policy": report["policy"],
         "status_fields": status_fields,
         "decision_report": report,
+        "decision_report_v2": report_v2,
+        "review_scope": "review-result",
+        "review_expires_at": review_issued_at + 900,
         "status": derived_status,
     }
 
@@ -534,7 +594,7 @@ def approve_nina_run(
     body: dict,
     authorization: str | None = Header(default=None),
 ):
-    approver_tenant_id, approver_id = bearer_identity(authorization)
+    approver_tenant_id, approver_id = reviewer_bearer_identity(authorization)
     tip_hash = body.get("tip_hash")
     if not isinstance(tip_hash, str) or not tip_hash:
         raise HTTPException(status_code=400, detail="tip_hash is required")
@@ -547,6 +607,12 @@ def approve_nina_run(
             db.connection().exec_driver_sql("BEGIN IMMEDIATE")
         except OperationalError as exc:
             raise HTTPException(status_code=409, detail="approval transaction busy") from exc
+
+        # Recheck the raw credential after acquiring the writer lock. A key
+        # revoked/rotated/reassigned after preflight must not authorize a write.
+        current_identity = reviewer_bearer_identity(authorization, db=db)
+        if current_identity != (approver_tenant_id, approver_id):
+            raise HTTPException(status_code=401, detail="invalid API key")
 
         rows = db.scalars(
             select(EvidenceRecord)
@@ -596,6 +662,7 @@ def approve_nina_run(
                 continue
             if isinstance(payload, dict) and payload.get("run_id") == run_id:
                 candidate = payload
+                candidate_previous_hash = row.prev_hash
                 break
 
         if candidate is None:
@@ -603,6 +670,10 @@ def approve_nina_run(
         requester_id = candidate.get("requester_id")
         if not requester_id:
             raise HTTPException(status_code=409, detail="requester identity missing from decision candidate")
+        if candidate.get("requester_credential_scope") != CORE_SCOPE:
+            raise HTTPException(status_code=409, detail="requester credential scope is missing or invalid")
+        if credential_status(db, approver_tenant_id, requester_id, CORE_SCOPE) != "ACTIVE":
+            raise HTTPException(status_code=409, detail="requester credential is not active OLA_CORE")
         if approver_id == requester_id:
             raise HTTPException(status_code=403, detail="approver must differ from requester")
 
@@ -622,14 +693,36 @@ def approve_nina_run(
         if derived != "REVIEW" or NinaIgorChain.derive_status(approved_fields) != "VERIFIED":
             raise HTTPException(status_code=409, detail="candidate is not eligible for human approval")
 
+        bound_report = candidate.get("decision_report_v2", {})
+        if bound_report.get("bindings", {}).get("evidence_root") != candidate_previous_hash:
+            raise HTTPException(status_code=409, detail="report evidence root differs from candidate predecessor")
+        if body.get("scope") != "review-result":
+            raise HTTPException(status_code=400, detail="scope must be review-result")
+        try:
+            binding = validate_review_subject(candidate, approver_tenant_id, requester_id,
+                                              body.get("report_sha256"))
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         approval_payload = {
+            "tenant_id": approver_tenant_id,
             "run_id": run_id,
             "tip_hash": tip_hash,
             "requester_id": requester_id,
+            "requester_credential_scope": CORE_SCOPE,
             "approver_id": approver_id,
+            "approver_credential_scope": REVIEW_SCOPE,
             "reason": str(body.get("reason", "")),
-            "status": "VERIFIED",
+            "status": "APPROVED",
+            "assurance": "UNKNOWN",
+            "scope": "review-result",
+            "report_sha256": body["report_sha256"],
+            "source_sha": binding["source"]["sha"],
+            "policy_digest": binding["policy_digest"],
+            "parameters_digest": binding["parameters_digest"],
+            "issued_at": int(time.time()),
+            "expires_at": candidate["review_expires_at"],
         }
+        approval_digest = digest(approval_payload)
         payload_json = canonical_json(approval_payload)
         record_id = str(uuid.uuid4())
         new_seq = rows[-1].seq + 1
@@ -650,14 +743,83 @@ def approve_nina_run(
         db.commit()
 
     return {
-        "status": "VERIFIED",
+        "status": "APPROVED",
+        "assurance": "UNKNOWN",
+        "scope": "review-result",
+        "report_sha256": body["report_sha256"],
+        "human_approval_digest": approval_digest,
+        "expires_at": approval_payload["expires_at"],
+        "production_eligible": False,
         "run_id": run_id,
         "tip_hash": record_hash,
         "approved_tip_hash": tip_hash,
         "record_id": record_id,
         "record_type": "human.approval",
         "approver_id": approver_id,
+        "approver_credential_scope": REVIEW_SCOPE,
     }
+
+
+@app.get("/nina-run/{run_id}/approval")
+def get_nina_review(run_id: str, authorization: str | None = Header(default=None)):
+    with SessionLocal() as db:
+        # Keep auth, evidence and current credential metadata in one read
+        # snapshot. A later revocation requires a new observation as usual.
+        db.connection().exec_driver_sql("BEGIN")
+        tenant_id, _ = bearer_identity(authorization, db=db)
+        rows = db.scalars(select(EvidenceRecord).where(
+            EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.asc())).all()
+        chain = [{name: getattr(row, name) for name in (
+            "id", "tenant_id", "seq", "prev_hash", "record_hash", "record_type",
+            "hash_version", "payload_json")} for row in rows]
+        state, approval_digest, reviewer_status = read_current_review(db, chain, run_id)
+    return {"status": state, "human_approval_digest": approval_digest,
+            "reviewer_credential_status": reviewer_status,
+            "scope": "review-result", "assurance": "UNKNOWN", "production_eligible": False}
+
+
+@app.post("/nina-run/{run_id}/approval/revoke")
+def revoke_nina_review(run_id: str, body: dict,
+                       authorization: str | None = Header(default=None)):
+    tenant_id, actor_id = reviewer_bearer_identity(authorization)
+    with SessionLocal() as db:
+        try:
+            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        except OperationalError as exc:
+            raise HTTPException(status_code=409, detail="revocation transaction busy") from exc
+        current_identity = reviewer_bearer_identity(authorization, db=db)
+        if current_identity != (tenant_id, actor_id):
+            raise HTTPException(status_code=401, detail="invalid API key")
+        rows = db.scalars(select(EvidenceRecord).where(
+            EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.asc())).all()
+        chain = [{name: getattr(row, name) for name in (
+            "id", "tenant_id", "seq", "prev_hash", "record_hash", "record_type",
+            "hash_version", "payload_json")} for row in rows]
+        if not verify_chain(chain)[0]:
+            raise HTTPException(status_code=409, detail="invalid evidence chain")
+        approvals = [json.loads(row.payload_json) for row in rows
+                     if row.record_type == "human.approval"
+                     and json.loads(row.payload_json).get("run_id") == run_id]
+        if not approvals:
+            raise HTTPException(status_code=404, detail="approval not found")
+        approval = approvals[-1]
+        if approval.get("approver_id") != actor_id:
+            raise HTTPException(status_code=403, detail="only original approver may revoke")
+        approval_digest = digest(approval)
+        if body.get("human_approval_digest") != approval_digest:
+            raise HTTPException(status_code=409, detail="approval digest mismatch")
+        payload = {"run_id": run_id, "human_approval_digest": approval_digest,
+                   "actor_id": actor_id, "revoked_at": int(time.time())}
+        encoded = canonical_json(payload)
+        record_id, seq, previous = str(uuid.uuid4()), rows[-1].seq + 1, rows[-1].record_hash
+        record_hash = compute_record_hash(tenant_id, seq, previous, encoded,
+            record_id=record_id, record_type="human.approval.revoked", hash_version=2)
+        db.add(EvidenceRecord(id=record_id, tenant_id=tenant_id, seq=seq,
+            prev_hash=previous, record_hash=record_hash, record_type="human.approval.revoked",
+            hash_version=2, payload_json=encoded))
+        db.commit()
+    return {"status": "REVOKED", "human_approval_digest": approval_digest,
+            "assurance": "UNKNOWN", "production_eligible": False}
 
 
 @app.post("/stripe/webhook")
