@@ -4,6 +4,7 @@ These use disposable SQLite and the actual API. Distinct credentials are not
 proof of distinct humans, and result review is not production permission.
 """
 import concurrent.futures
+from contextlib import closing
 import importlib
 import json
 from pathlib import Path
@@ -74,7 +75,7 @@ def isolated_inventory(existing_tenant, tmp_path, monkeypatch):
     """A real independent SQLite copy whose path can safely disappear."""
     issuer = feature()
     path = tmp_path / "baza # ąę %20.db"
-    with sqlite3.connect(DB_PATH) as source, sqlite3.connect(path) as target:
+    with closing(sqlite3.connect(DB_PATH)) as source, closing(sqlite3.connect(path)) as target:
         source.backup(target)
     monkeypatch.setattr(issuer, "DB_PATH", str(path))
     return issuer, path

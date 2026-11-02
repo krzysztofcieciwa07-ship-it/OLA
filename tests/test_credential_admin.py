@@ -1,5 +1,6 @@
 """Local credential administration uses real SQLite, KDF and API boundaries."""
 import concurrent.futures
+from contextlib import closing
 import importlib
 import json
 from pathlib import Path
@@ -369,7 +370,7 @@ def test_database_moved_after_check_is_never_recreated(
     _, credential, _ = issue(operator) if kind == "revoker" else (None, str(uuid.uuid4()), None)
     base = importlib.import_module("scripts.provision_additional_tenant_key")
     path = tmp_path / "baza # ą %20.sqlite"
-    with sqlite3.connect(DB_PATH) as source, sqlite3.connect(path) as target:
+    with closing(sqlite3.connect(DB_PATH)) as source, closing(sqlite3.connect(path)) as target:
         source.backup(target)
     saved = path.with_name("preserved.sqlite")
     original_bytes = path.read_bytes()
@@ -395,7 +396,7 @@ def test_issuer_read_only_probe_and_rw_issue_support_special_database_path(opera
     issuer = feature()
     base = importlib.import_module("scripts.provision_additional_tenant_key")
     path = tmp_path / "baza # ą %20.sqlite"
-    with sqlite3.connect(DB_PATH) as source, sqlite3.connect(path) as target:
+    with closing(sqlite3.connect(DB_PATH)) as source, closing(sqlite3.connect(path)) as target:
         source.backup(target)
     monkeypatch.setattr(base, "DB_PATH", str(path))
     before = path.read_bytes()
