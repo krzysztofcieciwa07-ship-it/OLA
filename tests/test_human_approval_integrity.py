@@ -26,7 +26,8 @@ def setup_review():
         db.flush()
         db.add_all([
             ApiKey(id=requester_id, tenant_id=tenant_id, key_hash=hash_api_key(requester_key)),
-            ApiKey(id=approver_id, tenant_id=tenant_id, key_hash=hash_api_key(approver_key)),
+            ApiKey(id=approver_id, tenant_id=tenant_id, key_hash=hash_api_key(approver_key),
+                   access_scope="REVIEW_RESULT"),
         ])
         db.commit()
     return tenant_id, requester_id, approver_key

@@ -17,7 +17,8 @@ Importy Pythona tworzą też `__pycache__`; dodano wąskie ignorowanie tych plik
 W PowerShell, w głównym katalogu prawdziwego checkout:
 
 ```powershell
-node --test .\tests\aurora_approval_state.test.cjs .\tests\local_executor_session.test.cjs .\tests\chat_history_window.test.cjs .\tests\operator_session_identity.test.cjs
+$OlaUiTests = @(Get-ChildItem .\tests\*.test.cjs | ForEach-Object { $_.FullName })
+node --test @OlaUiTests
 python -m unittest discover -s tests -p test_capture_source_portable.py -v
 & .\tests\test_preview_bootstrap.ps1
 ```
@@ -95,7 +96,7 @@ Każdy etap ma dać zapis oczekiwane/obserwowane, błąd pierwszej granicy i pow
 
 ## Konkretne dalsze blokady
 
-- Dodanie drugiego poświadczenia istniejącego tenanta ma osobny lokalny moduł `scripts.provision_additional_tenant_key` i procedurę `docs/ADDITIONAL-TENANT-CREDENTIAL-PL.md`. Domyślnie odczyt; zapis wymaga przypisania inicjatora, zgodnej liczby kluczy, dwóch jawnych flag i prywatnego interaktywnego terminalu. Każdy klucz ma pełny zakres Core. Powiązanie kluczy z osobami/rolami i niezależny odbiór człowieka nadal nie są potwierdzone. Dotychczasowe `-IssueKey` tworzy nowego tenanta i nie zastępuje tej procedury.
+- Poświadczenia `OLA_CORE` i `REVIEW_RESULT` mają rozdzielone uprawnienia. Wydawanie recenzenta i atomowe unieważnianie opisuje `docs/CREDENTIAL-LIFECYCLE-WINDOWS-PL.md`; stare pełne klucze nie stają się recenzentami. Potwierdzenie tożsamości osób i niezależny odbiór człowieka nadal pozostają otwarte. `-IssueKey` tworzy nowego tenanta.
 - `workstation/verify.ps1` ufa polom historycznego `MANIFEST.json`. Nie potwierdza zawartości artefaktów ani obecnego runtime. Nie traktuj go jako odbioru tych zmian.
 - Windows workflow sprawdza bridge i część kontraktów, a nie pełne `CreatePreview` + Docker + model + recenzenta. Wyniki każdego zakresu raportuj oddzielnie.
 - Nie potwierdzono pełnego głosowego asystenta, wszystkich integracji, instalacji/aktualizacji/backupów ani całego OLA-01–OLA-17. To nadal wymagania końcowe, nie opcjonalne pominięcia.

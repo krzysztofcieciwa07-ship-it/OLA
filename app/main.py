@@ -9,7 +9,8 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
-from .database import Base, engine, SessionLocal, install_append_only_triggers, ensure_evidence_hash_schema
+from .database import (Base, engine, SessionLocal, install_append_only_triggers,
+                       ensure_evidence_hash_schema, ensure_api_key_access_schema)
 from .api_key_crypto import hash_api_key, KeyConfigurationError
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
@@ -24,17 +25,23 @@ from .nina_igor import NinaIgorChain
 from .decision_report import build_decision_report
 from .decision_report_v2 import build_decision_report_v2
 from .execution_binding import prepare_binding, capture_source, validate_review_subject, digest, review_state
+from .credential_access import (CORE_SCOPE, REVIEW_SCOPE, SCOPES,
+                                credential_status, read_current_review)
+from .request_authority import (RequestAuthorityMiddleware, bind_core_authority,
+                                assert_core_write_authorized)
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
 
 app = FastAPI(title="OLA Execution Gate")
+app.add_middleware(RequestAuthorityMiddleware)
 Base.metadata.create_all(bind=engine)
 ensure_evidence_hash_schema()
+ensure_api_key_access_schema()
 install_append_only_triggers()
 
 
-def identity_from_key(raw_key):
+def credential_from_key(raw_key, *, db=None, required_scope=None):
     if not raw_key:
         raise HTTPException(status_code=401, detail="missing API key")
     try:
@@ -44,11 +51,27 @@ def identity_from_key(raw_key):
     except KeyConfigurationError:
         # A missing pepper is a deployment defect, never a bad user credential.
         raise HTTPException(status_code=503, detail="OLA API authentication is not configured") from None
-    with SessionLocal() as db:
-        key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
-        if key is None:
+    def lookup(session):
+        key = session.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash)
+                             .execution_options(populate_existing=True))
+        if key is None or key.revoked_at is not None:
             raise HTTPException(status_code=401, detail="invalid API key")
-        return key.tenant_id, key.id
+        if key.access_scope not in SCOPES:
+            raise HTTPException(status_code=503, detail="OLA credential scope is not configured")
+        if required_scope is not None and key.access_scope != required_scope:
+            raise HTTPException(status_code=403, detail=required_scope + " credential required")
+        if required_scope == CORE_SCOPE:
+            bind_core_authority(key.tenant_id, key.id, key.key_hash)
+        return key.tenant_id, key.id, key.access_scope
+    if db is not None:
+        return lookup(db)
+    with SessionLocal() as session:
+        return lookup(session)
+
+
+def identity_from_key(raw_key):
+    tenant_id, key_id, _ = credential_from_key(raw_key, required_scope=CORE_SCOPE)
+    return tenant_id, key_id
 
 
 def tenant_from_key(raw_key):
@@ -56,13 +79,18 @@ def tenant_from_key(raw_key):
     return tenant_id
 
 
-def bearer_identity(authorization):
+def bearer_identity(authorization, *, db=None, required_scope=None):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing bearer token")
     token = authorization[7:].strip()
     if not token:
         raise HTTPException(status_code=401, detail="missing bearer token")
-    return identity_from_key(token)
+    tenant_id, key_id, _ = credential_from_key(token, db=db, required_scope=required_scope)
+    return tenant_id, key_id
+
+
+def reviewer_bearer_identity(authorization, *, db=None):
+    return bearer_identity(authorization, db=db, required_scope=REVIEW_SCOPE)
 
 
 def append_record(tenant_id, record_type, payload):
@@ -72,6 +100,7 @@ def append_record(tenant_id, record_type, payload):
         # Without this reservation concurrent agent/audit writes can choose
         # the same sequence number and fail with an unhandled unique-key race.
         db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        assert_core_write_authorized(db, tenant_id)
         last = db.scalar(
             select(EvidenceRecord)
             .where(EvidenceRecord.tenant_id == tenant_id)
@@ -169,8 +198,8 @@ def run_controlled_audit(tenant_id, task, scenario):
 @app.get("/auth/session")
 def get_current_operator(x_api_key: str | None = Header(default=None)):
     """Read-only credential check. Never issues credentials or exposes raw keys."""
-    tenant_id, key_id = identity_from_key(x_api_key)
-    return {"authenticated": True, "tenant_id": tenant_id, "credential_id": key_id, "scope": "OLA_CORE"}
+    tenant_id, key_id, scope = credential_from_key(x_api_key)
+    return {"authenticated": True, "tenant_id": tenant_id, "credential_id": key_id, "scope": scope}
 
 
 @app.get("/control/overview")
@@ -310,6 +339,7 @@ def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
         "run_id", "commit", "task", "result", "tool_output",
         "provider", "model", "invocation_type", "response_ids",
         "status_fields", "requester_id", "approver_id",
+        "requester_credential_scope", "approver_credential_scope",
         "candidate_status", "human_approved", "record_hash", "prev_hash",
     }
     if reserved.intersection(payload):
@@ -528,6 +558,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
         {
             "run_id": run_id,
             "requester_id": requester_id,
+            "requester_credential_scope": CORE_SCOPE,
             "status_fields": status_fields,
             "candidate_status": derived_status,
             "decision_report_v2": report_v2,
@@ -563,7 +594,7 @@ def approve_nina_run(
     body: dict,
     authorization: str | None = Header(default=None),
 ):
-    approver_tenant_id, approver_id = bearer_identity(authorization)
+    approver_tenant_id, approver_id = reviewer_bearer_identity(authorization)
     tip_hash = body.get("tip_hash")
     if not isinstance(tip_hash, str) or not tip_hash:
         raise HTTPException(status_code=400, detail="tip_hash is required")
@@ -576,6 +607,12 @@ def approve_nina_run(
             db.connection().exec_driver_sql("BEGIN IMMEDIATE")
         except OperationalError as exc:
             raise HTTPException(status_code=409, detail="approval transaction busy") from exc
+
+        # Recheck the raw credential after acquiring the writer lock. A key
+        # revoked/rotated/reassigned after preflight must not authorize a write.
+        current_identity = reviewer_bearer_identity(authorization, db=db)
+        if current_identity != (approver_tenant_id, approver_id):
+            raise HTTPException(status_code=401, detail="invalid API key")
 
         rows = db.scalars(
             select(EvidenceRecord)
@@ -633,6 +670,10 @@ def approve_nina_run(
         requester_id = candidate.get("requester_id")
         if not requester_id:
             raise HTTPException(status_code=409, detail="requester identity missing from decision candidate")
+        if candidate.get("requester_credential_scope") != CORE_SCOPE:
+            raise HTTPException(status_code=409, detail="requester credential scope is missing or invalid")
+        if credential_status(db, approver_tenant_id, requester_id, CORE_SCOPE) != "ACTIVE":
+            raise HTTPException(status_code=409, detail="requester credential is not active OLA_CORE")
         if approver_id == requester_id:
             raise HTTPException(status_code=403, detail="approver must differ from requester")
 
@@ -667,7 +708,9 @@ def approve_nina_run(
             "run_id": run_id,
             "tip_hash": tip_hash,
             "requester_id": requester_id,
+            "requester_credential_scope": CORE_SCOPE,
             "approver_id": approver_id,
+            "approver_credential_scope": REVIEW_SCOPE,
             "reason": str(body.get("reason", "")),
             "status": "APPROVED",
             "assurance": "UNKNOWN",
@@ -713,32 +756,40 @@ def approve_nina_run(
         "record_id": record_id,
         "record_type": "human.approval",
         "approver_id": approver_id,
+        "approver_credential_scope": REVIEW_SCOPE,
     }
 
 
 @app.get("/nina-run/{run_id}/approval")
 def get_nina_review(run_id: str, authorization: str | None = Header(default=None)):
-    tenant_id, _ = bearer_identity(authorization)
     with SessionLocal() as db:
+        # Keep auth, evidence and current credential metadata in one read
+        # snapshot. A later revocation requires a new observation as usual.
+        db.connection().exec_driver_sql("BEGIN")
+        tenant_id, _ = bearer_identity(authorization, db=db)
         rows = db.scalars(select(EvidenceRecord).where(
             EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.asc())).all()
         chain = [{name: getattr(row, name) for name in (
             "id", "tenant_id", "seq", "prev_hash", "record_hash", "record_type",
             "hash_version", "payload_json")} for row in rows]
-    state, approval_digest = review_state(chain, run_id)
+        state, approval_digest, reviewer_status = read_current_review(db, chain, run_id)
     return {"status": state, "human_approval_digest": approval_digest,
+            "reviewer_credential_status": reviewer_status,
             "scope": "review-result", "assurance": "UNKNOWN", "production_eligible": False}
 
 
 @app.post("/nina-run/{run_id}/approval/revoke")
 def revoke_nina_review(run_id: str, body: dict,
                        authorization: str | None = Header(default=None)):
-    tenant_id, actor_id = bearer_identity(authorization)
+    tenant_id, actor_id = reviewer_bearer_identity(authorization)
     with SessionLocal() as db:
         try:
             db.connection().exec_driver_sql("BEGIN IMMEDIATE")
         except OperationalError as exc:
             raise HTTPException(status_code=409, detail="revocation transaction busy") from exc
+        current_identity = reviewer_bearer_identity(authorization, db=db)
+        if current_identity != (tenant_id, actor_id):
+            raise HTTPException(status_code=401, detail="invalid API key")
         rows = db.scalars(select(EvidenceRecord).where(
             EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.asc())).all()
         chain = [{name: getattr(row, name) for name in (

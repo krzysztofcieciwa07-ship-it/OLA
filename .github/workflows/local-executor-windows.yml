@@ -15,6 +15,13 @@ on:
       - 'tests/test_preview_bootstrap.ps1'
       - 'scripts/provision_local_operator.py'
       - 'scripts/provision_additional_tenant_key.py'
+      - 'scripts/provision_reviewer_credential.py'
+      - 'scripts/revoke_tenant_credential.py'
+      - 'app/credential_access.py'
+      - 'app/models.py'
+      - 'app/database.py'
+      - 'tests/test_credential_*.py'
+      - 'tests/test_core_revocation_race.py'
       - 'tests/test_operator_onboarding.py'
       - 'tests/test_additional_tenant_key.py'
       - 'app/main.py'
@@ -36,6 +43,13 @@ on:
       - 'tests/test_preview_bootstrap.ps1'
       - 'scripts/provision_local_operator.py'
       - 'scripts/provision_additional_tenant_key.py'
+      - 'scripts/provision_reviewer_credential.py'
+      - 'scripts/revoke_tenant_credential.py'
+      - 'app/credential_access.py'
+      - 'app/models.py'
+      - 'app/database.py'
+      - 'tests/test_credential_*.py'
+      - 'tests/test_core_revocation_race.py'
       - 'tests/test_operator_onboarding.py'
       - 'tests/test_additional_tenant_key.py'
       - 'app/main.py'
@@ -83,7 +97,8 @@ jobs:
       - name: Regress Windows source paths, Aurora session and preview control flow
         shell: powershell
         run: |
-          node --test tests/aurora_approval_state.test.cjs tests/local_executor_session.test.cjs tests/chat_history_window.test.cjs tests/operator_session_identity.test.cjs
+          $olaTests = @(Get-ChildItem tests/*.test.cjs | ForEach-Object { $_.FullName })
+          node --test @olaTests
           if ($LASTEXITCODE -ne 0) { throw 'AURORA_SESSION_REGRESSION_FAILED' }
           python -m unittest discover -s tests -p test_capture_source_portable.py -v
           if ($LASTEXITCODE -ne 0) { throw 'WINDOWS_SOURCE_OBSERVER_REGRESSION_FAILED' }
@@ -164,4 +179,29 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pytest
       - name: Exercise real keyed FastAPI session and onboarding
-        run: python -m pytest -q tests/test_operator_onboarding.py tests/test_additional_tenant_key.py
+        run: python -m pytest -q tests/test_operator_onboarding.py tests/test_additional_tenant_key.py tests/test_credential_access.py tests/test_credential_migration.py tests/test_credential_admin.py tests/test_core_revocation_race.py
+
+  credential-lifecycle-windows:
+    name: Credential lifecycle / native Windows SQLite
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout candidate without stored credentials
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Exercise scoped credentials, migrations and revocation races
+        run: python -m pytest -q tests/test_operator_onboarding.py tests/test_additional_tenant_key.py tests/test_credential_access.py tests/test_credential_migration.py tests/test_credential_admin.py tests/test_core_revocation_race.py --junitxml=credential-windows.xml
+      - name: Preserve credential test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: credential-windows-${{ github.sha }}
+          path: credential-windows.xml
+          if-no-files-found: warn

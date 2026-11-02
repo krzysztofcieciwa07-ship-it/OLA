@@ -31,9 +31,9 @@ def _prepare():
             ApiKey(id=requester, tenant_id=tenant,
                    key_hash=hash_api_key("requester-" + uuid.uuid4().hex)),
             ApiKey(id=str(uuid.uuid4()), tenant_id=tenant,
-                   key_hash=hash_api_key(key_one)),
+                   key_hash=hash_api_key(key_one), access_scope="REVIEW_RESULT"),
             ApiKey(id=str(uuid.uuid4()), tenant_id=tenant,
-                   key_hash=hash_api_key(key_two)),
+                   key_hash=hash_api_key(key_two), access_scope="REVIEW_RESULT"),
         ])
         db.commit()
     run = "atomic-" + uuid.uuid4().hex

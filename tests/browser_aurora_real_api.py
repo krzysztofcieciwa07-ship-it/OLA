@@ -30,7 +30,8 @@ os.environ.setdefault('OLA_API_KEY_PEPPER', 'CI-ONLY-OLA-API-KEY-PEPPER-DO-NOT-U
 from fastapi.testclient import TestClient  # noqa: E402
 from app import main as core  # noqa: E402
 from scripts.provision_local_operator import issue_operator_key  # noqa: E402
-from scripts.provision_additional_tenant_key import issue_existing_tenant_key  # noqa: E402
+from scripts.provision_reviewer_credential import issue_reviewer_credential  # noqa: E402
+from scripts.revoke_tenant_credential import revoke_tenant_credential  # noqa: E402
 
 PAGE = Path(__file__).resolve().parents[1] / 'web' / 'index.html'
 OUT = Path(os.getenv('AURORA_EVIDENCE_DIR', str(WORK / 'evidence')))
@@ -47,12 +48,13 @@ def run():
     client = TestClient(core.app)
     tenant, requester = seed('aurora-tenant-A')
     requester_session = client.get('/auth/session', headers={'X-API-Key': requester}).json()
-    issued_tenant, approver_id, approver = issue_existing_tenant_key(
+    issued_tenant, approver_id, approver = issue_reviewer_credential(
         tenant, expected_requester_id=requester_session['credential_id'])
     approver_response = client.get('/auth/session', headers={'X-API-Key': approver})
     approver_session = approver_response.json()
     assert issued_tenant == approver_session['tenant_id'] == requester_session['tenant_id'] == tenant
     assert approver_id == approver_session['credential_id'] != requester_session['credential_id']
+    assert approver_session['scope'] == 'REVIEW_RESULT'
     assert approver not in approver_response.text
     _, other_tenant = seed('aurora-tenant-B')
     def fake_chat(tenant_id, messages):
@@ -167,6 +169,8 @@ def run():
         assert approval['approver_id'] == approver_id
         assert approval['scope'] == 'review-result' and approval['production_eligible'] is False
         assert approval['approved_tip_hash']==run['tip_hash']
+        assert approval['approver_credential_scope'] == 'REVIEW_RESULT'
+        assert page.locator('#approverKey').input_value() == ''
 
         # Run explorer reads stored hashes + independent replay, not fake stats.
         page.locator('[data-view="settings"]').first.click()
@@ -185,6 +189,25 @@ def run():
         assert replay_view['independent_release_verification']=='UNKNOWN'
         assert requester not in page.locator('#ccMonitorDetails').text_content()
 
+        # Exercise the supported administrative revoker against disposable
+        # SQLite, then observe the loss of authority through the actual UI/API.
+        revocation = revoke_tenant_credential(
+            tenant, credential_id=approver_id,
+            expected_requester_id=requester_session['credential_id'],
+            expected_target_scope='REVIEW_RESULT', expected_active_key_count=2,
+        )
+        assert revocation['status'] == 'REVOKED'
+        assert client.get('/auth/session', headers={'X-API-Key': approver}).status_code == 401
+        page.locator('#ccRefresh').click()
+        page.locator('#ccL5').get_by_text('BLOCKED', exact=True).wait_for()
+        current_view = json.loads(page.locator('#ccMonitorDetails').text_content())
+        assert current_view['current_review']['reviewer_credential_status'] == 'REVOKED'
+        assert current_view['current_review']['production_eligible'] is False
+        page.locator('[data-view="operations"]').first.click()
+        page.locator('#refreshApproval').click()
+        page.wait_for_function("() => document.getElementById('humanStatus').textContent.startsWith('BLOCKED')")
+        assert page.locator('#approverKey').input_value() == ''
+
         page.locator('[data-view="settings"]').first.click()
         page.locator('#forgetKey').click()
         assert page.locator('#apiKey').input_value()==''
@@ -198,7 +221,7 @@ def run():
         phone.screenshot(path=str(OUT/'aurora-mobile.png'), animations='disabled')
         browser.close()
     statuses={path:sum(x['path']==path for x in calls) for path in ('/health','/auth/session','/control/overview','/control/runs/'+run['run_id'],'/chat','/audit','/nina-run','/nina-run/'+run['run_id']+'/approve')}
-    result={'status':'PASS','scope':f'{sys.platform} browser/in-process FastAPI, supported credential issuers, actual NINA/IGOR/REPLAY; deterministic runtime and stubbed chat, no real LLM','routes':statuses,'tenant_isolation':'PASS','distinct_credential_approval':'PASS','human_identity_assurance':'UNKNOWN','html_injection':'BLOCKED','mobile':'PASS','production_live':'NOT_TESTED'}
+    result={'status':'PASS','scope':f'{sys.platform} browser/in-process FastAPI, supported credential issuers/revoker, actual NINA/IGOR/REPLAY; deterministic runtime and stubbed chat, no real LLM','routes':statuses,'tenant_isolation':'PASS','scoped_credential_approval':'PASS','revoked_reviewer_blocked_in_ui':'PASS','human_identity_assurance':'UNKNOWN','html_injection':'BLOCKED','mobile':'PASS','production_live':'NOT_TESTED'}
     (OUT/'result.json').write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(result,indent=2))
 

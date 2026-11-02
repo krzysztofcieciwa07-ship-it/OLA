@@ -70,6 +70,17 @@ function createConsole(approve) {
   const fetch = (url, options) => {
     calls.push({url, options});
     if (url === '/health') return Promise.resolve(response({status: 'ok'}));
+    if (url === '/auth/session') return Promise.resolve(response({
+      authenticated: true,
+      tenant_id: '1177d13f-1e08-40ce-a7fe-a2fd101fca83',
+      credential_id: options.headers['X-API-Key'] === 'requesting-operator'
+        ? '4efc4586-4ea8-4cf1-848f-c03bfa3d8ea7' : '97d61b88-fea7-4f44-9f85-a1c9fcab745f',
+      scope: options.headers['X-API-Key'] === 'requesting-operator' ? 'OLA_CORE' : 'REVIEW_RESULT',
+    }));
+    if (url === '/nina-run/test-run/approval') return Promise.resolve(response({
+      status: 'APPROVED', scope: 'review-result', assurance: 'UNKNOWN', production_eligible: false,
+      reviewer_credential_status: 'ACTIVE',
+    }));
     if (url === '/nina-run') return Promise.resolve(response({
       status: 'REVIEW',
       run_id: 'test-run',
@@ -153,6 +164,7 @@ for (const outcome of ['aborted request', 'late successful response']) {
     }));
     await ui.candidate();
     ui.el('approvalForm').dispatch('submit');
+    await drain(); // Both read-only identity checks must complete before the POST is in flight.
     assert.equal(ui.el('approveSend').disabled, true);
     ui.el('apiKey').value = 'next-tenant-key';
     ui.el('apiKey').dispatch('input');

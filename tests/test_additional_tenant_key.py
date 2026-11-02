@@ -234,6 +234,23 @@ def test_repeat_with_original_count_is_refused(existing_tenant):
     assert snapshot() == before
 
 
+@pytest.mark.parametrize("requester_state", ["revoked", "reviewer"])
+def test_full_core_issuer_requires_active_core_requester_pin(existing_tenant, requester_state):
+    issuer = feature()
+    tenant, requester, _ = existing_tenant
+    with SessionLocal() as db:
+        record = db.get(ApiKey, requester)
+        if requester_state == "revoked":
+            record.revoked_at = 1
+        else:
+            record.access_scope = "REVIEW_RESULT"
+        db.commit()
+    before = snapshot()
+    with pytest.raises(ValueError, match="active OLA_CORE"):
+        issuer.issue_existing_tenant_key(tenant, expected_requester_id=requester)
+    assert snapshot() == before
+
+
 def test_concurrent_issuance_with_same_count_adds_only_one_key(existing_tenant):
     issuer = feature()
     tenant, requester, _ = existing_tenant
@@ -358,7 +375,7 @@ def test_failed_commit_never_prints_credential_or_changes_inventory(existing_ten
     assert snapshot() == before
 
 
-def test_additional_credential_reviews_only_own_tenant_result(existing_tenant, local_binding_source):
+def test_full_access_additional_credential_cannot_review_result(existing_tenant, local_binding_source):
     issuer = feature()
     tenant, requester, requester_key = existing_tenant
     _, new_id, new_key = issuer.issue_existing_tenant_key(tenant, expected_requester_id=requester)
@@ -366,7 +383,8 @@ def test_additional_credential_reviews_only_own_tenant_result(existing_tenant, l
     foreign_key = "foreign-" + uuid.uuid4().hex
     with SessionLocal() as db:
         db.add(Tenant(id=foreign_tenant, name="foreign-review")); db.flush()
-        db.add(ApiKey(id=foreign_id, tenant_id=foreign_tenant, key_hash=hash_api_key(foreign_key)))
+        db.add(ApiKey(id=foreign_id, tenant_id=foreign_tenant, key_hash=hash_api_key(foreign_key),
+                      access_scope="REVIEW_RESULT"))
         db.commit()
     run = "additional-key-review-" + uuid.uuid4().hex
     candidate = append_record(tenant, "decision.candidate", {
@@ -385,9 +403,6 @@ def test_additional_credential_reviews_only_own_tenant_result(existing_tenant, l
     assert approve(requester_key).status_code == 403
     assert approve(foreign_key).status_code == 404
     response = approve(new_key)
-    assert response.status_code == 200, response.text
-    approval = response.json()
-    assert approval["status"] == "APPROVED" and approval["approver_id"] == new_id
-    assert approval["assurance"] == "UNKNOWN" and approval["production_eligible"] is False
-    assert approval["scope"] == "review-result"
-    assert approve(new_key).status_code == 409
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"] == "REVIEW_RESULT credential required"
+    assert new_id != requester

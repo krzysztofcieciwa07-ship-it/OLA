@@ -211,6 +211,9 @@ def review_state(chain, run_id, now=None):
         binding = validate_review_subject(candidate, approval.get("tenant_id"),
             approval.get("requester_id"), approval.get("report_sha256"), now=now)
         if (approval.get("scope") != "review-result" or approval.get("status") != "APPROVED"
+                or candidate.get("requester_credential_scope") != "OLA_CORE"
+                or approval.get("requester_credential_scope") != "OLA_CORE"
+                or approval.get("approver_credential_scope") != "REVIEW_RESULT"
                 or approval.get("source_sha") != binding["source"]["sha"]
                 or approval.get("policy_digest") != binding["policy_digest"]
                 or approval.get("parameters_digest") != binding["parameters_digest"]

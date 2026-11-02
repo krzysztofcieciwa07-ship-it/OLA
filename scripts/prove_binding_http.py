@@ -32,7 +32,8 @@ def main():
         with SessionLocal() as db:
             db.add(Tenant(id=tenant,name="local-http-proof")); db.flush()
             db.add_all([ApiKey(id=requester,tenant_id=tenant,key_hash=hash_api_key(request_key)),
-                        ApiKey(id=reviewer,tenant_id=tenant,key_hash=hash_api_key(review_key))]); db.commit()
+                        ApiKey(id=reviewer,tenant_id=tenant,key_hash=hash_api_key(review_key),
+                               access_scope="REVIEW_RESULT")]); db.commit()
         with socket.socket() as sock:
             sock.bind(('127.0.0.1',0)); port = sock.getsockname()[1]
         with open(Path(directory)/'server.log','w') as log:

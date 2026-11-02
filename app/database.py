@@ -45,3 +45,39 @@ def ensure_evidence_hash_schema():
         except BaseException:
             connection.rollback()
             raise
+
+
+def ensure_api_key_access_schema():
+    """Add authority and revocation metadata without reissuing legacy keys.
+
+    Existing keys retain Core authority. Only explicit new issuance produces a
+    review-only credential; key order/count never assigns a reviewer role.
+    """
+    with engine.connect() as connection:
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        try:
+            columns = {row[1] for row in connection.exec_driver_sql(
+                "PRAGMA table_info(api_keys)"
+            ).fetchall()}
+            if not columns:
+                raise RuntimeError("api_keys table must exist")
+            if "access_scope" not in columns:
+                connection.exec_driver_sql(
+                    "ALTER TABLE api_keys ADD COLUMN access_scope TEXT "
+                    "NOT NULL DEFAULT 'OLA_CORE' "
+                    "CHECK (access_scope IN ('OLA_CORE','REVIEW_RESULT'))"
+                )
+            invalid = connection.exec_driver_sql(
+                "SELECT COUNT(*) FROM api_keys WHERE access_scope IS NULL "
+                "OR access_scope NOT IN ('OLA_CORE','REVIEW_RESULT')"
+            ).scalar_one()
+            if invalid:
+                raise RuntimeError("api_keys contains an unsupported access scope")
+            if "revoked_at" not in columns:
+                connection.exec_driver_sql(
+                    "ALTER TABLE api_keys ADD COLUMN revoked_at INTEGER"
+                )
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise

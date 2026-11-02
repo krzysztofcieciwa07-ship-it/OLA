@@ -26,7 +26,7 @@ Komunikacja z właścicielem po polsku. Docelowy runtime i odbiór produktu: Win
 
 ## Pierwszy rezultat i pełny zakres
 
-Pierwszy krok integracji: UI → rzeczywiste uwierzytelnione API → lokalny model → ograniczone narzędzie → trwały raport/evidence → odczyt i replay → poprawny status UI. Osobno sprawdź brak klucza, zły klucz, błąd modelu oraz reset sesji podczas odpowiedzi. Przegląd przez drugiego operatora wymaga drugiej prawidłowej tożsamości w tym samym tenantcie; nie zastępuj jej drugim nowym tenantem ani testowym mockiem. Lokalną procedurę dodania drugiego poświadczenia opisuje `docs/ADDITIONAL-TENANT-CREDENTIAL-PL.md`; osobny klucz ma pełny zakres Core i nie stanowi dowodu odrębnej osoby lub roli.
+Pierwszy krok integracji: UI → rzeczywiste uwierzytelnione API → lokalny model → ograniczone narzędzie → trwały raport/evidence → odczyt i replay → poprawny status UI. Osobno sprawdź brak klucza, zły klucz, błąd modelu oraz reset sesji podczas odpowiedzi. Przegląd wyniku wymaga odrębnego poświadczenia `REVIEW_RESULT` w tym samym tenantcie; nie zastępuj go nowym tenantem ani pełnym kluczem Core. Procedurę migracji, wydawania i unieważniania opisuje `docs/CREDENTIAL-LIFECYCLE-WINDOWS-PL.md`. Dotychczasowy dodatkowy klucz pozostaje Core i nie może zatwierdzać wyników. Rozdział uprawnień poświadczeń nie potwierdza tożsamości odrębnych osób.
 
 To pierwszy etap pełnego zakresu, a nie jego redukcja. Prowadź macierz funkcja → kod → rzeczywisty test → artefakt → stan i kontynuuj OLA-01–OLA-17. Rozdziel testy izolowane, Windows CI i lokalny ZBook. Ujawnij każdy SKIPPED/NOT RUN i zakres symulacji.
 

@@ -69,7 +69,8 @@ def setup_candidate():
     with SessionLocal() as db:
         db.add(Tenant(id=tenant, name='binding-tests')); db.flush()
         db.add_all([ApiKey(id=requester, tenant_id=tenant, key_hash=hash_api_key(request_key)),
-                    ApiKey(id=approver, tenant_id=tenant, key_hash=hash_api_key(review_key))]); db.commit()
+                    ApiKey(id=approver, tenant_id=tenant, key_hash=hash_api_key(review_key),
+                           access_scope="REVIEW_RESULT")]); db.commit()
     run = uuid.uuid4().hex
     candidate = {'run_id': run, 'requester_id': requester,
         'status_fields': {'RUNTIME':'VERIFIED','EVIDENCE':'VERIFIED','REPLAY_INTEGRITY':'VERIFIED',

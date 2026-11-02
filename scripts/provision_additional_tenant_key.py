@@ -72,6 +72,8 @@ def _inspect_inventory(db, tenant_id, expected_requester_id, expected_key_count)
     requester = db.get(ApiKey, expected_requester_id)
     if requester is None or requester.tenant_id != tenant_id:
         raise ValueError("expected requester does not belong to the tenant")
+    if requester.revoked_at is not None or requester.access_scope != "OLA_CORE":
+        raise ValueError("expected requester pin must be an active OLA_CORE credential")
     count = db.scalar(select(func.count()).select_from(ApiKey).where(ApiKey.tenant_id == tenant_id))
     if count != expected_key_count:
         raise ValueError("existing key count differs from the expected count")

@@ -56,6 +56,7 @@ def bound_candidate_fields(tenant, requester, run):
         evidence_root=previous or "0" * 64)
     now = int(time.time())
     return {"decision_report_v2": report, "execution_binding": binding,
+            "requester_credential_scope": "OLA_CORE",
             "review_issued_at": now, "review_expires_at": now + 900}
 
 

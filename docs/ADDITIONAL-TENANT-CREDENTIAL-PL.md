@@ -2,7 +2,7 @@
 
 Ta procedura uzupełnia lokalny onboarding OLA Core. Obecny `-IssueKey` tworzy nowego tenanta; nie służy do dodania klucza istniejącej organizacji. Nowy moduł `scripts.provision_additional_tenant_key` wydaje dodatkowy klucz w sprawdzonym tenantcie, z osobnym `credential_id`.
 
-Każdy taki klucz otrzymuje obecny pełny zakres `OLA_CORE`. System nie ma jeszcze przypisania kluczy do osób ani roli ograniczonej do recenzji. Dwa różne klucze nie dowodzą dwóch różnych ludzi. Operator lokalny musi przekazać poświadczenie uprawnionej drugiej osobie poza czatem i zachować rozdział pracy. `assurance` pozostaje `UNKNOWN`, a `production_eligible` — `false`.
+Każdy taki klucz otrzymuje pełny zakres `OLA_CORE` i nie może zatwierdzać wyników. Do recenzji służy osobny zakres `REVIEW_RESULT` i procedura `docs/CREDENTIAL-LIFECYCLE-WINDOWS-PL.md`, która opisuje również migrację oraz unieważnianie. Dwa różne klucze nie dowodzą dwóch różnych ludzi. `assurance` pozostaje `UNKNOWN`, a `production_eligible` — `false`.
 
 ## Przed rozpoczęciem
 
@@ -48,16 +48,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Operacja nie potwierdzila zakonczenia. Sprawdz
 
 Zapis wymaga obu jawnych flag i interaktywnego stdin/stdout. Transakcja ponownie sprawdza tenanta, poświadczenie inicjatora i liczbę kluczy przed dodaniem nowego wpisu. Zapisuje wyłącznie hash istniejącym KDF; sekret pokazuje raz dopiero po udanym commit. Odczyt otwiera SQLite w trybie `ro`, a zapis w `rw`, aby brakujący plik nie został automatycznie utworzony także po wyścigu sprawdzenie/otwarcie. Nie zmienia starego klucza, historycznych dowodów ani schematu. Nie dodaje publicznego endpointu wydawania kluczy.
 
-Jeśli terminal zamknie się po commit, ale przed skopiowaniem sekretu, jego odzyskanie nie jest możliwe. Nie podnoś automatycznie oczekiwanej liczby i nie wydawaj kolejnych kluczy w pętli. Wymagana będzie kontrolowana decyzja operatorska; model danych nie ma jeszcze gotowej procedury odwołania klucza.
+Jeśli terminal zamknie się po commit, ale przed skopiowaniem sekretu, jego odzyskanie nie jest możliwe. Nie podnoś automatycznie oczekiwanej liczby i nie wydawaj kolejnych kluczy w pętli. Sprawdź inventory i odwołaj dokładny nieużywany rekord zgodnie z `docs/CREDENTIAL-LIFECYCLE-WINDOWS-PL.md`. Ten moduł nadal liczy wszystkie historyczne rekordy; nowa procedura recenzenta liczy aktywne poświadczenia.
 
-## Przegląd wyniku przez drugi klucz
+## Przegląd wymaga osobnego zakresu
 
-1. Potwierdź przez odczytowe `/auth/session`, że oba klucze mają ten sam `tenant_id` i różne `credential_id`. Odczyt drugiego klucza wykonaj przed nowym zadaniem, w osobnej prywatnej karcie, lub bez zmiany głównej sesji inicjatora.
-2. W głównej karcie pozostaw klucz inicjatora w SETTINGS. Uruchom nowe `17 * 23` i odczytaj raport. Zmiana globalnego klucza kasuje bieżącego kandydata w interfejsie.
-3. Druga osoba zapoznaje się z raportem i wprowadza swój klucz wyłącznie w pole drugiego operatora przy tym kandydacie. Weryfikacja obejmuje bieżący `tip_hash`, `report_sha256`, źródło, politykę i okno 15 minut.
-4. Między wykonaniem a przeglądem nie dodawaj innych dowodów, np. przez `/chat` lub nowe zadanie. Odczyty `/auth/session` i `/control/runs/{run_id}` nie przesuwają tipa. Nowy dowód może unieważnić kandydata albo istniejące zatwierdzenie.
-5. Potwierdź stan `GET /nina-run/{run_id}/approval` z właściwym Bearer. Uwzględnij `STALE`, `BLOCKED` i wygaśnięcie. Sukces ma zakres `review-result`; nie uprawnia do produkcji ani dowolnego polecenia Windows.
+Pełny drugi klucz Core otrzyma HTTP 403 na ścieżce zatwierdzenia. Wydaj jawnie klucz recenzenta i wykonaj nowy przebieg według `docs/CREDENTIAL-LIFECYCLE-WINDOWS-PL.md`. Nie zmieniaj zakresu starego klucza ręcznie w bazie ani nie przepisuj dawnych dowodów.
 
 ## Co pozostaje do odbioru
 
-Testy automatyczne sprawdzają poświadczenia, izolację tenantów i trwały przegląd wyniku w testowej SQLite. Nie potwierdzają tożsamości drugiej osoby, jej odrębnego urządzenia, rzeczywistego modelu, Windows ani niezależnego wydania. Integracja z użytkownikami/rolami, kontrolowane odwoływanie kluczy i rzeczywisty odbiór przez drugiego operatora nadal wymagają osobnej implementacji i weryfikacji.
+Testy automatyczne sprawdzają poświadczenia, zakresy, odwołanie, izolację tenantów i trwały przegląd wyniku w testowej SQLite. Nie potwierdzają tożsamości drugiej osoby, jej odrębnego urządzenia, rzeczywistego modelu, fizycznego Windows/ZBooka ani niezależnego wydania.
