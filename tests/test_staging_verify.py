@@ -73,3 +73,18 @@ def test_producer_spoofing_rejected(tmp_path):
     con.close()
     with pytest.raises(ValueError,match='provenance binding'):
         verify_chain(str(tmp_path/'chain.db'),'tenant-1',1)
+
+
+def test_missing_append_only_trigger_fails_without_changing_any_record(tmp_path):
+    path = tmp_path / "chain.db"
+    con, _ = fixture_db(str(path))
+    old_payload = con.execute("SELECT payload_json FROM evidence_records WHERE id='evidence-1'").fetchone()[0]
+    con.execute("DROP TRIGGER evidence_no_update")
+    con.commit()
+    con.close()
+    with pytest.raises(ValueError, match="tamper update was not rejected"):
+        verify_chain(str(path), "tenant-1", 1, tamper=True)
+    con = sqlite3.connect(path)
+    new_payload = con.execute("SELECT payload_json FROM evidence_records WHERE id='evidence-1'").fetchone()[0]
+    con.close()
+    assert new_payload == old_payload, "negative test must not itself corrupt source evidence"
