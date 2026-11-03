@@ -42,7 +42,7 @@ def test_teardown_failure_invalidates_receipt_and_return_code(monkeypatch, tmp_p
             return sha
         if args[:2] == ("git", "status"):
             return ""
-        if args[0] == "docker" and "staging_verify.py" in args:
+        if args[0] == "docker" and any(str(arg).endswith("staging_verify.py") for arg in args):
             return json.dumps({
                 "status": "VERIFIED", "tamper_blocked": True,
                 "chain_root": "e" * 64,
