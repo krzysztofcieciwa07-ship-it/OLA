@@ -131,6 +131,7 @@ def main():
             "OLA_STAGE_VANTAGE_SHA": expected_vantage_sha,
             "OLA_STAGE_VANTAGE_PUBLIC_HEX": public_key.hex(),
             "OLA_STAGE_POLICY_HMAC": secrets.token_urlsafe(48),
+            "OLA_STAGE_DECOY_LLM_KEY": secrets.token_urlsafe(36),
             "OLA_STAGE_VANTAGE_PRIVATE_FILE": str(private_file),
             "OLA_STAGE_VANTAGE_STATE_DIR": str(replay_dir),
             "OLA_STAGE_UID": str(os.getuid()),
@@ -160,8 +161,13 @@ def main():
                 and good.get("vantage", {}).get("status") == "SIGNED_RECEIPT_VERIFIED"
                 and good.get("igor", {}).get("status") == "VERIFIED"
             )
-            if not checks["signed_vantage_allows_bounded_local_action"]:
-                raise RuntimeError("signed external gate did not permit local execution")
+            checks["signed_scope_never_contacts_external_llm"] = (
+                good.get("nina", {}).get("invocation_type") == "local_deterministic_model"
+                and good.get("nina", {}).get("provider") == "local"
+            )
+            if not (checks["signed_vantage_allows_bounded_local_action"]
+                    and checks["signed_scope_never_contacts_external_llm"]):
+                raise RuntimeError("signed external gate or local-only execution failed")
             operation_id = good["run_id"]
 
             # Independently read persisted V2 evidence; OLA rechecks signer
