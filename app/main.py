@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import uuid
@@ -15,7 +16,9 @@ from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
 from .business_runtime import run_invoice_task
 from .nina import NinaOrchestrator, NinaTask, REGISTERED_TOOLS
 from .nina_workflow import run_nina_workflow
-from .nina_workflow_gate import approve_workflow, WorkflowApprovalRejected
+from .nina_workflow_gate import (
+    approve_workflow, approve_nina_candidate, WorkflowApprovalRejected,
+)
 from .workflow_engine import WorkflowPlanError
 from .igor import IgorVerifier
 from .replay import build_replay, verify_replay
@@ -575,6 +578,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
             "requester_id": requester_id,
             "status_fields": status_fields,
             "candidate_status": derived_status,
+            "decision_report_sha256": report["report_sha256"],
         },
     )
     tip_hash = candidate_record["record_hash"]
@@ -601,72 +605,16 @@ def approve_nina_run(
     body: dict,
     authorization: str | None = Header(default=None),
 ):
-    approver_tenant_id, approver_id = bearer_identity(authorization)
-    tip_hash = body.get("tip_hash")
-    if not isinstance(tip_hash, str) or not tip_hash:
-        raise HTTPException(status_code=400, detail="tip_hash is required")
-
-    with SessionLocal() as db:
-        rows = db.scalars(
-            select(EvidenceRecord)
-            .where(EvidenceRecord.tenant_id == approver_tenant_id)
-            .order_by(EvidenceRecord.seq.asc())
-        ).all()
-
-    if not rows:
-        raise HTTPException(status_code=404, detail="run evidence not found")
-    if rows[-1].record_hash != tip_hash:
-        raise HTTPException(status_code=409, detail="tip_hash is stale or does not match current chain tip")
-
-    candidate = None
-    for row in rows:
-        if row.record_type != "decision.candidate":
-            continue
-        try:
-            payload = json.loads(row.payload_json)
-        except json.JSONDecodeError:
-            continue
-        if payload.get("run_id") == run_id:
-            candidate = payload
-            break
-
-    if candidate is None:
-        raise HTTPException(status_code=404, detail="decision candidate not found")
-    requester_id = candidate.get("requester_id")
-    if not requester_id:
-        raise HTTPException(status_code=409, detail="requester identity missing from decision candidate")
-    if approver_id == requester_id:
-        raise HTTPException(status_code=403, detail="approver must differ from requester")
-
-    candidate_fields = candidate.get("status_fields")
-    if not isinstance(candidate_fields, dict):
-        raise HTTPException(status_code=409, detail="decision candidate status fields are invalid")
-    approved_fields = dict(candidate_fields)
-    approved_fields["HUMAN_GATE"] = "VERIFIED"
-    if NinaIgorChain.derive_status(approved_fields) != "VERIFIED":
-        raise HTTPException(status_code=409, detail="candidate is not eligible for human approval")
-
-    record = append_record(
-        approver_tenant_id,
-        "human.approval",
-        {
-            "run_id": run_id,
-            "tip_hash": tip_hash,
-            "requester_id": requester_id,
-            "approver_id": approver_id,
-            "reason": str(body.get("reason", "")),
-            "status": "VERIFIED",
-        },
-    )
-    return {
-        "status": "VERIFIED",
-        "run_id": run_id,
-        "tip_hash": record["record_hash"],
-        "approved_tip_hash": tip_hash,
-        "record_id": record["id"],
-        "record_type": "human.approval",
-        "approver_id": approver_id,
-    }
+    tenant_id, approver_id = bearer_identity(authorization)
+    try:
+        return approve_nina_candidate(
+            tenant_id=tenant_id, approver_id=approver_id, run_id=run_id,
+            tip_hash=body.get("tip_hash"),
+            report_sha256=body.get("report_sha256"),
+            reason=body.get("reason"),
+        )
+    except WorkflowApprovalRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
 
 @app.post("/stripe/webhook")

@@ -64,5 +64,5 @@ def test_agent_runtime_http_endpoint():
         headers={"X-API-Key": "agent-key"},
         json={"task": "runtime agent verification"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json()["status"] == "VERIFIED"
