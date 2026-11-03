@@ -68,3 +68,17 @@ def test_tamper_hash_and_producer_binding_are_rejected(tmp_path):
     db.close()
     with pytest.raises(ValueError, match="binding"):
         verify_chain(path, "tenant", 1)
+
+
+def test_locked_database_cannot_masquerade_as_trigger_rejection(tmp_path):
+    path = str(tmp_path / "locked.db")
+    db, _ = make_db(path)
+    db.execute("DROP TRIGGER evidence_no_update")
+    db.commit()
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        with pytest.raises(ValueError, match="unrelated"):
+            verify_chain(path, "tenant", 1, tamper=True)
+    finally:
+        db.rollback()
+        db.close()
