@@ -310,8 +310,13 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
     return saved["id"], output
 
 
-def run_agent_task(tenant_id, task):
-    run_id = str(uuid.uuid4())
+def run_agent_task(tenant_id, task, *, run_id=None):
+    # A guarded endpoint supplies a server-generated UUID before execution,
+    # to bind signed external Vantage preflight and runtime evidence.
+    if run_id is None:
+        run_id = str(uuid.uuid4())
+    elif not isinstance(run_id, str) or str(uuid.UUID(run_id)) != run_id:
+        raise ValueError("invalid bound operation ID")
     evidence_ids = []
     execution = []
     previous_output = {"task": task}
