@@ -52,6 +52,10 @@ def test_operation_readback_scopes_identity_rechecks_igor_and_never_claims_vanta
     assert item["status"] == "REVIEW_REQUIRED"
     assert item["stages"]["igor"]["status"] == "VERIFIED_LOCAL_EVIDENCE"
     assert item["stages"]["vantage"]["status"] == "NOT_CONNECTED"
+    assert item["stages"]["codex_bridge"]["status"] == "NOT_CONNECTED"
+    assert item["stages"]["codex_bridge"]["operation_id"] == run["run_id"]
+    assert item["stages"]["nova"]["status"] == "NOT_CONNECTED"
+    assert item["stages"]["nova"]["operation_id"] == run["run_id"]
     assert item["stages"]["execution"]["mode"] == "local_deterministic_model"
     assert item["evidence"]["chain_tip"] == run["tip_hash"]
     assert item["evidence"]["run_event_count"] > 0
@@ -85,6 +89,7 @@ def test_operator_page_is_a_same_origin_entry_point_without_credentials():
     response = TestClient(app).get("/operator")
     assert response.status_code == 200
     assert "/operator/operations/" in response.text
+    assert "/operator/guarded-run" in response.text
     assert "localStorage" not in response.text
     assert "sessionStorage" not in response.text
     assert "<script src=\"https://" not in response.text

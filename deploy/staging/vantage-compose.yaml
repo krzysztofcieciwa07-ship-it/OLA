@@ -1,0 +1,43 @@
+# Cross-repository LOCAL CI only: actual Vantage AFE in an isolated container.
+# No Vantage host port is published. No existing database/secret is mounted.
+services:
+  ola:
+    environment:
+      OLA_VANTAGE_ENFORCED: "1"
+      VANTAGE_POLICY_URL: http://vantage:18710/v1/decisions
+      OLA_VANTAGE_HMAC_SECRET: ${OLA_STAGE_POLICY_HMAC:?}
+      OLA_VANTAGE_ED25519_PUBLIC_KEY_HEX: ${OLA_STAGE_VANTAGE_PUBLIC_HEX:?}
+      OLA_VANTAGE_EXPECTED_SOURCE_COMMIT: ${OLA_STAGE_VANTAGE_SHA:?}
+    depends_on:
+      vantage:
+        condition: service_healthy
+  vantage:
+    build:
+      context: ${OLA_STAGE_VANTAGE_SRC:?}
+      dockerfile: Dockerfile.policy
+    user: "${OLA_STAGE_UID:?}:${OLA_STAGE_GID:?}"
+    environment:
+      VANTAGE_HMAC_SECRET: ${OLA_STAGE_POLICY_HMAC:?}
+      VANTAGE_SOURCE_COMMIT: ${OLA_STAGE_VANTAGE_SHA:?}
+      VANTAGE_ED25519_PRIVATE_KEY_FILE: /run/identity/vantage.pem
+      VANTAGE_REPLAY_DB: /state/replay.sqlite3
+      VANTAGE_BIND_HOST: "0.0.0.0"
+      VANTAGE_PRIVATE_NETWORK_BIND: "1"
+      VANTAGE_PORT: "18710"
+    volumes:
+      - ${OLA_STAGE_VANTAGE_PRIVATE_FILE:?}:/run/identity/vantage.pem:ro
+      - ${OLA_STAGE_VANTAGE_STATE_DIR:?}:/state
+    expose:
+      - "18710"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18710/health',timeout=3).read()"]
+      interval: 3s
+      timeout: 4s
+      start_period: 10s
+      retries: 10

@@ -1,0 +1,61 @@
+name: OLA Vantage Signed Cross Repo Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signed-vantage-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      OLA_STAGING_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      OLA_STAGE_VANTAGE_SHA: b08e6017b2f41a22778023bc6a754e7b287ace88
+    steps:
+      - name: Checkout exact OLA source without saved credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Checkout pinned independent Vantage source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: krzysztofcieciwa07-ship-it/vantage
+          ref: b08e6017b2f41a22778023bc6a754e7b287ace88
+          path: external/vantage
+          persist-credentials: false
+
+      - name: Verify exact code identity for both services
+        env:
+          EXPECTED_OLA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_OLA"
+          test "$(git -C external/vantage rev-parse HEAD)" = "$OLA_STAGE_VANTAGE_SHA"
+
+      - name: Set up Python crypto and integration script
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install pinned integration crypto only
+        run: python -m pip install cryptography==50.0.2
+
+      - name: Execute two real services over private Docker network
+        run: |
+          set -euo pipefail
+          docker compose version
+          python scripts/cross_vantage_rehearsal.py
+
+      - name: Publish non-secret cross-service evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ola-vantage-signed-cross-repo
+          path: vantage-cross-evidence.json
+          if-no-files-found: warn
+          retention-days: 14

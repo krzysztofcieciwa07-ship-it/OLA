@@ -27,6 +27,7 @@ from .replay import build_replay, verify_replay
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain, STATUS_FIELDS
 from .operator_receipt import read_operation_receipt, ReceiptRejected
+from .vantage_client import request_verified_vantage_decision, VantagePolicyError
 from .decision_report import build_decision_report
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
@@ -495,8 +496,79 @@ def approve_nina_workflow(run_id: str, body: dict,
         raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
 
+@app.post("/operator/guarded-run")
+def create_guarded_operator_run(body: dict, x_api_key: str | None = Header(default=None)):
+    """External signed Vantage verdict required BEFORE local NINA execution.
+
+    Only safe_expression is allowed. This is NOT authority for Codex, NOVA,
+    shell or production. All failures remain fail-closed with evidence.
+    """
+    tenant_id, requester_id = identity_from_key(x_api_key)
+    run_id = str(uuid.uuid4())
+    task = body.get("task")
+    tools = body.get("requested_tools", ["safe_expression"])
+    if not isinstance(task, str) or not task.strip() or len(task) > 2000:
+        raise HTTPException(status_code=400, detail="bounded task is required")
+    task_sha = hashlib.sha256(task.encode("utf-8")).hexdigest()
+    if tools != ["safe_expression"]:
+        # No call to unsafe tool or policy service. Rejection is recorded.
+        append_record(tenant_id, "verification.vantage_policy", {
+            "run_id": run_id, "requester_id": requester_id,
+            "task_sha256": task_sha, "status": "BLOCK",
+            "reason": "unsafe or unregistered action",
+        })
+        return {"run_id": run_id, "status": "BLOCK",
+                "vantage": {"status": "BLOCK", "reason": "unsupported pilot action"},
+                "production_authorized": False}
+
+    try:
+        envelope = request_verified_vantage_decision(
+            tenant_id=tenant_id, operation_id=run_id,
+            action="safe_expression", task_text=task,
+        )
+        receipt = envelope["receipt"]
+        if receipt["verdict"] not in ("ALLOW", "BLOCK", "HUMAN_APPROVAL"):
+            raise VantagePolicyError("unrecognized signed policy verdict")
+        accepted = receipt["verdict"] == "ALLOW"
+        append_record(tenant_id, "verification.vantage_policy", {
+            "run_id": run_id, "requester_id": requester_id,
+            "task_sha256": task_sha, "status": "SIGNED_RECEIPT_VERIFIED",
+            "verdict": receipt["verdict"], "envelope": envelope,
+            "source_commit": os.getenv("OLA_RUNTIME_COMMIT") or "UNKNOWN",
+        })
+    except (VantagePolicyError, KeyError, TypeError):
+        append_record(tenant_id, "verification.vantage_policy", {
+            "run_id": run_id, "requester_id": requester_id,
+            "task_sha256": task_sha, "status": "BLOCK",
+            "reason": "remote Vantage unavailable or signature verification failed",
+        })
+        return {"run_id": run_id, "status": "BLOCK",
+                "vantage": {"status": "NOT_VERIFIED"},
+                "production_authorized": False}
+    if not accepted:
+        return {"run_id": run_id, "status": "BLOCK",
+                "vantage": {"status": "SIGNED_BLOCK_OR_REVIEW",
+                            "verdict": receipt["verdict"]},
+                "production_authorized": False}
+
+    result = _run_nina_internal(body, x_api_key, bound_run_id=run_id)
+    result["vantage"] = {
+        "status": "SIGNED_RECEIPT_VERIFIED",
+        "verdict": "ALLOW",
+        "trust_scope": "signed_heuristic_policy_only",
+    }
+    result["production_authorized"] = False
+    return result
+
+
 @app.post("/nina-run")
 def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
+    if os.getenv("OLA_VANTAGE_ENFORCED", "0") == "1":
+        raise HTTPException(status_code=403, detail="signed Vantage preflight required")
+    return _run_nina_internal(body, x_api_key)
+
+
+def _run_nina_internal(body, x_api_key, *, bound_run_id=None):
     tenant_id, requester_id = identity_from_key(x_api_key)
     task_text = body.get("task")
     if not task_text:
@@ -520,8 +592,10 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
             "status": "BLOCK",
         }
 
-    runtime = nina.execute(nina_task)
+    runtime = nina.execute(nina_task, run_id=bound_run_id)
     run_id = runtime["runtime"]["run_id"]
+    if bound_run_id is not None and run_id != bound_run_id:
+        raise HTTPException(status_code=503, detail="operation ID continuity violated")
     execution = runtime["runtime"].get("execution", [])
     runtime_commit = os.getenv("OLA_RUNTIME_COMMIT")
     provider = execution[0].get("provider") if execution else None
