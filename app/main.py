@@ -183,7 +183,7 @@ def core_readiness():
             ),
         }
         if any(
-            re.sub(r"\\s+", " ", definitions.get(name) or "").strip().lower().rstrip(";")
+            re.sub(r"\s+", " ", definitions.get(name) or "").strip().lower().rstrip(";")
             != definition
             for name, definition in expected.items()
         ):
