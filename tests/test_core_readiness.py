@@ -66,3 +66,23 @@ def test_readyz_blocks_invalid_commit_even_with_valid_db(monkeypatch):
     response = client().get("/readyz")
     assert response.status_code == 503
     assert "source_commit" in response.json()["failed_checks"]
+
+
+def test_readyz_blocks_a_spoofed_noop_trigger(monkeypatch):
+    """A trigger name is not proof of a trigger's actual enforcement."""
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "c" * 40)
+    monkeypatch.setenv("OLA_API_KEY_PEPPER", "runtime-check-fixture-0123456789abcdef")
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("DROP TRIGGER IF EXISTS evidence_no_update")
+            conn.exec_driver_sql(
+                "CREATE TRIGGER evidence_no_update "
+                "BEFORE UPDATE ON evidence_records BEGIN SELECT 1; END;"
+            )
+        response = client().get("/readyz")
+        assert response.status_code == 503
+        assert "evidence_append_only" in response.json()["failed_checks"]
+    finally:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("DROP TRIGGER IF EXISTS evidence_no_update")
+        install_append_only_triggers()
