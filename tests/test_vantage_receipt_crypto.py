@@ -40,13 +40,14 @@ def fixture(monkeypatch):
         "trust_scope": "signed_heuristic_policy_only",
         "production_authorized": False,
     }
+    original_task_hash = receipt["task_sha256"]
     def sign(r):
         return {"receipt": r, "signature": base64.b64encode(
             key.sign(canonical_json(r).encode())).decode()}
     def verify(env, **kwargs):
         return verify_signed_envelope(
             env, tenant_id=tenant, operation_id=operation,
-            action="safe_expression", task_sha256=receipt["task_sha256"],
+            action="safe_expression", task_sha256=original_task_hash,
             request_nonce=nonce, expected_commit="b" * 40, now=issued,
             **kwargs,
         )
