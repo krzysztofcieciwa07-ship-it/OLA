@@ -89,6 +89,7 @@ def test_operator_page_is_a_same_origin_entry_point_without_credentials():
     response = TestClient(app).get("/operator")
     assert response.status_code == 200
     assert "/operator/operations/" in response.text
+    assert "/operator/guarded-run" in response.text
     assert "localStorage" not in response.text
     assert "sessionStorage" not in response.text
     assert "<script src=\"https://" not in response.text
