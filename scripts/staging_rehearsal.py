@@ -86,10 +86,20 @@ def main():
     api_key = secrets.token_urlsafe(36)
     checks = []
     started = time.monotonic()
+    proof = None
+    error = None
+    PROOF.unlink(missing_ok=True)
 
     try:
         if run("git", "rev-parse", "HEAD") != commit:
             raise RuntimeError("source checkout does not match expected commit")
+        dirty = run(
+            "git", "status", "--porcelain", "--untracked-files=all", "--",
+            "Dockerfile", ".dockerignore", "requirements.txt", "app", "scripts",
+            "tests", "web", "deploy/staging",
+        )
+        if dirty:
+            raise RuntimeError("dirty build inputs cannot be attested")
         checks.append("exact_source_commit")
         run(*dc, "config", "--quiet")
         checks.append("compose_config")
@@ -143,19 +153,33 @@ def main():
             "checks": checks,
             "duration_seconds": round(time.monotonic() - started, 2),
         }
-        PROOF.write_text(json.dumps(proof, indent=2, sort_keys=True) + "\n")
-        print(json.dumps({
-            "status": "PASS", "checks": len(checks), "proof": PROOF.name,
-            "proof_sha256": hashlib.sha256(PROOF.read_bytes()).hexdigest(),
-        }, sort_keys=True))
-        return 0
+        # Only finalize a PASS receipt AFTER Docker teardown has succeeded.
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        print(json.dumps({"status": "BLOCKED", "error": str(exc), "checks": checks}),
+        error = str(exc)
+    finally:
+        try:
+            cleanup = subprocess.run(
+                (*dc, "down", "--volumes", "--remove-orphans"), cwd=ROOT,
+                capture_output=True, text=True, check=False, timeout=120,
+            )
+            if cleanup.returncode != 0:
+                error = "Docker cleanup failed; resources may remain active"
+        except (OSError, subprocess.TimeoutExpired):
+            error = "Docker cleanup could not be verified"
+    if error is not None:
+        PROOF.unlink(missing_ok=True)
+        print(json.dumps({"status": "BLOCKED", "error": error, "checks": checks}),
               file=sys.stderr)
         return 1
-    finally:
-        subprocess.run((*dc, "down", "--volumes", "--remove-orphans"), cwd=ROOT,
-                       capture_output=True, text=True, check=False, timeout=120)
+    if proof is None:
+        print(json.dumps({"status": "BLOCKED", "error": "missing proof"}), file=sys.stderr)
+        return 1
+    PROOF.write_text(json.dumps(proof, indent=2, sort_keys=True) + "\n")
+    print(json.dumps({
+        "status": "PASS", "checks": len(checks), "proof": PROOF.name,
+        "proof_sha256": hashlib.sha256(PROOF.read_bytes()).hexdigest(),
+    }, sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":
