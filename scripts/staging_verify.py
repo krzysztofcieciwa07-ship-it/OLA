@@ -9,7 +9,7 @@ import sys
 
 
 def verify_chain(db_path, tenant_id, expected_count, *, tamper=False):
-    with sqlite3.connect(db_path) as conn:
+    with sqlite3.connect(db_path, timeout=1.0) as conn:
         rows = conn.execute(
             "SELECT id, tenant_id, seq, record_type, payload_json, prev_hash, record_hash "
             "FROM evidence_records WHERE tenant_id=? ORDER BY seq", (tenant_id,)
@@ -40,8 +40,13 @@ def verify_chain(db_path, tenant_id, expected_count, *, tamper=False):
                     ('{"tampered":true}', rows[0][0]),
                 )
                 conn.commit()
-            except sqlite3.DatabaseError:
+            except sqlite3.IntegrityError as exc:
                 conn.rollback()
+                if str(exc) != "evidence_records is append-only":
+                    raise ValueError("unrelated database integrity failure") from exc
+            except sqlite3.DatabaseError as exc:
+                conn.rollback()
+                raise ValueError("unrelated database write failure") from exc
             else:
                 raise ValueError("append-only trigger did not block tamper")
         return {
