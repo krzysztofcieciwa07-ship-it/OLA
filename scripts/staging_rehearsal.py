@@ -93,6 +93,56 @@ print("STAGING_RECORD=" + json.dumps({
 """
 
 
+# SQLite online backup into a separate file, then restore into a distinct
+# in-memory database. This is not an offsite disaster recovery certification.
+BACKUP_RESTORE = r"""
+import json
+import os
+import sqlite3
+import tempfile
+from pathlib import Path
+from app.database import DB_PATH
+from app.hashchain import verify_chain
+
+tenant = os.environ["STAGING_TENANT_ID"]
+with tempfile.TemporaryDirectory(prefix="ola-staging-backup-") as directory:
+    snapshot_path = str(Path(directory) / "evidence-snapshot.sqlite3")
+    source = sqlite3.connect(DB_PATH)
+    snapshot = sqlite3.connect(snapshot_path)
+    try:
+        source.backup(snapshot)
+    finally:
+        source.close()
+        snapshot.close()
+
+    snapshot = sqlite3.connect(snapshot_path)
+    restored = sqlite3.connect(":memory:")
+    try:
+        snapshot.backup(restored)
+        integrity = restored.execute("PRAGMA integrity_check").fetchone()[0]
+        result = restored.execute(
+            "SELECT id, tenant_id, seq, record_type, payload_json, "
+            "prev_hash, record_hash FROM evidence_records "
+            "WHERE tenant_id=? ORDER BY seq", (tenant,)
+        ).fetchall()
+    finally:
+        snapshot.close()
+        restored.close()
+
+keys = ("id", "tenant_id", "seq", "record_type", "payload_json",
+        "prev_hash", "record_hash")
+rows = [dict(zip(keys, row)) for row in result]
+ok, reason = verify_chain(rows)
+if integrity != "ok" or len(rows) != 1 or not ok:
+    raise RuntimeError("restored snapshot failed integrity verification")
+print("STAGING_RECORD=" + json.dumps({
+    "restored_hash": rows[0]["record_hash"],
+    "snapshot_chain_verified": True,
+    "snapshot_integrity_ok": integrity == "ok",
+}, sort_keys=True))
+"""
+
+
 def wait_ready(base, expected_sha, *, timeout=60):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -163,6 +213,15 @@ def main():
         tests["append_only_rejects_mutation"] = restored.get("mutation_blocked") is True
         if not all(tests.values()):
             raise RuntimeError("post-restart verification failed")
+
+        recovered = exec_python(project, env, BACKUP_RESTORE, tenant=tenant)
+        tests["sqlite_backup_restored_to_independent_database"] = (
+            recovered.get("restored_hash") == created["record_hash"]
+        )
+        tests["restored_database_integrity_ok"] = recovered.get("snapshot_integrity_ok") is True
+        tests["restored_evidence_chain_verified"] = recovered.get("snapshot_chain_verified") is True
+        if not all(tests.values()):
+            raise RuntimeError("independent snapshot restore check failed")
 
         report = {
             "schema": "ola.staging-rehearsal.v1",
