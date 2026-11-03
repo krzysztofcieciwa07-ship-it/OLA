@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 25
     env:
       OLA_STAGING_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-      OLA_STAGE_VANTAGE_SHA: b08e6017b2f41a22778023bc6a754e7b287ace88
+      OLA_STAGE_VANTAGE_SHA: d18b97cdcebd6ec41bd5e73fbb4ea61fc0df5050
     steps:
       - name: Checkout exact OLA source without saved credentials
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: krzysztofcieciwa07-ship-it/vantage
-          ref: b08e6017b2f41a22778023bc6a754e7b287ace88
+          ref: d18b97cdcebd6ec41bd5e73fbb4ea61fc0df5050
           path: external/vantage
           persist-credentials: false
 
