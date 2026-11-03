@@ -23,6 +23,7 @@ from .igor import IgorVerifier
 from .replay import build_replay, verify_replay
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain, STATUS_FIELDS
+from .operator_receipt import read_operation_receipt, ReceiptRejected
 from .decision_report import build_decision_report
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
@@ -208,6 +209,33 @@ def core_readiness():
 def home():
     web_path = Path(__file__).resolve().parent.parent / "web" / "index.html"
     return FileResponse(web_path, media_type="text/html")
+
+
+@app.get("/operator")
+def operator_page():
+    page = Path(__file__).resolve().parent.parent / "web" / "operator.html"
+    return FileResponse(page, media_type="text/html", headers={
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "X-Frame-Options": "DENY",
+    })
+
+
+@app.get("/operator/operations/{run_id}")
+def operator_operation(run_id: str, authorization: str | None = Header(default=None)):
+    """Reconstruct actual tenant-scoped execution receipt; never declare production GO."""
+    tenant_id, _ = bearer_identity(authorization)
+    try:
+        receipt = read_operation_receipt(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            records=read_tenant_evidence(tenant_id),
+            expected_commit=os.getenv("OLA_RUNTIME_COMMIT"),
+        )
+    except ReceiptRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return JSONResponse(content=receipt, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/chat")
