@@ -10,7 +10,10 @@ from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
 from .api_key_hashing import api_key_fingerprint
-from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
+from .hashchain import (
+    GENESIS_HASH, canonical_json, compute_record_hash, compute_record_hash_v2,
+    sealed_payload_json, verify_chain,
+)
 from .agent_runtime import run_agent_task
 from .agent_registry import build_agent_registry
 from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
@@ -753,20 +756,45 @@ def approve_nina_run(
     if NinaIgorChain.derive_status(canonical) != "VERIFIED":
         raise HTTPException(status_code=409, detail="candidate is not eligible for human approval")
 
-    record = append_record(
-        approver_tenant_id,
-        "human.approval",
-        {
-            "run_id": run_id,
-            "tip_hash": tip_hash,
-            "requester_id": requester_id,
-            "approver_id": approver_id,
-            "reason": str(body.get("reason", "")),
-            "status": "VERIFIED",
-            "trust_scope": "local_candidate_review_only",
-            "production_authorized": False,
-        },
-    )
+    # Read-side checks above are non-authoritative under concurrency.
+    # Serialize all writers and COMPARE the live tip inside the same SQLite
+    # transaction that appends this single approval. The second reviewer
+    # must observe a changed tip and return 409 rather than double-approve.
+    payload = {
+        "run_id": run_id,
+        "tip_hash": tip_hash,
+        "requester_id": requester_id,
+        "approver_id": approver_id,
+        "reason": str(body.get("reason", "")),
+        "status": "VERIFIED",
+        "trust_scope": "local_candidate_review_only",
+        "production_authorized": False,
+    }
+    with SessionLocal() as db:
+        if db.bind.dialect.name != "sqlite":
+            raise HTTPException(status_code=503, detail="atomic approval transaction unavailable")
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        latest = db.scalar(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == approver_tenant_id)
+            .order_by(EvidenceRecord.seq.desc())
+        )
+        if latest is None or latest.record_hash != tip_hash:
+            raise HTTPException(status_code=409, detail="tip changed before atomic approval")
+        payload_json = sealed_payload_json("human.approval", payload)
+        next_seq = latest.seq + 1
+        next_hash = compute_record_hash_v2(
+            approver_tenant_id, next_seq, tip_hash,
+            "human.approval", "ola_runtime", payload_json,
+        )
+        record = EvidenceRecord(
+            id=str(uuid.uuid4()), tenant_id=approver_tenant_id, seq=next_seq,
+            record_type="human.approval", payload_json=payload_json,
+            prev_hash=tip_hash, record_hash=next_hash,
+        )
+        db.add(record)
+        db.commit()
+        record = {"id": record.id, "record_hash": next_hash}
     return {
         "status": "VERIFIED",
         "run_id": run_id,
