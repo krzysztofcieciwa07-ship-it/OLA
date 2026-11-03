@@ -60,7 +60,63 @@ def read_operation_receipt(*, tenant_id, run_id, records, expected_commit):
             matched[record_type].append((row, payload))
 
     if not matched["decision.candidate"]:
-        raise ReceiptRejected(404, "operation not found")
+        # A denied preflight also has a real V2 evidence record, even though
+        # no agents or decision.candidate were allowed to execute.
+        events = matched["verification.vantage_policy"]
+        if len(events) != 1:
+            raise ReceiptRejected(404, "operation not found")
+        event_row, policy = events[0]
+        requester = policy.get("requester_id")
+        if not isinstance(requester, str) or not requester:
+            raise ReceiptRejected(409, "invalid policy requester")
+        stage = {"status": "NOT_VERIFIED"}
+        if policy.get("status") == "SIGNED_RECEIPT_VERIFIED":
+            envelope = policy.get("envelope")
+            receipt = envelope.get("receipt") if isinstance(envelope, dict) else None
+            if not isinstance(receipt, dict):
+                raise ReceiptRejected(409, "signed policy evidence missing")
+            try:
+                verified = verify_signed_envelope(
+                    envelope, tenant_id=tenant_id, operation_id=run_id,
+                    action="safe_expression", task_sha256=policy["task_sha256"],
+                    request_nonce=receipt.get("request_nonce"),
+                    expected_commit=os.getenv("OLA_VANTAGE_EXPECTED_SOURCE_COMMIT", ""),
+                    historical=True,
+                )
+            except (VantagePolicyError, KeyError) as exc:
+                raise ReceiptRejected(409, "signed policy evidence invalid") from exc
+            stage = {"status": "SIGNED_POLICY_DENIED",
+                     "verdict": verified["verdict"],
+                     "source_commit": verified["source_commit"],
+                     "production_authorized": False}
+        elif policy.get("status") != "BLOCK":
+            raise ReceiptRejected(409, "unknown blocked policy evidence")
+        return {
+            "schema": "ola.operation.v1",
+            "operation_id": run_id,
+            "correlation_id": run_id,
+            "tenant_id": tenant_id,
+            "actor": {"kind": "user", "subject_id": requester},
+            "source_commit": expected_commit,
+            "status": "BLOCKED",
+            "verified": False,
+            "trust_scope": "local_ledger_consistency_only",
+            "system_acceptance": "NOT_VERIFIED",
+            "production_authorized": False,
+            "stages": {
+                "vantage": stage,
+                "execution": {"status": "NOT_EXECUTED"},
+                "igor": {"status": "NOT_RUN"},
+                "evidence_vault": {"status": "VERIFIED_LOCAL_CHAIN"},
+            },
+            "evidence": {
+                "policy_record_id": event_row.get("id"),
+                "chain_tip": records[-1]["record_hash"],
+                "tenant_event_count": len(records),
+                "run_event_count": run_event_count,
+            },
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+        }
     if len(matched["decision.candidate"]) != 1 or len(matched["provenance.runtime"]) != 1:
         raise ReceiptRejected(409, "ambiguous operation provenance")
     if len(matched["human.approval"]) > 1:
