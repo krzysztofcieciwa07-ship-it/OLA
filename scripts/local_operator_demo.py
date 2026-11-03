@@ -26,6 +26,10 @@ STATE = HOME_DIR / "operator-demo.json"
 
 
 def _save_config(info):
+    if os.name != "posix":
+        raise RuntimeError("Use Linux/macOS or WSL2 with Docker Desktop integration")
+    if HOME_DIR.is_symlink() or STATE.is_symlink():
+        raise RuntimeError("Unsafe local state symlink")
     HOME_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(HOME_DIR, 0o700)
     fd = os.open(STATE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -40,6 +44,10 @@ def _save_config(info):
 
 
 def _load_config():
+    if os.name != "posix":
+        raise RuntimeError("Use Linux/macOS or WSL2 with Docker Desktop integration")
+    if HOME_DIR.is_symlink() or STATE.is_symlink():
+        raise RuntimeError("Unsafe local state symlink")
     if not STATE.is_file():
         raise RuntimeError("No local demo exists; run 'up' first.")
     if STATE.stat().st_mode & 0o077:
