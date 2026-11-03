@@ -117,3 +117,26 @@ def test_guarded_run_uses_same_operation_id_across_policy_agent_and_receipt(monk
     policy_rows = [row for row in rows if row.record_type == "verification.vantage_policy"]
     assert len(policy_rows) == 1
     assert json.loads(policy_rows[0].payload_json)["run_id"] == operation
+
+
+def test_denied_guarded_run_has_tenant_scoped_readable_blocked_receipt(monkeypatch):
+    monkeypatch.delenv("VANTAGE_POLICY_URL", raising=False)
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "a" * 40)
+    tenant, key = _operator()
+    client = TestClient(app)
+    response = client.post(
+        "/operator/guarded-run", headers={"X-API-Key": key},
+        json={"task": "Calculate 17 * 23", "requested_tools": ["safe_expression"]},
+    )
+    assert response.status_code == 200 and response.json()["status"] == "BLOCK"
+    result = client.get(
+        "/operator/operations/" + response.json()["run_id"],
+        headers={"Authorization": "Bearer " + key},
+    )
+    assert result.status_code == 200, result.text
+    receipt = result.json()
+    assert receipt["status"] == "BLOCKED"
+    assert receipt["operation_id"] == response.json()["run_id"]
+    assert receipt["stages"]["vantage"]["status"] == "NOT_VERIFIED"
+    assert receipt["evidence"]["run_event_count"] == 1
+    assert receipt["production_authorized"] is False
