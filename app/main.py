@@ -551,7 +551,8 @@ def create_guarded_operator_run(body: dict, x_api_key: str | None = Header(defau
                             "verdict": receipt["verdict"]},
                 "production_authorized": False}
 
-    result = _run_nina_internal(body, x_api_key, bound_run_id=run_id)
+    result = _run_nina_internal(body, x_api_key, bound_run_id=run_id,
+                                force_local=True)
     result["vantage"] = {
         "status": "SIGNED_RECEIPT_VERIFIED",
         "verdict": "ALLOW",
@@ -568,7 +569,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     return _run_nina_internal(body, x_api_key)
 
 
-def _run_nina_internal(body, x_api_key, *, bound_run_id=None):
+def _run_nina_internal(body, x_api_key, *, bound_run_id=None, force_local=False):
     tenant_id, requester_id = identity_from_key(x_api_key)
     task_text = body.get("task")
     if not task_text:
@@ -592,7 +593,8 @@ def _run_nina_internal(body, x_api_key, *, bound_run_id=None):
             "status": "BLOCK",
         }
 
-    runtime = nina.execute(nina_task, run_id=bound_run_id)
+    runtime = (nina.execute(nina_task, run_id=bound_run_id, force_local=True)
+               if force_local else nina.execute(nina_task, run_id=bound_run_id))
     run_id = runtime["runtime"]["run_id"]
     if bound_run_id is not None and run_id != bound_run_id:
         raise HTTPException(status_code=503, detail="operation ID continuity violated")
