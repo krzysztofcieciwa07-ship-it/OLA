@@ -166,11 +166,12 @@ def main():
 
             # Independently read persisted V2 evidence; OLA rechecks signer
             # signature and same operation_id during receipt reconstruction.
-            check_code, evidence = read_api(
+            wrong_auth_code, _ = read_api(
                 base, "/operator/operations/" + operation_id, key=requester,
                 method="GET",
             )
             # GET operator endpoint takes Authorization: Bearer, not X-API-Key
+            checks["receipt_requires_bearer_not_x_api_key"] = wrong_auth_code == 401
             checks["signed_vantage_receipt_verified_from_evidence"] = False
             auth_req = urllib.request.Request(
                 base + "/operator/operations/" + operation_id,
@@ -190,6 +191,18 @@ def main():
                     )
             except urllib.error.HTTPError:
                 pass
+
+            # Even with a valid token, a different tenant cannot fetch
+            # this operation or its signed external Vantage evidence.
+            foreign_req = urllib.request.Request(
+                base + "/operator/operations/" + operation_id,
+                headers={"Authorization": "Bearer " + outsider},
+            )
+            try:
+                urllib.request.urlopen(foreign_req, timeout=12)
+                checks["vantage_receipt_cross_tenant_isolated"] = False
+            except urllib.error.HTTPError as exc:
+                checks["vantage_receipt_cross_tenant_isolated"] = exc.code == 404
 
             # The *real* AFE heuristic must sign BLOCK on injection payload.
             code, bad = read_api(
@@ -216,6 +229,24 @@ def main():
                 and stopped.get("vantage", {}).get("status") == "NOT_VERIFIED"
                 and count_agent_records(cmd, env, tenant, stopped["run_id"]) == 0
             )
+            # Denials must also remain visible as immutable BLOCKED events.
+            stopped_req = urllib.request.Request(
+                base + "/operator/operations/" + stopped["run_id"],
+                headers={"Authorization": "Bearer " + requester},
+            )
+            try:
+                with urllib.request.urlopen(stopped_req, timeout=12) as blocked_resp:
+                    denied_receipt = json.load(blocked_resp)
+                    checks["outage_denial_has_readable_v2_receipt"] = (
+                        blocked_resp.status == 200
+                        and denied_receipt.get("status") == "BLOCKED"
+                        and denied_receipt.get("stages", {}).get("vantage", {}).get("status")
+                           == "NOT_VERIFIED"
+                        and denied_receipt.get("production_authorized") is False
+                    )
+            except urllib.error.HTTPError:
+                checks["outage_denial_has_readable_v2_receipt"] = False
+
             code, _ = read_api(
                 base, "/nina-run", method="POST", key=requester,
                 body={"task": "Calculate 17 * 23", "requested_tools": ["safe_expression"]},
