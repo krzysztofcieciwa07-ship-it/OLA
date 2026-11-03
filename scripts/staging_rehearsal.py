@@ -17,6 +17,7 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+from operator_http_rehearsal import run_operator_http_rehearsal
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "deploy/staging/compose.yaml"
@@ -33,10 +34,14 @@ def run(command, env, *, timeout=120):
     return completed.stdout
 
 
-def exec_python(project, env, code, *, tenant=None):
+def exec_python(project, env, code, *, tenant=None, variables=None):
     command = ["docker", "compose", "-f", str(COMPOSE), "-p", project, "exec", "-T"]
     if tenant:
         command += ["-e", f"STAGING_TENANT_ID={tenant}"]
+    for name, value in (variables or {}).items():
+        if not name.startswith("STAGING_") or not isinstance(value, str):
+            raise ValueError("test-only environment variable expected")
+        command += ["-e", f"{name}={value}"]
     command += ["ola", "python", "-c", code]
     output = run(command, env, timeout=90)
     lines = [line for line in output.splitlines() if line.startswith("STAGING_RECORD=")]
@@ -222,6 +227,14 @@ def main():
         tests["restored_evidence_chain_verified"] = recovered.get("snapshot_chain_verified") is True
         if not all(tests.values()):
             raise RuntimeError("independent snapshot restore check failed")
+
+        # Separate real HTTP acceptance on the running container and its
+        # persistent SQLite volume. All users and keys are synthetic.
+        tests.update(run_operator_http_rehearsal(
+            base=base, project=project, env=env, exec_python=exec_python,
+        ))
+        if not all(tests.values()):
+            raise RuntimeError("HTTP operator flow acceptance failed")
 
         report = {
             "schema": "ola.staging-rehearsal.v1",
