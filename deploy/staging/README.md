@@ -15,3 +15,28 @@ Checks deliberately do not claim that OLA has production MFA, backup/restore to 
 Workflow: `.github/workflows/ola-staging-rehearsal.yml`. Artifacts: `staging-evidence.json` (no credentials). A failed step keeps the release gate **BLOCKED**, even if `/health` returned 200.
 
 To deploy on actual VPS, use a separate approved runbook, image digest and verified provenance, encrypted backup+restore drill, access policy, HTTPS, and independent review.
+
+## Manual operator UI acceptance (separate from self-cleaning CI run)
+
+The CI rehearsal auto-cleans its project and **cannot** be used as an interactive server afterward. For a persistent **local-only test** on Linux/macOS, or on Windows 11 through **WSL2 with Docker Desktop integration**, check out the review branch and run:
+
+```bash
+git fetch origin feat/operator-verified-flow-20261103
+git switch feat/operator-verified-flow-20261103
+python scripts/local_operator_demo.py up
+python scripts/local_operator_demo.py status
+```
+
+Open **http://127.0.0.1:18080/operator** (or the locally selected `OLA_LOCAL_OPERATOR_PORT`). The launcher generates **two different test API keys** and a fresh staging pepper, stores them in `~/.ola-dios-local/operator-demo.json` with Unix mode **0600**, and prints only the path to that private file, never the key values.
+
+Read that file locally on the same machine. Copy `requester_key` into the operator field. Run the fixed safe-expression task, inspect the real V2 chain-tip and IGOR/replay status. Then copy `reviewer_key` into the second-operator field to approve **local candidate review only**. The UI must explicitly show `Vantage: NOT_CONNECTED` and `system_acceptance: NOT_VERIFIED`.
+
+When finished:
+
+```bash
+python scripts/local_operator_demo.py down
+```
+
+**Warning:** `down` intentionally destroys only this demo's uniquely named Compose volume and deletes its ephemeral credential file. Do not use real user data, production API keys, public hostnames or production volumes. The launcher refuses to overwrite an existing demo state; its state file is not a Git repository artifact. Native Windows execution (without WSL2) is deliberately blocked because Unix-style file permissions cannot be guaranteed.
+
+The local launcher source has isolated CLI/static tests. **A real manual start on the user's ZBook/VPS is still NOT_VERIFIED** until performed and independently checked on that specific host.
