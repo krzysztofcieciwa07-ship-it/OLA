@@ -51,7 +51,8 @@ def _pinned_key():
 
 
 def verify_signed_envelope(envelope, *, tenant_id, operation_id, action,
-                           task_sha256, request_nonce, expected_commit, now=None):
+                           task_sha256, request_nonce, expected_commit, now=None,
+                           historical=False):
     now = int(time.time()) if now is None else int(now)
     key, key_id = _pinned_key()
     if not isinstance(envelope, dict) or set(envelope) != {"receipt", "signature"}:
@@ -88,9 +89,10 @@ def verify_signed_envelope(envelope, *, tenant_id, operation_id, action,
         raise VantagePolicyError("Vantage decision scope or source identity mismatch")
     if (type(r.get("issued_at")) is not int or type(r.get("expires_at")) is not int
             or r["issued_at"] > now + 5
-            or r["issued_at"] < now - 30
-            or r["expires_at"] <= now
-            or r["expires_at"] - r["issued_at"] > 30):
+            or r["expires_at"] <= r["issued_at"]
+            or r["expires_at"] - r["issued_at"] > 30
+            or (not historical and (
+                r["issued_at"] < now - 30 or r["expires_at"] <= now))):
         raise VantagePolicyError("Vantage decision is expired or outside bounded clock skew")
     for field in ("detector_score", "incident_score", "sandbox_stability"):
         if type(r.get(field)) is not int or not 0 <= r[field] <= 100:
