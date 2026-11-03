@@ -60,12 +60,32 @@ Wersja 0.1 **nie tworzy tabel**, nie migruje danych, nie wywołuje Stripe, Supab
 
 ## 6. Kryteria odbioru pionowego przepływu
 
-- [ ] Red/green dla rzeczywistego zatwierdzenia drugim kluczem API
-- [ ] Samozatwierdzenie, inne tenant i replay → odmowa
-- [ ] Weryfikacja pełnej sekwencji dowodów i ponowny odczyt po zapisie
-- [ ] Browser UI pracuje wyłącznie z lokalnymi endpointami i nie przechowuje kluczy
-- [ ] Przy wyłączonym Vantage wszystkie odpowiedzi mówią jawnie `NOT_CONNECTED`
-- [ ] Końcowy `pytest` i pełne CI na dokładnym SHA bez nieudanych kontroli
-- [ ] Niezależny przegląd i decyzja o merge; osobny podpisany GO na produkcję
+- [x] Test RED dla prawidłowego drugiego operatora (HTTP 409), potem GREEN po naprawie pięciu pól statusów; 15/15 CI na SHA `c2a9e6dfafc55aa84c8ad2ca5cbd17554f9a4086`.
+- [x] Test współbieżności RED `200/200` i GREEN `200/409` dla dwóch recenzentów; atomiczne `BEGIN IMMEDIATE`; 15/15 CI na `ab4e7530ed649d0dd99eacc02d67f9fd2de64a22`.
+- [x] Cross-tenant, samozatwierdzenie i powtórny review blokowane; E2E testy FastAPI i **realne HTTP** w Docker.
+- [x] Pełny łańcuch V2, replay, hash tip i ponowny odczyt po zatwierdzeniu; [GitHub staging HTTP](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/41559921794) **PASS**.
+- [x] UI operatora pod `GET /operator`, same-origin HTTP, brak trwałego zapisu kluczy przez frontend; **wczytanie HTML po HTTP przetestowane**.
+- [x] Zewnętrzny Vantage jawnie `NOT_CONNECTED`; `production_authorized=false` i `system_acceptance=NOT_VERIFIED`.
+- [x] Lokalny launcher `scripts/local_operator_demo.py` generuje dwa testowe klucze, korzysta z osobnego Compose project i chroni plik sekretów `0600`. Uruchomienie na fizycznym ZBooku jeszcze **NOT_VERIFIED**.
+- [ ] Pełne CI na **ostatnim** commicie tej gałęzi, po finalnym przeglądzie i bez nieudanych kontroli.
+- [ ] Niezależny browser E2E (klawiatura, responsywność, stany błędów i czyszczenie kluczy po zakończeniu).
+- [ ] Niezależny reviewer + potwierdzona ochrona `main` + kontrolowane scalenie PR #148 → #156 → #159.
+- [ ] Zewnętrzny podpisany Vantage receipt i prawdziwe powiązanie NOVA/Codex z jedną tożsamością operacji.
+- [ ] Osobny podpisany GO dla docelowego VPS/produkcji.
+
+## 7. Ręczny lokalny test interfejsu
+
+Szczegóły w [deploy/staging/README.md](../deploy/staging/README.md). W Linux/macOS lub **WSL2 + Docker Desktop**:
+
+```bash
+python scripts/local_operator_demo.py up
+python scripts/local_operator_demo.py status
+# http://127.0.0.1:18080/operator
+python scripts/local_operator_demo.py down
+```
+
+Wartości obu syntetycznych kluczy i peppera są wyłącznie w prywatnym pliku
+`~/.ola-dios-local/operator-demo.json` (0600), nigdy w repozytorium, artefaktach CI
+ani logach. Używać tylko syntetycznych danych; `down` usuwa unikalny demo-volume.
 
 **Status systemu:** `BLOCKED`, nawet jeśli lokalny pionowy test zakończy się `PASS`.
