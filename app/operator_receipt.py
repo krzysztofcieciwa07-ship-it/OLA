@@ -4,7 +4,9 @@ This module does not contact or impersonate the external Vantage service.
 A verified local ledger is not independent production attestation.
 """
 from datetime import datetime, timezone
+import hashlib
 import json
+import os
 import re
 import uuid
 
@@ -88,7 +90,7 @@ def read_operation_receipt(*, tenant_id, run_id, records, expected_commit):
         _, policy = policy_events[0]
         if (policy.get("requester_id") != requester_id
                 or policy.get("task_sha256")
-                   != __import__("hashlib").sha256(provenance.get("task", "").encode()).hexdigest()):
+                   != hashlib.sha256(provenance.get("task", "").encode()).hexdigest()):
             raise ReceiptRejected(409, "Vantage policy and NINA task binding mismatch")
         if policy.get("status") == "SIGNED_RECEIPT_VERIFIED":
             envelope = policy.get("envelope")
@@ -101,12 +103,13 @@ def read_operation_receipt(*, tenant_id, run_id, records, expected_commit):
                     action="safe_expression",
                     task_sha256=policy["task_sha256"],
                     request_nonce=receipt.get("request_nonce"),
-                    expected_commit=__import__("os").getenv(
-                        "OLA_VANTAGE_EXPECTED_SOURCE_COMMIT", ""),
+                    expected_commit=os.getenv("OLA_VANTAGE_EXPECTED_SOURCE_COMMIT", ""),
                     historical=True,
                 )
             except VantagePolicyError as exc:
                 raise ReceiptRejected(409, "Vantage signed decision no longer verifiable") from exc
+            if verified["verdict"] != "ALLOW":
+                raise ReceiptRejected(409, "local operation executed despite Vantage denial")
             vantage = {
                 "status": "SIGNED_RECEIPT_VERIFIED_HISTORICALLY",
                 "verdict": verified["verdict"],
