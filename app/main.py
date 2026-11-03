@@ -167,11 +167,26 @@ def core_readiness():
     try:
         with engine.connect() as conn:
             conn.exec_driver_sql("SELECT 1").scalar_one()
-            triggers = set(conn.exec_driver_sql(
-                "SELECT name FROM sqlite_master "
+            # A named trigger can be a no-op, so verify stored definitions.
+            definitions = dict(conn.exec_driver_sql(
+                "SELECT name, sql FROM sqlite_master "
                 "WHERE type='trigger' AND tbl_name='evidence_records'"
-            ).scalars())
-        if not {"evidence_no_update", "evidence_no_delete"} <= triggers:
+            ).all())
+        expected = {
+            "evidence_no_update": (
+                "create trigger evidence_no_update before update on evidence_records "
+                "begin select raise(abort, 'evidence_records is append-only'); end"
+            ),
+            "evidence_no_delete": (
+                "create trigger evidence_no_delete before delete on evidence_records "
+                "begin select raise(abort, 'evidence_records is append-only'); end"
+            ),
+        }
+        if any(
+            re.sub(r"\\s+", " ", definitions.get(name) or "").strip().lower().rstrip(";")
+            != definition
+            for name, definition in expected.items()
+        ):
             failed.append("evidence_append_only")
     except Exception:
         # Never surface exception details: they may disclose internal paths.
