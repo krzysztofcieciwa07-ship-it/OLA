@@ -59,7 +59,7 @@ class NinaOrchestrator:
             allowed_tools=task.requested_tools,
         )
 
-    def execute(self, task: NinaTask):
+    def execute(self, task: NinaTask, *, run_id=None):
         decision = self.plan(task)
         if decision.status != "ALLOW":
             return {
@@ -68,7 +68,9 @@ class NinaOrchestrator:
                 "status": "BLOCK",
                 "reason": decision.reason,
             }
-        runtime = run_agent_task(task.tenant_id, task.task)
+        runtime = (run_agent_task(task.tenant_id, task.task)
+                   if run_id is None else
+                   run_agent_task(task.tenant_id, task.task, run_id=run_id))
         status = runtime.get("status", "UNKNOWN")
         # The legacy six-agent executor can fall back to a deterministic model.
         # That trace may be internally consistent, but is not evidence that an
