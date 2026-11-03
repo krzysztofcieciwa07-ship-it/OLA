@@ -64,10 +64,10 @@ dl{display:grid;grid-template-columns:minmax(95px,155px) minmax(0,1fr);gap:9px;b
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let activeRun = null, currentTip = null;
+let activeRun = null, currentTip = null, reviewAllowed = false;
 function statusText(id, value) { $(id).textContent = value == null ? "—" : String(value); }
 function error(message) { statusText("error", message || ""); }
-function waiting(value) { $("start-btn").disabled = value; $("refresh-btn").disabled = value || !activeRun; $("review-btn").disabled = value || !activeRun; }
+function waiting(value) { $("start-btn").disabled = value; $("refresh-btn").disabled = value || !activeRun; $("review-btn").disabled = value || !activeRun || !reviewAllowed; }
 async function api(path, options) {
   const response = await fetch(path, {cache: "no-store", credentials: "same-origin", ...options});
   let data;
@@ -93,7 +93,8 @@ function render(item) {
     flag.className = /NOT_CONNECTED|BLOCK|REVIEW/.test(flag.textContent) ? "warn" : "good";
     node.append(title, flag); cards.appendChild(node);
   }
-  $("review-btn").disabled = item.status !== "REVIEW_REQUIRED";
+  reviewAllowed = item.status === "REVIEW_REQUIRED";
+  $("review-btn").disabled = !reviewAllowed;
 }
 async function refresh(token) {
   if (!activeRun || !token) throw new Error("Brak identyfikatora operacji lub klucza");
@@ -104,7 +105,9 @@ async function refresh(token) {
   return item;
 }
 $("start-form").addEventListener("submit", async event => {
-  event.preventDefault(); error(""); waiting(true);
+  event.preventDefault(); error("");
+  activeRun = null; currentTip = null; reviewAllowed = false;
+  statusText("state", "Wykonywanie i ponowna weryfikacja…"); waiting(true);
   try {
     const token = $("key").value.trim();
     if (!token) throw new Error("Klucz operatora jest wymagany");
