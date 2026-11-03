@@ -10,7 +10,10 @@ from sqlalchemy import select
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
 from .api_key_hashing import api_key_fingerprint
-from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
+from .hashchain import (
+    GENESIS_HASH, canonical_json, compute_record_hash, compute_record_hash_v2,
+    sealed_payload_json, verify_chain,
+)
 from .agent_runtime import run_agent_task
 from .agent_registry import build_agent_registry
 from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
@@ -22,7 +25,8 @@ from .workflow_engine import WorkflowPlanError
 from .igor import IgorVerifier
 from .replay import build_replay, verify_replay
 from .human_gate import HumanGate, ReviewDecision
-from .nina_igor import NinaIgorChain
+from .nina_igor import NinaIgorChain, STATUS_FIELDS
+from .operator_receipt import read_operation_receipt, ReceiptRejected
 from .decision_report import build_decision_report
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
@@ -208,6 +212,33 @@ def core_readiness():
 def home():
     web_path = Path(__file__).resolve().parent.parent / "web" / "index.html"
     return FileResponse(web_path, media_type="text/html")
+
+
+@app.get("/operator")
+def operator_page():
+    page = Path(__file__).resolve().parent.parent / "web" / "operator.html"
+    return FileResponse(page, media_type="text/html", headers={
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "X-Frame-Options": "DENY",
+    })
+
+
+@app.get("/operator/operations/{run_id}")
+def operator_operation(run_id: str, authorization: str | None = Header(default=None)):
+    """Reconstruct actual tenant-scoped execution receipt; never declare production GO."""
+    tenant_id, _ = bearer_identity(authorization)
+    try:
+        receipt = read_operation_receipt(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            records=read_tenant_evidence(tenant_id),
+            expected_commit=os.getenv("OLA_RUNTIME_COMMIT"),
+        )
+    except ReceiptRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return JSONResponse(content=receipt, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/chat")
@@ -677,20 +708,35 @@ def approve_nina_run(
     if rows[-1].record_hash != tip_hash:
         raise HTTPException(status_code=409, detail="tip_hash is stale or does not match current chain tip")
 
-    candidate = None
+    # Verify the *complete* tenant ledger before trusting its candidate.
+    evidence = [{
+        "tenant_id": row.tenant_id, "seq": row.seq,
+        "record_type": row.record_type, "prev_hash": row.prev_hash,
+        "record_hash": row.record_hash, "payload_json": row.payload_json,
+    } for row in rows]
+    valid_chain, _ = verify_chain(evidence)
+    if not valid_chain:
+        raise HTTPException(status_code=409, detail="tenant evidence integrity unavailable")
+
+    candidates = []
     for row in rows:
-        if row.record_type != "decision.candidate":
+        if row.record_type not in ("decision.candidate", "human.approval"):
             continue
         try:
             payload = json.loads(row.payload_json)
-        except json.JSONDecodeError:
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=409, detail="decision evidence malformed")
+        if payload.get("run_id") != run_id:
             continue
-        if payload.get("run_id") == run_id:
-            candidate = payload
-            break
+        if row.record_type == "human.approval":
+            raise HTTPException(status_code=409, detail="run already approved")
+        candidates.append(payload)
 
-    if candidate is None:
+    if not candidates:
         raise HTTPException(status_code=404, detail="decision candidate not found")
+    if len(candidates) != 1:
+        raise HTTPException(status_code=409, detail="ambiguous decision candidate")
+    candidate = candidates[0]
     requester_id = candidate.get("requester_id")
     if not requester_id:
         raise HTTPException(status_code=409, detail="requester identity missing from decision candidate")
@@ -700,23 +746,55 @@ def approve_nina_run(
     candidate_fields = candidate.get("status_fields")
     if not isinstance(candidate_fields, dict):
         raise HTTPException(status_code=409, detail="decision candidate status fields are invalid")
-    approved_fields = dict(candidate_fields)
-    approved_fields["HUMAN_GATE"] = "VERIFIED"
-    if NinaIgorChain.derive_status(approved_fields) != "VERIFIED":
+    # EXECUTION_ALLOWED is an extra diagnostic value, not a sixth
+    # NinaIgorChain.STATUS_FIELDS entry. Do not include it in the strict
+    # five-field derivation, but verify it matches the original decision.
+    canonical = {field: candidate_fields.get(field) for field in STATUS_FIELDS}
+    if candidate_fields.get("EXECUTION_ALLOWED") != NinaIgorChain.derive_status(canonical):
+        raise HTTPException(status_code=409, detail="inconsistent execution decision")
+    canonical["HUMAN_GATE"] = "VERIFIED"
+    if NinaIgorChain.derive_status(canonical) != "VERIFIED":
         raise HTTPException(status_code=409, detail="candidate is not eligible for human approval")
 
-    record = append_record(
-        approver_tenant_id,
-        "human.approval",
-        {
-            "run_id": run_id,
-            "tip_hash": tip_hash,
-            "requester_id": requester_id,
-            "approver_id": approver_id,
-            "reason": str(body.get("reason", "")),
-            "status": "VERIFIED",
-        },
-    )
+    # Read-side checks above are non-authoritative under concurrency.
+    # Serialize all writers and COMPARE the live tip inside the same SQLite
+    # transaction that appends this single approval. The second reviewer
+    # must observe a changed tip and return 409 rather than double-approve.
+    payload = {
+        "run_id": run_id,
+        "tip_hash": tip_hash,
+        "requester_id": requester_id,
+        "approver_id": approver_id,
+        "reason": str(body.get("reason", "")),
+        "status": "VERIFIED",
+        "trust_scope": "local_candidate_review_only",
+        "production_authorized": False,
+    }
+    with SessionLocal() as db:
+        if db.bind.dialect.name != "sqlite":
+            raise HTTPException(status_code=503, detail="atomic approval transaction unavailable")
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        latest = db.scalar(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == approver_tenant_id)
+            .order_by(EvidenceRecord.seq.desc())
+        )
+        if latest is None or latest.record_hash != tip_hash:
+            raise HTTPException(status_code=409, detail="tip changed before atomic approval")
+        payload_json = sealed_payload_json("human.approval", payload)
+        next_seq = latest.seq + 1
+        next_hash = compute_record_hash_v2(
+            approver_tenant_id, next_seq, tip_hash,
+            "human.approval", "ola_runtime", payload_json,
+        )
+        record = EvidenceRecord(
+            id=str(uuid.uuid4()), tenant_id=approver_tenant_id, seq=next_seq,
+            record_type="human.approval", payload_json=payload_json,
+            prev_hash=tip_hash, record_hash=next_hash,
+        )
+        db.add(record)
+        db.commit()
+        record = {"id": record.id, "record_hash": next_hash}
     return {
         "status": "VERIFIED",
         "run_id": run_id,
@@ -725,6 +803,8 @@ def approve_nina_run(
         "record_id": record["id"],
         "record_type": "human.approval",
         "approver_id": approver_id,
+        "trust_scope": "local_candidate_review_only",
+        "production_authorized": False,
     }
 
 

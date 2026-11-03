@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OLA di-OS — operator / lokalny dowód operacji</title>
+<style>
+:root {color-scheme:dark; font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif; background:#060a18; color:#e9ecff}
+* {box-sizing:border-box} body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 20% -20%,#2b2460 0%,transparent 50%),radial-gradient(ellipse at 100% 60%,#0e314c 0%,transparent 38%),#070a17}
+main{max-width:1560px;margin:auto;padding:clamp(18px,3vw,44px)} header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;border-bottom:1px solid #31374f;padding-bottom:22px}
+h1{font-size:clamp(1.45rem,2vw,2.6rem);margin:0;letter-spacing:-.04em}h2{font-size:1.08rem;margin:0 0 18px}p{line-height:1.6}
+.badge,.value{font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:750;border:1px solid #475071;border-radius:999px;padding:7px 12px;color:#b8c3e8}
+.sub{color:#a5afd1;max-width:780px}.shell{display:grid;grid-template-columns:minmax(0,410px) minmax(0,1fr);gap:20px;margin-top:25px}
+.panel{padding:clamp(18px,2vw,28px);background:linear-gradient(145deg,#141c35eF,#0a1124f2);border:1px solid #323c58;border-radius:19px;box-shadow:0 20px 70px #0005}
+label{display:block;margin:15px 0 7px;font-size:.86rem;color:#b9c6e8}input,textarea{display:block;width:100%;background:#090f20;border:1px solid #4a5575;border-radius:10px;padding:13px;color:#f0f3ff;font:inherit;outline-offset:3px}
+textarea{resize:vertical;min-height:105px}input:focus,textarea:focus{outline:2px solid #7d83fb}
+button{appearance:none;background:linear-gradient(100deg,#777cf5,#a85de2);border:0;border-radius:10px;color:white;padding:13px 18px;font-weight:750;cursor:pointer;margin-top:18px}
+button[disabled]{opacity:.55;cursor:wait}button.secondary{background:#1a3150;border:1px solid #55719a}
+small{color:#a2aeca}aside{font-size:.86rem;color:#f5ca82;border-left:3px solid #deab56;padding:10px 14px;background:#a8772818}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+.stage{border:1px solid #34415e;border-radius:12px;padding:15px;min-height:95px;background:#0b142b}
+.stage h3{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:#a8b5d7;margin:0 0 12px}
+.stage strong{overflow-wrap:anywhere;font-size:.9rem;color:#e3edfc}
+.stage strong.warn{color:#f7cd8c}.stage strong.good{color:#9df2ca}
+dl{display:grid;grid-template-columns:minmax(95px,155px) minmax(0,1fr);gap:9px;border-top:1px solid #293951;padding-top:17px}dt{color:#a6b2d2}dd{margin:0;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.85rem}
+.status{font-size:1.15rem;font-weight:750;margin:10px 0}.muted{color:#a0adcf}.errors{color:#ffb8b8;min-height:1.4em;white-space:pre-wrap}
+@media(max-width:920px){.shell{grid-template-columns:1fr}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.grid{grid-template-columns:1fr}dl{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<header><div><div class="badge">OLA / DI-OS / LOCAL EVIDENCE</div><h1>Panel operatora • pierwszy pionowy przepływ</h1></div><span class="badge">PRODUKCJA: NOT VERIFIED</span></header>
+<p class="sub">Rzeczywiste API OLA → NINA → lokalna kontrola narzędzi → IGOR → Evidence V2 → ponowny odczyt. Zewnętrzny Vantage i NOVA nie są jeszcze połączone. Zatwierdzenie drugą tożsamością NIE oznacza zgody na produkcyjne wykonanie.</p>
+<div class="shell">
+<section class="panel" aria-label="Sterowanie zadaniem">
+<h2>1. Uruchom zadanie syntetyczne</h2>
+<aside>Podawaj wyłącznie klucze do lokalnego środowiska testowego. Wartości pozostają w bieżących polach formularza; aplikacja ich nie zapisuje.</aside>
+<form id="start-form">
+<label for="key">Klucz operatora (X-API-Key)</label><input id="key" name="key" type="password" autocomplete="off" required>
+<label for="task">Zadanie dla NINA (bez operacji zewnętrznych)</label><textarea id="task" name="task" maxlength="2000" required>Calculate 17 * 23 and return the verified result.</textarea>
+<button id="start-btn" type="submit">Uruchom → sprawdź dowód</button>
+</form>
+<hr style="border:0;border-top:1px solid #32405e;margin:29px 0">
+<h2>2. Niezależny przegląd lokalny</h2>
+<form id="review-form">
+<label for="review-key">Klucz drugiego operatora (Bearer)</label><input id="review-key" name="review-key" type="password" autocomplete="off" required>
+<label for="reason">Uzasadnienie przeglądu</label><input id="reason" name="reason" maxlength="320" value="Reviewed local synthetic task and evidence" required>
+<button class="secondary" id="review-btn" type="submit" disabled>Zweryfikuj ponownie i zatwierdź lokalnie</button>
+</form>
+<p><small>Samozatwierdzenie, inny tenant i ponowny przegląd są zabronione. Brak praw do deploy, płatności i zdalnych poleceń.</small></p>
+<div class="errors" id="error" role="alert" aria-live="polite"></div>
+</section>
+<section class="panel" aria-label="Weryfikowalny stan operacji">
+<h2>Stan odczytany ponownie z OLA Evidence Vault</h2>
+<p class="muted">Każdy odczyt przechodzi przez uwierzytelnione API, weryfikację kompletnego łańcucha tenantowego, IGOR i replay. Nie wyświetlamy własnej flagi „verified”.</p>
+<div id="state" class="status" role="status" aria-live="polite">Brak zrealizowanej operacji</div>
+<div class="grid" id="stages"></div>
+<dl><dt>Run ID</dt><dd id="run">—</dd><dt>Tenant ID</dt><dd id="tenant">—</dd><dt>Commit źródła</dt><dd id="commit">—</dd><dt>Tip SHA-256</dt><dd id="tip">—</dd><dt>Zakres zaufania</dt><dd id="scope">—</dd><dt>Odbiór systemu</dt><dd id="acceptance">NOT_VERIFIED</dd></dl>
+<button class="secondary" type="button" id="refresh-btn" disabled>Odśwież z dowodów</button>
+</section>
+</div>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let activeRun = null, currentTip = null, reviewAllowed = false;
+function statusText(id, value) { $(id).textContent = value == null ? "—" : String(value); }
+function error(message) { statusText("error", message || ""); }
+function waiting(value) { $("start-btn").disabled = value; $("refresh-btn").disabled = value || !activeRun; $("review-btn").disabled = value || !activeRun || !reviewAllowed; }
+async function api(path, options) {
+  const response = await fetch(path, {cache: "no-store", credentials: "same-origin", ...options});
+  let data;
+  try { data = await response.json(); } catch { throw new Error("Serwer zwrócił nieprawidłową odpowiedź"); }
+  if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "HTTP " + response.status);
+  return data;
+}
+function render(item) {
+  statusText("state", item.status || "UNKNOWN");
+  statusText("run", item.operation_id);
+  statusText("tenant", item.tenant_id);
+  statusText("commit", item.source_commit);
+  statusText("tip", item.evidence && item.evidence.chain_tip);
+  statusText("scope", item.trust_scope);
+  statusText("acceptance", item.system_acceptance);
+  currentTip = item.evidence && item.evidence.chain_tip;
+  const cards = $("stages"); cards.replaceChildren();
+  for (const [name, stage] of Object.entries(item.stages || {})) {
+    const node = document.createElement("div"); node.className = "stage";
+    const title = document.createElement("h3"); title.textContent = name.replaceAll("_", " ");
+    const flag = document.createElement("strong");
+    flag.textContent = String(stage.status || "UNKNOWN");
+    flag.className = /NOT_CONNECTED|BLOCK|REVIEW/.test(flag.textContent) ? "warn" : "good";
+    node.append(title, flag); cards.appendChild(node);
+  }
+  reviewAllowed = item.status === "REVIEW_REQUIRED";
+  $("review-btn").disabled = !reviewAllowed;
+}
+async function refresh(token) {
+  if (!activeRun || !token) throw new Error("Brak identyfikatora operacji lub klucza");
+  const item = await api("/operator/operations/" + encodeURIComponent(activeRun), {
+    headers: {Authorization: "Bearer " + token},
+  });
+  render(item);
+  return item;
+}
+$("start-form").addEventListener("submit", async event => {
+  event.preventDefault(); error("");
+  activeRun = null; currentTip = null; reviewAllowed = false;
+  statusText("state", "Wykonywanie i ponowna weryfikacja…"); waiting(true);
+  try {
+    const token = $("key").value.trim();
+    if (!token) throw new Error("Klucz operatora jest wymagany");
+    const run = await api("/nina-run", {
+      method: "POST", headers: {"Content-Type": "application/json", "X-API-Key": token},
+      body: JSON.stringify({task: $("task").value, requested_tools: ["safe_expression"]}),
+    });
+    if (!run.run_id) throw new Error("NINA nie rozpoczęła operacji: " + (run.status || "UNKNOWN"));
+    activeRun = run.run_id;
+    await refresh(token);
+  } catch (exc) { error(exc.message); }
+  finally { waiting(false); }
+});
+$("review-form").addEventListener("submit", async event => {
+  event.preventDefault(); error(""); waiting(true);
+  try {
+    const reviewer = $("review-key").value.trim();
+    if (!reviewer || !currentTip || !activeRun) throw new Error("Brak drugiej tożsamości lub dowodu");
+    await api("/nina-run/" + encodeURIComponent(activeRun) + "/approve", {
+      method:"POST",
+      headers: {"Content-Type":"application/json", Authorization:"Bearer " + reviewer},
+      body:JSON.stringify({tip_hash:currentTip,reason:$("reason").value.trim()}),
+    });
+    await refresh(reviewer);
+  } catch (exc) { error(exc.message); }
+  finally { waiting(false); }
+});
+$("refresh-btn").addEventListener("click", async () => {
+  error(""); waiting(true);
+  try { await refresh($("key").value.trim() || $("review-key").value.trim()); }
+  catch (exc) { error(exc.message); } finally { waiting(false); }
+});
+</script>
+</body>
+</html>
