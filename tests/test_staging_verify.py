@@ -17,7 +17,7 @@ def make_db(path):
     CREATE TABLE evidence_records(id TEXT PRIMARY KEY, tenant_id TEXT,
       seq INT, record_type TEXT, payload_json TEXT, prev_hash TEXT, record_hash TEXT);
     CREATE TRIGGER evidence_no_update BEFORE UPDATE ON evidence_records
-      BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+      BEGIN SELECT RAISE(ABORT, 'evidence_records is append-only'); END;
     """)
     body = json.dumps({
         "test": True, "__ola_evidence_v2__": {
