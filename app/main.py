@@ -22,7 +22,7 @@ from .workflow_engine import WorkflowPlanError
 from .igor import IgorVerifier
 from .replay import build_replay, verify_replay
 from .human_gate import HumanGate, ReviewDecision
-from .nina_igor import NinaIgorChain
+from .nina_igor import NinaIgorChain, STATUS_FIELDS
 from .decision_report import build_decision_report
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
@@ -677,20 +677,35 @@ def approve_nina_run(
     if rows[-1].record_hash != tip_hash:
         raise HTTPException(status_code=409, detail="tip_hash is stale or does not match current chain tip")
 
-    candidate = None
+    # Verify the *complete* tenant ledger before trusting its candidate.
+    evidence = [{
+        "tenant_id": row.tenant_id, "seq": row.seq,
+        "record_type": row.record_type, "prev_hash": row.prev_hash,
+        "record_hash": row.record_hash, "payload_json": row.payload_json,
+    } for row in rows]
+    valid_chain, _ = verify_chain(evidence)
+    if not valid_chain:
+        raise HTTPException(status_code=409, detail="tenant evidence integrity unavailable")
+
+    candidates = []
     for row in rows:
-        if row.record_type != "decision.candidate":
+        if row.record_type not in ("decision.candidate", "human.approval"):
             continue
         try:
             payload = json.loads(row.payload_json)
-        except json.JSONDecodeError:
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=409, detail="decision evidence malformed")
+        if payload.get("run_id") != run_id:
             continue
-        if payload.get("run_id") == run_id:
-            candidate = payload
-            break
+        if row.record_type == "human.approval":
+            raise HTTPException(status_code=409, detail="run already approved")
+        candidates.append(payload)
 
-    if candidate is None:
+    if not candidates:
         raise HTTPException(status_code=404, detail="decision candidate not found")
+    if len(candidates) != 1:
+        raise HTTPException(status_code=409, detail="ambiguous decision candidate")
+    candidate = candidates[0]
     requester_id = candidate.get("requester_id")
     if not requester_id:
         raise HTTPException(status_code=409, detail="requester identity missing from decision candidate")
@@ -700,9 +715,14 @@ def approve_nina_run(
     candidate_fields = candidate.get("status_fields")
     if not isinstance(candidate_fields, dict):
         raise HTTPException(status_code=409, detail="decision candidate status fields are invalid")
-    approved_fields = dict(candidate_fields)
-    approved_fields["HUMAN_GATE"] = "VERIFIED"
-    if NinaIgorChain.derive_status(approved_fields) != "VERIFIED":
+    # EXECUTION_ALLOWED is an extra diagnostic value, not a sixth
+    # NinaIgorChain.STATUS_FIELDS entry. Do not include it in the strict
+    # five-field derivation, but verify it matches the original decision.
+    canonical = {field: candidate_fields.get(field) for field in STATUS_FIELDS}
+    if candidate_fields.get("EXECUTION_ALLOWED") != NinaIgorChain.derive_status(canonical):
+        raise HTTPException(status_code=409, detail="inconsistent execution decision")
+    canonical["HUMAN_GATE"] = "VERIFIED"
+    if NinaIgorChain.derive_status(canonical) != "VERIFIED":
         raise HTTPException(status_code=409, detail="candidate is not eligible for human approval")
 
     record = append_record(
@@ -715,6 +735,8 @@ def approve_nina_run(
             "approver_id": approver_id,
             "reason": str(body.get("reason", "")),
             "status": "VERIFIED",
+            "trust_scope": "local_candidate_review_only",
+            "production_authorized": False,
         },
     )
     return {
@@ -725,6 +747,8 @@ def approve_nina_run(
         "record_id": record["id"],
         "record_type": "human.approval",
         "approver_id": approver_id,
+        "trust_scope": "local_candidate_review_only",
+        "production_authorized": False,
     }
 
 
