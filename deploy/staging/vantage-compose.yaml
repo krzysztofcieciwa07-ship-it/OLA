@@ -4,6 +4,12 @@ services:
   ola:
     environment:
       OLA_VANTAGE_ENFORCED: "1"
+      # Decoy external LLM settings prove signed safe_expression never
+      # reaches a provider, even with OLA_LLM_MODE=required.
+      OLA_LLM_MODE: "required"
+      OLA_LLM_PROVIDER: "openai"
+      OPENAI_API_KEY: ${OLA_STAGE_DECOY_LLM_KEY:?random test-only decoy key}
+      OPENAI_BASE_URL: http://127.0.0.1:9/v1
       VANTAGE_POLICY_URL: http://vantage:18710/v1/decisions
       OLA_VANTAGE_HMAC_SECRET: ${OLA_STAGE_POLICY_HMAC:?}
       OLA_VANTAGE_ED25519_PUBLIC_KEY_HEX: ${OLA_STAGE_VANTAGE_PUBLIC_HEX:?}
