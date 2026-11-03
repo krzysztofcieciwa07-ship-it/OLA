@@ -8,7 +8,7 @@ Run from repo root with Docker Compose v2, Python 3.13 and a running Docker daem
 python scripts/staging_rehearsal.py
 ```
 
-Set `OLA_STAGING_COMMIT` to a specific 40-hex commit to use a concrete source revision, or rely on the runner's `GITHUB_SHA`/local git HEAD. The script derives a new random `OLA_STAGING_PEPPER` for its own process and does not print it. It creates a uniquely named Compose project, checks `/health` and `/readyz`, writes an actual **synthetic** V2 evidence record, stops/starts the container, reads and verifies the same hash chain and ensures SQLite rejects an UPDATE. The ephemeral Compose volume is deleted in cleanup after the successful test.
+Set `OLA_STAGING_COMMIT` to a specific 40-hex commit to use a concrete source revision, or rely on the runner's `GITHUB_SHA`/local git HEAD. The script derives a new random `OLA_STAGING_PEPPER` for its own process and does not print it. It creates a uniquely named Compose project, checks `/health` and `/readyz`, writes an actual **synthetic** V2 evidence record, stops/starts the container, reads and verifies the same hash chain and ensures SQLite rejects an UPDATE. It also makes an SQLite online backup, restores the backup into a separate in-memory SQLite database, and re-verifies integrity plus the same record hash. The ephemeral Compose volume is deleted in cleanup after the successful test.
 
 Checks deliberately do not claim that OLA has production MFA, backup/restore to an independent medium, TLS, a verified image signature, NOVA E2EE, or an external Vantage run. Container health and local volume persistence are insufficient for production readiness.
 
