@@ -51,6 +51,13 @@ li:before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%
 @keyframes corePulse{0%,100%{transform:scale(.95);opacity:.35}50%{transform:scale(1.04);opacity:.8}}@keyframes orbitIn{to{opacity:1}}@keyframes nodeIn{to{opacity:1}}@keyframes copyIn{to{opacity:1;transform:translateY(0)}}
 @media(max-width:800px){.hero{padding:55px 25px;display:block}.scene{top:30vh;right:5vw;width:90vw;height:320px;transform:translateY(-50%) scale(.72)}.copy{width:auto;margin-top:65vh}.core{width:190px;height:190px}.features{font-size:13px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-delay:0ms!important}}
+.runtime-sample{margin:20px 0;padding:17px 18px;border:1px solid rgba(220,235,250,.22);border-radius:12px;background:rgba(15,22,29,.6)}
+.runtime-sample h2{margin:0 0 9px;font-size:16px;line-height:1.4;letter-spacing:0}
+.runtime-sample p{margin:0 0 12px;font-size:12px;line-height:1.65;color:#b9c7d4}
+.sample-downloads{display:flex;gap:18px;flex-wrap:wrap;margin:9px 0 13px}
+.sample-downloads a{color:#e1f3ee;font-size:12px;text-underline-offset:4px}
+.runtime-sample .sample-scope{margin:0;font-size:10px;line-height:1.65;color:#96a6b5}
+.proof{flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -73,8 +80,14 @@ li:before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%
 <li>niezależna weryfikacja wyniku po wykonaniu</li>
 <li>automatyczne uruchomienie po potwierdzeniu płatności</li>
 </ul>
-<div class="proof"><span>VERIFIED</span><small>Execution · Provenance · Evidence · Replay</small></div>
+<div class="proof"><span>PRZYKŁAD CI: VERIFIED</span><small>6 wywołań LLM · 8 rekordów · Human Gate: REVIEW</small></div>
 <div class="deliver"><b>WHAT YOU GET</b><span>Execution evidence · Provenance &amp; hashes · Independent verification · Tamper / replay check</span><em>If evidence is missing, OLA says so.</em></div>
+<section class="runtime-sample" aria-labelledby="runtime-sample-title">
+<h2 id="runtime-sample-title">Sprawdź przykładowy raport OLA</h2>
+<p>Rzeczywisty test CI z 4 listopada 2026: sześć wywołań Ollama, osiem rekordów dowodowych i weryfikator uruchamiany lokalnie. Przykład na danych testowych, bez danych klienta.</p>
+<div class="sample-downloads"><a href="https://github.com/krzysztofcieciwa07-ship-it/OLA/raw/814c138e2ae70cbf5c6ff5b5ef38523914daa175/docs/samples/runtime-audit-20261104/OLA_AI_RUNTIME_AUDIT_SAMPLE_2026-11-04.pdf">Raport PDF</a><a href="https://github.com/krzysztofcieciwa07-ship-it/OLA/raw/814c138e2ae70cbf5c6ff5b5ef38523914daa175/docs/samples/runtime-audit-20261104/OLA_AI_RUNTIME_AUDIT_SAMPLE_2026-11-04.zip">Dowody i weryfikator</a></div>
+<p class="sample-scope">VERIFIED dotyczy tego przebiegu CI. Human Gate: REVIEW. Jakość rozumowania AI i produkcja pozostają poza zakresem przykładu.</p>
+</section>
 <div class="offer"><span class="price">€99 <small>· one controlled audit</small></span><a class="cta" href="https://buy.stripe.com/test_cNi28t0yN5Sd2B20ufdjO00">START AUDIT</a></div>
 <div class="note">Preview — Stripe Sandbox. To nie jest sprzedaż produkcyjna.</div>
 </section>

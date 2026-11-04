@@ -73,6 +73,9 @@ jobs:
             exit 1
           fi
 
+      - name: Test fixture recorder transport
+        run: python3 -m unittest discover -s tests -p test_runtime_sample_capture.py
+
       - name: Set up Ollama
         shell: bash
         run: |
@@ -91,6 +94,19 @@ jobs:
       - name: Build OLA
         run: docker build --tag ola-nina-ollama --file Dockerfile .
 
+      - name: Start fixture-only provider recorder
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/capture_runtime_sample.py serve --trace provider-trace.jsonl &
+          for i in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:11435/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+
       - name: Start OLA
         shell: bash
         run: |
@@ -104,7 +120,7 @@ jobs:
             -e OLA_LLM_MODE="$OLA_LLM_MODE" \
             -e OLA_LLM_MODEL="$OLA_LLM_MODEL" \
             -e OLLAMA_MODEL="$OLLAMA_MODEL" \
-            -e OLLAMA_BASE_URL="http://127.0.0.1:11434" \
+            -e OLLAMA_BASE_URL="http://127.0.0.1:11435" \
             -e OLA_LLM_TIMEOUT="$OLA_LLM_TIMEOUT" \
             -e OLA_OLLAMA_NUM_PREDICT="$OLA_OLLAMA_NUM_PREDICT" \
             ola-nina-ollama
@@ -158,6 +174,8 @@ jobs:
           )
           with urllib.request.urlopen(req,timeout=300) as resp:
               body=json.load(resp)
+          with open("/data/runtime-response.json","w",encoding="utf-8") as stream:
+              json.dump(body,stream,sort_keys=True,ensure_ascii=False)
 
           assert body["nina"]["status"]=="VERIFIED", body
           assert body["nina"]["provider"]=="ollama", body
@@ -233,6 +251,15 @@ jobs:
           set -euo pipefail
           docker logs ola-nina-ollama > ola-nina-ollama-runtime.log 2>&1 || true
 
+      - name: Export complete fixture chain and measured runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec ola-nina-ollama python scripts/capture_runtime_sample.py export \
+            --context /data/nina-ollama-proof-context.json > evidence-export.json
+          test -s provider-trace.jsonl
+          test -s evidence-export.json
+
       - name: Upload full-flow evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -241,6 +268,8 @@ jobs:
             ollama-models.json
             nina-igor-ollama-proof.json
             ola-nina-ollama-runtime.log
+            evidence-export.json
+            provider-trace.jsonl
 
       - name: Capture Ollama failure diagnostics
         if: failure()
