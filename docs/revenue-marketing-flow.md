@@ -1,6 +1,6 @@
 # OLA Revenue + Marketing Flow
 
-## Verified implementation scope
+## Backend implementation scope
 
 The repository contains a payment execution path:
 
@@ -16,9 +16,9 @@ The source implements:
 
 **Implemented backend code is not the same as an available public checkout or a live payment proof.**
 
-## Current verified state — 2026-11-05
+## Connected Stripe account — read-only check 2026-11-05
 
-Read-only inspection of the connected Stripe account `ola sandbox` (`livemode=false`) returned:
+The connected Stripe account `ola sandbox` (`livemode=false`) returned:
 - Products: **0**;
 - Prices: **0**;
 - Payment Links: **0**;
@@ -26,40 +26,61 @@ Read-only inspection of the connected Stripe account `ola sandbox` (`livemode=fa
 
 No Stripe LIVE account is available in the connected integration. These results describe only the connected sandbox account; they do not prove that no other account exists.
 
-The advertised EUR 99 amount is a planned price, not a currently configured Stripe Price. No Payment Link, product, Price, Checkout Session or customer payment was created during this audit.
+The EUR 99 amount in the repository's former static CTA was not a configured Stripe Price. No product, Price, Payment Link, Checkout Session or customer payment was created during this audit.
 
-## Public customer path — not yet connected
+## Actual public marketing site — Vercel read-only check 2026-11-05
 
-- `POST /checkout` requires an existing tenant `X-API-Key`.
-- The marketing page is a static HTML file; it does not collect a task, provision a customer tenant or call the authenticated `/checkout` API.
-- There is no verified public customer-onboarding path from the landing page to the backend.
-- The previous static Stripe TEST URL was not present among the connected account's Payment Links. It has been removed from the page.
-- The page now labels runtime claims as CI-verified and shows a disabled checkout state. This is deliberate; it prevents visitors being sent to an unverified test URL.
+A Vercel project named `ola-ai-trust-express` has a Production deployment marked `READY`; its public domain `ola-ai-trust-express.vercel.app` returned HTTP 200 during this check.
 
-The Revenue Surface Gate now fails if a Stripe Payment Link URL is reintroduced into the static page and checks that the disabled checkout state is visible. It is a static honesty guard, **not** a Stripe API availability test.
+This is a **static marketing/enquiry page**, not evidence of a deployed OLA backend:
+- Vercel project lookup filtered by Git repository `krzysztofcieciwa07-ship-it/OLA` returned **0 projects**.
+- The Git-linked project inventory did not list the OLA repository.
+- Deployment details requested with Git repository metadata did not return a `gitSource` / source commit binding.
+- The live page invites email enquiries, explicitly says there are no online payments or binding orders on the site, and labels €490 as an indicative introductory pilot price.
+- There is no observed payment, customer tenant provisioning, authenticated backend checkout or automatic OLA execution from that public page.
 
-## Test scope and limits
+**Do not treat the Vercel deployment as a production deployment of the current OLA repository.** Its source-to-repository relationship is UNKNOWN.
 
-- `tests/test_stripe_webhook.py` validates signature and payment fields with synthetic payloads and a test webhook secret.
-- `tests/test_payment_session_binding.py` stubs Checkout Session retrieval to test order/result isolation; it does not execute a real Stripe request.
-- Runtime and NINA/IGOR evidence is verified in isolated CI scope; it is not a real customer delivery.
-- No production payment, real customer, first euro or public checkout completion is proven.
+## Repository landing-page artifact — PR #175
+
+The repository file `revenue/index.html` is a separate static artifact. Its previous version contained a hard-coded Stripe TEST URL despite the connected sandbox having no Payment Links. It was not confirmed as the source of the Vercel public page.
+
+PR #175:
+- removes that unverified Stripe URL from the repository artifact;
+- marks €99 as a planned price, not an active Stripe Price;
+- replaces the clickable test link with a disabled checkout state;
+- marks the runtime label `CI-VERIFIED` rather than an unqualified `VERIFIED`;
+- adds a static guard and a regression test against reintroducing a hard-coded Stripe URL.
+
+**PR #175 does not update the existing Vercel deployment**, because that Vercel project is not linked to the OLA Git repository. No Vercel project, domain or deployment mutation was made.
+
+## Customer path and current commercial status
+
+- A public email enquiry path exists on the separate Vercel page.
+- The public page does not accept online payments or binding orders.
+- `POST /checkout` in the repository requires an existing tenant `X-API-Key`; the public page does not provision that tenant or invoke this endpoint.
+- A manual email enquiry is a lead, not a paid order.
+- Stripe webhook tests use synthetic payloads and a test secret; they do not demonstrate a LIVE Stripe event.
+- `tests/test_payment_session_binding.py` stubs Checkout Session retrieval; it does not perform a real Stripe request.
+- No production payment, real customer, first euro or completed customer delivery is proven.
 
 ## Required next chain
 
-1. Configure an authorized Stripe LIVE account.
-2. Create and verify the OLA product and one-time EUR 99 Price.
-3. Configure the LIVE API key and webhook secret in the authorized production environment.
-4. Implement public task submission and tenant/customer provisioning without exposing API keys.
-5. Connect the landing page to the authenticated backend checkout-bootstrap flow.
-6. Verify signed LIVE webhook delivery, exact Price ID, paid status and idempotent processing.
-7. Run OLA, independently verify evidence and provide the exact order-bound customer result.
-8. Observe a real payment and customer delivery before marking revenue LIVE.
+1. Confirm the canonical offer and price (the live enquiry page currently says indicative €490; the repository had a separate €99 placeholder).
+2. Establish a source-controlled relationship between the public marketing page and the approved OLA repository, without silently replacing the existing Vercel deployment.
+3. Decide the compliant customer intake and contracting/invoicing process for the pilot.
+4. If online checkout is required, configure an authorized Stripe LIVE account and a verified product/one-time Price.
+5. Implement safe customer/tenant provisioning without exposing API keys, then connect the landing-page enquiry/checkout bootstrap to the backend.
+6. Configure the LIVE API key and webhook secret in the authorized production environment.
+7. Verify signed LIVE webhook delivery, exact Price ID, paid status and idempotent processing.
+8. Run OLA, independently verify evidence and deliver the exact order-bound customer result.
+9. Observe a real payment and customer delivery before marking revenue LIVE.
 
 Never promote:
 - sandbox configuration to live revenue;
 - synthetic webhook fixtures to a live Stripe event;
 - a hard-coded Payment Link URL to an active link without an account-side read;
+- an unverified Vercel deployment to a deployment of the current OLA Git SHA;
 - CI evidence to production evidence;
 - a runtime proof to a customer-delivery claim.
 
