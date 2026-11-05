@@ -11,9 +11,10 @@ and Human Gate.
 
 1. The existing NINA policy allowlist admits `cli_hub_discover`.
 2. The workflow executor calls `app.cli_hub_discovery.search_catalog()`.
-3. OLA downloads the public registry from
-   `https://clianything.cc/registry.json` over HTTPS.
-4. OLA filters registry metadata locally. The user's query is not sent to the
+3. OLA downloads both registries used by the upstream CLI-Hub package:
+   - `https://hkuds.github.io/CLI-Anything/registry.json` (first-party harnesses);
+   - `https://hkuds.github.io/CLI-Anything/public_registry.json` (public CLIs).
+4. OLA filters both registries locally. The user's query is not sent to either
    registry endpoint.
 5. The adapter returns only descriptive fields: name, display name, version,
    description, category, and requirements.
@@ -29,8 +30,11 @@ and Human Gate.
 ## Bounds and fail-closed behavior
 
 - Query: 1–120 characters.
-- Registry body: at most 512 KiB.
-- Results: at most 20.
+- Each registry body: at most 512 KiB; combined maximum: 1 MiB.
+- Both registries are required for `HARNESS_AND_PUBLIC` coverage; failure or
+  invalid schema in either registry blocks the discovery rather than silently
+  presenting an incomplete catalogue.
+- Results: at most 20 across both catalogues.
 - HTTP timeout: 8 seconds overall, 3 seconds connect.
 - Redirects disabled.
 - Invalid JSON/schema, timeout, HTTP failure, or oversized registry blocks
