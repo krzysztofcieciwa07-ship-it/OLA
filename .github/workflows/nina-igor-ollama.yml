@@ -11,6 +11,9 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  id-token: write
+  attestations: write
 
 env:
   # CI fixture only; NEVER use as a production secret.
@@ -233,6 +236,55 @@ jobs:
           set -euo pipefail
           docker logs ola-nina-ollama > ola-nina-ollama-runtime.log 2>&1 || true
 
+      - name: Export tenant-scoped evidence for independent IGOR
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker cp ola-nina-ollama:/data/nina-ollama-proof-context.json ./nina-ollama-proof-context.json
+          docker exec -i ola-nina-ollama python - <<'PY'
+          import json, sqlite3
+          context=json.load(open("/data/nina-ollama-proof-context.json",encoding="utf-8"))
+          source=sqlite3.connect("/data/ola.db")
+          rows=source.execute(
+              "SELECT id,tenant_id,seq,record_type,payload_json,prev_hash,record_hash "
+              "FROM evidence_records WHERE tenant_id=? ORDER BY seq",
+              (context["tenant_id"],),
+          ).fetchall()
+          source.close()
+          assert len(rows) >= 6, len(rows)
+          target=sqlite3.connect("/tmp/nina-ollama-evidence.sqlite3")
+          target.execute("""
+              CREATE TABLE evidence_records (
+                  id TEXT PRIMARY KEY,
+                  tenant_id TEXT NOT NULL,
+                  seq INTEGER NOT NULL,
+                  record_type TEXT NOT NULL,
+                  payload_json TEXT NOT NULL,
+                  prev_hash TEXT NOT NULL,
+                  record_hash TEXT NOT NULL
+              )
+          """)
+          target.executemany(
+              "INSERT INTO evidence_records VALUES (?,?,?,?,?,?,?)",
+              rows,
+          )
+          target.commit()
+          target.close()
+          PY
+          docker cp ola-nina-ollama:/tmp/nina-ollama-evidence.sqlite3 ./nina-ollama-evidence.sqlite3
+          python - <<'PY'
+          import json, os
+          context=json.load(open("nina-ollama-proof-context.json",encoding="utf-8"))
+          with open("provenance.txt","w",encoding="utf-8") as stream:
+              stream.write(f"commit={os.environ['EXPECTED_SOURCE_SHA']}\n")
+              stream.write(f"run={os.environ['GITHUB_RUN_ID']}\n")
+              stream.write(f"tenant_id={context['tenant_id']}\n")
+              stream.write(f"run_id={context['run_id']}\n")
+              stream.write("provider=ollama\n")
+              stream.write(f"model={os.environ['OLLAMA_MODEL']}\n")
+          PY
+          sha256sum ollama-models.json nina-igor-ollama-proof.json nina-ollama-proof-context.json nina-ollama-evidence.sqlite3 ola-nina-ollama-runtime.log provenance.txt > evidence-files.sha256
+
       - name: Upload full-flow evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -241,6 +293,10 @@ jobs:
             ollama-models.json
             nina-igor-ollama-proof.json
             ola-nina-ollama-runtime.log
+            nina-ollama-proof-context.json
+            nina-ollama-evidence.sqlite3
+            provenance.txt
+            evidence-files.sha256
 
       - name: Capture Ollama failure diagnostics
         if: failure()
@@ -265,3 +321,16 @@ jobs:
       - name: Stop OLA
         if: always()
         run: docker rm --force ola-nina-ollama >/dev/null 2>&1 || true
+
+  igor-independent-ollama:
+    needs: nina-igor-ollama-full-flow
+    if: ${{ needs.nina-igor-ollama-full-flow.result == 'success' }}
+    uses: ./.github/workflows/igor-independent-ollama-evidence.yml
+    with:
+      source_commit: ${{ github.event.pull_request.head.sha || github.sha }}
+      nina_artifact_name: nina-igor-ollama-full-flow-${{ github.event.pull_request.head.sha || github.sha }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
