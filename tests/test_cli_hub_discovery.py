@@ -46,6 +46,23 @@ def _registry():
     }
 
 
+def _public_registry():
+    return {
+        "meta": {"updated": "2026-08-20"},
+        "clis": [
+            {
+                "name": "photo-tool",
+                "display_name": "Photo Tool",
+                "version": "2.0",
+                "description": "Image editing for public workflows",
+                "category": "image",
+                "requires": "Node.js",
+                "install_cmd": "UNTRUSTED PUBLIC INSTALL INSTRUCTION",
+            },
+        ],
+    }
+
+
 def test_cli_hub_discovery_is_a_registered_read_only_capability():
     task = NinaTask.create(
         tenant_id="tenant-cli-hub-test",
@@ -62,25 +79,32 @@ def test_cli_hub_search_reads_registry_and_filters_without_exposing_install_comm
     from app import cli_hub_discovery
 
     raw = json.dumps(_registry()).encode()
+    public_raw = json.dumps(_public_registry()).encode()
     calls = []
 
     def fake_stream(method, url, **kwargs):
         calls.append((method, url, kwargs))
-        return FakeResponse([raw[:30], raw[30:]])
+        payload = raw if url == cli_hub_discovery.REGISTRY_URL else public_raw
+        return FakeResponse([payload[:30], payload[30:]])
 
     monkeypatch.setattr(cli_hub_discovery.httpx, "stream", fake_stream)
     result = cli_hub_discovery.search_catalog("image editing")
 
-    method, url, kwargs = calls[0]
-    assert method == "GET"
-    assert url == cli_hub_discovery.REGISTRY_URL
-    assert kwargs["follow_redirects"] is False
-    assert kwargs["headers"]["Accept"] == "application/json"
-    assert result["match_count"] == 1
-    assert result["matches"][0]["name"] == "gimp"
-    assert "install_cmd" not in result["matches"][0]
-    assert "UNTRUSTED INSTALL INSTRUCTION" not in repr(result)
+    assert [call[0] for call in calls] == ["GET", "GET"]
+    assert [call[1] for call in calls] == [
+        cli_hub_discovery.REGISTRY_URL,
+        cli_hub_discovery.PUBLIC_REGISTRY_URL,
+    ]
+    assert all(call[2]["follow_redirects"] is False for call in calls)
+    assert all(call[2]["headers"]["Accept"] == "application/json" for call in calls)
+    assert result["coverage"] == "HARNESS_AND_PUBLIC"
+    assert result["match_count"] == 2
+    assert {item["name"] for item in result["matches"]} == {"gimp", "photo-tool"}
+    assert {item["catalog_source"] for item in result["matches"]} == {"harness", "public"}
+    assert all("install_cmd" not in item for item in result["matches"])
+    assert "UNTRUSTED" not in repr(result)
     assert len(result["registry_sha256"]) == 64
+    assert len(result["public_registry_sha256"]) == 64
 
 
 def test_cli_hub_search_rejects_invalid_or_oversized_query(monkeypatch):
