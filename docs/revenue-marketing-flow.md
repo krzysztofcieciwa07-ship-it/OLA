@@ -59,6 +59,7 @@ PR #175:
 - A public email enquiry path exists on the separate Vercel page.
 - The public page does not accept online payments or binding orders.
 - `POST /checkout` in the repository requires an existing tenant `X-API-Key`; the public page does not provision that tenant or invoke this endpoint.
+- No public customer-onboarding path connects the email enquiry to automated tenant provisioning or the repository's `/checkout` endpoint.
 - A manual email enquiry is a lead, not a paid order.
 - Stripe webhook tests use synthetic payloads and a test secret; they do not demonstrate a LIVE Stripe event.
 - `tests/test_payment_session_binding.py` stubs Checkout Session retrieval; it does not perform a real Stripe request.
