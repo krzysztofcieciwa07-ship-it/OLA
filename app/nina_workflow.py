@@ -113,10 +113,15 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
     }
     if not set(allowed_tools) <= supported:
         raise WorkflowPlanError("unregistered workflow tool")
+    if "cli_hub_discover" in allowed_tools and set(allowed_tools) != {"cli_hub_discover"}:
+        raise WorkflowPlanError("CLI-Hub discovery must be an isolated capability")
     nodes, provenance = planner(goal, tuple(allowed_tools))
     nodes = validate_plan({"nodes": [
         {"id": n.id, "tool": n.tool, "task": n.task, "needs": list(n.needs)}
         for n in nodes]}, allowed_tools=set(allowed_tools))
+    if "cli_hub_discover" in allowed_tools and (
+            len(nodes) != 1 or nodes[0].tool != "cli_hub_discover" or nodes[0].needs):
+        raise WorkflowPlanError("CLI-Hub discovery requires exactly one isolated root node")
     evidence_ids = []
 
     def record(event):
