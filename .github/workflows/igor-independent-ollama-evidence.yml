@@ -214,7 +214,10 @@ jobs:
       - name: Verify IGOR evidence attestation
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh attestation verify igor-ollama-evidence-bundle.tar.gz -R "$GITHUB_REPOSITORY"
+        run: |
+          set -euo pipefail
+          gh attestation verify igor-ollama-evidence-bundle.tar.gz -R "$GITHUB_REPOSITORY"
+          echo "IGOR_EVIDENCE_ATTESTED=VERIFIED"
 
       - name: Human Gate hold
         run: |
