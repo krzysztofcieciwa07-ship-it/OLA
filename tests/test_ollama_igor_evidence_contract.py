@@ -32,8 +32,8 @@ class OllamaIndependentEvidenceContractTest(unittest.TestCase):
 
     def test_human_gate_is_never_auto_approved(self):
         workflow = (ROOT / ".github/workflows/igor-independent-ollama-evidence.yml").read_text(encoding="utf-8")
-        self.assertIn('"human_gate":"PENDING"', workflow)
-        self.assertNotIn('"human_gate":"VERIFIED"', workflow)
+        self.assertIn('"human_gate": "PENDING"', workflow)
+        self.assertNotIn('"human_gate": "VERIFIED"', workflow)
 
 
 if __name__ == "__main__":
