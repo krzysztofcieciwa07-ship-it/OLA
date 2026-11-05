@@ -171,3 +171,73 @@ def test_nina_workflow_executes_cli_hub_discovery_through_registered_adapter(mon
 
     assert calls == ["search for image tools"]
     assert result == {"provider": "cli-hub", "matches": []}
+
+
+
+def test_nina_workflow_rejects_mixed_cli_hub_capabilities_before_planning():
+    from app.nina_workflow import run_nina_workflow
+    from app.workflow_engine import WorkflowPlanError
+
+    with pytest.raises(WorkflowPlanError, match="isolated capability"):
+        run_nina_workflow(
+            tenant_id="tenant-cli-hub-test",
+            requester_id="requester-test",
+            goal="search image tools",
+            allowed_tools=["cli_hub_discover", "llm_agent"],
+            append=lambda *args: pytest.fail("must not write evidence"),
+            planner=lambda *args: pytest.fail("planner must not be invoked"),
+        )
+
+
+def test_nina_workflow_requires_exactly_one_root_cli_hub_node(monkeypatch):
+    from app.nina_workflow import run_nina_workflow
+    from app.workflow_engine import WorkflowNode, WorkflowPlanError
+
+    nodes = (
+        WorkflowNode("catalog_a", "cli_hub_discover", "image", ()),
+        WorkflowNode("catalog_b", "cli_hub_discover", "video", ()),
+    )
+    with pytest.raises(WorkflowPlanError, match="exactly one isolated root node"):
+        run_nina_workflow(
+            tenant_id="tenant-cli-hub-test",
+            requester_id="requester-test",
+            goal="search catalog",
+            allowed_tools=["cli_hub_discover"],
+            append=lambda *args: pytest.fail("must not write evidence"),
+            planner=lambda *args: (nodes, {"provider": "ollama", "model": "test", "response_id": "p1"}),
+        )
+
+
+def test_nina_workflow_records_discovery_and_never_marks_it_verified(monkeypatch):
+    from app import cli_hub_discovery
+    from app.nina_workflow import run_nina_workflow
+    from app.workflow_engine import WorkflowNode
+
+    monkeypatch.setattr(
+        cli_hub_discovery, "search_catalog",
+        lambda query: {"provider": "cli-hub", "query": query, "matches": []},
+    )
+    nodes = (WorkflowNode("catalog", "cli_hub_discover", "image", ()),)
+    writes = []
+
+    def append(tenant_id, record_type, payload):
+        writes.append((tenant_id, record_type, payload))
+        return {"id": f"evidence-{len(writes)}"}
+
+    result = run_nina_workflow(
+        tenant_id="tenant-cli-hub-test",
+        requester_id="requester-test",
+        goal="find image tools",
+        allowed_tools=["cli_hub_discover"],
+        append=append,
+        planner=lambda *args: (nodes, {"provider": "ollama", "model": "test", "response_id": "planner-1"}),
+    )
+
+    assert result["status"] == "COMPLETED_UNVERIFIED"
+    assert result["verified"] is False
+    assert result["human_gate"] == "NOT_APPROVED"
+    assert result["results"]["catalog"]["provider"] == "cli-hub"
+    assert len(result["evidence_ids"]) == 4
+    assert writes[0][1] == "workflow.planned"
+    assert writes[-1][1] == "workflow.completed"
+    assert all(row[0] == "tenant-cli-hub-test" for row in writes)
