@@ -12,8 +12,6 @@ on:
 permissions:
   contents: read
   actions: read
-  id-token: write
-  attestations: write
 
 env:
   # CI fixture only; NEVER use as a production secret.
