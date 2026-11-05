@@ -136,6 +136,43 @@ jobs:
           observed_exact = {name: exact.get(name) for name in required_exact}
           observed_reference = {name: reference.get(name) for name in required_reference}
 
+          # The independent Ollama IGOR gate is a reusable-workflow job nested
+          # inside the NINA full-flow run, not a separate workflow run. Require
+          # that exact job explicitly; a skipped legacy OpenAI-only check must
+          # never be mistaken for independent Ollama verification.
+          nina_run = exact.get("NINA IGOR Ollama Full Flow")
+          igor_gate = None
+          if nina_run is not None:
+              import os
+              import urllib.request
+              jobs_url = (
+                  f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}"
+                  f"/actions/runs/{nina_run['id']}/jobs?per_page=100"
+              )
+              request = urllib.request.Request(
+                  jobs_url,
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  jobs_data = json.load(response)
+              matching_jobs = [
+                  job for job in jobs_data.get("jobs", [])
+                  if job.get("name") == "igor-independent-ollama / igor-ollama"
+              ]
+              if matching_jobs:
+                  job = matching_jobs[0]
+                  igor_gate = {
+                      "id": job.get("id"),
+                      "status": job.get("status"),
+                      "conclusion": job.get("conclusion"),
+                      "html_url": job.get("html_url"),
+                  }
+          observed_exact["IGOR Independent Ollama Evidence Gate"] = igor_gate
+
           missing = [name for name, run in {**observed_exact, **observed_reference}.items() if run is None]
           pending = {
               name: run
