@@ -1,0 +1,232 @@
+name: IGOR Independent Ollama Evidence Gate
+
+on:
+  workflow_call:
+    inputs:
+      source_commit:
+        required: true
+        type: string
+      nina_artifact_name:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  igor-ollama:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    env:
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      NINA_RUN_ID: ${{ github.run_id }}
+      NINA_ARTIFACT_NAME: ${{ inputs.nina_artifact_name }}
+      OLLAMA_MODEL: qwen2.5:0.5b-instruct
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ inputs.source_commit }}
+
+      - name: Assert exact source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "${#SOURCE_COMMIT}" -eq 40
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Download NINA Ollama evidence
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: ${{ inputs.nina_artifact_name }}
+          path: nina-evidence
+          run-id: ${{ github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify artifact provenance and file hashes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s nina-evidence/nina-igor-ollama-proof.json
+          test -s nina-evidence/nina-ollama-evidence.sqlite3
+          test -s nina-evidence/nina-ollama-proof-context.json
+          test -s nina-evidence/ollama-models.json
+          test -s nina-evidence/provenance.txt
+          test -s nina-evidence/evidence-files.sha256
+          (cd nina-evidence && sha256sum -c evidence-files.sha256)
+          grep -qx "commit=$SOURCE_COMMIT" nina-evidence/provenance.txt
+          grep -qx "run=$NINA_RUN_ID" nina-evidence/provenance.txt
+          grep -qx "provider=ollama" nina-evidence/provenance.txt
+          grep -qx "model=$OLLAMA_MODEL" nina-evidence/provenance.txt
+          artifact_digest="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${NINA_RUN_ID}/artifacts" --jq ".artifacts[] | select(.name == \"${NINA_ARTIFACT_NAME}\") | .digest" | head -n1)"
+          test -n "$artifact_digest"
+          printf '%s\n' "$artifact_digest" > nina-artifact-api-digest.txt
+
+      - name: Independently verify real Ollama evidence database
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib, os, subprocess
+          root=pathlib.Path("nina-evidence")
+          proof=json.loads((root/"nina-igor-ollama-proof.json").read_text())
+          context=json.loads((root/"nina-ollama-proof-context.json").read_text())
+          models=json.loads((root/"ollama-models.json").read_text())
+          assert proof["commit"] == os.environ["SOURCE_COMMIT"]
+          assert proof["tenant_id"] == context["tenant_id"]
+          assert proof["run_id"] == context["run_id"]
+          assert proof["provider"] == "ollama"
+          assert proof["model"] == os.environ["OLLAMA_MODEL"]
+          assert proof["llm_invocations"] == 6
+          assert proof["nina_status"] == "VERIFIED"
+          assert proof["igor_status"] == "VERIFIED"
+          assert proof["provenance_status"] == "VERIFIED"
+          assert proof["replay_status"] == "VERIFIED"
+          assert proof["policy_status"] == "VERIFIED"
+          assert proof["human_gate_status"] == "BLOCK"
+          assert proof["status_fields"]["HUMAN_GATE"] == "REVIEW"
+          assert proof["status_fields"]["EXECUTION_ALLOWED"] == "REVIEW"
+          names={item.get("name") for item in models.get("models", [])}
+          assert os.environ["OLLAMA_MODEL"] in names, names
+          command=[
+            "python","scripts/verify_agent_runtime.py",
+            "--tenant-id",context["tenant_id"],
+            "--run-id",context["run_id"],
+            "--expected-commit",os.environ["SOURCE_COMMIT"],
+            "--expected-task",context["task"],
+            "--expected-result","391",
+            "--db-path",str(root/"nina-ollama-evidence.sqlite3"),
+            "--expected-provider","ollama",
+            "--expected-model",os.environ["OLLAMA_MODEL"],
+            "--expected-invocation-type","real_llm",
+          ]
+          result=subprocess.run(command,capture_output=True,text=True)
+          if result.returncode:
+            raise SystemExit(result.stdout+"\n"+result.stderr)
+          verified=json.loads(result.stdout.splitlines()[-1])
+          assert verified["status"] == "VERIFIED", verified
+          assert verified["evidence_count"] == 6, verified
+          assert verified["independent_instance_count"] == 6, verified
+          assert verified["independent_context_count"] == 6, verified
+          print("IGOR_OLLAMA_EVIDENCE=VERIFIED")
+          print("IGOR_SOURCE_SHA=VERIFIED")
+          print("IGOR_PROVIDER_MODEL=VERIFIED")
+          print("IGOR_HASH_CHAIN=VERIFIED")
+          print("IGOR_SIX_AGENT_RECORDS=VERIFIED")
+          PY
+
+      - name: Tamper mutation must BLOCK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp nina-evidence/nina-ollama-evidence.sqlite3 tampered-evidence.sqlite3
+          python - <<'PY'
+          import sqlite3
+          db=sqlite3.connect("tampered-evidence.sqlite3")
+          row=db.execute("SELECT id,payload_json FROM evidence_records WHERE record_type='agent.codeact' LIMIT 1").fetchone()
+          assert row is not None
+          db.execute("UPDATE evidence_records SET payload_json=? WHERE id=?",(row[1]+" ",row[0]))
+          db.commit()
+          db.close()
+          PY
+          python scripts/verify_agent_runtime.py \
+            --tenant-id "$(python -c 'import json; print(json.load(open("nina-evidence/nina-ollama-proof-context.json"))["tenant_id"])')" \
+            --run-id "$(python -c 'import json; print(json.load(open("nina-evidence/nina-ollama-proof-context.json"))["run_id"])')" \
+            --expected-commit "$SOURCE_COMMIT" \
+            --expected-task "Calculate 17 * 23 and return the exact verified result 391." \
+            --expected-result "391" \
+            --db-path tampered-evidence.sqlite3 \
+            --expected-provider ollama \
+            --expected-model "$OLLAMA_MODEL" \
+            --expected-invocation-type real_llm > tamper-verifier.log 2>&1 && {
+              echo "::error::Tampered evidence unexpectedly passed"
+              exit 1
+            }
+          grep -q '"status": "BLOCK"' tamper-verifier.log
+          echo "TAMPER_MUTATION=BLOCK"
+
+      - name: Build IGOR evidence bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence-bundle/source evidence-bundle/runtime evidence-bundle/provenance evidence-bundle/integrity evidence-bundle/verification evidence-bundle/tamper evidence-bundle/human
+          printf '%s\n' "$SOURCE_COMMIT" > evidence-bundle/source/commit.txt
+          cp nina-evidence/nina-igor-ollama-proof.json evidence-bundle/runtime/
+          cp nina-evidence/nina-ollama-evidence.sqlite3 evidence-bundle/runtime/
+          cp nina-evidence/nina-ollama-proof-context.json evidence-bundle/runtime/
+          cp nina-evidence/ollama-models.json evidence-bundle/runtime/
+          cp nina-evidence/ola-nina-ollama-runtime.log evidence-bundle/runtime/
+          cp nina-evidence/provenance.txt evidence-bundle/provenance/
+          cp nina-evidence/evidence-files.sha256 evidence-bundle/integrity/
+          cp nina-artifact-api-digest.txt evidence-bundle/integrity/
+          cp tamper-verifier.log evidence-bundle/tamper/
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          root=pathlib.Path("evidence-bundle")
+          context=json.loads((root/"runtime"/"nina-ollama-proof-context.json").read_text())
+          result={
+            "status":"VERIFIED",
+            "verifier":"IGOR",
+            "source_commit":os.environ["SOURCE_COMMIT"],
+            "nina_run_id":int(os.environ["NINA_RUN_ID"]),
+            "nina_artifact_name":os.environ["NINA_ARTIFACT_NAME"],
+            "provider":"ollama",
+            "model":os.environ["OLLAMA_MODEL"],
+            "evidence_count":6,
+            "hash_chain":"VERIFIED",
+            "tamper":"BLOCK",
+            "replay":"VERIFIED",
+            "human_gate":"PENDING"
+          }
+          (root/"verification"/"igor-result.json").write_text(json.dumps(result,sort_keys=True)+"\n")
+          (root/"human"/"human-gate.json").write_text('{"status":"PENDING","reason":"Human approval is not performed by CI automation."}\n')
+          manifest={
+            "schema":"ola-igor-evidence/v1",
+            "source_commit":os.environ["SOURCE_COMMIT"],
+            "nina_run_id":int(os.environ["NINA_RUN_ID"]),
+            "tenant_id":context["tenant_id"],
+            "run_id":context["run_id"],
+            "provider":"ollama",
+            "model":os.environ["OLLAMA_MODEL"],
+            "igor":"VERIFIED",
+            "tamper":"BLOCK",
+            "human_gate":"PENDING"
+          }
+          (root/"MANIFEST.json").write_text(json.dumps(manifest,sort_keys=True,indent=2)+"\n")
+          PY
+          find evidence-bundle -type f ! -path '*/integrity/bundle-files.sha256' -print0 | sort -z | xargs -0 sha256sum > evidence-bundle/integrity/bundle-files.sha256
+          tar -czf igor-ollama-evidence-bundle.tar.gz evidence-bundle
+          sha256sum igor-ollama-evidence-bundle.tar.gz | tee igor-ollama-evidence-bundle.sha256
+
+      - name: Generate IGOR evidence attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: igor-ollama-evidence-bundle.tar.gz
+
+      - name: Verify IGOR evidence attestation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh attestation verify igor-ollama-evidence-bundle.tar.gz -R "$GITHUB_REPOSITORY"
+
+      - name: Human Gate hold
+        run: |
+          set -euo pipefail
+          test "$(jq -r .human_gate evidence-bundle/verification/igor-result.json)" = "PENDING"
+          echo "HUMAN_GATE=PENDING"
+
+      - name: Upload IGOR Ollama evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: igor-independent-ollama-evidence-${{ env.SOURCE_COMMIT }}
+          path: |
+            igor-ollama-evidence-bundle.tar.gz
+            igor-ollama-evidence-bundle.sha256
+            evidence-bundle/
