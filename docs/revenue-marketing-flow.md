@@ -2,64 +2,65 @@
 
 ## Verified implementation scope
 
-OLA contains a payment execution path:
+The repository contains a payment execution path:
 
-MARKETING SURFACE → Stripe Checkout Session → signed `checkout.session.completed` webhook → payment validation → OLA execution → Evidence V2 records → customer result.
+MARKETING SURFACE → Stripe Checkout Session → signed `checkout.session.completed` webhook → payment validation → OLA execution → Evidence V2 records → session-bound result lookup.
 
 The source implements:
 - Checkout Session creation with offer, task and tenant metadata;
 - Stripe webhook HMAC signature and timestamp verification;
-- offer/product, paid status, EUR 99 amount and task checks;
+- validation of the offer, paid status, EUR 99 amount and task;
 - idempotency by Stripe event ID;
-- payment and execution evidence appended to the tenant evidence chain.
+- payment and execution evidence appended to the tenant evidence chain;
+- `/payment-success` lookup bound to the exact Checkout Session, so a result from another order is not returned.
 
-**This source path is not the same as a live payment proof.**
+**Implemented backend code is not the same as an available public checkout or a live payment proof.**
 
-The current automated checks have these scopes:
-- `tests/test_stripe_webhook.py` validates signature and payment fields with synthetic payloads and a test webhook secret;
-- `tests/test_payment_session_binding.py` replaces the Stripe session retrieval function with a test stub;
-- `revenue-surface.yml` checks static page content and the presence of a hard-coded test URL. It does not call Stripe or verify that the Payment Link is active.
+## Current verified state — 2026-11-05
 
-These checks are useful regression controls, but they do not demonstrate an actual Stripe Checkout Session or a customer payment.
+Read-only inspection of the connected Stripe account `ola sandbox` (`livemode=false`) returned:
+- Products: **0**;
+- Prices: **0**;
+- Payment Links: **0**;
+- Checkout Sessions: **0**.
 
-## Current commercial state — rechecked 2026-11-05
+No Stripe LIVE account is available in the connected integration. These results describe only the connected sandbox account; they do not prove that no other account exists.
 
-- OLA agent runtime: VERIFIED in isolated CI-tested scope (see exact-source Ollama and NINA/IGOR runs recorded in OLA issue #153).
-- Stripe webhook and checkout logic: IMPLEMENTED; synthetic signature, validation and session-binding tests exist.
-- Connected Stripe account: only `ola sandbox`, with `livemode=false`.
-- Payment Links returned by the connected sandbox account: **0**.
-- Checkout Sessions returned by the connected sandbox account: **0**.
-- The marketing page still contains a hard-coded Stripe test URL and labels the offer as a sandbox preview. Its current existence/availability is **NOT VERIFIED** against the connected Stripe account.
-- A Stripe LIVE account is not available in the connected integration.
-- Production payment/webhook: NOT VERIFIED.
-- Real customer / first euro: NOT PROVEN.
-- Marketing distribution: NOT YET CONNECTED to an external channel.
+The advertised EUR 99 amount is a planned price, not a currently configured Stripe Price. No Payment Link, product, Price, Checkout Session or customer payment was created during this audit.
 
-The empty Stripe API lists apply only to the connected sandbox account. They do not prove that the public URL is invalid or that no other Stripe account exists. They do mean that the repository must not claim an active Payment Link on the currently connected account.
+## Public customer path — not yet connected
 
-## Concrete flow
+- `POST /checkout` requires an existing tenant `X-API-Key`.
+- The marketing page is a static HTML file; it does not collect a task, provision a customer tenant or call the authenticated `/checkout` API.
+- There is no verified public customer-onboarding path from the landing page to the backend.
+- The previous static Stripe TEST URL was not present among the connected account's Payment Links. It has been removed from the page.
+- The page now labels runtime claims as CI-verified and shows a disabled checkout state. This is deliberate; it prevents visitors being sent to an unverified test URL.
 
-1. **MARKETING** — publish the offer page through an approved channel.
-2. **LEAD** — visitor arrives with campaign/source context.
-3. **CHECKOUT** — use a Payment Link or Checkout Session whose existence and configuration have been independently checked in the intended Stripe account.
-4. **CONFIRMED PAYMENT** — Stripe emits `checkout.session.completed`; the webhook signature and paid status are verified.
-5. **OLA EXECUTION** — webhook validates the exact offer, payment and audit task, then starts OLA.
-6. **EVIDENCE** — payment and completion records are appended to the tenant hash chain.
-7. **VERIFIED RESULT** — OLA runtime returns the result and its evidence IDs; independent verification checks the complete evidence.
-8. **CUSTOMER DELIVERY** — the customer receives the completed audit result.
-9. **MEASUREMENT** — campaign → checkout → paid → completed audit is measured only from observed events.
+The Revenue Surface Gate now fails if a Stripe Payment Link URL is reintroduced into the static page and checks that the disabled checkout state is visible. It is a static honesty guard, **not** a Stripe API availability test.
 
-## Gate policy
+## Test scope and limits
+
+- `tests/test_stripe_webhook.py` validates signature and payment fields with synthetic payloads and a test webhook secret.
+- `tests/test_payment_session_binding.py` stubs Checkout Session retrieval to test order/result isolation; it does not execute a real Stripe request.
+- Runtime and NINA/IGOR evidence is verified in isolated CI scope; it is not a real customer delivery.
+- No production payment, real customer, first euro or public checkout completion is proven.
+
+## Required next chain
+
+1. Configure an authorized Stripe LIVE account.
+2. Create and verify the OLA product and one-time EUR 99 Price.
+3. Configure the LIVE API key and webhook secret in the authorized production environment.
+4. Implement public task submission and tenant/customer provisioning without exposing API keys.
+5. Connect the landing page to the authenticated backend checkout-bootstrap flow.
+6. Verify signed LIVE webhook delivery, exact Price ID, paid status and idempotent processing.
+7. Run OLA, independently verify evidence and provide the exact order-bound customer result.
+8. Observe a real payment and customer delivery before marking revenue LIVE.
 
 Never promote:
-- sandbox payment to real revenue;
+- sandbox configuration to live revenue;
 - synthetic webhook fixtures to a live Stripe event;
 - a hard-coded Payment Link URL to an active link without an account-side read;
 - CI evidence to production evidence;
-- an unverified marketing claim to a verified product claim.
+- a runtime proof to a customer-delivery claim.
 
-The production activation gate remains:
-
-PUBLIC HTTPS WEBHOOK + LIVE STRIPE CONFIGURATION + LIVE PAYMENT + OBSERVED WEBHOOK + OLA EXECUTION + EVIDENCE + INDEPENDENT VERIFY + CUSTOMER DELIVERY.
-
-Until that chain is observed end-to-end, status stays **NOT PROVEN**.
+Until the complete chain is observed end-to-end, status remains **LIVE_PAYMENT_NOT_PROVEN**.
