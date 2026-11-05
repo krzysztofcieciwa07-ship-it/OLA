@@ -90,6 +90,14 @@ def execute_registered_node(node, deps):
             raise WorkflowPlanError("real subagent execution and response provenance required")
         return {"output": response["output"], "provider": response["provider"],
                 "model": response["model"], "response_id": response["response_id"]}
+    if node.tool == "cli_hub_discover":
+        if deps:
+            raise WorkflowPlanError("CLI-Hub discovery cannot consume upstream execution output")
+        from .cli_hub_discovery import search_catalog
+        try:
+            return search_catalog(node.task)
+        except (ValueError, RuntimeError) as exc:
+            raise WorkflowPlanError(f"CLI-Hub discovery failed: {type(exc).__name__}") from exc
     raise WorkflowPlanError("tool not permitted by workflow executor")
 
 
@@ -97,7 +105,12 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
                       planner=model_plan, executor=execute_registered_node,
                       fetch_records=None, require_overlap=False, expected_provider=None):
     # The route checks NINA policy before calling this service. Defence in depth.
-    supported = {"safe_expression", "local_mcp_tool_registry.sha256", "llm_agent"}
+    supported = {
+        "safe_expression",
+        "local_mcp_tool_registry.sha256",
+        "llm_agent",
+        "cli_hub_discover",
+    }
     if not set(allowed_tools) <= supported:
         raise WorkflowPlanError("unregistered workflow tool")
     nodes, provenance = planner(goal, tuple(allowed_tools))
