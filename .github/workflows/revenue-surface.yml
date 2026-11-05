@@ -23,7 +23,7 @@ jobs:
           set -euo pipefail
           test -f revenue/index.html
           grep -q "OLA Execution Audit" revenue/index.html
-          if grep -Eq 'https://buy\\.stripe\\.com/' revenue/index.html; then
+          if grep -Fq 'https://buy.stripe.com/' revenue/index.html; then
             echo "::error::Unverified Stripe Payment Link must not be published as a working CTA."
             exit 1
           fi
@@ -31,7 +31,7 @@ jobs:
           grep -q "CHECKOUT NOT AVAILABLE" revenue/index.html
           grep -Fq 'aria-disabled="true"' revenue/index.html
           grep -qi "Checkout remains disabled" revenue/index.html
-          grep -q "public customer onboarding flow" docs/revenue-marketing-flow.md
+          grep -qi 'public customer-onboarding path' docs/revenue-marketing-flow.md
           echo "REVENUE_SURFACE=HONEST_DISABLED"
           echo "STRIPE_MODE=NOT_CONFIGURED"
           echo "PRODUCTION_REVENUE=NOT_PROVEN"
