@@ -4,7 +4,12 @@ import uuid
 from .agent_runtime import run_agent_task
 
 
-REGISTERED_TOOLS = ("safe_expression", "local_mcp_tool_registry.sha256", "llm_agent")
+REGISTERED_TOOLS = (
+    "safe_expression",
+    "local_mcp_tool_registry.sha256",
+    "llm_agent",
+    "cli_hub_discover",
+)
 
 
 @dataclass(frozen=True)
@@ -68,6 +73,32 @@ class NinaOrchestrator:
                 "status": "BLOCK",
                 "reason": decision.reason,
             }
+        if "cli_hub_discover" in task.requested_tools:
+            if task.requested_tools != ("cli_hub_discover",):
+                return {
+                    "task_id": task.task_id,
+                    "decision": decision,
+                    "status": "BLOCK",
+                    "reason": "CLI-Hub discovery must run as an isolated read-only step",
+                }
+            from .cli_hub_discovery import search_catalog, CliHubError
+            try:
+                result = search_catalog(task.task)
+            except (CliHubError, ValueError) as exc:
+                return {
+                    "task_id": task.task_id,
+                    "decision": decision,
+                    "status": "BLOCK",
+                    "reason": str(exc),
+                }
+            return {
+                "task_id": task.task_id,
+                "decision": decision,
+                "status": "COMPLETED_UNVERIFIED",
+                "result": result,
+                "verified": False,
+            }
+
         runtime = run_agent_task(task.tenant_id, task.task)
         status = runtime.get("status", "UNKNOWN")
         # The legacy six-agent executor can fall back to a deterministic model.
