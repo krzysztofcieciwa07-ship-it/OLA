@@ -35,6 +35,12 @@ class OllamaIndependentEvidenceContractTest(unittest.TestCase):
         self.assertIn('"human_gate":"PENDING"', workflow)
         self.assertNotIn('"human_gate":"VERIFIED"', workflow)
 
+    def test_final_production_requires_nested_independent_igor_job(self):
+        workflow = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("igor-independent-ollama / igor-ollama", workflow)
+        self.assertIn("IGOR Independent Ollama Evidence Gate", workflow)
+        self.assertIn("matching_jobs", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
