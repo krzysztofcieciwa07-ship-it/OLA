@@ -35,7 +35,7 @@ and Human Gate.
   invalid schema in either registry blocks the discovery rather than silently
   presenting an incomplete catalogue.
 - Results: at most 20 across both catalogues.
-- HTTP timeout: 8 seconds overall, 3 seconds connect.
+- HTTP timeout: 8 seconds per registry request, 3 seconds connect; the two requests run sequentially.
 - Redirects disabled.
 - Invalid JSON/schema, timeout, HTTP failure, or oversized registry blocks
   execution; no fallback catalog is invented.
