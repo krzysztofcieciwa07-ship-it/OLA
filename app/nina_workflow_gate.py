@@ -9,6 +9,7 @@ import uuid
 
 from sqlalchemy import select
 from .database import SessionLocal
+from .runtime_provenance import runtime_source_commit
 from .models import EvidenceRecord
 from .hashchain import sealed_payload_json, compute_record_hash_v2
 from .igor_workflow import verify_dag_records
@@ -25,7 +26,7 @@ def approve_workflow(*, tenant_id, approver_id, run_id, tip_hash, report_digest,
     if not all(isinstance(x, str) and x.strip() for x in (
             tenant_id, approver_id, run_id, tip_hash, report_digest, reason)):
         raise WorkflowApprovalRejected(400, "approval requires tip, report digest and reason")
-    expected_commit = os.getenv("OLA_RUNTIME_COMMIT")
+    expected_commit = runtime_source_commit()
     if not expected_commit:
         raise WorkflowApprovalRejected(409, "runtime source commit unknown")
 
