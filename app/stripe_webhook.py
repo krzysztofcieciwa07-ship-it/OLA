@@ -9,10 +9,9 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from .agent_runtime import run_agent_task
 from .database import SessionLocal, append_evidence_atomic
-from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash
-from .models import EvidenceRecord, StripeEvent
+from .hashchain import canonical_json
+from .models import StripeEvent
 
 
 STRIPE_SIGNATURE_TOLERANCE_SECONDS = 300
@@ -63,6 +62,8 @@ def _metadata_task(session: dict) -> str | None:
 
 def _validate_checkout(session: dict) -> str:
     metadata = session.get("metadata") or {}
+    if not isinstance(session.get("id"), str) or not session["id"].startswith("cs_"):
+        raise HTTPException(status_code=400, detail="invalid Checkout Session identity")
     if metadata.get("offer") != OLA_OFFER:
         raise HTTPException(status_code=400, detail="unsupported Stripe offer")
     if metadata.get("product") not in {None, OLA_PRODUCT}:
@@ -76,10 +77,10 @@ def _validate_checkout(session: dict) -> str:
         price_ids = {
             item.get("price", {}).get("id")
             for item in line_items.get("data", [])
-            if isinstance(item, dict)
+            if isinstance(item, dict) and isinstance(item.get("price"), dict)
         }
         expected_price = os.getenv("OLA_STRIPE_PRICE_ID")
-        if price_ids and expected_price and expected_price not in price_ids:
+        if price_ids and expected_price and price_ids != {expected_price}:
             raise HTTPException(status_code=400, detail="unexpected Stripe price")
     task = _metadata_task(session)
     if not task:
@@ -101,6 +102,11 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     event_type = event.get("type")
     if not event_id or not event_type:
         raise HTTPException(status_code=400, detail="Stripe event id and type are required")
+
+    expected_livemode = os.getenv("STRIPE_EXPECT_LIVEMODE", "false").strip().lower() == "true"
+    if not isinstance(event.get("livemode"), bool) or event["livemode"] is not expected_livemode:
+        raise HTTPException(status_code=400, detail="unexpected Stripe account mode")
+
     if event_type != "checkout.session.completed":
         return {"status": "IGNORED", "event_id": event_id, "event_type": event_type}
 
@@ -113,7 +119,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     with SessionLocal() as db:
         existing = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
         if existing is not None:
-            if existing.status == "COMPLETED" and existing.result_json:
+            if existing.status in {"REVIEW_REQUIRED", "COMPLETED"} and existing.result_json:
                 return json.loads(existing.result_json)
             raise HTTPException(status_code=409, detail="Stripe event is already being processed")
 
@@ -135,53 +141,44 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
         "stripe.payment_confirmed",
         {
             "stripe_event_id": event_id,
-            "checkout_session_id": session.get("id"),
+            "checkout_session_id": session["id"],
             "offer": OLA_OFFER,
             "product": OLA_PRODUCT,
             "amount_total": session.get("amount_total"),
             "currency": session.get("currency"),
             "task": task,
+            "execution_authorized": False,
+            "review_required": True,
         },
     )
 
-    try:
-        runtime = run_agent_task(tenant_id, task)
-    except Exception:
-        with SessionLocal() as db:
-            failed = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
-            if failed is not None:
-                failed.status = "FAILED"
-                db.commit()
-        raise
-
     result = {
-        "status": "COMPLETED",
+        "status": "PAID_PENDING_REVIEW",
         "event_id": event_id,
-        "checkout_session_id": session.get("id"),
+        "checkout_session_id": session["id"],
         "payment": "CONFIRMED",
-        "ola_status": runtime.get("status", "UNKNOWN"),
-        "ola_run_id": runtime.get("run_id"),
-        "ola_final_result": runtime.get("final_result"),
+        "ola_status": "NOT_STARTED",
+        "ola_run_id": None,
         "payment_evidence_id": payment_evidence_id,
-        "ola_evidence_ids": runtime.get("evidence_ids", []),
+        "execution_authorized": False,
+        "next_gate": "HUMAN_REVIEW",
     }
     _append_evidence(
         tenant_id,
-        "stripe.ola_execution_completed",
+        "stripe.payment_pending_review",
         {
             "stripe_event_id": event_id,
-            "checkout_session_id": session.get("id"),
-            "ola_run_id": runtime.get("run_id"),
-            "ola_status": runtime.get("status", "UNKNOWN"),
-            "ola_final_result": runtime.get("final_result"),
+            "checkout_session_id": session["id"],
             "payment_evidence_id": payment_evidence_id,
+            "execution_authorized": False,
+            "next_gate": "HUMAN_REVIEW",
         },
     )
 
     with SessionLocal() as db:
         completed = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
-        completed.status = "COMPLETED"
-        completed.run_id = runtime.get("run_id")
+        completed.status = "REVIEW_REQUIRED"
+        completed.run_id = None
         completed.result_json = canonical_json(result)
         db.commit()
 
