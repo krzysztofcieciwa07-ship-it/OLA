@@ -2,8 +2,6 @@
 
 Liveness (/health) is independent from readiness (/readyz).
 """
-import os
-
 from fastapi.testclient import TestClient
 
 from app.main import app
