@@ -227,7 +227,16 @@ jobs:
           done
 
       - name: Build release image
-        run: docker build -t ola-final:${{ steps.target.outputs.sha }} .
+        run: docker build --build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)" -t ola-final:${{ steps.target.outputs.sha }} .
+
+      - name: Assert release image source label
+        env:
+          TARGET_SOURCE_SHA: ${{ steps.target.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_source="$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' ola-final:${TARGET_SOURCE_SHA})"
+          test "$image_source" = "$TARGET_SOURCE_SHA"
 
       - name: Export release image
         run: docker save "ola-final:${{ steps.target.outputs.sha }}" -o ola-release-image.tar
