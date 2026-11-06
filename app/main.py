@@ -67,8 +67,8 @@ def bearer_identity(authorization):
     return identity_from_key(token)
 
 
-def append_record(tenant_id, record_type, payload):
-    return append_evidence_atomic(tenant_id, record_type, payload)
+def append_record(tenant_id, record_type, payload, *, deduplicate=False):
+    return append_evidence_atomic(tenant_id, record_type, payload, deduplicate=deduplicate)
 
 
 def read_tenant_evidence(tenant_id):
@@ -280,6 +280,16 @@ def create_checkout_session(
         if order.request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Idempotency-Key was already used for a different task")
         if order.status == "CHECKOUT_CREATED" and order.stripe_session_id and order.checkout_url:
+            completed_order = {
+                "order_id": order.id,
+                "session_id": order.stripe_session_id,
+                "checkout_url": order.checkout_url,
+                "task": task,
+            }
+            append_record(
+                tenant_id, "revenue.checkout_created", completed_order,
+                deduplicate=True,
+            )
             return {
                 "status": "READY_FOR_PAYMENT",
                 "order_id": order.id,
@@ -318,11 +328,11 @@ def create_checkout_session(
         order.status = "CHECKOUT_CREATED"
         db.commit()
 
-    append_record(tenant_id, "revenue.checkout_created", {
-        "order_id": order_id,
-        "session_id": session_id,
-        "task": task,
-    })
+    append_record(
+        tenant_id, "revenue.checkout_created",
+        {"order_id": order_id, "session_id": session_id, "task": task},
+        deduplicate=True,
+    )
     return {
         "status": "READY_FOR_PAYMENT",
         "order_id": order_id,
