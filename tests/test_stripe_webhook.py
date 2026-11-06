@@ -198,3 +198,23 @@ def test_paid_checkout_accepts_configured_price_amount_without_hardcoded_ola_pri
         "currency": "eur",
     })
     assert _validate_checkout(session) == "Audit this company workflow for evidence gaps."
+
+
+@pytest.mark.parametrize(
+    "price_patch,quantity",
+    [
+        ({"unit_amount": None}, 1),
+        ({"unit_amount": 0}, 1),
+        ({"unit_amount": 9900, "currency": "usd"}, 1),
+        ({"unit_amount": 9900, "currency": "eur"}, True),
+    ],
+)
+def test_checkout_rejects_invalid_price_amount_currency_or_boolean_quantity(
+    monkeypatch, price_patch, quantity
+):
+    monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
+    session = _paid_session()
+    session["line_items"]["data"][0]["price"].update(price_patch)
+    session["line_items"]["data"][0]["quantity"] = quantity
+    with pytest.raises(Exception):
+        _validate_checkout(session)
