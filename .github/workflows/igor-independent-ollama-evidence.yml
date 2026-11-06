@@ -60,6 +60,9 @@ jobs:
           test -s nina-evidence/nina-ollama-proof-context.json
           test -s nina-evidence/ollama-models.json
           test -s nina-evidence/provenance.txt
+          test -s nina-evidence/ola-build-info.json
+          test -s nina-evidence/runtime-image-revision.txt
+          test -s nina-evidence/runtime-image-id.txt
           test -s nina-evidence/evidence-files.sha256
           (cd nina-evidence && sha256sum -c evidence-files.sha256)
           grep -qx "commit=$SOURCE_COMMIT" nina-evidence/provenance.txt
@@ -80,7 +83,15 @@ jobs:
           proof=json.loads((root/"nina-igor-ollama-proof.json").read_text())
           context=json.loads((root/"nina-ollama-proof-context.json").read_text())
           models=json.loads((root/"ollama-models.json").read_text())
-          assert proof["commit"] == os.environ["SOURCE_COMMIT"]
+          build_info=json.loads((root/"ola-build-info.json").read_text())
+          image_revision=(root/"runtime-image-revision.txt").read_text().strip()
+          image_id=(root/"runtime-image-id.txt").read_text().strip()
+          assert build_info.get("schema") == "ola-build-info/v1"
+          assert build_info.get("source_commit") == os.environ["SOURCE_COMMIT"]
+          assert image_revision == os.environ["SOURCE_COMMIT"]
+          assert image_id.startswith("sha256:") and len(image_id) == 71
+          assert all(ch in "0123456789abcdef" for ch in image_id[7:])
+          assert proof["commit"] == build_info["source_commit"]
           assert proof["tenant_id"] == context["tenant_id"]
           assert proof["run_id"] == context["run_id"]
           assert proof["provider"] == "ollama"
@@ -162,6 +173,9 @@ jobs:
           cp nina-evidence/nina-igor-ollama-proof.json evidence-bundle/runtime/
           cp nina-evidence/nina-ollama-evidence.sqlite3 evidence-bundle/runtime/
           cp nina-evidence/nina-ollama-proof-context.json evidence-bundle/runtime/
+          cp nina-evidence/ola-build-info.json evidence-bundle/source/
+          cp nina-evidence/runtime-image-revision.txt evidence-bundle/source/
+          cp nina-evidence/runtime-image-id.txt evidence-bundle/source/
           cp nina-evidence/ollama-models.json evidence-bundle/runtime/
           cp nina-evidence/ola-nina-ollama-runtime.log evidence-bundle/runtime/
           cp nina-evidence/provenance.txt evidence-bundle/provenance/
