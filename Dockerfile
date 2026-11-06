@@ -8,7 +8,7 @@ WORKDIR /app
 
 ARG OLA_SOURCE_COMMIT=UNKNOWN
 LABEL org.opencontainers.image.revision=${OLA_SOURCE_COMMIT}
-RUN OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python3.13 -c 'import json,os,pathlib; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"]},sort_keys=True)+"\\n",encoding="utf-8")'
+RUN OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python3.13 -c 'import json,os,pathlib; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"]},sort_keys=True),encoding="utf-8")'
 ENV OLA_BUILD_INFO_PATH=/app/ola-build-info.json
 
 COPY requirements.txt ./
