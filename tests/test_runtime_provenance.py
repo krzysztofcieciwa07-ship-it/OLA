@@ -41,7 +41,6 @@ def test_non_strict_mode_keeps_legacy_test_markers(monkeypatch, tmp_path):
     assert runtime_source_commit(require_build_info=False, build_info_path=tmp_path / "missing.json") == "test-bound-commit"
 
 
-
 def test_agent_runtime_uses_embedded_build_info(monkeypatch, tmp_path):
     from app.agent_runtime import _runtime_source_commit as agent_source_commit
 
@@ -63,3 +62,34 @@ def test_agent_runtime_blocks_when_build_info_missing_even_if_env_is_valid(monke
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", "1" * 40)
 
     assert agent_source_commit() is None
+
+
+def test_agent_runtime_rejects_malformed_legacy_source_commit(monkeypatch, tmp_path):
+    from app.agent_runtime import _runtime_source_commit as agent_source_commit
+
+    monkeypatch.delenv("OLA_REQUIRE_BUILD_INFO", raising=False)
+    monkeypatch.setenv("OLA_BUILD_INFO_PATH", str(tmp_path / "missing.json"))
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "not-a-commit")
+
+    assert agent_source_commit() is None
+
+
+def test_agent_runtime_rejects_uppercase_or_abbreviated_legacy_source_commit(monkeypatch, tmp_path):
+    from app.agent_runtime import _runtime_source_commit as agent_source_commit
+
+    monkeypatch.delenv("OLA_REQUIRE_BUILD_INFO", raising=False)
+    monkeypatch.setenv("OLA_BUILD_INFO_PATH", str(tmp_path / "missing.json"))
+    for invalid in ("A" * 40, "a" * 39):
+        monkeypatch.setenv("OLA_RUNTIME_COMMIT", invalid)
+        assert agent_source_commit() is None
+
+
+def test_agent_runtime_accepts_full_lowercase_legacy_source_commit(monkeypatch, tmp_path):
+    from app.agent_runtime import _runtime_source_commit as agent_source_commit
+
+    expected = "b" * 40
+    monkeypatch.delenv("OLA_REQUIRE_BUILD_INFO", raising=False)
+    monkeypatch.setenv("OLA_BUILD_INFO_PATH", str(tmp_path / "missing.json"))
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", expected)
+
+    assert agent_source_commit() == expected
