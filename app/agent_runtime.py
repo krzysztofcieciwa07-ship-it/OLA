@@ -289,7 +289,16 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
 def _runtime_source_commit():
     # The embedded build metadata is authoritative. In strict container mode,
     # OLA_RUNTIME_COMMIT is deliberately ignored to prevent caller spoofing.
-    return runtime_source_commit()
+    # Legacy non-strict test environments may provide OLA_RUNTIME_COMMIT, but
+    # agent evidence must still bind to a syntactically valid full Git SHA.
+    commit = runtime_source_commit()
+    if (
+        not isinstance(commit, str)
+        or len(commit) != 40
+        or any(char not in "0123456789abcdef" for char in commit)
+    ):
+        return None
+    return commit
 
 
 def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution):
