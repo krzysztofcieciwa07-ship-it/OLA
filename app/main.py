@@ -253,8 +253,12 @@ def create_checkout_session(
         raise HTTPException(status_code=400, detail="a valid Idempotency-Key header is required")
 
     public_base_url = os.getenv("OLA_PUBLIC_BASE_URL", "").rstrip("/")
-    parsed_base_url = urlsplit(public_base_url)
-    local_http = parsed_base_url.scheme == "http" and parsed_base_url.hostname in {"localhost", "127.0.0.1"}
+    try:
+        parsed_base_url = urlsplit(public_base_url)
+        parsed_port = parsed_base_url.port
+    except ValueError:
+        raise HTTPException(status_code=503, detail="a valid HTTPS OLA_PUBLIC_BASE_URL is required") from None
+    local_http = parsed_base_url.scheme == "http" and parsed_base_url.hostname in {"localhost", "127.0.0.1", "::1"}
     if (
         not public_base_url
         or parsed_base_url.scheme not in {"https", "http"}
@@ -264,6 +268,7 @@ def create_checkout_session(
         or parsed_base_url.path not in {"", "/"}
         or parsed_base_url.query
         or parsed_base_url.fragment
+        or (parsed_port is not None and not 1 <= parsed_port <= 65535)
         or (parsed_base_url.scheme != "https" and not local_http)
     ):
         raise HTTPException(status_code=503, detail="a valid HTTPS OLA_PUBLIC_BASE_URL is required")
