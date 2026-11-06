@@ -90,7 +90,7 @@ jobs:
           curl --fail --silent http://127.0.0.1:11434/api/tags > ollama-models.json
 
       - name: Build OLA
-        run: docker build --tag ola-nina-ollama --file Dockerfile .
+        run: docker build --build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)" --tag ola-nina-ollama --file Dockerfile .
 
       - name: Start OLA
         shell: bash
@@ -100,7 +100,9 @@ jobs:
             --name ola-nina-ollama \
             --network host \
             -e OLA_EG_DB_PATH=/data/ola.db \
-            -e OLA_RUNTIME_COMMIT="$EXPECTED_SOURCE_SHA" \
+            -e OLA_REQUIRE_BUILD_INFO=1 \
+            -e OLA_BUILD_EXPECTED_SHA="$EXPECTED_SOURCE_SHA" \
+            -e OLA_RUNTIME_COMMIT="0000000000000000000000000000000000000000" \
             -e OLA_LLM_PROVIDER="$OLA_LLM_PROVIDER" \
             -e OLA_LLM_MODE="$OLA_LLM_MODE" \
             -e OLA_LLM_MODEL="$OLA_LLM_MODEL" \
@@ -124,6 +126,7 @@ jobs:
           set -euo pipefail
           docker exec -i ola-nina-ollama python - <<'PY' > nina-igor-ollama-proof.json
           from app.api_key_hashing import api_key_fingerprint
+          from app.runtime_provenance import runtime_source_commit
           import hashlib
           import json
           import os
@@ -160,6 +163,8 @@ jobs:
           with urllib.request.urlopen(req,timeout=300) as resp:
               body=json.load(resp)
 
+          runtime_commit=runtime_source_commit(require_build_info=True)
+          assert runtime_commit == os.environ["OLA_BUILD_EXPECTED_SHA"], runtime_commit
           assert body["nina"]["status"]=="VERIFIED", body
           assert body["nina"]["provider"]=="ollama", body
           assert body["nina"]["model"]=="qwen2.5:0.5b-instruct", body
@@ -173,7 +178,7 @@ jobs:
           assert body["igor"]["checks"]["provider"] is True, body
           assert body["igor"]["checks"]["model"] is True, body
           assert body["provenance"]["status"]=="VERIFIED", body
-          assert body["provenance"]["commit"]==os.environ["OLA_RUNTIME_COMMIT"], body
+          assert body["provenance"]["commit"]==runtime_commit, body
           assert body["provenance"]["provider"]=="ollama", body
           assert body["provenance"]["model"]=="qwen2.5:0.5b-instruct", body
           assert body["provenance"]["invocation_type"]=="real_llm", body
@@ -204,7 +209,7 @@ jobs:
               "human_gate_status":body["human_gate"]["status"],
               "run_id":body["run_id"],
               "tenant_id":tenant_id,
-              "commit":os.environ["OLA_RUNTIME_COMMIT"],
+              "commit":runtime_commit,
           }
           print(json.dumps(proof,sort_keys=True))
           with open("/data/nina-ollama-proof-context.json","w",encoding="utf-8") as stream:
@@ -239,6 +244,10 @@ jobs:
         run: |
           set -euo pipefail
           docker cp ola-nina-ollama:/data/nina-ollama-proof-context.json ./nina-ollama-proof-context.json
+          docker cp ola-nina-ollama:/app/ola-build-info.json ./ola-build-info.json
+          docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' ola-nina-ollama > runtime-image-revision.txt
+          docker image inspect --format '{{.Id}}' ola-nina-ollama > runtime-image-id.txt
+          test "$(cat runtime-image-revision.txt)" = "$EXPECTED_SOURCE_SHA"
           docker exec -i ola-nina-ollama python - <<'PY'
           import json, sqlite3
           context=json.load(open("/data/nina-ollama-proof-context.json",encoding="utf-8"))
@@ -281,7 +290,7 @@ jobs:
               stream.write("provider=ollama\n")
               stream.write(f"model={os.environ['OLLAMA_MODEL']}\n")
           PY
-          sha256sum ollama-models.json nina-igor-ollama-proof.json nina-ollama-proof-context.json nina-ollama-evidence.sqlite3 ola-nina-ollama-runtime.log provenance.txt > evidence-files.sha256
+          sha256sum ollama-models.json nina-igor-ollama-proof.json nina-ollama-proof-context.json nina-ollama-evidence.sqlite3 ola-nina-ollama-runtime.log provenance.txt ola-build-info.json runtime-image-revision.txt runtime-image-id.txt > evidence-files.sha256
 
       - name: Upload full-flow evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -295,6 +304,9 @@ jobs:
             nina-ollama-evidence.sqlite3
             provenance.txt
             evidence-files.sha256
+            ola-build-info.json
+            runtime-image-revision.txt
+            runtime-image-id.txt
 
       - name: Capture Ollama failure diagnostics
         if: failure()
