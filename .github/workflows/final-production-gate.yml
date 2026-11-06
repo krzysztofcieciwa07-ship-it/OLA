@@ -265,12 +265,33 @@ jobs:
           gh attestation verify "ola-source-${{ steps.target.outputs.sha }}.tar.gz" --repo "$GITHUB_REPOSITORY"
           gh attestation verify ola-release-image.tar --repo "$GITHUB_REPOSITORY"
 
-      - name: Verify release image boots
+      - name: Verify release image source-bound readiness
         shell: bash
+        env:
+          TARGET_SOURCE_SHA: ${{ steps.target.outputs.sha }}
         run: |
           set -euo pipefail
-          docker run -d --name ola-final-gate -p 8000:8000 "ola-final:${{ steps.target.outputs.sha }}"
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health >/dev/null && exit 0; sleep 2; done
+          pepper="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          echo "::add-mask::$pepper"
+          docker run -d --name ola-final-gate \
+            -e OLA_REQUIRE_BUILD_INFO=1 \
+            -e OLA_RUNTIME_COMMIT=0000000000000000000000000000000000000000 \
+            -e OLA_API_KEY_PEPPER="$pepper" \
+            -p 8000:8000 "ola-final:$TARGET_SOURCE_SHA"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/readyz | TARGET_SOURCE_SHA="$TARGET_SOURCE_SHA" python -c '
+          import json, os, sys
+          body=json.load(sys.stdin)
+          assert body.get("core_status") == "READY", body
+          assert body.get("system_acceptance") == "NOT_VERIFIED", body
+          assert body.get("source_commit") == os.environ["TARGET_SOURCE_SHA"], body
+          assert body.get("failed_checks") == [], body
+          '; then
+              echo "RELEASE_IMAGE_SOURCE_BINDING=VERIFIED"
+              exit 0
+            fi
+            sleep 2
+          done
           docker logs ola-final-gate
           exit 1
 
