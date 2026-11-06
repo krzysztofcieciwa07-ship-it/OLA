@@ -56,8 +56,13 @@ def test_create_checkout_sends_stable_stripe_idempotency_header(monkeypatch):
         "http://localhost:8000/",
         "tenant-test",
         idempotency_key="ola-checkout-order-123",
+        order_id="order-123",
     )
 
     assert result["id"] == "cs_test_idempotent123"
     assert captured["request"].get_header("Idempotency-key") == "ola-checkout-order-123"
+    from urllib.parse import parse_qs
+    form = parse_qs(captured["request"].data.decode())
+    assert form["client_reference_id"] == ["order-123"]
+    assert form["metadata[order_id]"] == ["order-123"]
     assert captured["timeout"] == 30
