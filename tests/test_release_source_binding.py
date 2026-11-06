@@ -76,3 +76,11 @@ class ReleaseSourceBindingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_pull_request_manifest_never_claims_attestation(self):
+        content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main' && success()", content)
+        self.assertIn('source_attestation="NOT_PERFORMED"', content)
+        self.assertIn('image_attestation="NOT_PERFORMED"', content)
+        self.assertIn('status="PREMERGE_CI_PASSED"', content)
