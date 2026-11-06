@@ -23,7 +23,6 @@ def test_stripe_secret_key_rejects_live_key_even_when_live_flag_is_set(monkeypat
 
 
 def test_create_checkout_sends_stable_stripe_idempotency_header(monkeypatch):
-    import io
     import urllib.request
 
     from app.revenue import create_checkout
