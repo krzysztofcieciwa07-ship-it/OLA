@@ -58,8 +58,12 @@ def create_checkout(task, success_url, cancel_url, tenant_id):
 
 def retrieve_checkout(session_id):
     secret = stripe_secret_key()
+    query = urllib.parse.urlencode({"expand[]": "line_items"})
     req = urllib.request.Request(
-        "https://api.stripe.com/v1/checkout/sessions/" + urllib.parse.quote(session_id, safe=""),
+        "https://api.stripe.com/v1/checkout/sessions/"
+        + urllib.parse.quote(session_id, safe="")
+        + "?"
+        + query,
         headers={"Authorization": f"Bearer {secret}"},
         method="GET",
     )
