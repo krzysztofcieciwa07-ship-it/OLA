@@ -68,7 +68,7 @@ def test_dashboard_uses_current_authenticated_api_and_reads_evidence():
 def test_dashboard_keeps_human_gate_as_review_not_automatic_approval():
     html = TestClient(app).get("/").text
     assert 'id="evidence-button"' in html
-    assert "wymaga osobnej decyzji uprawnionego człowieka" in html
+    assert "wymaga tożsamości operatora i MFA" in html
     assert "APPROVED_FOR_REVIEW_ONLY" not in html
 
 
