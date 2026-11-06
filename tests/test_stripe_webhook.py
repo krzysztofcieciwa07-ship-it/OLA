@@ -8,6 +8,8 @@ import pytest
 
 from app import stripe_webhook
 from app.stripe_webhook import _validate_checkout, verify_stripe_signature
+from app.database import SessionLocal
+from app.models import Tenant, CheckoutOrder
 
 
 SECRET = "whsec_test_ola"
@@ -29,6 +31,7 @@ def _paid_session():
             "product": "OLA Execution Audit",
             "task": "Audit this company workflow for evidence gaps.",
             "tenant_id": "tenant-test",
+            "order_id": str(uuid.uuid4()),
         },
         "payment_status": "paid",
         "status": "complete",
@@ -38,6 +41,24 @@ def _paid_session():
             "data": [{"price": {"id": "price_test_ola", "unit_amount": 9900, "currency": "eur"}, "quantity": 1}]
         },
     }
+
+
+def _seed_checkout_order(session):
+    metadata = session["metadata"]
+    with SessionLocal() as db:
+        if db.get(Tenant, metadata["tenant_id"]) is None:
+            db.add(Tenant(id=metadata["tenant_id"], name="stripe-webhook-test"))
+            db.commit()
+        db.add(CheckoutOrder(
+            id=metadata["order_id"],
+            tenant_id=metadata["tenant_id"],
+            idempotency_key_hash=uuid.uuid4().hex,
+            request_hash=hashlib.sha256(metadata["task"].encode()).hexdigest(),
+            status="CHECKOUT_CREATED",
+            stripe_session_id=session["id"],
+            checkout_url="https://checkout.stripe.test/session",
+        ))
+        db.commit()
 
 
 def test_stripe_signature_accepts_valid_signature():
@@ -96,6 +117,7 @@ def test_paid_webhook_queues_review_and_never_executes_automatically(monkeypatch
 
     monkeypatch.setattr(stripe_webhook, "run_agent_task", forbidden_execution, raising=False)
     session = _paid_session()
+    _seed_checkout_order(session)
     monkeypatch.setattr(stripe_webhook, "retrieve_checkout", lambda session_id: session)
     event = {
         "id": "evt_review_" + str(uuid.uuid4()),
@@ -121,6 +143,7 @@ def test_webhook_uses_authoritative_stripe_session_not_event_object(monkeypatch)
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", SECRET)
     monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
     authoritative = _paid_session()
+    _seed_checkout_order(authoritative)
     event_object = {
         "id": authoritative["id"],
         "payment_status": "paid",
