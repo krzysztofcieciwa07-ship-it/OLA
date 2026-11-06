@@ -10,10 +10,18 @@ PRODUCT_NAME = "OLA Execution Audit"
 OFFER = "ola-execution-audit"
 
 
+def stripe_secret_key() -> str:
+    """Return a sandbox-only Stripe key; this checkout flow must never charge live cards."""
+    secret = os.getenv("STRIPE_SECRET_KEY", "")
+    if not secret.startswith(("sk_test_", "rk_test_")):
+        raise RuntimeError("OLA Stripe integration is sandbox-only; a Stripe test secret key is required")
+    if os.getenv("STRIPE_EXPECT_LIVEMODE", "false").strip().lower() == "true":
+        raise RuntimeError("OLA Stripe integration is sandbox-only; live mode is forbidden")
+    return secret
+
+
 def _stripe_request(path: str, fields: dict[str, Any]) -> dict[str, Any]:
-    secret = os.getenv("STRIPE_SECRET_KEY")
-    if not secret:
-        raise RuntimeError("STRIPE_SECRET_KEY is not configured")
+    secret = stripe_secret_key()
     req = urllib.request.Request(
         "https://api.stripe.com/v1/" + path,
         data=urllib.parse.urlencode(fields).encode(),
@@ -49,9 +57,7 @@ def create_checkout(task, success_url, cancel_url, tenant_id):
 
 
 def retrieve_checkout(session_id):
-    secret = os.getenv("STRIPE_SECRET_KEY")
-    if not secret:
-        raise RuntimeError("STRIPE_SECRET_KEY is not configured")
+    secret = stripe_secret_key()
     req = urllib.request.Request(
         "https://api.stripe.com/v1/checkout/sessions/" + urllib.parse.quote(session_id, safe=""),
         headers={"Authorization": f"Bearer {secret}"},
