@@ -33,4 +33,6 @@ def runtime_source_commit(*, require_build_info=None, build_info_path=None):
     if strict:
         return None
     legacy = os.getenv("OLA_RUNTIME_COMMIT")
-    return legacy if isinstance(legacy, str) and _COMMIT.fullmatch(legacy) else None
+    # Non-strict local compatibility only; /readyz and strict image runs still
+    # require a full SHA from build metadata.
+    return legacy.strip() if isinstance(legacy, str) and legacy.strip() else None
