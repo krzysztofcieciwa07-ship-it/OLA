@@ -191,3 +191,31 @@ def test_checkout_stale_reservation_fails_closed_after_provider_key_window(monke
     assert second.status_code == 409
     assert "manual Stripe reconciliation" in second.json()["detail"]
     assert len(calls) == 1
+
+
+def test_checkout_requires_configured_public_origin_before_order_reservation(monkeypatch):
+    client, key = _client_and_key()
+    called = []
+    monkeypatch.delenv("OLA_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.setattr(main, "create_checkout", lambda *args, **kwargs: called.append(True))
+    response = _checkout(client, key, "request-no-origin-123")
+
+    assert response.status_code == 503
+    assert called == []
+    with SessionLocal() as db:
+        order = db.scalar(select(CheckoutOrder).where(
+            CheckoutOrder.idempotency_key_hash
+            == hashlib.sha256(b"request-no-origin-123").hexdigest()
+        ))
+    assert order is None
+
+
+def test_checkout_rejects_non_tls_non_local_public_origin(monkeypatch):
+    client, key = _client_and_key()
+    called = []
+    monkeypatch.setenv("OLA_PUBLIC_BASE_URL", "http://public.example")
+    monkeypatch.setattr(main, "create_checkout", lambda *args, **kwargs: called.append(True))
+    response = _checkout(client, key, "request-http-origin-123")
+
+    assert response.status_code == 503
+    assert called == []
