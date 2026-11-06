@@ -162,3 +162,31 @@ def test_checkout_ignores_caller_controlled_redirect_urls(monkeypatch):
     assert response.status_code == 200
     assert captured["success_url"] == "http://localhost:8000/payment-success"
     assert captured["cancel_url"] == "http://localhost:8000/"
+
+
+def test_checkout_stale_reservation_fails_closed_after_provider_key_window(monkeypatch):
+    import time
+
+    client, key = _client_and_key()
+    calls = []
+
+    def create(*args, **kwargs):
+        calls.append(kwargs.get("idempotency_key"))
+        raise RuntimeError("simulated lost Stripe response")
+
+    monkeypatch.setattr(main, "create_checkout", create)
+    first = _checkout(client, key, "request-stale-12345")
+    assert first.status_code == 502
+
+    with SessionLocal() as db:
+        order = db.scalar(select(CheckoutOrder).where(
+            CheckoutOrder.idempotency_key_hash
+            == __import__("hashlib").sha256(b"request-stale-12345").hexdigest()
+        ))
+        order.created_at = int(time.time()) - (24 * 60 * 60)
+        db.commit()
+
+    second = _checkout(client, key, "request-stale-12345")
+    assert second.status_code == 409
+    assert "manual Stripe reconciliation" in second.json()["detail"]
+    assert len(calls) == 1
