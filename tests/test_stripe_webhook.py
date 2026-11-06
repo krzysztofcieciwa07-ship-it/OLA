@@ -1,8 +1,12 @@
 import hashlib
 import hmac
+import json
+import time
+import uuid
 
 import pytest
 
+from app import stripe_webhook
 from app.stripe_webhook import _validate_checkout, verify_stripe_signature
 
 
@@ -10,14 +14,15 @@ SECRET = "whsec_test_ola"
 TIMESTAMP = 1_800_000_000
 
 
-def _signature(payload: bytes) -> str:
-    signed = f"{TIMESTAMP}.".encode() + payload
+def _signature(payload: bytes, timestamp: int = TIMESTAMP) -> str:
+    signed = f"{timestamp}.".encode() + payload
     digest = hmac.new(SECRET.encode(), signed, hashlib.sha256).hexdigest()
-    return f"t={TIMESTAMP},v1={digest}"
+    return f"t={timestamp},v1={digest}"
 
 
 def _paid_session():
     return {
+        "id": "cs_test_" + str(uuid.uuid4()),
         "metadata": {
             "offer": "ola-execution-audit",
             "product": "OLA Execution Audit",
@@ -73,3 +78,28 @@ def test_paid_checkout_uses_metadata_task_without_custom_fields():
     session = _paid_session()
     assert "custom_fields" not in session
     assert _validate_checkout(session) == "Audit this company workflow for evidence gaps."
+
+
+def test_paid_webhook_queues_review_and_never_executes_automatically(monkeypatch):
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", SECRET)
+
+    def forbidden_execution(*args, **kwargs):
+        raise AssertionError("payment confirmation must not execute an OLA task")
+
+    monkeypatch.setattr(stripe_webhook, "run_agent_task", forbidden_execution)
+    session = _paid_session()
+    event = {
+        "id": "evt_review_" + str(uuid.uuid4()),
+        "type": "checkout.session.completed",
+        "data": {"object": session},
+    }
+    payload = json.dumps(event, separators=(",", ":")).encode()
+    timestamp = int(time.time())
+    result = stripe_webhook.process_checkout_event(
+        payload, _signature(payload, timestamp)
+    )
+
+    assert result["status"] == "PAID_PENDING_REVIEW"
+    assert result["payment"] == "CONFIRMED"
+    assert result["ola_status"] == "NOT_STARTED"
+    assert result["ola_run_id"] is None
