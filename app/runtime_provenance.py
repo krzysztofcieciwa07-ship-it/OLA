@@ -25,11 +25,11 @@ def runtime_source_commit(*, require_build_info=None, build_info_path=None):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
-            return None
-        if not isinstance(data, dict) or data.get("schema") != "ola-build-info/v1":
-            return None
-        commit = data.get("source_commit")
-        return commit if isinstance(commit, str) and _COMMIT.fullmatch(commit) else None
+            data = None
+        if isinstance(data, dict) and data.get("schema") == "ola-build-info/v1":
+            commit = data.get("source_commit")
+            if isinstance(commit, str) and _COMMIT.fullmatch(commit):
+                return commit
     if strict:
         return None
     legacy = os.getenv("OLA_RUNTIME_COMMIT")
