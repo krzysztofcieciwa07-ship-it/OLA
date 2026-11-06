@@ -170,3 +170,20 @@ def test_checkout_requires_exact_configured_price_and_quantity(monkeypatch):
     session["line_items"]["data"][0]["price"]["id"] = "price_other"
     with pytest.raises(Exception):
         _validate_checkout(session)
+
+
+@pytest.mark.parametrize("data", [None, "invalid", [], {}, {"object": None}, {"object": []}])
+def test_webhook_rejects_malformed_event_data_without_crashing(monkeypatch, data):
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", SECRET)
+    event = {
+        "id": "evt_malformed_" + str(uuid.uuid4()),
+        "type": "checkout.session.completed",
+        "livemode": False,
+        "data": data,
+    }
+    payload = json.dumps(event, separators=(",", ":")).encode()
+    with pytest.raises(Exception) as exc:
+        stripe_webhook.process_checkout_event(
+            payload, _signature(payload, int(time.time()))
+        )
+    assert getattr(exc.value, "status_code", None) == 400
