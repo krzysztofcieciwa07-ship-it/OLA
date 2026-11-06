@@ -40,7 +40,7 @@ def _stripe_request(path: str, fields: dict[str, Any], *, idempotency_key: str |
         return json.load(response)
 
 
-def create_checkout(task, success_url, cancel_url, tenant_id, *, idempotency_key=None):
+def create_checkout(task, success_url, cancel_url, tenant_id, *, idempotency_key=None, order_id=None):
     price_id = os.getenv("OLA_STRIPE_PRICE_ID")
     if not price_id:
         raise RuntimeError("OLA_STRIPE_PRICE_ID is not configured")
@@ -52,11 +52,12 @@ def create_checkout(task, success_url, cancel_url, tenant_id, *, idempotency_key
             "line_items[0][quantity]": "1",
             "success_url": success_url + "?session_id={CHECKOUT_SESSION_ID}",
             "cancel_url": cancel_url,
-            "client_reference_id": hashlib.sha256(task.encode()).hexdigest(),
+            "client_reference_id": order_id or hashlib.sha256(task.encode()).hexdigest(),
             "metadata[product]": PRODUCT_NAME,
             "metadata[offer]": OFFER,
             "metadata[task]": task,
             "metadata[tenant_id]": tenant_id,
+            **({"metadata[order_id]": order_id} if order_id else {}),
         },
         idempotency_key=idempotency_key,
     )
