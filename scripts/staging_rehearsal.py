@@ -59,13 +59,14 @@ def http(path, payload=None, key=None):
         return exc.code, json.loads(exc.read())
 
 
-def await_ready(timeout=110):
+def await_ready(expected_commit, timeout=110):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             code, body = http("/readyz")
             if (code == 200 and body.get("core_status") == "READY"
-                    and body.get("system_acceptance") == "NOT_VERIFIED"):
+                    and body.get("system_acceptance") == "NOT_VERIFIED"
+                    and body.get("source_commit") == expected_commit):
                 return
         except (OSError, ValueError, TimeoutError):
             pass
@@ -146,8 +147,16 @@ def main():
         run(*dc, "config", "--quiet")
         checks.append("compose_config")
         run(*dc, "up", "-d", "--build")
-        await_ready()
-        checks.append("core_readyz")
+        image = "ola-staging:" + commit
+        image_revision = run(
+            "docker", "image", "inspect", "--format",
+            '{{ index .Config.Labels "org.opencontainers.image.revision" }}', image,
+        )
+        if image_revision != commit:
+            raise RuntimeError("staging image revision label does not match source SHA")
+        checks.append("image_revision_matches")
+        await_ready(expected_commit=commit)
+        checks.append("core_readyz_source_bound")
         run(*dc, "exec", "-T", "ola", "python", "-c", SEED,
             input_text=json.dumps({"tenant_id": tenant_id, "key": api_key}))
         if http("/audit", {"task": "synthetic staging"})[0] != 401:
@@ -171,7 +180,7 @@ def main():
             raise RuntimeError("negative append-only test was not verified")
         checks.extend(["independent_v2_chain", "tamper_rejected"])
         run(*dc, "restart", "ola")
-        await_ready()
+        await_ready(expected_commit=commit)
         after = json.loads(run(*verifier))
         if after.get("chain_root") != before.get("chain_root"):
             raise RuntimeError("V2 chain root changed across container restart")
@@ -188,8 +197,9 @@ def main():
         checks.append("sqlite_backup_restore_verified")
         for _ in range(12):
             status, body = http("/readyz")
-            if status != 200 or body.get("core_status") != "READY":
-                raise RuntimeError("readyz not stable for 12-second observation")
+            if (status != 200 or body.get("core_status") != "READY"
+                    or body.get("source_commit") != commit):
+                raise RuntimeError("source-bound readyz not stable for 12-second observation")
             time.sleep(1)
         checks.append("health_stable_12s")
         proof = {
@@ -199,6 +209,8 @@ def main():
             "publicly_deployed": False,
             "system_acceptance": "NOT_VERIFIED",
             "commit": commit,
+            "image_revision": image_revision,
+            "source_identity_verified": True,
             "evidence_records": 5,
             "tenant_id": tenant_id,
             "chain_root": after["chain_root"],
