@@ -55,6 +55,9 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn("0000000000000000000000000000000000000000", nina)
         self.assertIn("--build-arg OLA_SOURCE_COMMIT=", release)
         self.assertIn("Assert release image source label", release)
+        self.assertIn("OLA_REQUIRE_BUILD_INFO=1", release)
+        self.assertIn("/readyz", release)
+        self.assertIn("RELEASE_IMAGE_SOURCE_BINDING=VERIFIED", release)
         self.assertIn("OLA_RUNTIME_COMMIT is a compatibility fallback", runtime)
 
     def test_automated_runtime_never_claims_human_approval(self):
