@@ -235,7 +235,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image_source="$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' ola-final:${TARGET_SOURCE_SHA})"
+          image_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' ola-final:${TARGET_SOURCE_SHA})"
           test "$image_source" = "$TARGET_SOURCE_SHA"
 
       - name: Export release image
