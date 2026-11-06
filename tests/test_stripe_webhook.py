@@ -9,7 +9,7 @@ import pytest
 from app import stripe_webhook
 from app.stripe_webhook import _validate_checkout, verify_stripe_signature
 from app.database import SessionLocal
-from app.models import Tenant, CheckoutOrder
+from app.models import Tenant, CheckoutOrder, EvidenceRecord
 
 
 SECRET = "whsec_test_ola"
@@ -282,7 +282,7 @@ def test_webhook_recovers_after_partial_evidence_write_without_duplicate_records
     assert result["execution_authorized"] is False
     with SessionLocal() as db:
         order = db.get(CheckoutOrder, session["metadata"]["order_id"])
-        confirmed = db.query(__import__("app.models", fromlist=["EvidenceRecord"]).EvidenceRecord).filter_by(
+        confirmed = db.query(EvidenceRecord).filter_by(
             tenant_id="tenant-test", record_type="stripe.payment_confirmed"
         ).all()
         pending = db.query(__import__("app.models", fromlist=["EvidenceRecord"]).EvidenceRecord).filter_by(
