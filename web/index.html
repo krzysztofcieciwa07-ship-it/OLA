@@ -166,7 +166,7 @@ async function runNina() {
     line("Pochodzenie runtime", JSON.stringify(body.provenance || {}));
     line("Replay", JSON.stringify(body.replay_verification || {}));
     line("Polityka", JSON.stringify(body.policy || {}));
-    line("Human Gate", gateStatus + " — wymaga osobnej decyzji uprawnionego człowieka.");
+    line("Human Gate", gateStatus + " — wymaga tożsamości operatora i MFA; ta konfiguracja nie jest jeszcze produkcyjnie potwierdzona.");
     line("Dowody", activeEvidenceIds.length ? activeEvidenceIds.join(", ") : "Brak identyfikatorów dowodów.");
     if (body.decision_report) line("Raport decyzji", JSON.stringify(body.decision_report).slice(0, 8000));
     taskInput.value = "";
