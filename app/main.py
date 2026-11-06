@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
-from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent, CheckoutOrder
+from .models import Tenant, ApiKey, EvidenceRecord, CheckoutOrder
 from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
@@ -381,51 +381,62 @@ def payment_success(session_id: str):
         session = retrieve_checkout(session_id)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="payment lookup unavailable") from exc
-    tenant_id = session.get("metadata", {}).get("tenant_id")
-    if not tenant_id:
-        raise HTTPException(status_code=403, detail="payment session has no tenant provenance")
-    if not payment_verified(session):
-        append_record(tenant_id, "revenue.payment_blocked", {"session_id": session_id, "payment_status": session.get("payment_status"), "status": session.get("status")})
-        return {"status": "BLOCK", "reason": "payment not verified", "session_id": session_id}
-    task = session.get("metadata", {}).get("task")
-    if not task:
-        return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
+    if not isinstance(session, dict) or session.get("id") != session_id:
+        raise HTTPException(status_code=502, detail="Stripe returned an invalid Checkout Session")
+    metadata = session.get("metadata")
+    if not isinstance(metadata, dict):
+        raise HTTPException(status_code=403, detail="payment session has no valid OLA metadata")
+    tenant_id = metadata.get("tenant_id")
+    order_id = metadata.get("order_id")
+    task = metadata.get("task")
+    if not isinstance(tenant_id, str) or not tenant_id or not isinstance(order_id, str) or not order_id:
+        raise HTTPException(status_code=403, detail="payment session has no OLA order provenance")
+    if not isinstance(task, str) or not task.strip():
+        raise HTTPException(status_code=403, detail="payment session has no audit task")
 
-    # Different customers can buy the same audit task. Task text is not an
-    # order identity: only a webhook result for THIS Checkout Session may be
-    # returned to the caller. Legacy rows without checkout_session_id fail closed.
     with SessionLocal() as db:
-        candidates = db.scalars(
-            select(StripeEvent).where(
-                StripeEvent.status.in_(("REVIEW_REQUIRED", "COMPLETED")),
-                StripeEvent.task == task,
-            )
-        ).all()
-        matches = []
-        for candidate in candidates:
-            if not candidate.result_json:
-                continue
-            try:
-                recorded = json.loads(candidate.result_json)
-            except (ValueError, TypeError):
-                continue
-            if (isinstance(recorded, dict)
-                    and recorded.get("checkout_session_id") == session_id
-                    and recorded.get("status") in {"PAID_PENDING_REVIEW", "COMPLETED"}):
-                matches.append((candidate.run_id, recorded))
+        order = db.get(CheckoutOrder, order_id)
+        if (
+            order is None
+            or order.tenant_id != tenant_id
+            or order.stripe_session_id != session_id
+        ):
+            raise HTTPException(status_code=403, detail="payment session is not bound to this OLA order")
 
-    if len(matches) > 1:
-        raise HTTPException(status_code=409, detail="conflicting Checkout Session executions")
-    if not matches:
-        return {
-            "status": "PAYMENT_CONFIRMED_EXECUTION_PENDING",
+        if not payment_verified(session):
+            blocked = True
+            order_status = order.status
+            recorded = None
+        else:
+            blocked = False
+            order_status = order.status
+            recorded = None
+            if order.status in {"PAID_PENDING_REVIEW", "COMPLETED"}:
+                if not order.payment_result_json:
+                    raise HTTPException(status_code=503, detail="durable payment result is unavailable")
+                try:
+                    recorded = json.loads(order.payment_result_json)
+                except (ValueError, TypeError):
+                    raise HTTPException(status_code=503, detail="durable payment result is invalid") from None
+                if (
+                    not isinstance(recorded, dict)
+                    or recorded.get("checkout_session_id") != session_id
+                ):
+                    raise HTTPException(status_code=503, detail="durable payment result binding is invalid")
+
+    if blocked:
+        append_record(tenant_id, "revenue.payment_blocked", {
+            "order_id": order_id,
             "session_id": session_id,
-            "task": task,
-            "execution": "STRIPE_WEBHOOK",
-        }
-    if matches[0][1].get("status") == "PAID_PENDING_REVIEW":
+            "payment_status": session.get("payment_status"),
+            "status": session.get("status"),
+        }, deduplicate=True)
+        return {"status": "BLOCK", "reason": "payment not verified", "session_id": session_id}
+
+    if order_status == "PAID_PENDING_REVIEW":
         return {
             "status": "PAID_PENDING_REVIEW",
+            "order_id": order_id,
             "session_id": session_id,
             "task": task,
             "payment": "CONFIRMED",
@@ -433,14 +444,28 @@ def payment_success(session_id: str):
             "next_gate": "HUMAN_REVIEW",
         }
 
-    return {
-        "status": "COMPLETED",
-        "session_id": session_id,
-        "task": task,
-        "execution": "STRIPE_WEBHOOK",
-        "run_id": matches[0][0],
-        "result": matches[0][1],
-    }
+    if order_status == "COMPLETED":
+        return {
+            "status": "COMPLETED",
+            "order_id": order_id,
+            "session_id": session_id,
+            "task": task,
+            "execution": "STRIPE_WEBHOOK",
+            "run_id": recorded.get("run_id") or recorded.get("ola_run_id"),
+            "result": recorded,
+        }
+
+    if order_status in {"CHECKOUT_CREATED", "PAYMENT_PROCESSING"}:
+        return {
+            "status": "PAYMENT_VERIFICATION_PENDING",
+            "order_id": order_id,
+            "session_id": session_id,
+            "task": task,
+            "execution": "NOT_STARTED",
+            "next_gate": "STRIPE_WEBHOOK",
+        }
+
+    raise HTTPException(status_code=409, detail="OLA order is not in a payable state")
 
 
 @app.post("/evidence")
