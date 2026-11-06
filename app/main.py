@@ -1,10 +1,11 @@
 import hashlib
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, JSONResponse
 from sqlalchemy import select
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
@@ -145,6 +146,73 @@ def run_controlled_audit(tenant_id, task, scenario):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+def core_readiness():
+    """Read-only local CORE readiness, never whole-system production acceptance.
+
+    /health is liveness only. /readyz requires source provenance marker, an
+    active authentication pepper, a responsive SQLite engine and evidence
+    append-only DB triggers. No secrets or database paths enter the response.
+    """
+    failed = []
+    source = runtime_source_commit() or ""
+    if re.fullmatch(r"[a-fA-F0-9]{40}", source) is None:
+        failed.append("source_commit")
+
+    if os.getenv("OLA_REQUIRE_BUILD_INFO", "0") == "1":
+        build_path = Path(os.getenv("OLA_BUILD_INFO_PATH", "/app/ola-build-info.json"))
+        try:
+            file_mode = build_path.stat().st_mode
+            parent_mode = build_path.parent.stat().st_mode
+            if (file_mode & 0o222) or (parent_mode & 0o222):
+                failed.append("build_info_mutable")
+        except OSError:
+            failed.append("build_info_missing")
+
+    pepper = os.getenv("OLA_API_KEY_PEPPER", "")
+    if len(pepper.encode("utf-8")) < 32:
+        failed.append("api_key_pepper")
+
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql("SELECT 1").scalar_one()
+            # A named trigger can be a no-op, so verify stored definitions.
+            definitions = dict(conn.exec_driver_sql(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='trigger' AND tbl_name='evidence_records'"
+            ).all())
+        expected = {
+            "evidence_no_update": (
+                "create trigger evidence_no_update before update on evidence_records "
+                "begin select raise(abort, 'evidence_records is append-only'); end"
+            ),
+            "evidence_no_delete": (
+                "create trigger evidence_no_delete before delete on evidence_records "
+                "begin select raise(abort, 'evidence_records is append-only'); end"
+            ),
+        }
+        if any(
+            re.sub(r"\s+", " ", definitions.get(name) or "").strip().lower().rstrip(";")
+            != definition
+            for name, definition in expected.items()
+        ):
+            failed.append("evidence_append_only")
+    except Exception:
+        # Never surface exception details: they may disclose internal paths.
+        failed.append("evidence_store")
+
+    return JSONResponse(
+        status_code=503 if failed else 200,
+        content={
+            "core_status": "BLOCKED" if failed else "READY",
+            "system_acceptance": "NOT_VERIFIED",
+            "source_commit": source if "source_commit" not in failed else None,
+            "failed_checks": failed,
+            "scope": "local_core_only",
+        },
+    )
 
 
 @app.get("/")
