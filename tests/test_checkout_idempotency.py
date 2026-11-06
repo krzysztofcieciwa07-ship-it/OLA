@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 
 from fastapi.testclient import TestClient
@@ -181,7 +182,7 @@ def test_checkout_stale_reservation_fails_closed_after_provider_key_window(monke
     with SessionLocal() as db:
         order = db.scalar(select(CheckoutOrder).where(
             CheckoutOrder.idempotency_key_hash
-            == __import__("hashlib").sha256(b"request-stale-12345").hexdigest()
+            == hashlib.sha256(b"request-stale-12345").hexdigest()
         ))
         order.created_at = int(time.time()) - (24 * 60 * 60)
         db.commit()
