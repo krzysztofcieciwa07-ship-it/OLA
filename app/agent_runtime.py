@@ -240,13 +240,18 @@ def _invoke_local_deterministic_model(agent, task, context):
     }
 
 
-def _execute_agent(agent, tenant_id, task, previous_output, execution):
+def _execute_agent(agent, tenant_id, task, previous_output, execution, *, force_local=False):
     context = {
         "task": task,
         "previous_output": previous_output,
         "upstream_agents": [item["agent"] for item in execution],
     }
-    model = _invoke_llm(agent, task, context) or _invoke_local_deterministic_model(agent, task, context)
+    # External signed ALLOW for safe_expression never grants authority to
+    # contact an external model. Ignore provider/credential configuration.
+    model = (_invoke_local_deterministic_model(agent, task, context)
+             if force_local else
+             (_invoke_llm(agent, task, context)
+              or _invoke_local_deterministic_model(agent, task, context)))
     if agent == "codeact":
         tool_output = _safe_expression(task)
         result = {"capability": "executed_safe_expression", "tool": "safe_expression", "tool_output": tool_output, "result": f"safe execution returned {tool_output}"}
@@ -285,7 +290,7 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
     return result
 
 
-def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution):
+def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution, *, force_local=False):
     agent_instance_id = str(uuid.uuid4())
     context = {
         "run_id": run_id,
@@ -302,15 +307,16 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "context_digest": _digest(canonical_json(context)),
         "task": task,
         "input_digest": _digest(json.dumps(previous_output, sort_keys=True)),
-        **_execute_agent(agent, tenant_id, task, previous_output, execution),
+        **_execute_agent(agent, tenant_id, task, previous_output, execution, force_local=force_local),
         "status": "VERIFIED",
-        "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
+        "llm_required": not force_local and os.getenv("OLA_LLM_MODE", "deterministic") == "required",
+        "signed_pilot_local_only": bool(force_local),
     }
     saved = append_evidence_atomic(tenant_id, f"agent.{agent}", {"run_id": run_id, **output})
     return saved["id"], output
 
 
-def run_agent_task(tenant_id, task, *, run_id=None):
+def run_agent_task(tenant_id, task, *, run_id=None, force_local=False):
     # A guarded endpoint supplies a server-generated UUID before execution,
     # to bind signed external Vantage preflight and runtime evidence.
     if run_id is None:
@@ -321,7 +327,7 @@ def run_agent_task(tenant_id, task, *, run_id=None):
     execution = []
     previous_output = {"task": task}
     for agent in AGENT_ROLES:
-        evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
+        evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution, force_local=force_local)
         evidence_ids.append(evidence_id)
         execution.append(output)
         previous_output = output
