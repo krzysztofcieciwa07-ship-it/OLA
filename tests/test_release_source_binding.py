@@ -49,6 +49,8 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         release = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         runtime = (ROOT / "app/runtime_provenance.py").read_text(encoding="utf-8")
         self.assertIn("org.opencontainers.image.revision", dockerfile)
+        self.assertIn("chown -R root:root /app", dockerfile)
+        self.assertIn("chmod -R a-w /app", dockerfile)
         self.assertIn("ola-build-info.json", dockerfile)
         self.assertIn("--build-arg OLA_SOURCE_COMMIT=", nina)
         self.assertIn("OLA_REQUIRE_BUILD_INFO=1", nina)
@@ -58,6 +60,7 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn("OLA_REQUIRE_BUILD_INFO=1", release)
         self.assertIn("/readyz", release)
         self.assertIn("RELEASE_IMAGE_SOURCE_BINDING=VERIFIED", release)
+        self.assertIn("build_info_mutable", (ROOT / "app/main.py").read_text(encoding="utf-8"))
         self.assertIn("OLA_RUNTIME_COMMIT is a compatibility fallback", runtime)
 
     def test_automated_runtime_never_claims_human_approval(self):
