@@ -11,9 +11,11 @@ from sqlalchemy import select
 from .database import SessionLocal
 from .runtime_provenance import runtime_source_commit
 from .models import EvidenceRecord
-from .hashchain import sealed_payload_json, compute_record_hash_v2
+from .hashchain import sealed_payload_json, compute_record_hash_v2, verify_chain, trusted_record
 from .igor_workflow import verify_dag_records
 from .human_gate import HumanGate, ReviewDecision
+from .nina_igor import NinaIgorChain, STATUS_FIELDS
+from .runtime_provenance import runtime_source_commit
 
 
 class WorkflowApprovalRejected(ValueError):
@@ -105,4 +107,114 @@ def approve_workflow(*, tenant_id, approver_id, run_id, tip_hash, report_digest,
             "approved_tip_hash": tip_hash, "approved_report_digest": report_digest,
             "approval_record_hash": next_hash, "approver_id": approver_id,
             "production_authorized": False,
+        }
+
+
+def approve_nina_candidate(*, tenant_id, approver_id, run_id, tip_hash,
+                           report_sha256, reason):
+    """One-time, report-bound second-identity review; never a deploy permit."""
+    if not isinstance(reason, str) or not reason.strip():
+        raise WorkflowApprovalRejected(400, "nonempty review reason is required")
+    if not all(isinstance(value, str) and value.strip() for value in (
+            tenant_id, approver_id, run_id, tip_hash, report_sha256)):
+        raise WorkflowApprovalRejected(400, "run, tip and report digest are required")
+    expected_commit = runtime_source_commit()
+    if not expected_commit:
+        raise WorkflowApprovalRejected(409, "runtime source identity unavailable")
+
+    with SessionLocal() as db:
+        if db.bind.dialect.name != "sqlite":
+            raise WorkflowApprovalRejected(503, "approval transaction policy missing for this database")
+        rows = db.scalars(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == tenant_id)
+            .order_by(EvidenceRecord.seq.asc())
+        ).all()
+        if not rows or rows[-1].record_hash != tip_hash:
+            raise WorkflowApprovalRejected(409, "stale or unknown evidence tip")
+        records = [{
+            "tenant_id": row.tenant_id, "seq": row.seq,
+            "record_hash": row.record_hash, "prev_hash": row.prev_hash,
+            "record_type": row.record_type, "payload_json": row.payload_json,
+        } for row in rows]
+        if not verify_chain(records)[0]:
+            raise WorkflowApprovalRejected(409, "evidence chain verification failed")
+
+        candidates = []
+        for row in records:
+            if row["record_type"] not in {"decision.candidate", "human.approval"}:
+                continue
+            payload = json.loads(row["payload_json"])
+            if payload.get("run_id") != run_id:
+                continue
+            if not trusted_record(row):
+                raise WorkflowApprovalRejected(409, "untrusted decision evidence")
+            if row["record_type"] == "human.approval":
+                raise WorkflowApprovalRejected(409, "run already reviewed")
+            candidates.append(payload)
+
+        if len(candidates) != 1:
+            raise WorkflowApprovalRejected(409, "unique decision candidate required")
+        candidate = candidates[0]
+        requester_id = candidate.get("requester_id")
+        if not isinstance(requester_id, str) or not requester_id:
+            raise WorkflowApprovalRejected(409, "requester identity missing")
+        if requester_id == approver_id:
+            raise WorkflowApprovalRejected(403, "requester cannot approve own run")
+        if candidate.get("decision_report_sha256") != report_sha256:
+            raise WorkflowApprovalRejected(409, "independent report digest mismatch")
+        if candidate.get("source_commit") != expected_commit:
+            raise WorkflowApprovalRejected(409, "candidate source commit mismatch")
+
+        fields = candidate.get("status_fields")
+        if not isinstance(fields, dict) or set(fields) != {*STATUS_FIELDS, "EXECUTION_ALLOWED"}:
+            raise WorkflowApprovalRejected(409, "invalid candidate status fields")
+        scoped_fields = {name: fields[name] for name in STATUS_FIELDS}
+        if (candidate.get("candidate_status") != "REVIEW"
+                or scoped_fields["HUMAN_GATE"] != "REVIEW"
+                or fields["EXECUTION_ALLOWED"] != NinaIgorChain.derive_status(scoped_fields)):
+            raise WorkflowApprovalRejected(409, "candidate status is inconsistent")
+        scoped_fields["HUMAN_GATE"] = "VERIFIED"
+        if NinaIgorChain.derive_status(scoped_fields) != "VERIFIED":
+            raise WorkflowApprovalRejected(409, "candidate is not eligible for review")
+
+    with SessionLocal() as db:
+        if db.bind.dialect.name != "sqlite":
+            raise WorkflowApprovalRejected(503, "approval transaction policy missing for this database")
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        latest = db.scalar(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == tenant_id)
+            .order_by(EvidenceRecord.seq.desc())
+        )
+        if latest is None or latest.record_hash != tip_hash:
+            raise WorkflowApprovalRejected(409, "evidence tip changed during review")
+        payload = {
+            "event": "human.approval", "run_id": run_id,
+            "tenant_id": tenant_id, "requester_id": requester_id,
+            "approver_id": approver_id, "reason": reason.strip(),
+            "approved_tip_hash": tip_hash,
+            "approved_report_sha256": report_sha256,
+            "commit": expected_commit,
+            "decision": "APPROVED_FOR_REVIEW_ONLY",
+            "production_authorized": False,
+        }
+        raw = sealed_payload_json("human.approval", payload)
+        next_seq = latest.seq + 1
+        next_hash = compute_record_hash_v2(
+            tenant_id, next_seq, tip_hash, "human.approval", "ola_runtime", raw
+        )
+        record_id = str(uuid.uuid4())
+        db.add(EvidenceRecord(
+            id=record_id, tenant_id=tenant_id, seq=next_seq,
+            record_type="human.approval", payload_json=raw,
+            prev_hash=tip_hash, record_hash=next_hash,
+        ))
+        db.commit()
+        return {
+            "status": "APPROVED_FOR_REVIEW_ONLY", "run_id": run_id,
+            "tip_hash": next_hash, "approved_tip_hash": tip_hash,
+            "approved_report_sha256": report_sha256,
+            "record_id": record_id, "record_type": "human.approval",
+            "approver_id": approver_id, "production_authorized": False,
         }
