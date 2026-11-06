@@ -47,6 +47,13 @@ def test_teardown_failure_invalidates_receipt_and_return_code(monkeypatch, tmp_p
                 "status": "VERIFIED", "tamper_blocked": True,
                 "chain_root": "e" * 64,
             })
+        if args[0] == "docker" and args[-2:] == ("python", "-"):
+            return json.dumps({
+                "snapshot_integrity_ok": True,
+                "restored_chain_verified": True,
+                "restored_records": 5,
+                "restored_chain_root": "e" * 64,
+            })
         return ""
 
     def fake_http(path, payload=None, key=None):
