@@ -52,10 +52,14 @@ def append_evidence_atomic(tenant_id, record_type, payload, *, producer_id="ola_
                 EvidenceRecord.payload_json == payload_json,
             ))
             if existing is not None:
-                existing_id = existing.id
+                existing_result = {
+                    "id": existing.id,
+                    "tenant_id": tenant_id,
+                    "seq": existing.seq,
+                    "record_hash": existing.record_hash,
+                }
                 db.rollback()
-                return {"id": existing_id, "tenant_id": tenant_id,
-                        "seq": existing.seq, "record_hash": existing.record_hash}
+                return existing_result
         last = db.scalar(select(EvidenceRecord)
                          .where(EvidenceRecord.tenant_id == tenant_id)
                          .order_by(EvidenceRecord.seq.desc()))
