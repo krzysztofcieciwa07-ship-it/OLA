@@ -39,3 +39,27 @@ def test_invalid_build_info_uses_legacy_only_when_not_strict(monkeypatch, tmp_pa
 def test_non_strict_mode_keeps_legacy_test_markers(monkeypatch, tmp_path):
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", "test-bound-commit")
     assert runtime_source_commit(require_build_info=False, build_info_path=tmp_path / "missing.json") == "test-bound-commit"
+
+
+
+def test_agent_runtime_uses_embedded_build_info(monkeypatch, tmp_path):
+    from app.agent_runtime import _runtime_source_commit as agent_source_commit
+
+    expected = "1" * 40
+    path = tmp_path / "ola-build-info.json"
+    path.write_text(json.dumps({"schema": "ola-build-info/v1", "source_commit": expected}))
+    monkeypatch.setenv("OLA_BUILD_INFO_PATH", str(path))
+    monkeypatch.setenv("OLA_REQUIRE_BUILD_INFO", "1")
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "0" * 40)
+
+    assert agent_source_commit() == expected
+
+
+def test_agent_runtime_blocks_when_build_info_missing_even_if_env_is_valid(monkeypatch, tmp_path):
+    from app.agent_runtime import _runtime_source_commit as agent_source_commit
+
+    monkeypatch.setenv("OLA_BUILD_INFO_PATH", str(tmp_path / "missing.json"))
+    monkeypatch.setenv("OLA_REQUIRE_BUILD_INFO", "1")
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "1" * 40)
+
+    assert agent_source_commit() is None
