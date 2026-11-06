@@ -40,7 +40,7 @@ def test_checkout_reuses_existing_session_for_same_idempotency_key(monkeypatch):
     client, key = _client_and_key()
     calls = []
 
-    def create(task, success_url, cancel_url, tenant_id, idempotency_key):
+    def create(task, success_url, cancel_url, tenant_id, idempotency_key, order_id):
         calls.append((task, tenant_id, idempotency_key))
         return {"id": "cs_test_reused123", "url": "https://checkout.stripe.test/session"}
 
@@ -59,7 +59,7 @@ def test_checkout_rejects_idempotency_key_reuse_for_different_task(monkeypatch):
     client, key = _client_and_key()
     calls = []
 
-    def create(task, success_url, cancel_url, tenant_id, idempotency_key):
+    def create(task, success_url, cancel_url, tenant_id, idempotency_key, order_id):
         calls.append(task)
         return {"id": "cs_test_taskbind123", "url": "https://checkout.stripe.test/session"}
 
@@ -77,7 +77,7 @@ def test_checkout_retries_stripe_creation_with_same_provider_idempotency_key(mon
     provider_keys = []
     attempts = 0
 
-    def create(task, success_url, cancel_url, tenant_id, idempotency_key):
+    def create(task, success_url, cancel_url, tenant_id, idempotency_key, order_id):
         nonlocal attempts
         attempts += 1
         provider_keys.append(idempotency_key)
@@ -144,7 +144,7 @@ def test_checkout_ignores_caller_controlled_redirect_urls(monkeypatch):
     client, key = _client_and_key()
     captured = {}
 
-    def create(task, success_url, cancel_url, tenant_id, idempotency_key):
+    def create(task, success_url, cancel_url, tenant_id, idempotency_key, order_id):
         captured.update(success_url=success_url, cancel_url=cancel_url)
         return {"id": "cs_test_redirect123", "url": "https://checkout.stripe.test/redirect"}
 
