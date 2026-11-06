@@ -57,18 +57,35 @@ def create_checkout(task, success_url, cancel_url, tenant_id):
 
 
 def retrieve_checkout(session_id):
+    """Retrieve a sandbox Checkout Session through a fixed Stripe HTTPS host.
+
+    Validate the path token before issuing the request. Keeping the hostname
+    constant and using HTTPSConnection avoids turning an event-supplied value
+    into a caller-controlled URL (SSRF).
+    """
+    import http.client
+    import re
+
+    if not isinstance(session_id, str) or not re.fullmatch(r"cs_test_[A-Za-z0-9]+", session_id):
+        raise ValueError("invalid sandbox Checkout Session id")
+
     secret = stripe_secret_key()
     query = urllib.parse.urlencode({"expand[]": "line_items"})
-    req = urllib.request.Request(
-        "https://api.stripe.com/v1/checkout/sessions/"
-        + urllib.parse.quote(session_id, safe="")
-        + "?"
-        + query,
-        headers={"Authorization": f"Bearer {secret}"},
-        method="GET",
-    )
-    with urllib.request.urlopen(req, timeout=30) as response:
-        return json.load(response)
+    path = "/v1/checkout/sessions/" + session_id + "?" + query
+    connection = http.client.HTTPSConnection("api.stripe.com", timeout=30)
+    try:
+        connection.request(
+            "GET",
+            path,
+            headers={"Authorization": f"Bearer {secret}"},
+        )
+        response = connection.getresponse()
+        body = response.read()
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError(f"Stripe Checkout lookup failed with HTTP {response.status}")
+        return json.loads(body)
+    finally:
+        connection.close()
 
 
 def payment_verified(session):
