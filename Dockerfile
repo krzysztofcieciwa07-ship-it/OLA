@@ -27,7 +27,7 @@ COPY scripts ./scripts
 COPY tests ./tests
 COPY web ./web
 
-RUN useradd --create-home --uid 10001 ola     && mkdir -p /data     && chown -R ola:ola /app /data
+RUN useradd --create-home --uid 10001 ola     && mkdir -p /data     && chown -R root:root /app     && chmod -R a-w /app     && chown -R ola:ola /data
 
 USER ola
 EXPOSE 8000
