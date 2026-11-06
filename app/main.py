@@ -7,9 +7,10 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
-from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
+from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent, CheckoutOrder
 from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
@@ -236,22 +237,98 @@ def chat_endpoint(body: dict, x_api_key: str | None = Header(default=None)):
 
 
 @app.post("/checkout")
-def create_checkout_session(body: dict, x_api_key: str | None = Header(default=None)):
+def create_checkout_session(
+    body: dict,
+    x_api_key: str | None = Header(default=None),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
     tenant_id = tenant_from_key(x_api_key)
     task = body.get("task")
     if not isinstance(task, str) or not task.strip():
         raise HTTPException(status_code=400, detail="task is required")
-    success_url = body.get("success_url") or "http://localhost:8000/payment-success"
-    cancel_url = body.get("cancel_url") or "http://localhost:8000/"
-    try:
-        session = create_checkout(task.strip(), success_url, cancel_url, tenant_id)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail="checkout unavailable") from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail="checkout unavailable") from exc
-    append_record(tenant_id, "revenue.checkout_created", {"session_id": session.get("id"), "task": task.strip(), "amount": session.get("amount_total")})
-    return {"status": "READY_FOR_PAYMENT", "session_id": session.get("id"), "checkout_url": session.get("url")}
+    task = task.strip()
+    if not isinstance(idempotency_key, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", idempotency_key):
+        raise HTTPException(status_code=400, detail="a valid Idempotency-Key header is required")
 
+    key_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+    request_hash = hashlib.sha256(task.encode("utf-8")).hexdigest()
+    order_id = None
+    with SessionLocal() as db:
+        order = db.scalar(select(CheckoutOrder).where(
+            CheckoutOrder.tenant_id == tenant_id,
+            CheckoutOrder.idempotency_key_hash == key_hash,
+        ))
+        if order is None:
+            order = CheckoutOrder(
+                id=str(uuid.uuid4()),
+                tenant_id=tenant_id,
+                idempotency_key_hash=key_hash,
+                request_hash=request_hash,
+                status="CREATING",
+            )
+            db.add(order)
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                order = db.scalar(select(CheckoutOrder).where(
+                    CheckoutOrder.tenant_id == tenant_id,
+                    CheckoutOrder.idempotency_key_hash == key_hash,
+                ))
+                if order is None:
+                    raise HTTPException(status_code=503, detail="checkout order could not be reserved") from None
+        if order.request_hash != request_hash:
+            raise HTTPException(status_code=409, detail="Idempotency-Key was already used for a different task")
+        if order.status == "CHECKOUT_CREATED" and order.stripe_session_id and order.checkout_url:
+            return {
+                "status": "READY_FOR_PAYMENT",
+                "order_id": order.id,
+                "session_id": order.stripe_session_id,
+                "checkout_url": order.checkout_url,
+            }
+        order_id = order.id
+        order.status = "CREATING"
+        db.commit()
+
+    success_url = "http://localhost:8000/payment-success"
+    cancel_url = "http://localhost:8000/"
+    provider_idempotency_key = f"ola-checkout-{order_id}"
+    try:
+        session = create_checkout(
+            task, success_url, cancel_url, tenant_id,
+            idempotency_key=provider_idempotency_key,
+        )
+        session_id = session.get("id") if isinstance(session, dict) else None
+        checkout_url = session.get("url") if isinstance(session, dict) else None
+        if not isinstance(session_id, str) or not session_id.startswith("cs_test_") or not isinstance(checkout_url, str) or not checkout_url.startswith("https://"):
+            raise RuntimeError("Stripe returned an invalid Checkout Session")
+    except Exception as exc:
+        # Leave the durable order in CREATING. A retry with the same key
+        # reuses the same Stripe idempotency key and safely recovers the result.
+        raise HTTPException(status_code=502, detail="checkout unavailable; retry with the same Idempotency-Key") from exc
+
+    with SessionLocal() as db:
+        order = db.get(CheckoutOrder, order_id)
+        if order is None:
+            raise HTTPException(status_code=503, detail="checkout order state unavailable")
+        if order.stripe_session_id not in (None, session_id):
+            raise HTTPException(status_code=409, detail="checkout order is bound to a different Stripe session")
+        order.stripe_session_id = session_id
+        order.checkout_url = checkout_url
+        order.status = "CHECKOUT_CREATED"
+        db.commit()
+
+    append_record(tenant_id, "revenue.checkout_created", {
+        "order_id": order_id,
+        "session_id": session_id,
+        "task": task,
+    })
+    return {
+        "status": "READY_FOR_PAYMENT",
+        "order_id": order_id,
+        "session_id": session_id,
+        "checkout_url": checkout_url,
+    }
 
 @app.get("/payment-success")
 def payment_success(session_id: str):
