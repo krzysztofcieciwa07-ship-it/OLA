@@ -176,7 +176,10 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
         ):
             raise HTTPException(status_code=409, detail="Stripe session is not bound to this OLA order")
         if order.status == "PAID_PENDING_REVIEW" and order.payment_result_json:
-            return json.loads(order.payment_result_json)
+            try:
+                return json.loads(order.payment_result_json)
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=503, detail="durable payment result is invalid") from None
         if order.status == "CHECKOUT_CREATED":
             claimed = db.execute(
                 update(CheckoutOrder)
