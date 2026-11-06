@@ -289,7 +289,7 @@ def payment_success(session_id: str):
                 continue
             if (isinstance(recorded, dict)
                     and recorded.get("checkout_session_id") == session_id
-                    and recorded.get("status") == "COMPLETED"):
+                    and recorded.get("status") in {"PAID_PENDING_REVIEW", "COMPLETED"}):
                 matches.append((candidate.run_id, recorded))
 
     if len(matches) > 1:
