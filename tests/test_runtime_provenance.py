@@ -34,3 +34,8 @@ def test_invalid_build_info_uses_legacy_only_when_not_strict(monkeypatch, tmp_pa
     path.write_text("not-json")
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", "f" * 40)
     assert runtime_source_commit(require_build_info=False, build_info_path=path) == "f" * 40
+
+
+def test_non_strict_mode_keeps_legacy_test_markers(monkeypatch, tmp_path):
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "test-bound-commit")
+    assert runtime_source_commit(require_build_info=False, build_info_path=tmp_path / "missing.json") == "test-bound-commit"
