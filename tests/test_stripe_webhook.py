@@ -91,6 +91,7 @@ def test_paid_webhook_queues_review_and_never_executes_automatically(monkeypatch
     event = {
         "id": "evt_review_" + str(uuid.uuid4()),
         "type": "checkout.session.completed",
+        "livemode": False,
         "data": {"object": session},
     }
     payload = json.dumps(event, separators=(",", ":")).encode()
@@ -103,3 +104,4 @@ def test_paid_webhook_queues_review_and_never_executes_automatically(monkeypatch
     assert result["payment"] == "CONFIRMED"
     assert result["ola_status"] == "NOT_STARTED"
     assert result["ola_run_id"] is None
+    assert result["execution_authorized"] is False
