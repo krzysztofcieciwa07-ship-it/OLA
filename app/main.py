@@ -319,6 +319,7 @@ def create_checkout_session(
         session = create_checkout(
             task, success_url, cancel_url, tenant_id,
             idempotency_key=provider_idempotency_key,
+            order_id=order_id,
         )
         session_id = session.get("id") if isinstance(session, dict) else None
         checkout_url = session.get("url") if isinstance(session, dict) else None
