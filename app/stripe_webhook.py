@@ -93,6 +93,8 @@ def _validate_checkout(session: dict) -> str:
     if (
         not isinstance(price, dict)
         or price.get("id") != expected_price
+        or isinstance(quantity, bool)
+        or not isinstance(quantity, int)
         or quantity != 1
         or isinstance(unit_amount, bool)
         or not isinstance(unit_amount, int)
