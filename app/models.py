@@ -55,6 +55,8 @@ class CheckoutOrder(Base):
     created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
     stripe_session_id = Column(String(255), nullable=True, unique=True, index=True)
     checkout_url = Column(Text, nullable=True)
+    payment_event_id = Column(String(255), nullable=True, unique=True)
+    payment_result_json = Column(Text, nullable=True)
     __table_args__ = (
         UniqueConstraint("tenant_id", "idempotency_key_hash", name="uq_checkout_order_tenant_idempotency"),
     )
