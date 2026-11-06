@@ -1,0 +1,129 @@
+name: OLA Decision Fabric Calibration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      live_measurement:
+        description: "Run the complete labelled-set measurement against the external decision provider."
+        required: true
+        default: false
+        type: boolean
+      repeats:
+        description: "Full-set repeats: 1 = 114 calls; 2 = 228 calls."
+        required: true
+        default: "1"
+        type: choice
+        options: ["1", "2"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: decision-fabric-calibration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    name: Decision Fabric contracts and offline calibration tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify exact source SHA
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+          test "${#EXPECTED_SOURCE_SHA}" -eq 40
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify deterministic labelled dataset
+        run: python scripts/build_decision_calibration.py --check
+      - name: Compile application and calibration modules
+        run: python -m compileall -q app scripts
+      - name: Decision Fabric and calibration tests
+        run: python -m pytest -q tests/test_decision_fabric.py tests/test_decision_calibration.py
+
+  live_measurement:
+    name: Explicit full-set decision model measurement
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_measurement == true }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ci-openai
+      deployment: false
+    permissions:
+      contents: read
+    env:
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+    steps:
+      - name: Require an explicitly configured provider credential
+        run: |
+          set -euo pipefail
+          if [ -z "${TYPESAFE_API_KEY:-}" ]; then
+            echo "DECISION_MODEL_STATUS=UNKNOWN"
+            echo "REASON=Provider credential is unavailable; no measurement was performed."
+            exit 1
+          fi
+      - name: Checkout exact source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Discover provider model and run full calibration
+        env:
+          REPEATS: ${{ inputs.repeats }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${TYPESAFE_API_KEY}" \
+            https://api.typesafe.ai/v1/models > provider-models.json
+          python - <<'PY' > selected-model.txt
+          import json
+          data=json.load(open("provider-models.json", encoding="utf-8"))
+          models=data.get("models", [])
+          names=[m.get("name") for m in models if isinstance(m, dict) and isinstance(m.get("name"), str) and m["name"]]
+          if not names:
+              raise SystemExit("Provider returned no usable models")
+          print(names[0])
+          PY
+          MODEL="$(cat selected-model.txt)"
+          echo "DECISION_MODEL_SELECTED=${MODEL}"
+          python scripts/decision_calibration.py \
+            --model "${MODEL}" \
+            --repeats "${REPEATS}" \
+            --out decision-calibration-result.json | tee decision-calibration.log
+      - name: Upload measurement evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: decision-calibration-${{ github.sha }}
+          path: |
+            provider-models.json
+            selected-model.txt
+            decision-calibration-result.json
+            decision-calibration.log
+          if-no-files-found: warn
+          retention-days: 30
