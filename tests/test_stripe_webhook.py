@@ -91,6 +91,7 @@ def test_paid_ola_checkout_extracts_audit_task(monkeypatch):
         {"amount_total": 9800},
         {"currency": "usd"},
         {"metadata": {"offer": "other-offer", "product": "OLA Execution Audit", "task": "x"}},
+        {"metadata": []},
     ],
 )
 def test_invalid_checkout_is_rejected(monkeypatch, override):
@@ -322,3 +323,13 @@ def test_distinct_duplicate_webhook_events_for_paid_session_do_not_duplicate_pay
             tenant_id="tenant-test", record_type="stripe.payment_confirmed"
         ).all()
     assert len(confirmed) == 1
+
+
+def test_webhook_rejects_non_object_json_event(monkeypatch):
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", SECRET)
+    payload = b'[]'
+    with pytest.raises(Exception) as exc:
+        stripe_webhook.process_checkout_event(
+            payload, _signature(payload, int(time.time()))
+        )
+    assert getattr(exc.value, "status_code", None) == 400
