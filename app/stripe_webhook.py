@@ -74,8 +74,8 @@ def _validate_checkout(session: dict) -> str:
         raise HTTPException(status_code=400, detail="unsupported Stripe product")
     if session.get("payment_status") != "paid" or session.get("status") != "complete":
         raise HTTPException(status_code=400, detail="payment is not confirmed")
-    if session.get("currency") != "eur" or session.get("amount_total") != 9900:
-        raise HTTPException(status_code=400, detail="unexpected payment amount or currency")
+    if session.get("currency") != "eur":
+        raise HTTPException(status_code=400, detail="unexpected payment currency")
 
     expected_price = os.getenv("OLA_STRIPE_PRICE_ID", "").strip()
     if not expected_price:
@@ -86,12 +86,23 @@ def _validate_checkout(session: dict) -> str:
         raise HTTPException(status_code=400, detail="exactly one Stripe line item is required")
     item = items[0]
     price = item.get("price") if isinstance(item, dict) else None
+    quantity = item.get("quantity") if isinstance(item, dict) else None
+    unit_amount = price.get("unit_amount") if isinstance(price, dict) else None
+    price_currency = price.get("currency") if isinstance(price, dict) else None
+    amount_total = session.get("amount_total")
     if (
         not isinstance(price, dict)
         or price.get("id") != expected_price
-        or item.get("quantity") != 1
+        or quantity != 1
+        or isinstance(unit_amount, bool)
+        or not isinstance(unit_amount, int)
+        or unit_amount <= 0
+        or price_currency != "eur"
+        or isinstance(amount_total, bool)
+        or not isinstance(amount_total, int)
+        or amount_total != unit_amount * quantity
     ):
-        raise HTTPException(status_code=400, detail="unexpected Stripe price or quantity")
+        raise HTTPException(status_code=400, detail="unexpected Stripe price, amount, currency or quantity")
 
     task = _metadata_task(session)
     if not task:
