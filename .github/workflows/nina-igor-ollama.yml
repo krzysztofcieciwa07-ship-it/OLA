@@ -111,6 +111,8 @@ jobs:
             -e OLA_LLM_TIMEOUT="$OLA_LLM_TIMEOUT" \
             -e OLA_OLLAMA_NUM_PREDICT="$OLA_OLLAMA_NUM_PREDICT" \
             ola-nina-ollama
+          docker exec ola-nina-ollama sh -c 'test -r /app/ola-build-info.json && test ! -w /app/ola-build-info.json && test ! -w /app' \
+            || { echo "BUILD_INFO_NOT_IMMUTABLE"; exit 1; }
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
               exit 0
