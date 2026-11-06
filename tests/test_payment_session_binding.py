@@ -49,7 +49,8 @@ def record_order(task, checkout_id, status, *, run_id=None):
 
 def paid_session(checkout_id, task, order_id):
     return {
-        "id": checkout_id, "payment_status": "paid", "status": "complete",
+        "id": checkout_id, "livemode": False,
+        "payment_status": "paid", "status": "complete",
         "metadata": {
             "product": "OLA Execution Audit", "offer": "ola-execution-audit",
             "tenant_id": TENANT_ID, "task": task, "order_id": order_id,
