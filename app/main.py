@@ -3,6 +3,7 @@ import json
 import os
 import re
 import uuid
+import time
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
@@ -280,6 +281,13 @@ def create_checkout_session(
                     raise HTTPException(status_code=503, detail="checkout order could not be reserved") from None
         if order.request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Idempotency-Key was already used for a different task")
+        # Stripe may prune idempotency keys after its retention window. Never
+        # blindly retry a stale CREATING reservation and risk a second session.
+        if order.status == "CREATING" and int(time.time()) - order.created_at >= 23 * 60 * 60:
+            raise HTTPException(
+                status_code=409,
+                detail="checkout requires manual Stripe reconciliation; safe retry window expired",
+            )
         if order.status == "CHECKOUT_CREATED" and order.stripe_session_id and order.checkout_url:
             reused_order = {
                 "order_id": order.id,
