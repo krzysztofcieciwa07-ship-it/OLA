@@ -8,6 +8,7 @@ import uuid
 
 from sqlalchemy import select
 from .database import SessionLocal
+from .runtime_provenance import runtime_source_commit
 from .models import EvidenceRecord
 from .hashchain import sealed_payload_json, compute_record_hash_v2, verify_chain, trusted_record
 from .igor_workflow import verify_dag_records
