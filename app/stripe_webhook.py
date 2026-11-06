@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from .database import SessionLocal, append_evidence_atomic
 from .hashchain import canonical_json
 from .models import StripeEvent
+from .revenue import retrieve_checkout
 
 
 STRIPE_SIGNATURE_TOLERANCE_SECONDS = 300
@@ -62,26 +63,36 @@ def _metadata_task(session: dict) -> str | None:
 
 def _validate_checkout(session: dict) -> str:
     metadata = session.get("metadata") or {}
-    if not isinstance(session.get("id"), str) or not session["id"].startswith("cs_"):
-        raise HTTPException(status_code=400, detail="invalid Checkout Session identity")
+    session_id = session.get("id")
+    if not isinstance(session_id, str) or not session_id.startswith("cs_test_"):
+        raise HTTPException(status_code=400, detail="invalid sandbox Checkout Session identity")
+    if session.get("livemode") is not False:
+        raise HTTPException(status_code=400, detail="live Stripe sessions are forbidden")
     if metadata.get("offer") != OLA_OFFER:
         raise HTTPException(status_code=400, detail="unsupported Stripe offer")
-    if metadata.get("product") not in {None, OLA_PRODUCT}:
+    if metadata.get("product") != OLA_PRODUCT:
         raise HTTPException(status_code=400, detail="unsupported Stripe product")
-    if session.get("payment_status") != "paid" or session.get("status") not in {None, "complete"}:
+    if session.get("payment_status") != "paid" or session.get("status") != "complete":
         raise HTTPException(status_code=400, detail="payment is not confirmed")
     if session.get("currency") != "eur" or session.get("amount_total") != 9900:
         raise HTTPException(status_code=400, detail="unexpected payment amount or currency")
-    line_items = session.get("line_items") or {}
-    if isinstance(line_items, dict):
-        price_ids = {
-            item.get("price", {}).get("id")
-            for item in line_items.get("data", [])
-            if isinstance(item, dict) and isinstance(item.get("price"), dict)
-        }
-        expected_price = os.getenv("OLA_STRIPE_PRICE_ID")
-        if price_ids and expected_price and price_ids != {expected_price}:
-            raise HTTPException(status_code=400, detail="unexpected Stripe price")
+
+    expected_price = os.getenv("OLA_STRIPE_PRICE_ID", "").strip()
+    if not expected_price:
+        raise HTTPException(status_code=503, detail="Stripe sandbox Price ID is not configured")
+    line_items = session.get("line_items")
+    items = line_items.get("data") if isinstance(line_items, dict) else None
+    if not isinstance(items, list) or len(items) != 1:
+        raise HTTPException(status_code=400, detail="exactly one Stripe line item is required")
+    item = items[0]
+    price = item.get("price") if isinstance(item, dict) else None
+    if (
+        not isinstance(price, dict)
+        or price.get("id") != expected_price
+        or item.get("quantity") != 1
+    ):
+        raise HTTPException(status_code=400, detail="unexpected Stripe price or quantity")
+
     task = _metadata_task(session)
     if not task:
         raise HTTPException(status_code=400, detail="audit task is required")
@@ -103,18 +114,31 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     if not event_id or not event_type:
         raise HTTPException(status_code=400, detail="Stripe event id and type are required")
 
-    expected_livemode = os.getenv("STRIPE_EXPECT_LIVEMODE", "false").strip().lower() == "true"
-    if not isinstance(event.get("livemode"), bool) or event["livemode"] is not expected_livemode:
-        raise HTTPException(status_code=400, detail="unexpected Stripe account mode")
+    # This integration is permanently sandbox-only. Environment flags must never
+    # promote a signed LIVE event into an accepted payment.
+    if event.get("livemode") is not False:
+        raise HTTPException(status_code=400, detail="live Stripe events are forbidden")
 
     if event_type != "checkout.session.completed":
         return {"status": "IGNORED", "event_id": event_id, "event_type": event_type}
 
-    session = event.get("data", {}).get("object", {})
+    event_session = event.get("data", {}).get("object", {})
+    session_id = event_session.get("id") if isinstance(event_session, dict) else None
+    if not isinstance(session_id, str) or not session_id.startswith("cs_test_"):
+        raise HTTPException(status_code=400, detail="invalid sandbox Checkout Session reference")
+
+    # A valid event signature authenticates the event, but Stripe's API remains
+    # authoritative for payment state, metadata and expanded line items.
+    try:
+        session = retrieve_checkout(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="authoritative Stripe session lookup failed") from exc
+    if not isinstance(session, dict) or session.get("id") != session_id:
+        raise HTTPException(status_code=502, detail="Stripe returned a different Checkout Session")
     task = _validate_checkout(session)
-    tenant_id = (session.get("metadata") or {}).get("tenant_id") or os.getenv("OLA_STRIPE_TENANT_ID", "")
-    if not tenant_id:
-        raise HTTPException(status_code=500, detail="Stripe session has no tenant provenance")
+    tenant_id = (session.get("metadata") or {}).get("tenant_id")
+    if not isinstance(tenant_id, str) or not tenant_id.strip():
+        raise HTTPException(status_code=400, detail="Stripe session has no tenant provenance")
 
     with SessionLocal() as db:
         existing = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
