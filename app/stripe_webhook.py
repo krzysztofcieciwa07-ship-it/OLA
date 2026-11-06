@@ -49,20 +49,29 @@ def _append_evidence(tenant_id: str, record_type: str, payload: dict, *, dedupli
 
 
 def _metadata_task(session: dict) -> str | None:
-    metadata = session.get("metadata") or {}
+    metadata = session.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
     task = metadata.get("task")
     if isinstance(task, str) and task.strip():
         return task.strip()
-    for field in session.get("custom_fields", []) or []:
-        if field.get("key") == "audit_task":
-            value = field.get("text", {}).get("value")
-            if isinstance(value, str) and value.strip():
-                return value.strip()
+    custom_fields = session.get("custom_fields")
+    if not isinstance(custom_fields, list):
+        return None
+    for field in custom_fields:
+        if not isinstance(field, dict) or field.get("key") != "audit_task":
+            continue
+        text_field = field.get("text")
+        value = text_field.get("value") if isinstance(text_field, dict) else None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
     return None
 
 
 def _validate_checkout(session: dict) -> str:
-    metadata = session.get("metadata") or {}
+    metadata = session.get("metadata")
+    if not isinstance(metadata, dict):
+        raise HTTPException(status_code=400, detail="Stripe session metadata is invalid")
     session_id = session.get("id")
     if not isinstance(session_id, str) or not session_id.startswith("cs_test_"):
         raise HTTPException(status_code=400, detail="invalid sandbox Checkout Session identity")
@@ -122,6 +131,8 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="invalid Stripe JSON") from exc
 
+    if not isinstance(event, dict):
+        raise HTTPException(status_code=400, detail="Stripe event must be an object")
     event_id = event.get("id")
     event_type = event.get("type")
     if not isinstance(event_id, str) or not event_id or not isinstance(event_type, str) or not event_type:
