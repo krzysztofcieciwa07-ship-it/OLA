@@ -122,7 +122,8 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     if event_type != "checkout.session.completed":
         return {"status": "IGNORED", "event_id": event_id, "event_type": event_type}
 
-    event_session = event.get("data", {}).get("object", {})
+    event_data = event.get("data")
+    event_session = event_data.get("object") if isinstance(event_data, dict) else None
     session_id = event_session.get("id") if isinstance(event_session, dict) else None
     if not isinstance(session_id, str) or not session_id.startswith("cs_test_"):
         raise HTTPException(status_code=400, detail="invalid sandbox Checkout Session reference")
