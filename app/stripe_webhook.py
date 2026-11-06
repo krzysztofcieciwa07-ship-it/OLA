@@ -6,12 +6,12 @@ import time
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from .database import SessionLocal, append_evidence_atomic
 from .hashchain import canonical_json
-from .models import StripeEvent
+from .models import StripeEvent, CheckoutOrder
 from .revenue import retrieve_checkout
 
 
@@ -44,8 +44,8 @@ def verify_stripe_signature(payload: bytes, signature_header: str, secret: str, 
     return any(hmac.compare_digest(expected, signature) for signature in signatures)
 
 
-def _append_evidence(tenant_id: str, record_type: str, payload: dict) -> str:
-    return append_evidence_atomic(tenant_id, record_type, payload)["id"]
+def _append_evidence(tenant_id: str, record_type: str, payload: dict, *, deduplicate=False) -> str:
+    return append_evidence_atomic(tenant_id, record_type, payload, deduplicate=deduplicate)["id"]
 
 
 def _metadata_task(session: dict) -> str | None:
@@ -124,11 +124,9 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
 
     event_id = event.get("id")
     event_type = event.get("type")
-    if not event_id or not event_type:
+    if not isinstance(event_id, str) or not event_id or not isinstance(event_type, str) or not event_type:
         raise HTTPException(status_code=400, detail="Stripe event id and type are required")
 
-    # This integration is permanently sandbox-only. Environment flags must never
-    # promote a signed LIVE event into an accepted payment.
     if event.get("livemode") is not False:
         raise HTTPException(status_code=400, detail="live Stripe events are forbidden")
 
@@ -141,8 +139,6 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     if not isinstance(session_id, str) or not session_id.startswith("cs_test_"):
         raise HTTPException(status_code=400, detail="invalid sandbox Checkout Session reference")
 
-    # A valid event signature authenticates the event, but Stripe's API remains
-    # authoritative for payment state, metadata and expanded line items.
     try:
         session = retrieve_checkout(session_id)
     except Exception as exc:
@@ -150,36 +146,79 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     if not isinstance(session, dict) or session.get("id") != session_id:
         raise HTTPException(status_code=502, detail="Stripe returned a different Checkout Session")
     task = _validate_checkout(session)
-    tenant_id = (session.get("metadata") or {}).get("tenant_id")
+    metadata = session.get("metadata") or {}
+    tenant_id = metadata.get("tenant_id")
+    order_id = metadata.get("order_id")
     if not isinstance(tenant_id, str) or not tenant_id.strip():
         raise HTTPException(status_code=400, detail="Stripe session has no tenant provenance")
+    if not isinstance(order_id, str) or not order_id.strip():
+        raise HTTPException(status_code=400, detail="Stripe session has no OLA order binding")
 
+    # Claim the order with a conditional update. Only one Stripe event may own
+    # the transition from CHECKOUT_CREATED to PAYMENT_PROCESSING.
     with SessionLocal() as db:
+        order = db.get(CheckoutOrder, order_id)
+        if (
+            order is None
+            or order.tenant_id != tenant_id
+            or order.stripe_session_id != session_id
+        ):
+            raise HTTPException(status_code=409, detail="Stripe session is not bound to this OLA order")
+        if order.status == "PAID_PENDING_REVIEW" and order.payment_result_json:
+            return json.loads(order.payment_result_json)
+        if order.status == "CHECKOUT_CREATED":
+            claimed = db.execute(
+                update(CheckoutOrder)
+                .where(
+                    CheckoutOrder.id == order_id,
+                    CheckoutOrder.status == "CHECKOUT_CREATED",
+                )
+                .values(status="PAYMENT_PROCESSING", payment_event_id=event_id)
+            )
+            if claimed.rowcount != 1:
+                db.rollback()
+                order = db.get(CheckoutOrder, order_id)
+                if not (
+                    order is not None
+                    and order.status == "PAYMENT_PROCESSING"
+                    and order.payment_event_id == event_id
+                ):
+                    raise HTTPException(status_code=409, detail="another Stripe event owns this OLA order")
+        elif not (
+            order.status == "PAYMENT_PROCESSING"
+            and order.payment_event_id == event_id
+        ):
+            raise HTTPException(status_code=409, detail="OLA order is not eligible for payment recovery")
+        db.commit()
+
         existing = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
         if existing is not None:
             if existing.status in {"REVIEW_REQUIRED", "COMPLETED"} and existing.result_json:
                 return json.loads(existing.result_json)
-            raise HTTPException(status_code=409, detail="Stripe event is already being processed")
-
-        record = StripeEvent(
-            id=str(uuid.uuid4()),
-            event_id=event_id,
-            status="PROCESSING",
-            task=task,
-        )
-        db.add(record)
-        try:
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            raise HTTPException(status_code=409, detail="Stripe event is already being processed") from None
+            if existing.status != "PROCESSING":
+                raise HTTPException(status_code=409, detail="Stripe event is not recoverable")
+        else:
+            db.add(StripeEvent(
+                id=str(uuid.uuid4()),
+                event_id=event_id,
+                status="PROCESSING",
+                task=task,
+            ))
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                existing = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
+                if existing is None or existing.status != "PROCESSING":
+                    raise HTTPException(status_code=409, detail="Stripe event is already being processed") from None
 
     payment_evidence_id = _append_evidence(
         tenant_id,
         "stripe.payment_confirmed",
         {
+            "ola_order_id": order_id,
             "stripe_event_id": event_id,
-            "checkout_session_id": session["id"],
+            "checkout_session_id": session_id,
             "offer": OLA_OFFER,
             "product": OLA_PRODUCT,
             "amount_total": session.get("amount_total"),
@@ -188,12 +227,14 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
             "execution_authorized": False,
             "review_required": True,
         },
+        deduplicate=True,
     )
 
     result = {
         "status": "PAID_PENDING_REVIEW",
         "event_id": event_id,
-        "checkout_session_id": session["id"],
+        "order_id": order_id,
+        "checkout_session_id": session_id,
         "payment": "CONFIRMED",
         "ola_status": "NOT_STARTED",
         "ola_run_id": None,
@@ -205,19 +246,26 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
         tenant_id,
         "stripe.payment_pending_review",
         {
+            "ola_order_id": order_id,
             "stripe_event_id": event_id,
-            "checkout_session_id": session["id"],
+            "checkout_session_id": session_id,
             "payment_evidence_id": payment_evidence_id,
             "execution_authorized": False,
             "next_gate": "HUMAN_REVIEW",
         },
+        deduplicate=True,
     )
 
     with SessionLocal() as db:
         completed = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event_id))
+        order = db.get(CheckoutOrder, order_id)
+        if completed is None or order is None or order.payment_event_id != event_id:
+            raise HTTPException(status_code=503, detail="payment recovery state unavailable")
         completed.status = "REVIEW_REQUIRED"
         completed.run_id = None
         completed.result_json = canonical_json(result)
+        order.status = "PAID_PENDING_REVIEW"
+        order.payment_result_json = canonical_json(result)
         db.commit()
 
     return result
