@@ -96,14 +96,21 @@ def retrieve_checkout(session_id):
 
 
 def payment_verified(session):
-    metadata = session.get("metadata", {})
+    metadata = session.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
     return (
-        session.get("payment_status") == "paid"
+        session.get("livemode") is False
+        and session.get("payment_status") == "paid"
         and session.get("status") == "complete"
         and metadata.get("product") == PRODUCT_NAME
         and metadata.get("offer") == OFFER
-        and bool(metadata.get("tenant_id"))
-        and bool(metadata.get("task"))
+        and isinstance(metadata.get("tenant_id"), str)
+        and bool(metadata.get("tenant_id").strip())
+        and isinstance(metadata.get("task"), str)
+        and bool(metadata.get("task").strip())
+        and isinstance(metadata.get("order_id"), str)
+        and bool(metadata.get("order_id").strip())
     )
 
 
