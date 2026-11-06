@@ -11,7 +11,7 @@ from app.models import ApiKey, Tenant, EvidenceRecord, CheckoutOrder
 from sqlalchemy import select
 
 
-def _client_and_key():
+def _client_and_key(*, raise_server_exceptions=True):
     tenant_id = str(uuid.uuid4())
     raw_key = f"checkout-key-{tenant_id}"
     with SessionLocal() as db:
@@ -23,7 +23,7 @@ def _client_and_key():
             key_hash=api_key_fingerprint(raw_key),
         ))
         db.commit()
-    return TestClient(app), raw_key
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions), raw_key
 
 
 def _checkout(client, key, idempotency_key, task="verify workflow"):
@@ -107,7 +107,7 @@ def test_checkout_requires_idempotency_key(monkeypatch):
 
 
 def test_checkout_replay_repairs_missing_evidence_without_duplicate(monkeypatch):
-    client, key = _client_and_key()
+    client, key = _client_and_key(raise_server_exceptions=False)
     original_append = main.append_record
     attempts = 0
 
@@ -125,8 +125,6 @@ def test_checkout_replay_repairs_missing_evidence_without_duplicate(monkeypatch)
         "url": "https://checkout.stripe.test/evidence-repair",
     })
     monkeypatch.setattr(main, "append_record", fail_once)
-    client.raise_server_exceptions = False
-
     first = _checkout(client, key, "request-evidence-123")
     second = _checkout(client, key, "request-evidence-123")
 

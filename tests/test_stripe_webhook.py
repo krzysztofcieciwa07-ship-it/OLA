@@ -30,7 +30,7 @@ def _paid_session():
             "offer": "ola-execution-audit",
             "product": "OLA Execution Audit",
             "task": "Audit this company workflow for evidence gaps.",
-            "tenant_id": "tenant-test",
+            "tenant_id": str(uuid.uuid4()),
             "order_id": str(uuid.uuid4()),
         },
         "payment_status": "paid",
@@ -284,12 +284,12 @@ def test_webhook_recovers_after_partial_evidence_write_without_duplicate_records
     with SessionLocal() as db:
         order = db.get(CheckoutOrder, session["metadata"]["order_id"])
         confirmed = db.query(EvidenceRecord).filter(
-            EvidenceRecord.tenant_id == "tenant-test",
+            EvidenceRecord.tenant_id == session["metadata"]["tenant_id"],
             EvidenceRecord.record_type == "stripe.payment_confirmed",
             EvidenceRecord.payload_json.contains(session["metadata"]["order_id"]),
         ).all()
         pending = db.query(__import__("app.models", fromlist=["EvidenceRecord"]).EvidenceRecord).filter_by(
-            tenant_id="tenant-test", record_type="stripe.payment_pending_review"
+            tenant_id=session["metadata"]["tenant_id"], record_type="stripe.payment_pending_review"
         ).all()
     assert order.status == "PAID_PENDING_REVIEW"
     assert len(confirmed) == 1
@@ -322,7 +322,7 @@ def test_distinct_duplicate_webhook_events_for_paid_session_do_not_duplicate_pay
     assert second == first
     with SessionLocal() as db:
         confirmed = db.query(__import__("app.models", fromlist=["EvidenceRecord"]).EvidenceRecord).filter_by(
-            tenant_id="tenant-test", record_type="stripe.payment_confirmed"
+            tenant_id=session["metadata"]["tenant_id"], record_type="stripe.payment_confirmed"
         ).all()
     assert len(confirmed) == 1
 
