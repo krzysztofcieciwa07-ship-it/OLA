@@ -275,7 +275,7 @@ def payment_success(session_id: str):
     with SessionLocal() as db:
         candidates = db.scalars(
             select(StripeEvent).where(
-                StripeEvent.status == "COMPLETED",
+                StripeEvent.status.in_(("REVIEW_REQUIRED", "COMPLETED")),
                 StripeEvent.task == task,
             )
         ).all()
@@ -300,6 +300,15 @@ def payment_success(session_id: str):
             "session_id": session_id,
             "task": task,
             "execution": "STRIPE_WEBHOOK",
+        }
+    if matches[0][1].get("status") == "PAID_PENDING_REVIEW":
+        return {
+            "status": "PAID_PENDING_REVIEW",
+            "session_id": session_id,
+            "task": task,
+            "payment": "CONFIRMED",
+            "execution": "NOT_STARTED",
+            "next_gate": "HUMAN_REVIEW",
         }
 
     return {
