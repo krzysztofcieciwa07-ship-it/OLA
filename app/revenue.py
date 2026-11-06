@@ -20,22 +20,27 @@ def stripe_secret_key() -> str:
     return secret
 
 
-def _stripe_request(path: str, fields: dict[str, Any]) -> dict[str, Any]:
+def _stripe_request(path: str, fields: dict[str, Any], *, idempotency_key: str | None = None) -> dict[str, Any]:
     secret = stripe_secret_key()
+    headers = {
+        "Authorization": f"Bearer {secret}",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    if idempotency_key:
+        if not isinstance(idempotency_key, str) or not idempotency_key.startswith("ola-checkout-"):
+            raise ValueError("invalid OLA Stripe idempotency key")
+        headers["Idempotency-Key"] = idempotency_key
     req = urllib.request.Request(
         "https://api.stripe.com/v1/" + path,
         data=urllib.parse.urlencode(fields).encode(),
-        headers={
-            "Authorization": f"Bearer {secret}",
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=30) as response:
         return json.load(response)
 
 
-def create_checkout(task, success_url, cancel_url, tenant_id):
+def create_checkout(task, success_url, cancel_url, tenant_id, *, idempotency_key=None):
     price_id = os.getenv("OLA_STRIPE_PRICE_ID")
     if not price_id:
         raise RuntimeError("OLA_STRIPE_PRICE_ID is not configured")
@@ -53,6 +58,7 @@ def create_checkout(task, success_url, cancel_url, tenant_id):
             "metadata[task]": task,
             "metadata[tenant_id]": tenant_id,
         },
+        idempotency_key=idempotency_key,
     )
 
 
