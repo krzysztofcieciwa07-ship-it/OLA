@@ -35,7 +35,7 @@ def _paid_session():
         "amount_total": 9900,
         "currency": "eur",
         "line_items": {
-            "data": [{"price": {"id": "price_test_ola"}, "quantity": 1}]
+            "data": [{"price": {"id": "price_test_ola", "unit_amount": 9900, "currency": "eur"}, "quantity": 1}]
         },
     }
 
