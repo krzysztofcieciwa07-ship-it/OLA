@@ -27,3 +27,10 @@ def test_strict_mode_blocks_malformed_build_info(monkeypatch, tmp_path):
 def test_legacy_environment_is_only_non_strict_fallback(monkeypatch, tmp_path):
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", "e" * 40)
     assert runtime_source_commit(require_build_info=False, build_info_path=tmp_path / "missing.json") == "e" * 40
+
+
+def test_invalid_build_info_uses_legacy_only_when_not_strict(monkeypatch, tmp_path):
+    path = tmp_path / "ola-build-info.json"
+    path.write_text("not-json")
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "f" * 40)
+    assert runtime_source_commit(require_build_info=False, build_info_path=path) == "f" * 40
