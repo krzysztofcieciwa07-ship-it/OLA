@@ -24,7 +24,7 @@ def install_append_only_triggers():
         """)
 
 
-def append_evidence_atomic(tenant_id, record_type, payload, *, producer_id="ola_runtime"):
+def append_evidence_atomic(tenant_id, record_type, payload, *, producer_id="ola_runtime", deduplicate=False):
     """Serialize all evidence writers before reading a tenant tip.
 
     SQLite BEGIN IMMEDIATE acquires the database writer reservation before
@@ -45,6 +45,17 @@ def append_evidence_atomic(tenant_id, record_type, payload, *, producer_id="ola_
         if db.bind.dialect.name != "sqlite":
             raise RuntimeError("no atomic append policy for non-SQLite backend")
         db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        if deduplicate:
+            existing = db.scalar(select(EvidenceRecord).where(
+                EvidenceRecord.tenant_id == tenant_id,
+                EvidenceRecord.record_type == record_type,
+                EvidenceRecord.payload_json == payload_json,
+            ))
+            if existing is not None:
+                existing_id = existing.id
+                db.rollback()
+                return {"id": existing_id, "tenant_id": tenant_id,
+                        "seq": existing.seq, "record_hash": existing.record_hash}
         last = db.scalar(select(EvidenceRecord)
                          .where(EvidenceRecord.tenant_id == tenant_id)
                          .order_by(EvidenceRecord.seq.desc()))
