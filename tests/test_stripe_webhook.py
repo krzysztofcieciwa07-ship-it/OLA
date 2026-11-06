@@ -86,7 +86,7 @@ def test_paid_webhook_queues_review_and_never_executes_automatically(monkeypatch
     def forbidden_execution(*args, **kwargs):
         raise AssertionError("payment confirmation must not execute an OLA task")
 
-    monkeypatch.setattr(stripe_webhook, "run_agent_task", forbidden_execution)
+    monkeypatch.setattr(stripe_webhook, "run_agent_task", forbidden_execution, raising=False)
     session = _paid_session()
     event = {
         "id": "evt_review_" + str(uuid.uuid4()),
