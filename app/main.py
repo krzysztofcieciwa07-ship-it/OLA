@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse
 from sqlalchemy import select
+from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
 from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
 from .api_key_hashing import api_key_fingerprint
@@ -368,7 +369,7 @@ def refresh_nina_workflow_report(run_id: str,
     from .igor_workflow import verify_dag_records
 
     tenant_id, _ = bearer_identity(authorization)
-    expected_commit = os.getenv("OLA_RUNTIME_COMMIT")
+    expected_commit = runtime_source_commit()
     if not expected_commit:
         raise HTTPException(status_code=409, detail="runtime source commit unknown")
     evidence = read_tenant_evidence(tenant_id)
@@ -434,7 +435,7 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     runtime = nina.execute(nina_task)
     run_id = runtime["runtime"]["run_id"]
     execution = runtime["runtime"].get("execution", [])
-    runtime_commit = os.getenv("OLA_RUNTIME_COMMIT")
+    runtime_commit = runtime_source_commit()
     provider = execution[0].get("provider") if execution else None
     model = execution[0].get("model") if execution else None
     invocation_type = execution[0].get("invocation_type") if execution else None
