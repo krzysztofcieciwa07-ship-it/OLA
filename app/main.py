@@ -253,6 +253,7 @@ def create_checkout_session(
     key_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
     request_hash = hashlib.sha256(task.encode("utf-8")).hexdigest()
     order_id = None
+    reused_order = None
     with SessionLocal() as db:
         order = db.scalar(select(CheckoutOrder).where(
             CheckoutOrder.tenant_id == tenant_id,
@@ -280,25 +281,28 @@ def create_checkout_session(
         if order.request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Idempotency-Key was already used for a different task")
         if order.status == "CHECKOUT_CREATED" and order.stripe_session_id and order.checkout_url:
-            completed_order = {
+            reused_order = {
                 "order_id": order.id,
                 "session_id": order.stripe_session_id,
                 "checkout_url": order.checkout_url,
                 "task": task,
             }
-            append_record(
-                tenant_id, "revenue.checkout_created", completed_order,
-                deduplicate=True,
-            )
-            return {
-                "status": "READY_FOR_PAYMENT",
-                "order_id": order.id,
-                "session_id": order.stripe_session_id,
-                "checkout_url": order.checkout_url,
-            }
-        order_id = order.id
-        order.status = "CREATING"
-        db.commit()
+        else:
+            order_id = order.id
+            order.status = "CREATING"
+            db.commit()
+
+    if reused_order is not None:
+        append_record(
+            tenant_id, "revenue.checkout_created", reused_order,
+            deduplicate=True,
+        )
+        return {
+            "status": "READY_FOR_PAYMENT",
+            "order_id": reused_order["order_id"],
+            "session_id": reused_order["session_id"],
+            "checkout_url": reused_order["checkout_url"],
+        }
 
     success_url = "http://localhost:8000/payment-success"
     cancel_url = "http://localhost:8000/"
