@@ -6,6 +6,11 @@ RUN apt-get update     && apt-get upgrade -y     && apt-get install -y --no-inst
 
 WORKDIR /app
 
+ARG OLA_SOURCE_COMMIT=UNKNOWN
+LABEL org.opencontainers.image.revision=${OLA_SOURCE_COMMIT}
+RUN OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python3.13 -c 'import json,os,pathlib; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"]},sort_keys=True)+"\\n",encoding="utf-8")'
+ENV OLA_BUILD_INFO_PATH=/app/ola-build-info.json
+
 COPY requirements.txt ./
 RUN python3.13 -m venv /opt/venv     && python -m pip install --no-cache-dir --upgrade pip     && python -m pip install --no-cache-dir --force-reinstall -r requirements.txt     && python -m pip check     && python -c "import msgpack, setuptools, urllib3, wheel; print('DEPENDENCY_VERSIONS', msgpack.__version__, setuptools.__version__, urllib3.__version__, wheel.__version__)" \
     && rm -rf /opt/venv/lib/python3.13/site-packages/pip \
