@@ -1,6 +1,9 @@
 """Owner Command Center must call the current OLA API without fake status or unsafe DOM."""
 from html.parser import HTMLParser
+import shutil
+import subprocess
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -67,3 +70,16 @@ def test_dashboard_keeps_human_gate_as_review_not_automatic_approval():
     assert 'id="evidence-button"' in html
     assert "wymaga osobnej decyzji uprawnionego człowieka" in html
     assert "APPROVED_FOR_REVIEW_ONLY" not in html
+
+
+def test_inline_dashboard_javascript_parses_with_node():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is unavailable; browser syntax check is delegated to CI runtime")
+    html = TestClient(app).get("/").text
+    parsed = DashboardParser()
+    parsed.feed(html)
+    script = "\\n".join(parsed.scripts)
+    result = subprocess.run([node, "--check", "-"], input=script,
+                            text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
