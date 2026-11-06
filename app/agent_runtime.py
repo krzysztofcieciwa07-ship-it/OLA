@@ -10,6 +10,7 @@ from sqlalchemy import select
 from .database import SessionLocal, append_evidence_atomic
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .models import EvidenceRecord
+from .runtime_provenance import runtime_source_commit
 
 
 AGENT_ROLES = [
@@ -286,11 +287,9 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
 
 
 def _runtime_source_commit():
-    commit = os.getenv("OLA_RUNTIME_COMMIT")
-    if (not isinstance(commit, str) or len(commit) != 40
-            or any(character not in "0123456789abcdef" for character in commit)):
-        return None
-    return commit
+    # The embedded build metadata is authoritative. In strict container mode,
+    # OLA_RUNTIME_COMMIT is deliberately ignored to prevent caller spoofing.
+    return runtime_source_commit()
 
 
 def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution):
@@ -307,7 +306,7 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "agent": agent,
         "agent_instance_id": agent_instance_id,
         "execution_boundary": "independent",
-        "commit": os.getenv("OLA_RUNTIME_COMMIT", "UNKNOWN"),
+        "commit": _runtime_source_commit() or "UNKNOWN",
         "context_digest": _digest(canonical_json(context)),
         "task": task,
         "input_digest": _digest(json.dumps(previous_output, sort_keys=True)),
