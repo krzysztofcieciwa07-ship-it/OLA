@@ -283,8 +283,10 @@ def test_webhook_recovers_after_partial_evidence_write_without_duplicate_records
     assert result["execution_authorized"] is False
     with SessionLocal() as db:
         order = db.get(CheckoutOrder, session["metadata"]["order_id"])
-        confirmed = db.query(EvidenceRecord).filter_by(
-            tenant_id="tenant-test", record_type="stripe.payment_confirmed"
+        confirmed = db.query(EvidenceRecord).filter(
+            EvidenceRecord.tenant_id == "tenant-test",
+            EvidenceRecord.record_type == "stripe.payment_confirmed",
+            EvidenceRecord.payload_json.contains(session["metadata"]["order_id"]),
         ).all()
         pending = db.query(__import__("app.models", fromlist=["EvidenceRecord"]).EvidenceRecord).filter_by(
             tenant_id="tenant-test", record_type="stripe.payment_pending_review"
