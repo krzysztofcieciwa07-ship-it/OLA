@@ -6,7 +6,8 @@ from app import main
 from app.api_key_hashing import api_key_fingerprint
 from app.database import SessionLocal
 from app.main import app
-from app.models import ApiKey, Tenant
+from app.models import ApiKey, Tenant, EvidenceRecord, CheckoutOrder
+from sqlalchemy import select
 
 
 def _client_and_key():
@@ -102,3 +103,62 @@ def test_checkout_requires_idempotency_key(monkeypatch):
 
     assert response.status_code == 400
     assert called == []
+
+
+def test_checkout_replay_repairs_missing_evidence_without_duplicate(monkeypatch):
+    client, key = _client_and_key()
+    original_append = main.append_record
+    attempts = 0
+
+    def fail_once(tenant_id, record_type, payload, *, deduplicate=False):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("simulated evidence-store interruption")
+        return original_append(
+            tenant_id, record_type, payload, deduplicate=deduplicate
+        )
+
+    monkeypatch.setattr(main, "create_checkout", lambda *args, **kwargs: {
+        "id": "cs_test_evidencerepair123",
+        "url": "https://checkout.stripe.test/evidence-repair",
+    })
+    monkeypatch.setattr(main, "append_record", fail_once)
+    client.raise_server_exceptions = False
+
+    first = _checkout(client, key, "request-evidence-123")
+    second = _checkout(client, key, "request-evidence-123")
+
+    assert first.status_code == 500
+    assert second.status_code == 200
+    with SessionLocal() as db:
+        rows = db.scalars(select(EvidenceRecord).where(
+            EvidenceRecord.record_type == "revenue.checkout_created"
+        )).all()
+        orders = db.scalars(select(CheckoutOrder)).all()
+    assert len([row for row in rows if "cs_test_evidencerepair123" in row.payload_json]) == 1
+    assert len([order for order in orders if order.stripe_session_id == "cs_test_evidencerepair123"]) == 1
+
+
+def test_checkout_ignores_caller_controlled_redirect_urls(monkeypatch):
+    client, key = _client_and_key()
+    captured = {}
+
+    def create(task, success_url, cancel_url, tenant_id, idempotency_key):
+        captured.update(success_url=success_url, cancel_url=cancel_url)
+        return {"id": "cs_test_redirect123", "url": "https://checkout.stripe.test/redirect"}
+
+    monkeypatch.setattr(main, "create_checkout", create)
+    response = client.post(
+        "/checkout",
+        headers={"X-API-Key": key, "Idempotency-Key": "request-redirect-123"},
+        json={
+            "task": "verify redirect safety",
+            "success_url": "https://attacker.example/collect",
+            "cancel_url": "https://attacker.example/cancel",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["success_url"] == "http://localhost:8000/payment-success"
+    assert captured["cancel_url"] == "http://localhost:8000/"
