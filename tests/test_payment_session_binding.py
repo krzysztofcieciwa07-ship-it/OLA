@@ -23,6 +23,24 @@ def record_completed_checkout(task, checkout_id, run_id):
         db.commit()
 
 
+def record_review_pending_checkout(task, checkout_id):
+    with SessionLocal() as db:
+        db.add(StripeEvent(
+            id=str(uuid.uuid4()),
+            event_id="evt_" + str(uuid.uuid4()),
+            status="REVIEW_REQUIRED",
+            task=task,
+            run_id=None,
+            result_json=json.dumps({
+                "status": "PAID_PENDING_REVIEW",
+                "checkout_session_id": checkout_id,
+                "payment": "CONFIRMED",
+                "ola_run_id": None,
+            }),
+        ))
+        db.commit()
+
+
 def paid_session(checkout_id, task):
     return {
         "id": checkout_id, "payment_status": "paid", "status": "complete",
@@ -53,4 +71,19 @@ def test_payment_success_does_not_disclose_other_session_result(monkeypatch):
     result = main.payment_success("cs_test_brand_new")
     assert result["status"] == "PAYMENT_CONFIRMED_EXECUTION_PENDING"
     assert "result" not in result
+    assert "run_id" not in result
+
+
+def test_payment_success_reports_human_review_hold_without_execution(monkeypatch):
+    task = "review pending audit " + str(uuid.uuid4())
+    record_review_pending_checkout(task, "cs_test_review_hold")
+    monkeypatch.setattr(main, "retrieve_checkout",
+                        lambda sid: paid_session(sid, task))
+
+    result = main.payment_success("cs_test_review_hold")
+
+    assert result["status"] == "PAID_PENDING_REVIEW"
+    assert result["payment"] == "CONFIRMED"
+    assert result["execution"] == "NOT_STARTED"
+    assert result["next_gate"] == "HUMAN_REVIEW"
     assert "run_id" not in result
