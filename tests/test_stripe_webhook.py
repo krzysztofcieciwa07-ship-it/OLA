@@ -187,3 +187,14 @@ def test_webhook_rejects_malformed_event_data_without_crashing(monkeypatch, data
             payload, _signature(payload, int(time.time()))
         )
     assert getattr(exc.value, "status_code", None) == 400
+
+
+def test_paid_checkout_accepts_configured_price_amount_without_hardcoded_ola_price(monkeypatch):
+    monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
+    session = _paid_session()
+    session["amount_total"] = 14700
+    session["line_items"]["data"][0]["price"].update({
+        "unit_amount": 14700,
+        "currency": "eur",
+    })
+    assert _validate_checkout(session) == "Audit this company workflow for evidence gaps."
