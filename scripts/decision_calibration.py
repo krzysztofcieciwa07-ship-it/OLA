@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Measures how well the Decision model routes labelled evidence bundles (tests/data/decision_calibration.json).
 
-Decision model is ADVISORY. The question this answers is not "is Decision model smart" but "does Decision model ever let through something that
-needed a human or a block?". The headline number is therefore the unsafe-allow rate with a Wilson upper bound.
+The decision model is ADVISORY. This evaluation measures whether it ever lets through an evidence package that required review or blocking.
+The primary metric is the unsafe-allow rate with a Wilson upper confidence bound.
 
     TYPESAFE_API_KEY=... python scripts/decision_calibration.py [--repeats 3] [--out result.json]
 
