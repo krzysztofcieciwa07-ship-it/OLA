@@ -335,3 +335,25 @@ def test_webhook_rejects_non_object_json_event(monkeypatch):
             payload, _signature(payload, int(time.time()))
         )
     assert getattr(exc.value, "status_code", None) == 400
+
+
+def test_webhook_rejects_checkout_session_bound_to_another_order(monkeypatch):
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
+    session = _paid_session()
+    _seed_checkout_order(session)
+    session["metadata"]["order_id"] = str(uuid.uuid4())
+    monkeypatch.setattr(stripe_webhook, "retrieve_checkout", lambda session_id: session)
+
+    event = {
+        "id": "evt_wrong_order_" + str(uuid.uuid4()),
+        "type": "checkout.session.completed",
+        "livemode": False,
+        "data": {"object": {"id": session["id"]}},
+    }
+    payload = json.dumps(event, separators=(",", ":")).encode()
+    with pytest.raises(Exception) as exc:
+        stripe_webhook.process_checkout_event(
+            payload, _signature(payload, int(time.time()))
+        )
+    assert getattr(exc.value, "status_code", None) == 409
