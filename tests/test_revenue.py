@@ -65,3 +65,30 @@ def test_create_checkout_sends_stable_stripe_idempotency_header(monkeypatch):
     assert form["client_reference_id"] == ["order-123"]
     assert form["metadata[order_id]"] == ["order-123"]
     assert captured["timeout"] == 30
+
+
+def test_payment_verified_requires_sandbox_mode_and_order_binding():
+    from app.revenue import payment_verified
+
+    session = {
+        "livemode": False,
+        "payment_status": "paid",
+        "status": "complete",
+        "metadata": {
+            "product": "OLA Execution Audit",
+            "offer": "ola-execution-audit",
+            "tenant_id": "tenant-test",
+            "task": "audit task",
+            "order_id": "order-test",
+        },
+    }
+    assert payment_verified(session) is True
+
+    live = dict(session, livemode=True)
+    assert payment_verified(live) is False
+
+    unbound = dict(session, metadata={**session["metadata"], "order_id": ""})
+    assert payment_verified(unbound) is False
+
+    malformed = dict(session, metadata=[])
+    assert payment_verified(malformed) is False
