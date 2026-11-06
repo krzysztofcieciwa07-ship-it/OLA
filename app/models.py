@@ -1,4 +1,5 @@
 import uuid
+import time
 from sqlalchemy import Column, String, Integer, Text, ForeignKey, UniqueConstraint
 from .database import Base
 
@@ -51,6 +52,7 @@ class CheckoutOrder(Base):
     idempotency_key_hash = Column(String(64), nullable=False)
     request_hash = Column(String(64), nullable=False)
     status = Column(String(32), nullable=False)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
     stripe_session_id = Column(String(255), nullable=True, unique=True, index=True)
     checkout_url = Column(Text, nullable=True)
     __table_args__ = (
