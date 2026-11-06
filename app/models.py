@@ -41,3 +41,18 @@ class StripeEvent(Base):
     run_id = Column(String(36), nullable=True)
     task = Column(Text, nullable=True)
     result_json = Column(Text, nullable=True)
+
+
+class CheckoutOrder(Base):
+    """Durable, tenant-scoped intent to create one Stripe Checkout Session."""
+    __tablename__ = "checkout_orders"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    idempotency_key_hash = Column(String(64), nullable=False)
+    request_hash = Column(String(64), nullable=False)
+    status = Column(String(32), nullable=False)
+    stripe_session_id = Column(String(255), nullable=True, unique=True, index=True)
+    checkout_url = Column(Text, nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key_hash", name="uq_checkout_order_tenant_idempotency"),
+    )
