@@ -14,6 +14,7 @@ def test_local_listener_volume_and_build_source_are_required():
     assert "OLA_API_KEY_PEPPER:" in config
     assert "OLA_REQUIRE_BUILD_INFO: \"1\"" in config
     assert "OLA_SOURCE_COMMIT:" in config
+    assert "OLA_REQUIRE_BUILD_INFO: \"1\"" in config
     assert "0000000000000000000000000000000000000000" in config
 
 
@@ -21,7 +22,9 @@ def test_rehearsal_covers_restart_restore_tamper_and_stability():
     script = (ROOT / "scripts/staging_rehearsal.py").read_text()
     for contract in ("/readyz", "/audit", "restart", "--tamper-check",
                      "health_stable_12s", "BACKUP_RESTORE",
-                     "PRAGMA integrity_check", "sqlite_backup_restore_verified"):
+                     "PRAGMA integrity_check", "sqlite_backup_restore_verified",
+                     "image_revision_matches", "core_readyz_source_bound",
+                     "source_identity_verified"):
         assert contract in script
 
 
