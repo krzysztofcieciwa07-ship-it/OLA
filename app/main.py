@@ -252,6 +252,24 @@ def create_checkout_session(
     if not isinstance(idempotency_key, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", idempotency_key):
         raise HTTPException(status_code=400, detail="a valid Idempotency-Key header is required")
 
+    public_base_url = os.getenv("OLA_PUBLIC_BASE_URL", "").rstrip("/")
+    parsed_base_url = urlsplit(public_base_url)
+    local_http = parsed_base_url.scheme == "http" and parsed_base_url.hostname in {"localhost", "127.0.0.1"}
+    if (
+        not public_base_url
+        or parsed_base_url.scheme not in {"https", "http"}
+        or not parsed_base_url.netloc
+        or parsed_base_url.username
+        or parsed_base_url.password
+        or parsed_base_url.path not in {"", "/"}
+        or parsed_base_url.query
+        or parsed_base_url.fragment
+        or (parsed_base_url.scheme != "https" and not local_http)
+    ):
+        raise HTTPException(status_code=503, detail="a valid HTTPS OLA_PUBLIC_BASE_URL is required")
+    success_url = public_base_url + "/payment-success"
+    cancel_url = public_base_url + "/"
+
     key_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
     request_hash = hashlib.sha256(task.encode("utf-8")).hexdigest()
     order_id = None
@@ -313,23 +331,6 @@ def create_checkout_session(
             "checkout_url": reused_order["checkout_url"],
         }
 
-    public_base_url = os.getenv("OLA_PUBLIC_BASE_URL", "").rstrip("/")
-    parsed_base_url = urlsplit(public_base_url)
-    local_http = parsed_base_url.scheme == "http" and parsed_base_url.hostname in {"localhost", "127.0.0.1"}
-    if (
-        not public_base_url
-        or parsed_base_url.scheme not in {"https", "http"}
-        or not parsed_base_url.netloc
-        or parsed_base_url.username
-        or parsed_base_url.password
-        or parsed_base_url.path not in {"", "/"}
-        or parsed_base_url.query
-        or parsed_base_url.fragment
-        or (parsed_base_url.scheme != "https" and not local_http)
-    ):
-        raise HTTPException(status_code=503, detail="a valid HTTPS OLA_PUBLIC_BASE_URL is required")
-    success_url = public_base_url + "/payment-success"
-    cancel_url = public_base_url + "/"
     provider_idempotency_key = f"ola-checkout-{order_id}"
     try:
         session = create_checkout(
