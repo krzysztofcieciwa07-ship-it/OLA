@@ -1,5 +1,6 @@
 """Regression tests for opaque, encrypted, server-side Human Identity sessions."""
-import json
+import importlib
+from importlib.util import find_spec
 import uuid
 from http.cookies import SimpleCookie
 
@@ -9,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.database import SessionLocal
-from app.models import HumanSession, Tenant
+from app.models import Tenant
 
 
 def _tenant():
@@ -20,9 +21,22 @@ def _tenant():
     return tenant_id
 
 
-def _client(monkeypatch):
+def test_human_identity_sessions_module_exists():
+    assert find_spec("app.human_identity.sessions") is not None, (
+        "server-side Human Identity session store is missing"
+    )
+
+
+@pytest.fixture
+def session_api():
+    if find_spec("app.human_identity.sessions") is None:
+        pytest.skip("server-side Human Identity session store has not been implemented")
+    return importlib.import_module("app.human_identity.sessions")
+
+
+def _client(monkeypatch, session_api):
     from cryptography.fernet import Fernet
-    from app.human_identity.sessions import ServerSideSessionMiddleware
+    ServerSideSessionMiddleware = session_api.ServerSideSessionMiddleware
 
     monkeypatch.setenv("OLA_HUMAN_SESSION_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
     app = FastAPI()
@@ -93,8 +107,8 @@ def _cookie(response, name="ola_human_session"):
     return jar[name].value
 
 
-def test_authlib_transient_state_is_encrypted_server_side_not_cookie(monkeypatch):
-    client = _client(monkeypatch)
+def test_authlib_transient_state_is_encrypted_server_side_not_cookie(monkeypatch, session_api):
+    client = _client(monkeypatch, session_api)
     response = client.get("/write")
     assert response.status_code == 200
     token = _cookie(response)
@@ -102,6 +116,7 @@ def test_authlib_transient_state_is_encrypted_server_side_not_cookie(monkeypatch
     assert "pkce-verifier-secret" not in token
 
     with SessionLocal() as db:
+        HumanSession = importlib.import_module("app.models").HumanSession
         rows = db.scalars(select(HumanSession)).all()
         assert len(rows) == 1
         row = rows[0]
@@ -119,8 +134,8 @@ def test_authlib_transient_state_is_encrypted_server_side_not_cookie(monkeypatch
     }
 
 
-def test_human_login_rotates_session_and_binds_authenticated_context(monkeypatch):
-    client = _client(monkeypatch)
+def test_human_login_rotates_session_and_binds_authenticated_context(monkeypatch, session_api):
+    client = _client(monkeypatch, session_api)
     before = client.get("/write")
     old_cookie = _cookie(before)
     response = client.post("/login")
@@ -139,14 +154,15 @@ def test_human_login_rotates_session_and_binds_authenticated_context(monkeypatch
     }
 
     with SessionLocal() as db:
+        HumanSession = importlib.import_module("app.models").HumanSession
         rows = db.scalars(select(HumanSession).order_by(HumanSession.created_at.asc())).all()
         assert len(rows) == 2
         assert rows[0].revoked_at is not None
         assert rows[1].revoked_at is None
 
 
-def test_tampered_expired_or_revoked_session_is_not_authenticated(monkeypatch):
-    client = _client(monkeypatch)
+def test_tampered_expired_or_revoked_session_is_not_authenticated(monkeypatch, session_api):
+    client = _client(monkeypatch, session_api)
     response = client.post("/login")
     token = _cookie(response)
     assert client.get("/protected").json()["authenticated"] is True
@@ -164,8 +180,9 @@ def test_tampered_expired_or_revoked_session_is_not_authenticated(monkeypatch):
     assert tampered.get("/protected").json()["authenticated"] is False
 
 
-def test_production_session_storage_fails_closed_without_encryption_key(monkeypatch):
-    from app.human_identity.sessions import HumanSessionUnavailable, create_human_session
+def test_production_session_storage_fails_closed_without_encryption_key(monkeypatch, session_api):
+    HumanSessionUnavailable = session_api.HumanSessionUnavailable
+    create_human_session = session_api.create_human_session
 
     monkeypatch.delenv("OLA_HUMAN_SESSION_ENCRYPTION_KEY", raising=False)
     with pytest.raises(HumanSessionUnavailable):
