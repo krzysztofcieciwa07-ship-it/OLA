@@ -1,20 +1,36 @@
+FROM golang:1.27.0-bookworm AS gh-builder
+
+ARG GH_CLI_COMMIT=63837fb778d6a39f02be0ce76ff89f2bc8d74bdc
+ARG GO_NET_VERSION=v0.62.0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --filter=blob:none https://github.com/cli/cli.git /src \
+    && git -C /src checkout --detach "$GH_CLI_COMMIT" \
+    && test "$(git -C /src rev-parse HEAD)" = "$GH_CLI_COMMIT" \
+    && cd /src \
+    && go mod edit -require="golang.org/x/net@$GO_NET_VERSION" \
+    && go mod download "golang.org/x/net@$GO_NET_VERSION" \
+    && mkdir -p /out \
+    && go build -trimpath -buildvcs=false -o /out/gh ./cmd/gh \
+    && go version -m /out/gh | grep -F "golang.org/x/net $GO_NET_VERSION"
+
 FROM debian:13-slim
 
-ENV DEBIAN_FRONTEND=noninteractive     PYTHONDONTWRITEBYTECODE=1     PYTHONUNBUFFERED=1     OLA_EG_DB_PATH=/data/ola.db     PATH=/opt/venv/bin:$PATH
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    OLA_EG_DB_PATH=/data/ola.db \
+    PATH=/opt/venv/bin:$PATH
 
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends python3.13 python3.13-venv ca-certificates curl gpg \
-    && mkdir -p -m 755 /etc/apt/keyrings \
-    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /tmp/githubcli-archive-keyring.gpg \
-    && echo "6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b  /tmp/githubcli-archive-keyring.gpg" | sha256sum -c - \
-    && install -m 0644 /tmp/githubcli-archive-keyring.gpg /etc/apt/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends gh \
-    && gh attestation verify --help >/dev/null \
-    && rm -f /tmp/githubcli-archive-keyring.gpg \
+    && apt-get install -y --no-install-recommends python3.13 python3.13-venv ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=gh-builder /out/gh /usr/local/bin/gh
 
 WORKDIR /app
 
@@ -23,8 +39,14 @@ LABEL org.opencontainers.image.revision=${OLA_SOURCE_COMMIT}
 RUN OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python3.13 -c 'import json,os,pathlib; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"]},sort_keys=True),encoding="utf-8")'
 ENV OLA_BUILD_INFO_PATH=/app/ola-build-info.json
 
+RUN gh attestation verify --help >/dev/null
+
 COPY requirements.txt ./
-RUN python3.13 -m venv /opt/venv     && python -m pip install --no-cache-dir --upgrade pip     && python -m pip install --no-cache-dir --force-reinstall -r requirements.txt     && python -m pip check     && python -c "import msgpack, setuptools, urllib3, wheel; print('DEPENDENCY_VERSIONS', msgpack.__version__, setuptools.__version__, urllib3.__version__, wheel.__version__)" \
+RUN python3.13 -m venv /opt/venv \
+    && python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir --force-reinstall -r requirements.txt \
+    && python -m pip check \
+    && python -c "import msgpack, setuptools, urllib3, wheel; print('DEPENDENCY_VERSIONS', msgpack.__version__, setuptools.__version__, urllib3.__version__, wheel.__version__)" \
     && rm -rf /opt/venv/lib/python3.13/site-packages/pip \
               /opt/venv/lib/python3.13/site-packages/pip-*.dist-info \
               /opt/venv/lib/python3.13/site-packages/setuptools \
@@ -39,11 +61,15 @@ COPY scripts ./scripts
 COPY tests ./tests
 COPY web ./web
 
-RUN useradd --create-home --uid 10001 ola     && mkdir -p /data     && chown -R root:root /app     && chmod -R a-w /app     && chown -R ola:ola /data
+RUN useradd --create-home --uid 10001 ola \
+    && mkdir -p /data \
+    && chown -R root:root /app \
+    && chmod -R a-w /app \
+    && chown -R ola:ola /data
 
 USER ola
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
