@@ -335,7 +335,7 @@ def test_provenance_packager_requires_out_of_band_trusted_root_pin(tmp_path, mon
     bundle_path = tmp_path / "attestation.bundle"
     root_path = tmp_path / "trusted_root.jsonl"
     bundle_path.write_text(bundle, encoding="utf-8")
-    root_bytes = (root + "\\n").encode()
+    root_bytes = (root + "\n").encode()
     root_path.write_bytes(root_bytes)
     expected_pin = hashlib.sha256(root_bytes).hexdigest()
     observed = []
