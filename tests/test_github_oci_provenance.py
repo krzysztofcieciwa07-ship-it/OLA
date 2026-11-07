@@ -300,7 +300,7 @@ def test_runtime_provider_rejects_provenance_for_another_execution_image(tmp_pat
 def test_accepts_sigstore_bundle_jsonl_payload(monkeypatch):
     payload = json.loads(_payload())
     bundle = json.loads(base64.b64decode(payload["attestation_bundle_b64"]))
-    jsonl = (json.dumps(bundle) + "\\n" + json.dumps(bundle) + "\\n").encode()
+    jsonl = (json.dumps(bundle) + "\n" + json.dumps(bundle) + "\n").encode()
     payload["attestation_bundle_b64"] = base64.b64encode(jsonl).decode()
     payload["bundle_sha256"] = __import__("hashlib").sha256(jsonl).hexdigest()
     monkeypatch.setattr(
