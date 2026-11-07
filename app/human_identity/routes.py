@@ -93,7 +93,7 @@ def id_token_signing_algorithm(compact_id_token: str) -> str:
 def verify_human_csrf(request: Request, csrf_token: str | None) -> None:
     auth = request.session.get(AUTH_SESSION_KEY)
     expected = auth.get("csrf_token") if isinstance(auth, dict) else None
-    supplied = request.headers.get("x-ola-csrf")
+    supplied = csrf_token
     origin = request.headers.get("origin")
     try:
         trusted_base = trusted_public_base_url(deployment_profile=_deployment_profile())
