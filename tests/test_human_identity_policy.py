@@ -3,9 +3,10 @@ import importlib
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
+from sqlalchemy.exc import SQLAlchemyError
 
-from app.database import SessionLocal
+from app.database import SessionLocal, engine
 from app.hashchain import verify_chain
 
 
@@ -165,3 +166,29 @@ def test_invalid_actor_reason_or_target_mode_is_rejected(kwargs):
     with pytest.raises(rejected) as error:
         setter(tenant_id=tenant_id, **kwargs)
     assert error.value.code == 400
+
+
+def test_enabled_oidc_policy_cannot_be_downgraded_or_deleted_by_direct_database_write():
+    setter, _resolver, _rejected, tenant_model, _evidence_model, policy_model = _policy_api()
+    tenant_id = _tenant(tenant_model)
+    setter(
+        tenant_id=tenant_id,
+        actor_ref="principal-ref-admin-db",
+        reason="Enable OIDC before direct database tamper test",
+        target_mode="OIDC_REQUIRED",
+    )
+
+    table = policy_model.__table__
+    with pytest.raises(SQLAlchemyError):
+        with engine.begin() as connection:
+            connection.execute(
+                update(table)
+                .where(table.c.tenant_id == tenant_id)
+                .values(human_gate_mode="LEGACY_API")
+            )
+
+    with pytest.raises(SQLAlchemyError):
+        with engine.begin() as connection:
+            connection.execute(
+                delete(table).where(table.c.tenant_id == tenant_id)
+            )
