@@ -61,6 +61,8 @@ python scripts/verify_customer_bundle.py customer-evidence.zip --trust-store tru
 
 
 
+The OCI/SLSA workflow deliberately does not grant package-write or attestation-write permissions to pull-request jobs. To produce a real, non-production rehearsal bundle without merging PR #190, manually dispatch **OLA Supply Chain Evidence Gate** from the branch `feat/oidc-human-gate-customer-bundle-20261107` in GitHub Actions. The `oci-slsa-attestations` job then pushes the immutable candidate OCI image, attests its registry digest, exports the Sigstore bundle and trusted root, and uploads `ola-oci-slsa-evidence-<sha>`. This feature-branch evidence proves the verifier against a real bundle, but it is not production-eligible: production trust remains pinned to `refs/heads/main`. The manual dispatch must be completed before claiming the real-bundle gate has passed.
+
 For runtime issuance, `github_oci_provenance_runtime_from_env()` returns the provider/verifier pair that is injected into `CustomerBundleRuntime.provenance_provider` and `CustomerBundleRuntime.provenance_verifier`. It derives the expected source SHA from the immutable image build-info and refuses to start the provider if any required deployment setting is absent. Required settings are:
 
 - `OLA_GITHUB_PROVENANCE_FILE` — mounted or staged `source-runtime.json` produced by the verified OCI/SLSA workflow;
