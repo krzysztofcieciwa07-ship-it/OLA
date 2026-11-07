@@ -196,6 +196,7 @@ def request_recipient_grant(
 def approve_recipient_grant(
     *,
     tenant_id: str,
+    order_id: str,
     grant_id: str,
     approver_principal_id: str,
     approver_person_ref: str,
@@ -213,6 +214,7 @@ def approve_recipient_grant(
         grant = db.scalar(select(CustomerBundleRecipientGrant).where(
             CustomerBundleRecipientGrant.id == grant_id,
             CustomerBundleRecipientGrant.tenant_id == tenant_id,
+            CustomerBundleRecipientGrant.order_id == order_id,
         ).with_for_update())
         if grant is None:
             raise CustomerBundleDeliveryRejected(404, "recipient grant request not found")
@@ -253,6 +255,7 @@ def approve_recipient_grant(
 def revoke_recipient_grant(
     *,
     tenant_id: str,
+    order_id: str,
     grant_id: str,
     actor_principal_id: str,
     actor_person_ref: str,
@@ -270,6 +273,7 @@ def revoke_recipient_grant(
         grant = db.scalar(select(CustomerBundleRecipientGrant).where(
             CustomerBundleRecipientGrant.id == grant_id,
             CustomerBundleRecipientGrant.tenant_id == tenant_id,
+            CustomerBundleRecipientGrant.order_id == order_id,
         ).with_for_update())
         if grant is None:
             raise CustomerBundleDeliveryRejected(404, "recipient grant not found")
