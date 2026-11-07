@@ -4,7 +4,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, delete, event, insert, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
@@ -139,4 +139,28 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
         conn.exec_driver_sql(
             f'REVOKE UPDATE, TRUNCATE ON TABLE "{_schema}".evidence_records FROM "{runtime_role}"'
         )
+    database.verify_postgres_schema(runtime_engine)
+
+
+def test_postgres_human_identity_enforcement_latch_cannot_be_disabled_or_deleted(postgres_db):
+    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    from app.models import HumanIdentityEnforcement
+
+    table = HumanIdentityEnforcement.__table__
+    row_id = str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(insert(table).values(id=row_id, required=True))
+
+    # The runtime role has ordinary DML grants, but the one-way latch trigger
+    # must reject both disabling and deleting an enabled enforcement row.
+    with pytest.raises(DBAPIError):
+        with runtime_engine.begin() as conn:
+            conn.execute(
+                update(table).where(table.c.id == row_id).values(required=False)
+            )
+
+    with pytest.raises(DBAPIError):
+        with runtime_engine.begin() as conn:
+            conn.execute(delete(table).where(table.c.id == row_id))
+
     database.verify_postgres_schema(runtime_engine)
