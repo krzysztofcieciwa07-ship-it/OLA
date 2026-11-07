@@ -2,7 +2,7 @@
 
 ## Bundle format v1
 
-The `CUSTOMER_BUNDLE_SANDBOX_V1` format is a deterministic ZIP with:
+The `CUSTOMER_BUNDLE_SANDBOX_V1` format is a deterministic ZIP with a signed manifest binding the immutable `bundle_id`, per-order `bundle_version`, `created_at`, and `expires_at` to the same values stored in `CustomerEvidenceBundle` and the bundle-signed Evidence event. Creation time must equal the signed_at value; expiry must be later than creation. A delivery attempt references the bundle ID/version and never changes the signed package identity. The format is a ZIP with:
 - `report/report.json` — order-scoped customer report;
 - `evidence/order-evidence.ndjson` — filtered order evidence excerpt;
 - `igor/attestation.json` and `igor/attestation.sig` — independently signed IGOR attestation;
@@ -17,6 +17,8 @@ ZIP entries use sorted paths, fixed 1980-01-01 timestamps, fixed Unix file permi
 `evidence/order-evidence.ndjson` is an order-scoped excerpt. It preserves original record hashes for reference but is not the complete tenant chain and cannot independently recompute the tenant's whole Evidence Ledger. The verifier explicitly returns `full_tenant_chain_recomputed=false`.
 
 ## Verification and profile matrix
+
+Offline verification rejects a missing or malformed bundle UUID, nonpositive version, creation/signing timestamp mismatch, or expiry not later than creation. Production verification also checks that source SHA is 40 hexadecimal characters, image digest is `sha256:` plus 64 hexadecimal characters, the provenance file is present and three distinct HR-backed person references are bound into the approval metadata.
 
 The offline verifier requires an out-of-band trust store. The bundle binds separate approval and signing moments: `approved_at` / `approved_tip_hash` identify the state approved by the reviewer; `signed_at` / `signing_tip_hash` identify the later state rechecked immediately before signing. IGOR signs an attestation bound to the order, report digest and both Evidence tips.
 
