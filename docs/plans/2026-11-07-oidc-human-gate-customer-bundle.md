@@ -3,9 +3,9 @@
 > **Execution status (2026-11-07):** implementation changes are present in PR #190, but CI for the current head has not completed. Do not treat this plan as a test report or production acceptance.
 
 - PR: [#190](https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/190), Draft, stacked on PR #189.
-- Current verified branch head at last check: `098e5970f2cf48ca78309f9a945f74c5361da2d1`. Newer commits may supersede this SHA; read the branch ref before acting.
+- Current branch head at last check: `d362d272eb90f1d0e7496a401f10296db6a8c38a`. Re-read the branch ref before acting.
 - Branch base: PR #189 head `8e56b33df9a3e2806f3709fca90b07e4e595d28f`.
-- CI state for that head: 19 checks queued, zero completed; the latest subsequent commit has not yet completed CI.
+- CI state for that head: 19 checks queued, zero completed. No PASS or FAIL result exists for this SHA yet.
 - No merge, production deploy, IdP, HR/SCIM, KMS/HSM, RFC 3161 TSA or production object store configuration has been performed.
 - Replit reviewer HTML remains unintegrated; its source/API contract has not been independently verified against this branch.
 - Current default app state deliberately has `customer_bundle_runtime = None`; the bundle issue/download path returns 503 until explicit dependencies are injected.
@@ -15,12 +15,13 @@
 - Human Identity: OIDC sessions, persistent tenant policy latch, HR-backed person refs, SoD and dual-control role change routes.
 - Production profile is derived from the public HTTPS origin; a conflicting sandbox environment label cannot downgrade Human Gate or bundle issue/download.
 - Paid decision reports can embed `order_id` before computing the report digest.
-- Customer bundle: deterministic dual-signed Ed25519 archive, independent trusted-key check, signer public-key alias rejection, bundle identity/version/created/expiry bound into the signed manifest, offline verifier and CLI.
+- Customer bundle: deterministic dual-signed Ed25519 archive, independent trusted-key check, signer public-key alias rejection, bundle identity/version/created/expiry bound into the signed manifest, offline verifier and CLI. CLI exit codes distinguish active VERIFIED (0), PARTIAL (3), EXPIRED after successful integrity checks (4), and INVALID (2).
 - Bundle issue service re-checks the approved report digest, exact approval Evidence, full tenant chain, unique execution completion record and current signing tip before persistence.
 - Production requires independent IGOR/provenance providers and RFC 3161 verifier/provider. Missing services fail closed.
 - Recipient grants and per-transfer attempts are separate; explicit ACK is a separate Evidence event and is not interpreted as report comprehension.
 - Recipient authentication has a provider-neutral interface. OIDC is the current adapter; WebAuthn/passkey is not implemented or configured.
 - Download re-verifies the ZIP against an independent trust store and database bundle metadata before streaming; expired packages are refused even when their signatures remain cryptographically valid.
+- Added process-level CLI regressions for active verified packages (exit 0) and cryptographically valid expired packages (exit 4); committed but not yet CI-verified on this head.
 
 ## Verification limitations
 
@@ -186,7 +187,7 @@ git commit -m "feat(identity): enforce HR-backed Human Gate separation"
 - Create: app/customer_bundle/verifier.py
 - Create: scripts/verify_customer_bundle.py
 - Modify: requirements.txt, app/models.py and app/database.py
-- Create: tests/test_customer_bundle.py and tests/test_customer_bundle_verifier.py
+- Create: tests/test_customer_bundle.py, tests/test_customer_bundle_verifier.py and tests/test_customer_bundle_cli.py
 
 **Interfaces**
 - build_order_bundle(tenant_id, order_id, profile) -> BundleArtifact
