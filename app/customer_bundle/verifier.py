@@ -40,6 +40,10 @@ class VerificationReport:
     report_sha256: str | None
     full_tenant_chain_recomputed: bool = False
     timestamp_status: str = "NOT_PRESENT"
+    bundle_id: str | None = None
+    bundle_version: int | None = None
+    profile: str | None = None
+    expires_at: int | None = None
 
 
 def _invalid(reason: str, *, igor="NOT_CHECKED", ola="NOT_CHECKED",
@@ -457,4 +461,8 @@ def verify_customer_bundle(
             report_sha256=report_sha,
             full_tenant_chain_recomputed=False,
             timestamp_status=timestamp_status,
+            bundle_id=bundle_id,
+            bundle_version=bundle_version,
+            profile=profile,
+            expires_at=expires_at,
         )
