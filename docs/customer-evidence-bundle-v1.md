@@ -20,7 +20,9 @@ ZIP entries use sorted paths, fixed 1980-01-01 timestamps, fixed Unix file permi
 
 Offline verification rejects a missing or malformed bundle UUID, nonpositive version, creation/signing timestamp mismatch, or expiry not later than creation. Production verification also checks that source SHA is 40 hexadecimal characters, image digest is `sha256:` plus 64 hexadecimal characters, the provenance file is present and three distinct HR-backed person references are bound into the approval metadata.
 
-The offline verifier separates cryptographic `status` from `lifecycle_status`: the same signed package may remain cryptographically `VERIFIED` or `PARTIAL`, while its lifecycle changes from `ACTIVE` to `EXPIRED` at `expires_at`. An expired signature is not described as invalid merely because time elapsed, but the API download endpoint refuses to stream an expired package.\n\nThe offline verifier requires an out-of-band trust store. The bundle binds separate approval and signing moments: `approved_at` / `approved_tip_hash` identify the state approved by the reviewer; `signed_at` / `signing_tip_hash` identify the later state rechecked immediately before signing. IGOR signs an attestation bound to the order, report digest and both Evidence tips.
+The offline verifier separates cryptographic `status` from `lifecycle_status`: the same signed package may remain cryptographically `VERIFIED` or `PARTIAL`, while its lifecycle changes from `ACTIVE` to `EXPIRED` at `expires_at`. An expired signature is not described as invalid merely because time elapsed, but the API download endpoint refuses to stream an expired package.
+
+The offline verifier requires an out-of-band trust store. The bundle binds separate approval and signing moments: `approved_at` / `approved_tip_hash` identify the state approved by the reviewer; `signed_at` / `signing_tip_hash` identify the later state rechecked immediately before signing. IGOR signs an attestation bound to the order, report digest and both Evidence tips.
 
 | Profile | Required result | Offline outcome |
 |---|---|---|
