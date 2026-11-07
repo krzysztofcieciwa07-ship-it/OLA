@@ -20,7 +20,6 @@ from app.customer_bundle.delivery import (
     request_recipient_grant,
     revoke_recipient_grant,
 )
-from app.customer_bundle.storage import CustomerBundleStorageRejected
 from app.customer_bundle.verifier import verify_customer_bundle
 from app.database import SessionLocal
 from app.human_identity.membership import HumanMembershipRejected, require_human_operator
