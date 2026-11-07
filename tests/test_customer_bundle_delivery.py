@@ -168,8 +168,7 @@ def test_recipient_grant_requires_dual_control_from_distinct_hr_people():
 
 def test_each_download_is_a_new_attempt_and_does_not_mutate_bundle_or_grant():
     delivery = _delivery_api()
-    tenant_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
-    order_id = str(uuid.uuid4())
+    tenant_id, order_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
     bundle_id = _signed_bundle(tenant_id, order_id)
     request = delivery.request_recipient_grant(
         tenant_id=tenant_id,
@@ -241,8 +240,7 @@ def test_each_download_is_a_new_attempt_and_does_not_mutate_bundle_or_grant():
 
 def test_revoked_grant_creates_blocked_attempt_without_changing_bundle_state():
     delivery = _delivery_api()
-    tenant_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
-    order_id = str(uuid.uuid4())
+    tenant_id, order_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
     bundle_id = _signed_bundle(tenant_id, order_id)
     request = delivery.request_recipient_grant(
         tenant_id=tenant_id,
