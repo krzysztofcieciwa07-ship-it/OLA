@@ -493,3 +493,33 @@ def test_revoking_grant_invalidates_an_already_started_transfer():
             now=1_800_000_201,
         )
     assert blocked.value.code == 403
+
+
+def test_production_download_fails_closed_without_provenance_verifier(monkeypatch):
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from app.customer_bundle import routes
+
+    actor = SimpleNamespace(
+        tenant_id="tenant-production-download",
+        principal_id="recipient-principal",
+        person_ref="recipient-person-ref",
+    )
+    runtime = SimpleNamespace(
+        storage=SimpleNamespace(get=lambda _object_ref: b""),
+        trusted_keys={},
+        revoked_key_ids=frozenset(),
+        profile="CUSTOMER_BUNDLE_PRODUCTION_V1",
+    )
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(customer_bundle_runtime=runtime),
+        ),
+    )
+    monkeypatch.setattr(routes, "_recipient", lambda _request: actor)
+    monkeypatch.setattr(routes, "_deployment_profile", lambda: "production")
+
+    with pytest.raises(HTTPException) as blocked:
+        routes.download_customer_bundle("order-1", "bundle-1", request)
+
+    assert blocked.value.status_code == 503
