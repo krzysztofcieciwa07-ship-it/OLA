@@ -254,6 +254,24 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "reviewed_tip_hash", "reason", "approval_evidence_id", "reviewed_at",
             "delivery_evidence_id", "delivered_at",
         },
+        "customer_evidence_bundles": {
+            "id", "tenant_id", "order_id", "version", "status", "profile",
+            "manifest_sha256", "report_sha256", "igor_key_id", "ola_key_id",
+            "storage_object_ref", "approved_at", "approved_tip_hash", "signed_at",
+            "signing_tip_hash", "created_at", "expires_at", "revoked_at", "status_reason",
+        },
+        "customer_bundle_recipient_grants": {
+            "id", "tenant_id", "order_id", "recipient_principal_id", "recipient_person_ref",
+            "requester_principal_id", "requester_person_ref", "approver_principal_id",
+            "approver_person_ref", "status", "reason", "requested_at", "approved_at",
+            "expires_at", "revoked_at", "request_evidence_id", "approval_evidence_id",
+            "revocation_evidence_id",
+        },
+        "customer_bundle_delivery_attempts": {
+            "id", "tenant_id", "order_id", "bundle_id", "grant_id",
+            "recipient_principal_id", "recipient_person_ref", "attempt_no", "status",
+            "reason", "created_at", "started_at", "completed_at", "failed_at",
+        },
         "ola_schema_migrations": {"version", "description", "applied_at"},
     }
     inspector = inspect(bind)
@@ -281,6 +299,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "checkout_execution_jobs": {("order_id",)},
         "human_principals": {("tenant_id", "issuer", "subject")},
         "human_membership_roles": {("tenant_id", "principal_id", "role")},
+        "customer_evidence_bundles": {("tenant_id", "order_id", "version"), ("storage_object_ref",)},
+        "customer_bundle_delivery_attempts": {("bundle_id", "recipient_person_ref", "attempt_no")},
     }
     for table_name, expected in expected_unique_constraints.items():
         actual = {
@@ -300,7 +320,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied_versions = {
             row[0] for row in conn.execute(text(
                 "SELECT version FROM ola_schema_migrations WHERE version IN "
-                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc, :human_membership, :human_gate_actors, :human_policy_latch)"
+                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc, :human_membership, :human_gate_actors, :human_policy_latch, :customer_bundle_delivery)"
             ), {
                 "report_review": "ola_paid_order_report_review_v3",
                 "human_identity_policy": "ola_human_identity_policy_v1",
@@ -309,6 +329,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
                 "human_membership": "ola_human_membership_sod_v1",
                 "human_gate_actors": "ola_human_gate_actors_v1",
                 "human_policy_latch": "ola_human_identity_policy_latch_v1",
+                "customer_bundle_delivery": "ola_customer_bundle_delivery_v1",
             }).all()
         }
         trigger_rows = conn.execute(text("""
@@ -354,6 +375,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "ola_human_membership_sod_v1",
         "ola_human_gate_actors_v1",
         "ola_human_identity_policy_latch_v1",
+        "ola_customer_bundle_delivery_v1",
     } - applied_versions
     if missing_versions:
         raise RuntimeError(
@@ -562,6 +584,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_identity_policy_latch_v1",
             "description": "Enforce one-way OIDC_REQUIRED transitions at the database layer",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_customer_bundle_delivery_v1",
+            "description": "Add immutable bundle metadata, dual-controlled recipient grants and per-transfer attempts",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
