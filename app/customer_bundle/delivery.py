@@ -19,13 +19,20 @@ from app.models import (
     Tenant,
     TenantIdentityPolicy,
 )
-from app.human_identity.membership import assert_distinct_humans
+from app.human_identity.membership import HumanMembershipRejected, assert_distinct_humans
 
 
 class CustomerBundleDeliveryRejected(ValueError):
     def __init__(self, code: int, message: str):
         super().__init__(message)
         self.code = code
+
+
+def _assert_distinct_humans(*person_refs) -> None:
+    try:
+        assert_distinct_humans(*person_refs)
+    except HumanMembershipRejected as exc:
+        raise CustomerBundleDeliveryRejected(exc.code, str(exc)) from exc
 
 
 def _reason(value: str) -> str:
@@ -144,7 +151,7 @@ def request_recipient_grant(
         recipient = _principal(db, tenant_id, recipient_principal_id, recipient_person_ref)
         _require_role(db, tenant_id, requester_principal_id, "tenant_identity_admin")
         _require_role(db, tenant_id, recipient_principal_id, "recipient")
-        assert_distinct_humans(requester.person_ref, recipient.person_ref)
+        _assert_distinct_humans(requester.person_ref, recipient.person_ref)
 
         existing = db.scalar(select(CustomerBundleRecipientGrant).where(
             CustomerBundleRecipientGrant.tenant_id == tenant_id,
@@ -218,7 +225,7 @@ def approve_recipient_grant(
         recipient = _principal(
             db, tenant_id, grant.recipient_principal_id, grant.recipient_person_ref,
         )
-        assert_distinct_humans(
+        _assert_distinct_humans(
             grant.requester_person_ref, approver.person_ref, recipient.person_ref,
         )
         grant.status = "ACTIVE"
@@ -349,12 +356,13 @@ def begin_delivery_attempt(
             CustomerBundleDeliveryAttempt.recipient_person_ref == recipient.person_ref,
         )) or 0) + 1
         attempt_id = str(uuid.uuid4())
+        grant_id_value = grant.id if grant is not None else None
         attempt = CustomerBundleDeliveryAttempt(
             id=attempt_id,
             tenant_id=tenant_id,
             order_id=order_id,
             bundle_id=bundle_id,
-            grant_id=grant.id if grant is not None else None,
+            grant_id=grant_id_value,
             recipient_principal_id=recipient_principal_id,
             recipient_person_ref=recipient.person_ref,
             attempt_no=attempt_no,
@@ -370,7 +378,7 @@ def begin_delivery_attempt(
             {
                 "order_id": order_id,
                 "bundle_id": bundle_id,
-                "grant_id": grant.id if grant is not None else None,
+                "grant_id": grant_id_value,
                 "attempt_id": attempt_id,
                 "attempt_no": attempt_no,
                 "recipient_person_ref": recipient.person_ref,
@@ -385,7 +393,7 @@ def begin_delivery_attempt(
         "status": status,
         "attempt_id": attempt_id,
         "attempt_no": attempt_no,
-        "grant_id": grant.id if grant is not None else None,
+        "grant_id": grant_id_value,
         "reason": reason,
         "evidence_id": evidence["id"],
     }
