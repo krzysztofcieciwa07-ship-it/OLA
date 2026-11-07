@@ -284,7 +284,7 @@ def acknowledge_customer_bundle_delivery(
     x_ola_csrf: str | None = Header(default=None),
 ):
     """Record a recipient account's explicit acknowledgement after transfer completion."""
-    actor = _actor(request, "recipient")
+    actor = _recipient(request)
     _csrf(request, x_ola_csrf)
     try:
         return acknowledge_delivery_attempt(
