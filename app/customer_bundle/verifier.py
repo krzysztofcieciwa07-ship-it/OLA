@@ -97,13 +97,16 @@ def verify_customer_bundle(
     trusted_keys: dict[str, bytes],
     revoked_key_ids: set[str] | frozenset[str] = frozenset(),
     timestamp_verifier: Callable[[bytes, bytes, int], bool] | None = None,
+    provenance_verifier: Callable[[bytes, str, str], bool] | None = None,
     now: int | None = None,
 ) -> VerificationReport:
     """Verify ZIP safety, canonical manifest, two signatures and each listed file.
 
     A filtered order-evidence excerpt is never treated as the full tenant
-    Evidence chain. Production timestamp verification requires a separate
-    RFC 3161/transparency trust adapter supplied by the offline verifier.
+    Evidence chain. Production provenance and timestamp verification require
+    separate trust adapters supplied by the offline verifier. The provenance
+    adapter must validate the packaged attestation's signature, issuer/workflow
+    identity, source commit and OCI subject digest against the supplied values.
     """
     if not isinstance(bundle_bytes, bytes) or not bundle_bytes:
         return _invalid("EMPTY_BUNDLE")
@@ -396,6 +399,30 @@ def verify_customer_bundle(
                 report_sha=report_sha,
             )
         timestamp_status = "NOT_PRESENT"
+        if profile == PRODUCTION_PROFILE:
+            if provenance_verifier is None:
+                return _invalid(
+                    "PROVENANCE_ATTESTATION_VERIFIER_NOT_CONFIGURED",
+                    igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                    report_sha=report_sha,
+                )
+            try:
+                provenance_bytes = archive.read("provenance/source-runtime.json")
+                provenance_valid = provenance_verifier(
+                    provenance_bytes, manifest["source_sha"], manifest["image_digest"],
+                ) is True
+            except Exception:
+                return _invalid(
+                    "PROVENANCE_ATTESTATION_VERIFIER_ERROR",
+                    igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                    report_sha=report_sha,
+                )
+            if not provenance_valid:
+                return _invalid(
+                    "PROVENANCE_ATTESTATION_INVALID",
+                    igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                    report_sha=report_sha,
+                )
         if profile == PRODUCTION_PROFILE:
             if (
                 status != "VERIFIED"
