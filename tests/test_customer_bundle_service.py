@@ -112,3 +112,31 @@ def test_create_bundle_route_fails_closed_when_runtime_services_are_missing(monk
 
     assert response.status_code == 503
     assert "signing, verification, timestamp and storage services" in response.json()["detail"]
+
+
+def test_create_bundle_route_blocks_sandbox_runtime_on_public_https(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.customer_bundle import routes as bundle_routes
+    from app.main import app
+
+    actor = SimpleNamespace(
+        tenant_id="tenant-public-production",
+        principal_id="principal-reviewer",
+        person_ref="person-ref-reviewer",
+    )
+    monkeypatch.setattr(bundle_routes, "_actor", lambda _request, _role: actor)
+    monkeypatch.setattr(bundle_routes, "_csrf", lambda _request, _token: None)
+    monkeypatch.setattr(bundle_routes, "_deployment_profile", lambda: "production")
+    monkeypatch.setattr(
+        app.state,
+        "customer_bundle_runtime",
+        SimpleNamespace(profile="CUSTOMER_BUNDLE_SANDBOX_V1"),
+    )
+
+    response = TestClient(app).post(
+        "/checkout-orders/order-public-production/bundles",
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "public production delivery requires CUSTOMER_BUNDLE_PRODUCTION_V1"
