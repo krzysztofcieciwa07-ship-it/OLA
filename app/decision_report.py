@@ -49,7 +49,8 @@ def evaluate_policy(*, nina_status: str, igor_status: str, evidence_count: int,
 def build_decision_report(*, task_id: str, run_id: str, task: str, nina: dict,
                           igor: dict, replay: dict | list, human_gate: dict,
                           evidence_ids: list[str], human_approved: bool,
-                          human_actor: str, human_reason: str) -> dict:
+                          human_actor: str, human_reason: str,
+                          order_id: str | None = None) -> dict:
     if isinstance(replay, dict):
         replay_status = str(replay.get("status", "UNKNOWN"))
     elif isinstance(replay, list):
@@ -87,6 +88,10 @@ def build_decision_report(*, task_id: str, run_id: str, task: str, nina: dict,
             "reason": human_reason,
         },
     }
+    if order_id is not None:
+        if not isinstance(order_id, str) or not order_id.strip():
+            raise ValueError("order_id must be a nonempty string when supplied")
+        body["order_id"] = order_id
     canonical = canonical_json(body)
     body["report_sha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return body

@@ -12,7 +12,7 @@ from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, append_evidence_atomic, prepare_runtime_schema, verify_postgres_schema
-from .models import Tenant, ApiKey, EvidenceRecord, CheckoutOrder, CheckoutOrderControl, CheckoutExecutionJob
+from .models import Tenant, ApiKey, EvidenceRecord, CheckoutOrder, CheckoutOrderControl, CheckoutExecutionJob, TenantIdentityPolicy
 from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
@@ -29,8 +29,33 @@ from .stripe_webhook import process_checkout_event
 from .order_approval import approve_paid_order, PaidOrderApprovalRejected
 from .paid_order_execution import execute_paid_order_job, verify_worker_token, PaidOrderExecutionRejected
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
+from .human_identity.sessions import ServerSideSessionMiddleware
+from .human_identity.routes import (
+    router as human_identity_router,
+    verify_human_csrf,
+    _deployment_profile,
+)
+from .human_identity.membership import HumanMembershipRejected, require_human_operator
+from .human_identity.policy import HumanIdentityPolicyRejected, require_human_identity_mode
+from .customer_bundle.routes import router as customer_bundle_router
 
 app = FastAPI(title="OLA Execution Gate")
+# Explicit runtime injection only. No env-flag or filesystem fallback may
+# silently activate production signing, timestamping or customer storage.
+app.state.customer_bundle_runtime = None
+# Optional provider-neutral recipient authentication adapter; OIDC is the default.
+app.state.customer_bundle_recipient_auth_provider = None
+_public_base_url = os.environ.get("OLA_PUBLIC_BASE_URL", "")
+_secure_human_cookie = (
+    os.environ.get("OLA_DEPLOYMENT_PROFILE", "sandbox").strip().lower() == "production"
+    or _public_base_url.lower().startswith("https://")
+)
+app.add_middleware(
+    ServerSideSessionMiddleware,
+    secure_cookie=_secure_human_cookie,
+)
+app.router.routes.extend(human_identity_router.routes)
+app.router.routes.extend(customer_bundle_router.routes)
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
@@ -248,6 +273,23 @@ def create_checkout_session(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     tenant_id, requester_id = identity_from_key(x_api_key)
+    with SessionLocal() as db:
+        requester_key = db.get(ApiKey, requester_id)
+        identity_policy = db.get(TenantIdentityPolicy, tenant_id)
+        stored_mode = identity_policy.human_gate_mode if identity_policy is not None else "LEGACY_API"
+        requester_person_ref = requester_key.owner_person_ref if requester_key is not None else None
+    try:
+        identity_mode = require_human_identity_mode(
+            tenant_id=tenant_id,
+            deployment_profile=os.environ.get("OLA_DEPLOYMENT_PROFILE", "sandbox"),
+        )
+    except HumanIdentityPolicyRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
+    if identity_mode == "OIDC_REQUIRED" and not requester_person_ref:
+        raise HTTPException(
+            status_code=403,
+            detail="OIDC_REQUIRED checkout needs a service API key with a verified HR-backed owner",
+        )
     task = body.get("task")
     if not isinstance(task, str) or not task.strip():
         raise HTTPException(status_code=400, detail="task is required")
@@ -305,6 +347,7 @@ def create_checkout_session(
                     order_id=order.id,
                     tenant_id=tenant_id,
                     requester_id=requester_id,
+                    requester_person_ref=requester_person_ref,
                     status="CREATING",
                 ))
                 db.commit()
@@ -327,6 +370,11 @@ def create_checkout_session(
             )
         if control.requester_id != requester_id:
             raise HTTPException(status_code=403, detail="checkout order belongs to another API-key identity")
+        if identity_mode == "OIDC_REQUIRED" and control.requester_person_ref != requester_person_ref:
+            raise HTTPException(
+                status_code=409,
+                detail="existing checkout has no matching HR-backed requester snapshot; manual reconciliation required",
+            )
         if order.request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Idempotency-Key was already used for a different task")
         if not order.task:
@@ -824,14 +872,72 @@ def approve_nina_run(
         raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
 
+
+
+
+def _checkout_tenant_identity_mode(order_id: str) -> tuple[str, str]:
+    """Resolve order tenant and its persisted human identity mode before auth dispatch."""
+    with SessionLocal() as db:
+        order = db.get(CheckoutOrder, order_id)
+        if order is None:
+            raise HTTPException(status_code=404, detail="paid order not found")
+        tenant_id = order.tenant_id
+    try:
+        # Use the same public-origin-derived, fail-closed profile as the OIDC
+        # routes. An environment label must never downgrade a public HTTPS host.
+        mode = require_human_identity_mode(
+            tenant_id=tenant_id,
+            deployment_profile=_deployment_profile(),
+        )
+    except HumanIdentityPolicyRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
+    return tenant_id, mode
+
+
+def _require_oidc_checkout_operator(
+    request: Request, *, order_tenant_id: str, role: str, csrf_token: str | None,
+):
+    try:
+        actor = require_human_operator(request, required_role=role, max_auth_age_seconds=300)
+    except HumanMembershipRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
+    if actor.tenant_id != order_tenant_id:
+        raise HTTPException(status_code=403, detail="Human Identity session belongs to a different tenant")
+    try:
+        verify_human_csrf(request, csrf_token)
+    except HTTPException:
+        raise
+    return actor
+
+
 @app.post("/checkout-orders/{order_id}/approve")
 def approve_checkout_order(
     order_id: str,
     body: dict,
+    request: Request,
     authorization: str | None = Header(default=None),
+    x_ola_csrf: str | None = Header(default=None),
 ):
-    tenant_id, approver_id = bearer_identity(authorization)
+    order_tenant_id, identity_mode = _checkout_tenant_identity_mode(order_id)
     try:
+        if identity_mode == "OIDC_REQUIRED":
+            actor = _require_oidc_checkout_operator(
+                request,
+                order_tenant_id=order_tenant_id,
+                role="execution_approver",
+                csrf_token=x_ola_csrf,
+            )
+            return approve_paid_order(
+                tenant_id=order_tenant_id,
+                approver_principal_id=actor.principal_id,
+                approver_person_ref=actor.person_ref,
+                order_id=order_id,
+                tip_hash=body.get("tip_hash"),
+                reason=body.get("reason"),
+            )
+        tenant_id, approver_id = bearer_identity(authorization)
+        if tenant_id != order_tenant_id:
+            raise HTTPException(status_code=404, detail="paid order not found")
         return approve_paid_order(
             tenant_id=tenant_id,
             approver_id=approver_id,
@@ -847,10 +953,30 @@ def approve_checkout_order(
 def review_checkout_order_report(
     order_id: str,
     body: dict,
+    request: Request,
     authorization: str | None = Header(default=None),
+    x_ola_csrf: str | None = Header(default=None),
 ):
-    tenant_id, reviewer_id = bearer_identity(authorization)
+    order_tenant_id, identity_mode = _checkout_tenant_identity_mode(order_id)
     try:
+        if identity_mode == "OIDC_REQUIRED":
+            actor = _require_oidc_checkout_operator(
+                request,
+                order_tenant_id=order_tenant_id,
+                role="report_reviewer",
+                csrf_token=x_ola_csrf,
+            )
+            return approve_paid_order_report(
+                tenant_id=order_tenant_id,
+                reviewer_principal_id=actor.principal_id,
+                reviewer_person_ref=actor.person_ref,
+                order_id=order_id,
+                tip_hash=body.get("tip_hash"), report_sha256=body.get("report_sha256"),
+                reason=body.get("reason"),
+            )
+        tenant_id, reviewer_id = bearer_identity(authorization)
+        if tenant_id != order_tenant_id:
+            raise HTTPException(status_code=404, detail="paid order not found")
         return approve_paid_order_report(
             tenant_id=tenant_id, reviewer_id=reviewer_id, order_id=order_id,
             tip_hash=body.get("tip_hash"), report_sha256=body.get("report_sha256"),
@@ -865,7 +991,15 @@ def retrieve_checkout_order_report(
     order_id: str,
     authorization: str | None = Header(default=None),
 ):
+    order_tenant_id, identity_mode = _checkout_tenant_identity_mode(order_id)
+    if identity_mode == "OIDC_REQUIRED":
+        raise HTTPException(
+            status_code=409,
+            detail="API-key JSON report retrieval is disabled for OIDC_REQUIRED tenants until a signed customer bundle is available",
+        )
     tenant_id, requester_id = bearer_identity(authorization)
+    if tenant_id != order_tenant_id:
+        raise HTTPException(status_code=404, detail="paid order not found")
     try:
         return deliver_paid_order_report(
             tenant_id=tenant_id, requester_id=requester_id, order_id=order_id,

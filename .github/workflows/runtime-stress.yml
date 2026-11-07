@@ -18,15 +18,18 @@ jobs:
         with:
           persist-credentials: false
       - name: Build runtime image
-        run: docker build -t ola-stress .
+        run: |
+          set -euo pipefail
+          docker build --build-arg OLA_SOURCE_COMMIT="${GITHUB_SHA}" -t ola-stress .
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' ola-stress)" = "${GITHUB_SHA}"
       - name: Start runtime
         shell: bash
         run: |
           set -euo pipefail
-          docker run -d --name ola-stress -p 8000:8000 ola-stress
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health >/dev/null && exit 0; sleep 2; done
-          docker logs ola-stress
-          exit 1
+          docker run -d --name ola-stress -p 8000:8000 -e OLA_RUNTIME_COMMIT="$GITHUB_SHA" ola-stress
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health >/dev/null && break; sleep 2; done
+          curl -fsS http://127.0.0.1:8000/health >/dev/null
+          docker exec -e EXPECTED_SOURCE_SHA="$GITHUB_SHA" ola-stress python -c 'import json,os; d=json.load(open("/app/ola-build-info.json")); assert d["source_commit"] == os.environ["EXPECTED_SOURCE_SHA"], d'
       - name: Run concurrent SLI load
         run: |
           python scripts/stress_runtime.py | tee stress-summary.log

@@ -4,7 +4,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, delete, event, insert, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
@@ -139,4 +139,43 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
         conn.exec_driver_sql(
             f'REVOKE UPDATE, TRUNCATE ON TABLE "{_schema}".evidence_records FROM "{runtime_role}"'
         )
+    database.verify_postgres_schema(runtime_engine)
+
+
+
+def test_postgres_enabled_oidc_policy_cannot_be_downgraded_or_deleted(postgres_db):
+    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    from app.models import Tenant, TenantIdentityPolicy
+
+    tenant_id = str(uuid.uuid4())
+    with database.SessionLocal() as db:
+        db.add(Tenant(id=tenant_id, name="postgres-human-identity-latch"))
+        db.commit()
+
+    table = TenantIdentityPolicy.__table__
+    with migration_engine.begin() as conn:
+        conn.execute(insert(table).values(
+            tenant_id=tenant_id,
+            human_gate_mode="OIDC_REQUIRED",
+            changed_by_ref="principal-ref-postgres-test",
+            reason="verify database-level monotonic policy",
+        ))
+
+    # Use the migration owner so these assertions prove the trigger itself,
+    # rather than merely observing a runtime-role permission denial.
+    with pytest.raises(DBAPIError):
+        with migration_engine.begin() as conn:
+            conn.execute(
+                update(table)
+                .where(table.c.tenant_id == tenant_id)
+                .values(human_gate_mode="LEGACY_API")
+            )
+
+    with pytest.raises(DBAPIError):
+        with migration_engine.begin() as conn:
+            conn.execute(
+                delete(table).where(table.c.tenant_id == tenant_id)
+            )
+
+    # Runtime startup must also reject DELETE/TRUNCATE grants on this policy.
     database.verify_postgres_schema(runtime_engine)

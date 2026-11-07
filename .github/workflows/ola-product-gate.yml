@@ -47,7 +47,10 @@ jobs:
           python -m pip install -r requirements.txt
           OLA_LLM_MODE=deterministic python -m pytest -q
       - name: Build exact-source runtime
-        run: docker build --tag "ola-product:${GITHUB_SHA}" .
+        run: |
+          set -euo pipefail
+          docker build --build-arg OLA_SOURCE_COMMIT="${GITHUB_SHA}" --tag "ola-product:${GITHUB_SHA}" .
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "ola-product:${GITHUB_SHA}")" = "${GITHUB_SHA}"
       - name: Start runtime
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -63,6 +66,7 @@ jobs:
             "ola-product:${GITHUB_SHA}"
           for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8000/health >/dev/null && break; sleep 1; done
           curl --fail --silent http://127.0.0.1:8000/health >/dev/null
+          docker exec ola-product python -c 'import json; d=json.load(open("/app/ola-build-info.json")); assert d["source_commit"] == "'"${GITHUB_SHA}"'", d'
       - name: Verify product surface
         run: |
           set -euo pipefail
@@ -122,7 +126,9 @@ jobs:
         run: |
           docker inspect ola-product > docker-inspect.json 2>&1 || true
           docker logs ola-product > docker-runtime.log 2>&1 || true
-          sha256sum docker-inspect.json docker-runtime.log > product-file-hashes.txt || true
+          docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "ola-product:${GITHUB_SHA}" > runtime-image-revision.txt 2>/dev/null || true
+          docker exec ola-product python -c 'import json; print(json.load(open("/app/ola-build-info.json"))["source_commit"])' > runtime-build-source-commit.txt 2>/dev/null || true
+          sha256sum docker-inspect.json docker-runtime.log runtime-image-revision.txt runtime-build-source-commit.txt > product-file-hashes.txt || true
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -132,6 +138,8 @@ jobs:
             docker-inspect.json
             docker-runtime.log
             product-file-hashes.txt
+            runtime-image-revision.txt
+            runtime-build-source-commit.txt
       - name: Stop runtime
         if: always()
         run: docker stop ola-product || true

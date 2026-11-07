@@ -71,7 +71,10 @@ jobs:
           PY
 
       - name: Build OLA image
-        run: docker build --tag ola-ollama-e2e --file Dockerfile .
+        run: |
+          set -euo pipefail
+          docker build --build-arg OLA_SOURCE_COMMIT="${EXPECTED_SOURCE_SHA}" --tag ola-ollama-e2e --file Dockerfile .
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' ola-ollama-e2e)" = "${EXPECTED_SOURCE_SHA}"
 
       - name: Start OLA against live Ollama
         shell: bash
@@ -92,12 +95,12 @@ jobs:
             ola-ollama-e2e
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
-              exit 0
+              break
             fi
             sleep 2
           done
-          docker logs ola-ollama-e2e
-          exit 1
+          curl --fail --silent http://127.0.0.1:8000/health >/dev/null
+          docker exec -e EXPECTED_SOURCE_SHA="${EXPECTED_SOURCE_SHA}" ola-ollama-e2e python -c 'import json,os; d=json.load(open("/app/ola-build-info.json")); assert d["source_commit"] == os.environ["EXPECTED_SOURCE_SHA"], d'
 
       - name: Real six-agent LLM runtime
         shell: bash

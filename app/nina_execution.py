@@ -160,6 +160,7 @@ def run_nina_task(tenant_id, requester_id, task_text, requested_tools, *, execut
         human_approved=review.approved,
         human_actor=review.actor,
         human_reason=review.reason,
+        order_id=execution_context.get("order_id"),
     )
 
     replay_integrity_status = (
