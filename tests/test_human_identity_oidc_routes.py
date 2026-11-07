@@ -63,3 +63,45 @@ def test_oidc_routes_are_mounted_in_the_application():
     assert "/human/oidc/{tenant_id}/callback" in route_paths
     assert "/human/session" in route_paths
     assert "/human/logout" in route_paths
+
+
+def test_tenant_role_change_routes_are_mounted_and_do_not_accept_api_keys():
+    from app.human_identity.policy import set_tenant_human_gate_mode
+
+    tenant_id, raw_key = _tenant_with_api_key()
+    set_tenant_human_gate_mode(
+        tenant_id=tenant_id,
+        actor_ref="bootstrap-principal-ref",
+        reason="Enable OIDC for role management route contract test",
+        target_mode="OIDC_REQUIRED",
+    )
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {raw_key}", "X-API-Key": raw_key}
+    payload = {
+        "target_principal_id": "target-principal",
+        "role": "report_reviewer",
+        "operation": "GRANT",
+        "reason": "Test API keys must not manage human roles",
+    }
+
+    request = client.post(
+        f"/human/tenants/{tenant_id}/role-changes",
+        headers=headers,
+        json=payload,
+    )
+    assert request.status_code == 401
+    assert request.json()["detail"] == "authenticated Human Identity session is required"
+
+    approval = client.post(
+        f"/human/tenants/{tenant_id}/role-changes/change-1/approve",
+        headers=headers,
+        json={"reason": "Test API keys must not approve human role changes"},
+    )
+    assert approval.status_code == 401
+    assert approval.json()["detail"] == "authenticated Human Identity session is required"
+
+
+def test_tenant_role_change_routes_are_registered():
+    route_paths = {route.path for route in app.routes}
+    assert "/human/tenants/{tenant_id}/role-changes" in route_paths
+    assert "/human/tenants/{tenant_id}/role-changes/{change_id}/approve" in route_paths
