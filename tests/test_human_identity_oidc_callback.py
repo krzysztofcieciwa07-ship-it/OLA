@@ -1,7 +1,6 @@
 """End-to-end contract for a verified OIDC callback mapped to an active principal."""
 import base64
 import json
-import os
 import time
 import uuid
 
