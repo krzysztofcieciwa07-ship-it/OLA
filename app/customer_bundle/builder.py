@@ -138,8 +138,14 @@ def build_customer_bundle(
         report_obj = json.loads(report_json.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CustomerBundleRejected("report JSON is invalid") from exc
-    if not isinstance(report_obj, dict) or report_obj.get("order_id") != order_id:
-        raise CustomerBundleRejected("report must be bound to this exact order")
+    if (
+        not isinstance(report_obj, dict)
+        or (
+            "order_id" in report_obj
+            and report_obj.get("order_id") != order_id
+        )
+    ):
+        raise CustomerBundleRejected("report order_id conflicts with the signed manifest order")
     report_sha256 = _sha256(report_json)
     if clean_approval.get("report_sha256") != report_sha256:
         raise CustomerBundleRejected("approval report digest does not match sanitized report")
