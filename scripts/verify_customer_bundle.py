@@ -115,8 +115,15 @@ def main() -> int:
         "manifest_sha256": report.manifest_sha256,
         "report_sha256": report.report_sha256,
         "timestamp_status": report.timestamp_status,
+        "lifecycle_status": report.lifecycle_status,
+        "bundle_id": report.bundle_id,
+        "bundle_version": report.bundle_version,
+        "profile": report.profile,
+        "expires_at": report.expires_at,
         "full_tenant_chain_recomputed": report.full_tenant_chain_recomputed,
     }, sort_keys=True))
+    if report.lifecycle_status == "EXPIRED":
+        return 4
     if report.status == "VERIFIED":
         return 0
     if report.status == "PARTIAL":
