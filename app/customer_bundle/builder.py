@@ -72,6 +72,8 @@ def _validate_signers(igor_signer: Ed25519Signer, ola_signer: Ed25519Signer, *, 
             raise CustomerBundleRejected(f"{label} signer Ed25519 public key must be exactly 32 bytes")
     if igor_signer.key_id == ola_signer.key_id:
         raise CustomerBundleRejected("IGOR and OLA signatures must use distinct signing keys")
+    if igor_signer.public_key_bytes == ola_signer.public_key_bytes:
+        raise CustomerBundleRejected("IGOR and OLA signers must use distinct Ed25519 public keys")
     if igor_signer.custody_id == ola_signer.custody_id:
         raise CustomerBundleRejected("IGOR and OLA signers must have independent custody principals")
     if production and (igor_signer.test_only or ola_signer.test_only):
