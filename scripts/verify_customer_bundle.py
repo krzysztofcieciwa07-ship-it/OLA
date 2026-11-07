@@ -91,7 +91,7 @@ def _timestamp_verifier(config: dict | None, trust_store_dir: Path):
                 )
                 if details.returncode != 0:
                     return False
-                match = re.search(r"^\\s*Time stamp:\\s*(.+?)\\s*$", details.stdout, re.MULTILINE)
+                match = re.search(r"^\s*Time stamp:\s*(.+?)\s*$", details.stdout, re.MULTILINE)
                 if match is None:
                     return False
                 timestamp_text = match.group(1)
