@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from app.customer_bundle.builder import build_customer_bundle
-from app.customer_bundle.signers import TestOnlyEd25519Signer
+from app.customer_bundle.signers import TestOnlyEd25519Signer as LocalBundleSigner
 
 
 def _write_bundle(tmp_path: Path, *, lifecycle: str) -> tuple[Path, Path]:
@@ -31,7 +31,7 @@ def _write_bundle(tmp_path: Path, *, lifecycle: str) -> tuple[Path, Path]:
     approved_tip_hash = "a" * 64
     signing_tip_hash = "b" * 64
 
-    igor = TestOnlyEd25519Signer.generate(
+    igor = LocalBundleSigner.generate(
         key_id="igor-cli-" + lifecycle.lower(),
         custody_id="igor-cli-custody",
     )
