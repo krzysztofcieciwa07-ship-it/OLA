@@ -12,6 +12,7 @@ from app.database import SessionLocal
 from app.human_identity.policy import set_tenant_human_gate_mode
 from app.main import app
 from app.models import (
+    EvidenceRecord,
     HumanPrincipal,
     HumanSession,
     Tenant,
@@ -114,6 +115,16 @@ def test_oidc_callback_maps_only_active_preprovisioned_principal(monkeypatch):
         assert "must-never-be-stored" not in sessions[0].session_data_encrypted
         assert subject not in sessions[0].session_data_encrypted
         assert issuer not in sessions[0].session_data_encrypted
+        evidence = db.scalars(select(EvidenceRecord).where(
+            EvidenceRecord.tenant_id == tenant_id,
+            EvidenceRecord.record_type == "human.operator_authenticated",
+        )).all()
+        assert len(evidence) == 1
+        evidence_payload = json.loads(evidence[0].payload_json)
+        assert evidence_payload["principal_ref"] == principal_id
+        assert evidence_payload["mfa_verified"] is True
+        assert subject not in evidence[0].payload_json
+        assert issuer not in evidence[0].payload_json
 
 
 def test_oidc_callback_rejects_unprovisioned_subject_without_creating_principal(monkeypatch):
