@@ -275,7 +275,11 @@ def verify_customer_bundle(
         timestamp_status = "NOT_PRESENT"
         timestamp_path = manifest.get("timestamp_proof_path")
         if profile == PRODUCTION_PROFILE:
-            if status != "VERIFIED" or timestamp_path != "timestamp/rfc3161.tsr":
+            if (
+                status != "VERIFIED"
+                or timestamp_path != "timestamp/rfc3161.tsr"
+                or manifest.get("timestamp_proof_status") != "VERIFIED"
+            ):
                 return _invalid(
                     "PRODUCTION_PROFILE_GATES_MISSING",
                     igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
@@ -295,7 +299,7 @@ def verify_customer_bundle(
                         igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
                         report_sha=report_sha, timestamp="INVALID",
                     )
-            except (KeyError, KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError):
                 return _invalid(
                     "TIMESTAMP_PROOF_INVALID",
                     igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
@@ -303,6 +307,8 @@ def verify_customer_bundle(
                 )
             timestamp_status = "VERIFIED"
         elif profile == SANDBOX_PROFILE:
+            if timestamp_path is not None:
+                timestamp_status = "PRESENT_NOT_VERIFIED"
             if status not in {"PARTIAL", "VERIFIED"}:
                 return _invalid(
                     "INVALID_SANDBOX_STATUS",
