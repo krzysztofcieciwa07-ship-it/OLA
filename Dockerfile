@@ -110,15 +110,29 @@ COPY --from=python-deps /opt/python-runtime/bin/python3.13 /usr/local/bin/python
 COPY --from=python-deps /opt/python-runtime/lib/ /usr/local/lib/
 COPY --from=python-deps /opt/venv /opt/venv
 
+COPY app ./app
+COPY scripts ./scripts
+COPY web ./web
+
 RUN ln -sf python3.13 /usr/local/bin/python3 \
     && ln -sf python3.13 /usr/local/bin/python \
     && ldd /usr/local/bin/python3.13 > /tmp/python-ldd.txt \
     && if grep -q "not found" /tmp/python-ldd.txt; then cat /tmp/python-ldd.txt; exit 1; fi \
+    && mkdir -p /data \
+    && adduser -D --uid 10001 ola \
+    && OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python -c 'import json,os,pathlib; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"]},sort_keys=True),encoding="utf-8")' \
+    && chown -R root:root /app \
+    && chmod -R a-w /app \
+    && chown -R ola:ola /data \
+    && gh attestation verify --help >/dev/null \
     && python - <<'PY'
 from importlib import metadata, util
+from pathlib import Path
+
 import authlib
 import bz2
 import cryptography
+import ctypes
 import fastapi
 import httpx
 import joserfc
@@ -141,21 +155,20 @@ for forbidden in ("pip", "pytest", "setuptools", "wheel"):
     else:
         raise SystemExit(f"build/test distribution leaked into runtime: {forbidden}")
 
+for forbidden_path in (
+    Path("/usr/local/lib/python3.13/site-packages"),
+    Path("/usr/local/lib/python3.13/ensurepip"),
+    Path("/opt/venv/lib/python3.13/site-packages/pip"),
+    Path("/opt/venv/lib/python3.13/site-packages/pytest"),
+    Path("/app/tests"),
+):
+    if forbidden_path.exists():
+        raise SystemExit(f"build/test payload leaked into runtime: {forbidden_path}")
+
 print("RUNTIME_IMPORTS=OK")
 print("RUNTIME_BUILD_TOOLS=ABSENT")
+print("RUNTIME_TESTS=ABSENT")
 PY
-    && test ! -d /usr/local/lib/python3.13/site-packages \
-    && test ! -d /usr/local/lib/python3.13/ensurepip \
-    && test ! -e /opt/venv/lib/python3.13/site-packages/pip \
-    && test ! -e /opt/venv/lib/python3.13/site-packages/pytest \
-    && test ! -e /app/tests \
-    && mkdir -p /data \
-    && adduser -D --uid 10001 ola \
-    && chown -R root:root /app \
-    && chmod -R a-w /app \
-    && chown -R ola:ola /data \
-    && OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python -c 'import json,os,pathlib; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"]},sort_keys=True),encoding="utf-8")' \
-    && gh attestation verify --help >/dev/null
 
 USER ola
 EXPOSE 8000

@@ -97,6 +97,9 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('"site-packages"', dockerfile)
         self.assertIn('"ensurepip"', dockerfile)
         self.assertNotIn("COPY tests ./tests", dockerfile)
+        self.assertIn("COPY app ./app", dockerfile)
+        self.assertIn("COPY scripts ./scripts", dockerfile)
+        self.assertIn("COPY web ./web", dockerfile)
         self.assertIn("requirements-runtime.txt", compatibility)
         self.assertIn("-r requirements-runtime.txt", testing)
         for package in ("pytest==", "setuptools==", "wheel=="):
