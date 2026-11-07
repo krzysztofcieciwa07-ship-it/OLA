@@ -16,6 +16,12 @@ from sqlalchemy import select
 
 from app.database import SessionLocal, append_evidence_atomic
 from app.models import HumanPrincipal, TenantIdentityProvider
+from app.human_identity.membership import (
+    HumanMembershipRejected,
+    approve_role_change,
+    request_role_change,
+    require_human_operator,
+)
 from app.human_identity.oidc import (
     OidcLoginRejected,
     create_oidc_client,
@@ -272,3 +278,63 @@ def human_session_logout(
     verify_human_csrf(request, x_ola_csrf)
     revoke_human_session(request)
     return {"status": "LOGGED_OUT"}
+
+
+def _tenant_identity_admin(request: Request, tenant_id: str):
+    try:
+        actor = require_human_operator(
+            request, required_role="tenant_identity_admin",
+            max_auth_age_seconds=300,
+        )
+    except HumanMembershipRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
+    if actor.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Human Identity session belongs to a different tenant")
+    return actor
+
+
+@router.post("/human/tenants/{tenant_id}/role-changes")
+def create_human_role_change(
+    tenant_id: str,
+    body: dict,
+    request: Request,
+    x_ola_csrf: str | None = Header(default=None),
+):
+    if not _TENANT_PATH_RE.fullmatch(tenant_id):
+        raise HTTPException(status_code=400, detail="invalid tenant identity path")
+    actor = _tenant_identity_admin(request, tenant_id)
+    verify_human_csrf(request, x_ola_csrf)
+    try:
+        return request_role_change(
+            tenant_id=tenant_id,
+            requester_principal_id=actor.principal_id,
+            target_principal_id=body.get("target_principal_id"),
+            requested_role=body.get("role"),
+            operation=body.get("operation"),
+            reason=body.get("reason"),
+        )
+    except HumanMembershipRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
+
+
+@router.post("/human/tenants/{tenant_id}/role-changes/{change_id}/approve")
+def approve_human_role_change(
+    tenant_id: str,
+    change_id: str,
+    body: dict,
+    request: Request,
+    x_ola_csrf: str | None = Header(default=None),
+):
+    if not _TENANT_PATH_RE.fullmatch(tenant_id):
+        raise HTTPException(status_code=400, detail="invalid tenant identity path")
+    actor = _tenant_identity_admin(request, tenant_id)
+    verify_human_csrf(request, x_ola_csrf)
+    try:
+        return approve_role_change(
+            tenant_id=tenant_id,
+            change_id=change_id,
+            approver_principal_id=actor.principal_id,
+            reason=body.get("reason"),
+        )
+    except HumanMembershipRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
