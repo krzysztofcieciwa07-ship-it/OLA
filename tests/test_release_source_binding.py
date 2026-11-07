@@ -47,6 +47,12 @@ class ReleaseSourceBindingTest(unittest.TestCase):
     def test_release_attestations_are_gated_and_feature_dispatch_is_rehearsal_only(self):
         content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
         self.assertIn("needs: [security-image, provenance-adapter-tests]", content)
+        self.assertIn("expected_trusted_root_sha256:", content)
+        self.assertIn("EXPECTED_TRUST_ROOT_SHA256: ${{ inputs.expected_trusted_root_sha256 || vars.OLA_SIGSTORE_TRUST_ROOT_SHA256 }}", content)
+        self.assertIn("--expected-trusted-root-sha256 \"$EXPECTED_TRUST_ROOT_SHA256\"", content)
+        self.assertIn("Require configured trust-root pin for main releases", content)
+        self.assertIn("Upload Sigstore root discovery materials (unverified)", content)
+        self.assertIn("ola-sigstore-root-discovery-${{ github.sha }}", content)
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", content)
         self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/oidc-human-gate-customer-bundle-20261107'", content)
         self.assertIn("attestations: write", content)
