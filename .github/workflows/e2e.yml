@@ -71,7 +71,7 @@ jobs:
           key_hash = api_key_fingerprint(raw_key)
           db = sqlite3.connect(db_path)
           db.execute("INSERT INTO tenants(id, name) VALUES (?, ?)", (tenant_id, "ci-runtime"))
-          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash) VALUES (?, ?, ?)", (str(uuid.uuid4()), tenant_id, key_hash))
+          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash, role) VALUES (?, ?, ?, ?)", (str(uuid.uuid4()), tenant_id, key_hash, "tenant"))
           db.commit(); db.close()
           def post_audit():
               req = urllib.request.Request("http://127.0.0.1:8000/audit", data=json.dumps({"task":"runtime E2E proof","scenario":"fault_then_recovery"}).encode(), headers={"Content-Type":"application/json","X-API-Key":raw_key}, method="POST")
@@ -118,7 +118,7 @@ jobs:
           db_path="/data/ola.db"; tenant_id=str(uuid.uuid4()); raw_key="ci-real-llm-key"
           db=sqlite3.connect(db_path)
           db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tenant_id,"ci-real-llm"))
-          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",(str(uuid.uuid4()),tenant_id,api_key_fingerprint(raw_key)))
+          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash,role) VALUES (?,?,?,?)",(str(uuid.uuid4()),tenant_id,api_key_fingerprint(raw_key),"tenant"))
           db.commit(); db.close()
           task="Calculate 17 * 23 and return the exact verified result 391."
           req=urllib.request.Request("http://127.0.0.1:8000/agent-run",data=json.dumps({"task":task}).encode(),headers={"Content-Type":"application/json","X-API-Key":raw_key},method="POST")
@@ -152,7 +152,7 @@ jobs:
           key_hash = api_key_fingerprint(raw_key)
           db = sqlite3.connect(db_path)
           db.execute("INSERT INTO tenants(id, name) VALUES (?, ?)", (tenant_id, "ci-real-task"))
-          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash) VALUES (?, ?, ?)", (str(uuid.uuid4()), tenant_id, key_hash))
+          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash, role) VALUES (?, ?, ?, ?)", (str(uuid.uuid4()), tenant_id, key_hash, "tenant"))
           db.commit(); db.close()
           task = os.environ["EXPECTED_TASK"]
           expected_result = os.environ["EXPECTED_RESULT"]
@@ -220,7 +220,7 @@ jobs:
           key_hash = api_key_fingerprint(raw_key)
           db = sqlite3.connect(db_path)
           db.execute("INSERT INTO tenants(id, name) VALUES (?, ?)", (tenant_id, "ci-business-invoice"))
-          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash) VALUES (?, ?, ?)", (str(uuid.uuid4()), tenant_id, key_hash))
+          db.execute("INSERT INTO api_keys(id, tenant_id, key_hash, role) VALUES (?, ?, ?, ?)", (str(uuid.uuid4()), tenant_id, key_hash, "tenant"))
           db.commit(); db.close()
           req = urllib.request.Request("http://127.0.0.1:8000/business-invoice-run", data=json.dumps({"invoice": invoice}, sort_keys=True).encode(), headers={"Content-Type":"application/json","X-API-Key":raw_key}, method="POST")
           with urllib.request.urlopen(req, timeout=10) as response: result = json.load(response)

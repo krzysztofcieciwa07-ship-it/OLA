@@ -3,37 +3,202 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NINA</title>
+<meta name="color-scheme" content="dark">
+<title>OLA di-OS | Centrum dowodzenia</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#f1f3ff;background:#080c19}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 12% 0%,#26224f,transparent 45%),#080c19}
+main{max-width:1050px;margin:auto;padding:28px 20px 60px}header,.row{display:flex;align-items:center;justify-content:space-between;gap:16px}
+header{margin-bottom:56px}.brand{font-size:19px;font-weight:800}.orb{display:inline-block;width:28px;height:28px;border-radius:10px;vertical-align:middle;margin-right:10px;background:conic-gradient(#57e6d5,#7770ed,#ad99ef,#57e6d5);box-shadow:0 0 26px #8a7afc88}
+.eyebrow{font-weight:800;color:#8ce1d5;font-size:12px;letter-spacing:.15em}h1{font-size:clamp(36px,6vw,62px);line-height:1.08;letter-spacing:-.05em;max-width:760px;margin:15px 0}h1 em{font-style:normal;color:#aa9aff}
+.muted,p{color:#afb7cf;line-height:1.6}.lead{max-width:750px;margin-bottom:36px}h2{font-size:20px;margin:0 0 15px}h3{font-size:24px;margin:0 0 3px}
+.team{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:34px}.card,.workspace{background:#111727e8;border:1px solid #303650;border-radius:18px;padding:23px}
+.symbol{display:grid;place-items:center;width:46px;height:46px;border-radius:13px;background:#31305d;color:#c9bfff;font-size:26px;margin-bottom:20px}.card:nth-child(2) .symbol{background:#174247;color:#71e6db}.card:nth-child(3) .symbol{background:#263f62;color:#a3c5ff}
+.role{font-size:13px;font-weight:750;color:#aba4ff;margin:0 0 12px}.card p:last-child{font-size:14px;margin:0}
+.workspace{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:25px}label{display:block;font-size:13px;font-weight:700;margin:18px 0 9px}
+input,textarea{font:inherit;width:100%;padding:12px 14px;border:1px solid #49516e;border-radius:11px;background:#090e1c;color:white}textarea{min-height:120px;resize:vertical}
+button{font:inherit;font-weight:700;cursor:pointer;color:white;background:#29314c;border:1px solid #656b92;border-radius:11px;padding:12px 15px}
+button.primary{background:linear-gradient(120deg,#6860da,#5e76dc)}button:disabled{opacity:.55;cursor:not-allowed}
+input:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid #c0b5ff;outline-offset:2px}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}.hint{font-size:12px;margin:8px 0 16px}
+.status{font-size:11px;font-weight:800;color:#d5d0e4;padding:5px 9px;border:1px solid #646381;background:#28283a;border-radius:100px;white-space:nowrap}
+.status.good{color:#91ebc5;border-color:#36705b;background:#173b31}.status.bad{color:#ffb0bd;border-color:#92566a;background:#4a2833}.status.warn{color:#f3d397;border-color:#8d6d43;background:#43351c}
+.detail{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:10px 0;font-size:13px;border-bottom:1px solid #333a51}.detail strong{overflow-wrap:anywhere;max-width:70%;text-align:right}
+.result{margin-top:20px;padding:15px;background:#090f1e;border:1px solid #333a53;border-radius:12px;min-height:80px}.result p{font-size:14px;margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}.entry{padding-bottom:9px;margin-bottom:9px;border-bottom:1px solid #303650}.entry:last-child{border:0;margin-bottom:0}.entry strong{font-size:13px;color:#ad9fff}
+footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px;width:100%}
+@media(max-width:790px){header{margin-bottom:32px}.team,.workspace{grid-template-columns:1fr}.card .symbol{margin-bottom:10px}.card{padding:18px}}
+</style>
 </head>
 <body>
 <main>
-<h1>NINA</h1>
-<p>Tryb chroniony: podaj swój klucz API OLA. Klucz nie jest zapisywany na serwerze.</p>
-<input id="key" type="password" placeholder="X-API-Key" autocomplete="off">
-<div id="messages"></div>
-<form>
-<textarea id="input" placeholder="Napisz do NINA..." required></textarea>
-<button>Wyślij</button>
-</form>
+<header><div class="brand"><span class="orb" aria-hidden="true"></span>OLA di-OS</div><span class="status warn">PRODUKCJA NIEPOTWIERDZONA</span></header>
+<section aria-labelledby="intro"><div class="eyebrow">PRYWATNE CENTRUM DOWODZENIA</div><h1 id="intro">Jeden cel. <em>Wspólny zespół.</em> Dowody zamiast obietnic.</h1><p class="lead">OLA kontroluje wykonanie, NINA koordynuje zadania, a IGOR niezależnie sprawdza dowody. Dostępność systemu wymaga osobnej weryfikacji.</p></section>
+<section aria-labelledby="team-title"><h2 id="team-title">Zespół OLA</h2><div class="team">
+  <article class="card"><div class="symbol" aria-hidden="true">◈</div><h3>OLA</h3><p class="role">Polityka i kontrola</p><p>Uprawnienia, Evidence Ledger i Human Gate.</p></article>
+  <article class="card"><div class="symbol" aria-hidden="true">✧</div><h3>NINA</h3><p class="role">Planowanie i komunikacja</p><p>Rozmowa, dozwolone narzędzia, równoległe zadania DAG.</p></article>
+  <article class="card"><div class="symbol" aria-hidden="true">◇</div><h3>IGOR</h3><p class="role">Niezależna weryfikacja</p><p>Łańcuch dowodów, pochodzenie wyników i integralność.</p></article>
+</div></section>
+<section class="workspace" aria-label="Praca z zespołem"><div>
+  <h2>Przekaż zadanie</h2><p class="hint">Rozmowa to nie wykonanie. Praca równoległa wymaga aktywnej bramy i rzeczywistego dostawcy LLM.</p>
+  <form id="task-form"><label for="key">Klucz API OLA</label><input id="key" type="password" autocomplete="off" placeholder="X-API-Key" required>
+  <p class="hint">Klucz nie jest zapisywany w pamięci trwałej przeglądarki. Nie wklejaj sekretów do polecenia.</p>
+  <label for="input">Polecenie</label><textarea id="input" maxlength="2000" placeholder="Przeanalizuj, zweryfikuj źródła i przedstaw rezultat" required></textarea>
+  <div class="actions"><button type="submit" id="chat-button">Rozmawiaj z NINĄ</button><button type="button" id="run-button" class="primary">Uruchom przez NINĘ</button></div></form>
+  
+  <div class="result" id="result" role="status" aria-live="polite"><p>Brak wykonania. Wpisz polecenie, aby rozpocząć.</p></div>
+</div><aside><h2>Dowód wykonania</h2>
+  <div class="detail"><span>Wykonanie</span><span id="runtime-status" class="status">NOT_RUN</span></div>
+  <div class="detail"><span>IGOR</span><span id="igor-status" class="status">UNKNOWN</span></div>
+  <div class="detail"><span>Human Gate</span><span id="gate-status" class="status warn">NOT_APPROVED</span></div>
+  <div class="detail"><span>Run ID</span><strong id="run-id">—</strong></div>
+  <div class="detail"><span>Dowody</span><strong id="evidence-count">0</strong></div>
+  <button type="button" id="evidence-button" disabled>Pobierz dowody wykonania</button>
+  <p class="hint">COMPLETED_UNVERIFIED oznacza ukończenie zadania, ale nie potwierdza niezależnego wyniku ani zgody na wdrożenie.</p>
+</aside></section>
+<footer>OLA di-OS · Bez automatycznego zatwierdzania działań zewnętrznych · Wynik nie jest promowany do VERIFIED przez interfejs.</footer>
 </main>
 <script>
-const messages=[],box=document.querySelector("#messages"),input=document.querySelector("#input"),key=document.querySelector("#key");
-function add(role,text){const d=document.createElement("div");d.textContent=role+": "+text;box.appendChild(d)}
-document.querySelector("form").onsubmit=async e=>{
- e.preventDefault();
- const text=input.value.trim();
- const apiKey=key.value.trim();
- if(!text||!apiKey)return;
- input.value="";
- messages.push({role:"user",content:text});
- add("user",text);
- const r=await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json","X-API-Key":apiKey},body:JSON.stringify({messages})});
- const d=await r.json();
- const answer=d.message||("NINA BLOCK: "+(d.detail||d.reason||"unknown"));
- messages.push({role:"assistant",content:answer});
- add("nina",answer);
-};
-add("nina","Cześć. Jestem NINA.");
+"use strict";
+const el = selector => document.querySelector(selector);
+const keyInput = el("#key"), taskInput = el("#input"), result = el("#result");
+const chatButton = el("#chat-button"), runButton = el("#run-button"), evidenceButton = el("#evidence-button");
+let messages = [], activeEvidenceIds = [];
+
+function showStatus(selector, value) {
+  const target = el(selector);
+  const status = typeof value === "string" && value ? value : "UNKNOWN";
+  target.textContent = status;
+  target.className = "status" + (status === "VERIFIED" ? " good" :
+    ["BLOCK", "FAILED", "DENY"].includes(status) ? " bad" :
+    ["REVIEW", "PENDING", "UNKNOWN", "NOT_APPROVED"].includes(status) ? " warn" : "");
+}
+function clearResult() { result.replaceChildren(); }
+function line(label, value) {
+  const entry = document.createElement("div");
+  const heading = document.createElement("strong");
+  const body = document.createElement("p");
+  entry.className = "entry";
+  heading.textContent = label;
+  body.textContent = String(value ?? "UNKNOWN");
+  entry.append(heading, body);
+  result.appendChild(entry);
+}
+function busy(value) {
+  chatButton.disabled = runButton.disabled = evidenceButton.disabled = value || !activeEvidenceIds.length;
+  chatButton.disabled = runButton.disabled = value;
+}
+function credentials() {
+  const key = keyInput.value.trim(), task = taskInput.value.trim();
+  if (!key || !task) {
+    if (!key) keyInput.reportValidity();
+    if (!task) taskInput.reportValidity();
+    return null;
+  }
+  return {key, task};
+}
+async function readJson(response) {
+  try { return await response.json(); } catch (_) { return {}; }
+}
+async function sendChat(event) {
+  event.preventDefault();
+  const data = credentials();
+  if (!data) return;
+  const next = [...messages, {role:"user", content:data.task}];
+  busy(true); clearResult(); line("NINA", "Oczekiwanie na odpowiedź…");
+  try {
+    const response = await fetch("/chat", {
+      method:"POST",
+      headers:{"Content-Type":"application/json", "X-API-Key":data.key},
+      body:JSON.stringify({messages:next})
+    });
+    const body = await readJson(response);
+    clearResult();
+    if (!response.ok) { line("BLOKADA", body.detail || `HTTP ${response.status}`); return; }
+    const answer = typeof body.message === "string" ? body.message : "Brak tekstu odpowiedzi";
+    messages = [...next, {role:"assistant", content:answer}];
+    line("NINA · rozmowa", answer);
+    line("Granica zaufania", "Rozmowa nie jest wykonaniem ani niezależnym dowodem.");
+    taskInput.value = "";
+  } catch (_) {
+    clearResult(); line("BŁĄD", "Połączenie z NINĄ jest niedostępne.");
+  } finally { busy(false); }
+}
+async function runNina() {
+  const data = credentials();
+  if (!data) return;
+  activeEvidenceIds = [];
+  evidenceButton.disabled = true;
+  busy(true); clearResult();
+  showStatus("#runtime-status", "UNKNOWN");
+  showStatus("#igor-status", "UNKNOWN");
+  showStatus("#gate-status", "NOT_APPROVED");
+  el("#run-id").textContent = "—";
+  el("#evidence-count").textContent = "0";
+  line("OLA", "Uruchamiam kontrolowany przebieg NINA…");
+  try {
+    const response = await fetch("/nina-run", {
+      method:"POST",
+      headers:{"Content-Type":"application/json", "X-API-Key":data.key},
+      body:JSON.stringify({task:data.task, requested_tools:["safe_expression"]})
+    });
+    const body = await readJson(response);
+    clearResult();
+    if (!response.ok) {
+      showStatus("#runtime-status", "BLOCK");
+      line("BLOKADA", body.detail || `HTTP ${response.status}`);
+      return;
+    }
+    const runtimeStatus = body.status || "UNKNOWN";
+    const igorStatus = body.igor?.status || "UNKNOWN";
+    const gateStatus = body.status_fields?.HUMAN_GATE || "REVIEW";
+    showStatus("#runtime-status", runtimeStatus);
+    showStatus("#igor-status", igorStatus);
+    showStatus("#gate-status", gateStatus);
+    el("#run-id").textContent = body.run_id || "—";
+    activeEvidenceIds = Array.isArray(body.decision_report?.evidence_ids)
+      ? body.decision_report.evidence_ids.filter(id => typeof id === "string")
+      : [];
+    el("#evidence-count").textContent = String(activeEvidenceIds.length);
+    evidenceButton.disabled = activeEvidenceIds.length === 0;
+    line("Wynik przebiegu", runtimeStatus);
+    line("NINA", JSON.stringify(body.nina || {}));
+    line("IGOR · niezależna weryfikacja", JSON.stringify(body.igor || {}));
+    line("Pochodzenie runtime", JSON.stringify(body.provenance || {}));
+    line("Replay", JSON.stringify(body.replay_verification || {}));
+    line("Polityka", JSON.stringify(body.policy || {}));
+    line("Human Gate", gateStatus + " — wymaga tożsamości operatora i MFA; ta konfiguracja nie jest jeszcze produkcyjnie potwierdzona.");
+    line("Dowody", activeEvidenceIds.length ? activeEvidenceIds.join(", ") : "Brak identyfikatorów dowodów.");
+    if (body.decision_report) line("Raport decyzji", JSON.stringify(body.decision_report).slice(0, 8000));
+    taskInput.value = "";
+  } catch (_) {
+    clearResult();
+    showStatus("#runtime-status", "UNKNOWN");
+    line("BŁĄD", "Brak potwierdzenia wykonania. Nie ponawiaj automatycznie; najpierw sprawdź Evidence.");
+  } finally { busy(false); }
+}
+async function loadEvidence() {
+  if (!activeEvidenceIds.length || !keyInput.value.trim()) return;
+  busy(true); clearResult();
+  try {
+    for (const id of activeEvidenceIds.slice(0, 20)) {
+      const response = await fetch(`/evidence/${encodeURIComponent(id)}`, {
+        headers:{"X-API-Key":keyInput.value.trim()}
+      });
+      const body = await readJson(response);
+      if (!response.ok) {
+        line("EVIDENCE BLOCK", body.detail || `HTTP ${response.status}`);
+        continue;
+      }
+      line(`Evidence ${body.seq} · ${body.record_type}`,
+        JSON.stringify({id:body.id, prev_hash:body.prev_hash, record_hash:body.record_hash, payload:body.payload}).slice(0, 5000));
+    }
+  } catch (_) { line("BŁĄD", "Nie udało się pobrać wszystkich rekordów Evidence."); }
+  finally { busy(false); }
+}
+el("#task-form").addEventListener("submit", sendChat);
+runButton.addEventListener("click", runNina);
+evidenceButton.addEventListener("click", loadEvidence);
+addEventListener("beforeunload", () => { keyInput.value = ""; });
 </script>
 </body>
 </html>

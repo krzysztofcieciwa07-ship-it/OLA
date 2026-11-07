@@ -22,9 +22,11 @@ The current source tree contains:
 
 - Python requirement in `pyproject.toml`: Python 3.11 or newer.
 - The Docker image installs Python 3.13 and starts `uvicorn app.main:app` on port 8000.
-- The current application database implementation uses SQLite. Its default file is `ola.db`; the path can be overridden with `OLA_EG_DB_PATH`.
-- Evidence writes use SQLite `BEGIN IMMEDIATE`, per-tenant sequence numbers, previous-record hashes, and append-only database triggers.
-- The database implementation explicitly rejects non-SQLite append operations until a separately audited policy exists. Do not describe the current application persistence as PostgreSQL.
+- SQLite remains the default local database. Its default file is `ola.db`; the path can be overridden with `OLA_EG_DB_PATH`.
+- PostgreSQL can be selected with `OLA_DATABASE_URL` (preferred) or `DATABASE_URL`. PostgreSQL URLs are normalized to SQLAlchemy's `postgresql+psycopg` dialect; Psycopg 3 is pinned in `requirements.txt`.
+- Evidence writes use SQLite `BEGIN IMMEDIATE` or PostgreSQL transaction-scoped, tenant-keyed advisory locks. Both preserve per-tenant sequence numbers and previous-record hashes.
+- PostgreSQL schema DDL is an explicit migration step (`scripts/migrate_postgres.py`) using `OLA_DATABASE_MIGRATION_URL`. API and worker startup verify the migrated schema and append-only triggers but do not create PostgreSQL tables with runtime credentials.
+- PostgreSQL support has a dedicated real-server integration test and GitHub Actions workflow. It is not production-certified until that workflow has passed on the exact candidate SHA and operational backup, TLS, privileges, pooling, and failover checks are verified.
 - `pyproject.toml` metadata names the distribution `ola-evidence-graph` and declares FastAPI; `requirements.txt` supplies the pinned runtime/test dependencies used by the Docker build.
 
 ## Main application surfaces
@@ -98,14 +100,32 @@ The Dockerfile sets `OLA_EG_DB_PATH=/data/ola.db` and runs as an unprivileged `o
 
 ## Stripe configuration
 
-The inspected source uses these environment variables:
+The current checkout integration is sandbox-only. Configure these values through a local secret store or deployment secret manager:
 
-- `STRIPE_SECRET_KEY` — Stripe API secret.
-- `STRIPE_WEBHOOK_SECRET` — webhook signature verification secret.
-- `OLA_STRIPE_PRICE_ID` — configured Stripe Price ID.
-- `OLA_STRIPE_TENANT_ID` — fallback tenant identifier for webhook processing when session metadata does not provide one.
+- `STRIPE_SECRET_KEY` — a Stripe test-mode secret key (`sk_test_` or `rk_test_`); live keys are rejected.
+- `STRIPE_WEBHOOK_SECRET` — the signing secret for the sandbox webhook endpoint.
+- `OLA_STRIPE_PRICE_ID` — the exact Stripe Price ID accepted for the OLA offer. The webhook retrieves the authoritative Checkout Session with expanded line items and verifies this Price ID, EUR currency, quantity 1, and `amount_total == unit_amount`. The source no longer hardcodes a EUR 99.00 amount.
+- `OLA_PUBLIC_BASE_URL` — the server-owned public origin used for Stripe success and cancel redirects. HTTPS is required except for localhost development.
 
-The webhook handler validates Stripe signatures and checks the configured offer, product, paid status, EUR currency, and expected amount. The currently inspected source enforces an amount of 9900 minor units (EUR 99.00) for the supported offer. Confirm the live Stripe Price configuration and commercial approval before advertising or changing a price.
+`POST /checkout` requires both tenant authentication (`X-API-Key`) and an `Idempotency-Key` header containing 8–128 characters from `A-Z a-z 0-9 . _ : -`. The same key and same task must be reused when retrying a request. Reusing the key with a different task returns HTTP 409. A new logical checkout requires a new key.
+
+Example (replace the environment variables with values from your local secret store):
+
+```bash
+curl --fail-with-body -X POST "$OLA_BASE_URL/checkout" \
+  -H "X-API-Key: $OLA_API_KEY" \
+  -H "Idempotency-Key: $CHECKOUT_REQUEST_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"task":"Review the evidence trail for this workflow"}'
+```
+
+The application creates an additive `checkout_orders` table through SQLAlchemy metadata initialization. It persists the tenant-scoped order reservation before calling Stripe, binds the Stripe session to that order, and passes a stable provider idempotency key derived from the order ID. Evidence appends for the same checkout are deduplicated under the tenant-scoped database write lock (SQLite `BEGIN IMMEDIATE` or PostgreSQL advisory lock).
+
+An order left in `CREATING` can be retried with the same client key while the Stripe idempotency retention window is safe. After 23 hours, automatic retries fail closed with HTTP 409 and require manual Stripe reconciliation; do not generate a new key to bypass that block.
+
+The signed webhook accepts only sandbox events. It retrieves the session from Stripe rather than trusting the event's embedded payment fields, checks the session's `order_id`, tenant, and exact stored Checkout Session binding, and moves the order through `PAYMENT_PROCESSING` to `PAID_PENDING_REVIEW`. Evidence writes are idempotent and can be retried after an interrupted webhook. A confirmed payment does **not** authorize NINA execution; Human Review remains a separate gate.
+
+No live Stripe payment or production checkout is implied by these code paths or their mocked tests. Product pricing and commercial approval remain separate decisions.
 
 ## Verification and release status
 

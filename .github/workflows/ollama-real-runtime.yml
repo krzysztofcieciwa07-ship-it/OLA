@@ -125,8 +125,8 @@ jobs:
               (tenant_id,"ci-ollama-real-llm"),
           )
           db.execute(
-              "INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",
-              (str(uuid.uuid4()),tenant_id,api_key_fingerprint(raw_key)),
+              "INSERT INTO api_keys(id,tenant_id,key_hash,role) VALUES (?,?,?,?)",
+              (str(uuid.uuid4()),tenant_id,api_key_fingerprint(raw_key),"tenant"),
           )
           db.commit()
           db.close()

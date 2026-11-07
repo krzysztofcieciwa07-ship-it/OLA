@@ -43,6 +43,26 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('python -m unittest discover -s tests -p "test_release_source_binding.py"', content)
 
 
+    def test_runtime_image_source_is_embedded_and_not_environment_asserted(self):
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        nina = (ROOT / ".github/workflows/nina-igor-ollama.yml").read_text(encoding="utf-8")
+        release = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        runtime = (ROOT / "app/runtime_provenance.py").read_text(encoding="utf-8")
+        self.assertIn("org.opencontainers.image.revision", dockerfile)
+        self.assertIn("chown -R root:root /app", dockerfile)
+        self.assertIn("chmod -R a-w /app", dockerfile)
+        self.assertIn("ola-build-info.json", dockerfile)
+        self.assertIn("--build-arg OLA_SOURCE_COMMIT=", nina)
+        self.assertIn("OLA_REQUIRE_BUILD_INFO=1", nina)
+        self.assertIn("0000000000000000000000000000000000000000", nina)
+        self.assertIn("--build-arg OLA_SOURCE_COMMIT=", release)
+        self.assertIn("Assert release image source label", release)
+        self.assertIn("OLA_REQUIRE_BUILD_INFO=1", release)
+        self.assertIn("/readyz", release)
+        self.assertIn("RELEASE_IMAGE_SOURCE_BINDING=VERIFIED", release)
+        self.assertIn("build_info_mutable", (ROOT / "app/main.py").read_text(encoding="utf-8"))
+        self.assertIn("OLA_RUNTIME_COMMIT is a compatibility fallback", runtime)
+
     def test_automated_runtime_never_claims_human_approval(self):
         proof = (ROOT / ".github/workflows/nina-real-runtime-provenance.yml").read_text(encoding="utf-8")
         igor = (ROOT / ".github/workflows/igor-independent-evidence.yml").read_text(encoding="utf-8")
@@ -56,3 +76,11 @@ class ReleaseSourceBindingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_pull_request_manifest_never_claims_attestation(self):
+        content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main' && success()", content)
+        self.assertIn('source_attestation="NOT_PERFORMED"', content)
+        self.assertIn('image_attestation="NOT_PERFORMED"', content)
+        self.assertIn('status="PREMERGE_CI_PASSED"', content)
