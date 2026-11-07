@@ -61,6 +61,17 @@ python scripts/verify_customer_bundle.py customer-evidence.zip --trust-store tru
 
 
 
+For runtime issuance, `github_oci_provenance_runtime_from_env()` returns the provider/verifier pair that is injected into `CustomerBundleRuntime.provenance_provider` and `CustomerBundleRuntime.provenance_verifier`. It derives the expected source SHA from the immutable image build-info and refuses to start the provider if any required deployment setting is absent. Required settings are:
+
+- `OLA_GITHUB_PROVENANCE_FILE` — mounted or staged `source-runtime.json` produced by the verified OCI/SLSA workflow;
+- `OLA_OCI_IMAGE_DIGEST` — immutable digest of the image actually deployed, never a tag;
+- `OLA_GITHUB_REPOSITORY` and `OLA_GITHUB_REPOSITORY_ID` — canonical repository and immutable numeric ID;
+- `OLA_GITHUB_WORKFLOW_IDENTITY` — exact certificate SAN for the approved workflow/ref;
+- `OLA_SIGSTORE_TRUST_ROOT_SHA256` — out-of-band approved SHA-256 of the trusted-root JSONL;
+- optional `OLA_GITHUB_SOURCE_REF`, `OLA_GITHUB_IMAGE_NAME`, `OLA_GH_BINARY`.
+
+If GHCR is private, the verifier process also needs a read-only registry credential through `GH_TOKEN`/Docker registry auth. This adapter verifies provenance only; it does not configure KMS/HSM, TSA, IdP/HR or production storage.
+
 Exit code `0` means cryptographically `VERIFIED` and lifecycle `ACTIVE`; `3` means cryptographically `PARTIAL`; `4` means signatures/integrity were checked but the bundle lifecycle is `EXPIRED`; `2` means `INVALID`. The CLI prints `status` and `lifecycle_status` separately. The CLI loads Ed25519 and RFC 3161 trust and now constructs the GitHub OCI provenance verifier from the optional `provenance` trust policy. A production package is rejected with `PROVENANCE_ATTESTATION_VERIFIER_NOT_CONFIGURED` if that policy is missing or malformed. The verifier requires the packaged Sigstore bundle and trusted root, exact repository ID, exact workflow certificate identity, expected source ref, exact source commit, and exact OCI image digest. It invokes `gh attestation verify` with `--bundle` and `--custom-trusted-root`; it checks the resulting certificate and in-toto SLSA statement independently of a provider-supplied `verified=true` flag. The GitHub CLI binary is installed from its official APT repository after SHA-256 verification of the official keyring. A trust store must be distributed independently from the bundle. Never trust a public key merely because it is included in the same ZIP.
 
 ## Production gate
