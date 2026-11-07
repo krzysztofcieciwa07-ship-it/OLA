@@ -54,10 +54,19 @@ def create_customer_evidence_bundle(
     actor = _actor(request, "report_reviewer")
     _csrf(request, x_ola_csrf)
     runtime = getattr(request.app.state, "customer_bundle_runtime", None)
+    deployment_profile = _deployment_profile()
     if runtime is None:
         raise HTTPException(
             status_code=503,
             detail="customer bundle signing, verification, timestamp and storage services are not configured",
+        )
+    if (
+        deployment_profile in {"production", "invalid"}
+        and getattr(runtime, "profile", None) != "CUSTOMER_BUNDLE_PRODUCTION_V1"
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="public production delivery requires CUSTOMER_BUNDLE_PRODUCTION_V1",
         )
     try:
         return create_customer_bundle_for_order(
