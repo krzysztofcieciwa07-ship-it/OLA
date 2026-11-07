@@ -1,0 +1,280 @@
+"""Behavioral contract for separate customer bundle, grant and delivery-attempt lifecycles."""
+import importlib
+import uuid
+
+import pytest
+from sqlalchemy import select
+
+from app.database import SessionLocal
+from app.models import (
+    HumanMembershipRole,
+    HumanPrincipal,
+    Tenant,
+    TenantIdentityPolicy,
+)
+
+
+def _delivery_api():
+    module = importlib.import_module("app.customer_bundle.delivery")
+    required = (
+        "request_recipient_grant",
+        "approve_recipient_grant",
+        "revoke_recipient_grant",
+        "begin_delivery_attempt",
+        "complete_delivery_attempt",
+    )
+    missing = [name for name in required if not callable(getattr(module, name, None))]
+    assert not missing, f"customer delivery lifecycle functions are missing: {missing}"
+    return module
+
+
+def _identity_fixture():
+    tenant_id = str(uuid.uuid4())
+    requester_id, approver_id, recipient_id = (str(uuid.uuid4()) for _ in range(3))
+    people = {
+        requester_id: "person-ref-admin-requester",
+        approver_id: "person-ref-admin-approver",
+        recipient_id: "person-ref-customer-recipient",
+    }
+    with SessionLocal() as db:
+        db.add(Tenant(id=tenant_id, name="bundle-delivery-lifecycle-test"))
+        db.flush()
+        db.add(TenantIdentityPolicy(
+            tenant_id=tenant_id,
+            human_gate_mode="OIDC_REQUIRED",
+            changed_by_ref="principal-ref-bootstrap",
+            reason="delivery lifecycle contract test",
+        ))
+        for principal_id, person_ref in people.items():
+            db.add(HumanPrincipal(
+                id=principal_id,
+                tenant_id=tenant_id,
+                issuer="https://idp.example",
+                subject=f"subject-{principal_id}",
+                status="ACTIVE",
+                person_ref=person_ref,
+                person_key_source="HR_SCIM",
+            ))
+        for principal_id, role in (
+            (requester_id, "tenant_identity_admin"),
+            (approver_id, "tenant_identity_admin"),
+            (recipient_id, "recipient"),
+        ):
+            db.add(HumanMembershipRole(
+                id=str(uuid.uuid4()),
+                tenant_id=tenant_id,
+                principal_id=principal_id,
+                role=role,
+                status="ACTIVE",
+                created_by_ref="principal-ref-bootstrap",
+            ))
+        db.commit()
+    return tenant_id, requester_id, approver_id, recipient_id, people
+
+
+def _signed_bundle(tenant_id, order_id):
+    from app.models import CustomerEvidenceBundle
+
+    bundle = CustomerEvidenceBundle(
+        id=str(uuid.uuid4()),
+        tenant_id=tenant_id,
+        order_id=order_id,
+        version=1,
+        status="SIGNED",
+        profile="CUSTOMER_BUNDLE_SANDBOX_V1",
+        manifest_sha256="a" * 64,
+        report_sha256="b" * 64,
+        igor_key_id="igor-key-1",
+        ola_key_id="ola-key-1",
+        storage_object_ref="opaque-encrypted-object-1",
+        created_at=1_800_000_000,
+        signed_at=1_800_000_010,
+        expires_at=1_900_000_000,
+    )
+    with SessionLocal() as db:
+        db.add(bundle)
+        db.commit()
+    return bundle.id
+
+
+def test_delivery_lifecycle_has_distinct_persistent_bundle_grant_and_attempt_models():
+    from app import models
+
+    required = (
+        "CustomerEvidenceBundle",
+        "CustomerBundleRecipientGrant",
+        "CustomerBundleDeliveryAttempt",
+    )
+    missing = [name for name in required if not hasattr(models, name)]
+    assert not missing, f"customer delivery lifecycle models are missing: {missing}"
+
+    assert {"status", "manifest_sha256", "storage_object_ref"} <= set(
+        models.CustomerEvidenceBundle.__table__.columns.keys()
+    )
+    assert {"status", "recipient_principal_id", "recipient_person_ref"} <= set(
+        models.CustomerBundleRecipientGrant.__table__.columns.keys()
+    )
+    assert {"status", "attempt_no", "bundle_id", "grant_id"} <= set(
+        models.CustomerBundleDeliveryAttempt.__table__.columns.keys()
+    )
+
+
+def test_recipient_grant_requires_dual_control_from_distinct_hr_people():
+    delivery = _delivery_api()
+    tenant_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
+    order_id = str(uuid.uuid4())
+
+    request = delivery.request_recipient_grant(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        requester_principal_id=requester_id,
+        requester_person_ref=people[requester_id],
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        reason="Grant access to the approved order report",
+        expires_at=1_900_000_000,
+    )
+    assert request["status"] == "PENDING"
+
+    with pytest.raises(delivery.CustomerBundleDeliveryRejected) as self_approval:
+        delivery.approve_recipient_grant(
+            tenant_id=tenant_id,
+            grant_id=request["grant_id"],
+            approver_principal_id=requester_id,
+            approver_person_ref=people[requester_id],
+            reason="same person must not approve the grant",
+        )
+    assert self_approval.value.code == 403
+
+    approved = delivery.approve_recipient_grant(
+        tenant_id=tenant_id,
+        grant_id=request["grant_id"],
+        approver_principal_id=approver_id,
+        approver_person_ref=people[approver_id],
+        reason="Second administrator approved the recipient scope",
+    )
+    assert approved["status"] == "ACTIVE"
+    assert approved["grant_id"] == request["grant_id"]
+
+
+def test_each_download_is_a_new_attempt_and_does_not_mutate_bundle_or_grant():
+    delivery = _delivery_api()
+    tenant_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
+    order_id = str(uuid.uuid4())
+    bundle_id = _signed_bundle(tenant_id, order_id)
+    request = delivery.request_recipient_grant(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        requester_principal_id=requester_id,
+        requester_person_ref=people[requester_id],
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        reason="Grant recipient access",
+        expires_at=1_900_000_000,
+    )
+    delivery.approve_recipient_grant(
+        tenant_id=tenant_id,
+        grant_id=request["grant_id"],
+        approver_principal_id=approver_id,
+        approver_person_ref=people[approver_id],
+        reason="Approve recipient access",
+    )
+
+    first = delivery.begin_delivery_attempt(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        bundle_id=bundle_id,
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        now=1_800_000_100,
+    )
+    second = delivery.begin_delivery_attempt(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        bundle_id=bundle_id,
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        now=1_800_000_200,
+    )
+    assert first["status"] == "STARTED"
+    assert second["status"] == "STARTED"
+    assert first["attempt_no"] == 1
+    assert second["attempt_no"] == 2
+    assert first["attempt_id"] != second["attempt_id"]
+
+    completed = delivery.complete_delivery_attempt(
+        tenant_id=tenant_id,
+        attempt_id=first["attempt_id"],
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        now=1_800_000_150,
+    )
+    assert completed["status"] == "COMPLETED"
+
+    from app.models import (
+        CustomerBundleDeliveryAttempt,
+        CustomerBundleRecipientGrant,
+        CustomerEvidenceBundle,
+    )
+    with SessionLocal() as db:
+        bundle = db.get(CustomerEvidenceBundle, bundle_id)
+        grant = db.get(CustomerBundleRecipientGrant, request["grant_id"])
+        attempts = db.scalars(
+            select(CustomerBundleDeliveryAttempt)
+            .where(CustomerBundleDeliveryAttempt.bundle_id == bundle_id)
+            .order_by(CustomerBundleDeliveryAttempt.attempt_no.asc())
+        ).all()
+        assert bundle.status == "SIGNED"
+        assert grant.status == "ACTIVE"
+        assert [item.status for item in attempts] == ["COMPLETED", "STARTED"]
+        assert [item.attempt_no for item in attempts] == [1, 2]
+
+
+def test_revoked_grant_creates_blocked_attempt_without_changing_bundle_state():
+    delivery = _delivery_api()
+    tenant_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
+    order_id = str(uuid.uuid4())
+    bundle_id = _signed_bundle(tenant_id, order_id)
+    request = delivery.request_recipient_grant(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        requester_principal_id=requester_id,
+        requester_person_ref=people[requester_id],
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        reason="Grant recipient access",
+        expires_at=1_900_000_000,
+    )
+    delivery.approve_recipient_grant(
+        tenant_id=tenant_id,
+        grant_id=request["grant_id"],
+        approver_principal_id=approver_id,
+        approver_person_ref=people[approver_id],
+        reason="Approve recipient access",
+    )
+    revoked = delivery.revoke_recipient_grant(
+        tenant_id=tenant_id,
+        grant_id=request["grant_id"],
+        actor_principal_id=approver_id,
+        actor_person_ref=people[approver_id],
+        reason="Recipient access revoked",
+    )
+    assert revoked["status"] == "REVOKED"
+
+    blocked = delivery.begin_delivery_attempt(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        bundle_id=bundle_id,
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        now=1_800_000_300,
+    )
+    assert blocked["status"] == "BLOCKED"
+    assert blocked["reason"] == "RECIPIENT_GRANT_INACTIVE"
+
+    from app.models import CustomerEvidenceBundle, CustomerBundleDeliveryAttempt
+    with SessionLocal() as db:
+        bundle = db.get(CustomerEvidenceBundle, bundle_id)
+        attempt = db.get(CustomerBundleDeliveryAttempt, blocked["attempt_id"])
+        assert bundle.status == "SIGNED"
+        assert attempt.status == "BLOCKED"
