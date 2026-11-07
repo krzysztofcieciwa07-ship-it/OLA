@@ -277,6 +277,7 @@ def download_customer_bundle(
         or verification.bundle_version != version
         or verification.profile != expected_profile
         or verification.expires_at != expected_expiry
+        or verification.lifecycle_status != "ACTIVE"
         or verification.manifest_sha256 != expected_manifest_sha256
         or verification.report_sha256 != expected_report_sha256
         or expected_lifecycle_status != "SIGNED"
