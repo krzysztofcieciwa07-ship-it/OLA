@@ -189,3 +189,85 @@ def test_rejects_tampered_trusted_root_even_when_cli_would_succeed(monkeypatch):
     )
     assert _verify(monkeypatch, json.dumps(payload).encode()) is False
     assert called == []
+
+
+
+def test_runtime_provider_returns_only_bytes_after_independent_verification(tmp_path):
+    from app.customer_bundle.github_provenance import GitHubOCIProvenanceProvider
+
+    payload_path = tmp_path / "source-runtime.json"
+    payload_path.write_bytes(b'{"schema":"ola-github-oci-provenance/v1"}')
+    calls = []
+    provider = GitHubOCIProvenanceProvider(
+        payload_path=payload_path,
+        source_sha=SOURCE_SHA,
+        image_digest=IMAGE_DIGEST,
+        verifier=lambda payload, source, digest: calls.append((payload, source, digest)) or True,
+    )
+
+    result = provider({"tenant_id": "tenant-not-used"})
+    assert result == {
+        "json_bytes": payload_path.read_bytes(),
+        "verified": True,
+        "source_sha": SOURCE_SHA,
+        "image_digest": IMAGE_DIGEST,
+    }
+    assert calls == [(payload_path.read_bytes(), SOURCE_SHA, IMAGE_DIGEST)]
+
+
+def test_runtime_provider_fails_closed_on_provenance_verifier_rejection(tmp_path):
+    import pytest
+    from app.customer_bundle.github_provenance import (
+        GitHubOCIProvenanceProvider,
+        GitHubOCIProvenanceRejected,
+    )
+
+    payload_path = tmp_path / "source-runtime.json"
+    payload_path.write_bytes(b'{"schema":"ola-github-oci-provenance/v1"}')
+    provider = GitHubOCIProvenanceProvider(
+        payload_path=payload_path,
+        source_sha=SOURCE_SHA,
+        image_digest=IMAGE_DIGEST,
+        verifier=lambda *_args: False,
+    )
+    with pytest.raises(GitHubOCIProvenanceRejected, match="GITHUB_OCI_SLSA_VERIFICATION_FAILED"):
+        provider({})
+
+
+def test_runtime_factory_requires_deployment_digest_and_pinned_trust_root(monkeypatch, tmp_path):
+    import pytest
+    from app.customer_bundle.github_provenance import (
+        GitHubOCIProvenanceRejected,
+        github_oci_provenance_runtime_from_env,
+    )
+
+    monkeypatch.setattr("app.runtime_provenance.runtime_source_commit", lambda: SOURCE_SHA)
+    for key in (
+        "OLA_GITHUB_PROVENANCE_FILE",
+        "OLA_OCI_IMAGE_DIGEST",
+        "OLA_GITHUB_REPOSITORY",
+        "OLA_GITHUB_REPOSITORY_ID",
+        "OLA_GITHUB_WORKFLOW_IDENTITY",
+        "OLA_SIGSTORE_TRUST_ROOT_SHA256",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    with pytest.raises(GitHubOCIProvenanceRejected, match="PROVENANCE_RUNTIME_CONFIG_MISSING"):
+        github_oci_provenance_runtime_from_env()
+
+    payload_path = tmp_path / "source-runtime.json"
+    payload_path.write_bytes(b"test")
+    settings = {
+        "OLA_GITHUB_PROVENANCE_FILE": str(payload_path),
+        "OLA_OCI_IMAGE_DIGEST": IMAGE_DIGEST,
+        "OLA_GITHUB_REPOSITORY": REPOSITORY,
+        "OLA_GITHUB_REPOSITORY_ID": REPOSITORY_ID,
+        "OLA_GITHUB_WORKFLOW_IDENTITY": WORKFLOW_IDENTITY,
+        "OLA_SIGSTORE_TRUST_ROOT_SHA256": "c" * 64,
+    }
+    for key, value in settings.items():
+        monkeypatch.setenv(key, value)
+
+    provider, verifier = github_oci_provenance_runtime_from_env()
+    assert provider.source_sha == SOURCE_SHA
+    assert provider.image_digest == IMAGE_DIGEST
+    assert provider.verifier is verifier
