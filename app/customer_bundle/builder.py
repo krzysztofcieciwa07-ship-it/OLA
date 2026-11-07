@@ -102,7 +102,8 @@ def build_customer_bundle(
     signing_tip_hash: str,
     signed_at: int,
     timestamp_proof: bytes | None = None,
-    timestamp_verifier: Callable[[bytes, int], bool] | None = None,
+    timestamp_provider: Callable[[bytes], bytes] | None = None,
+    timestamp_verifier: Callable[[bytes, bytes, int], bool] | None = None,
     source_sha: str | None = None,
     image_digest: str | None = None,
 ) -> BundleArtifact:
@@ -168,20 +169,14 @@ def build_customer_bundle(
         if not isinstance(provenance_json, bytes) or not provenance_json:
             raise CustomerBundleRejected("provenance JSON must be nonempty bytes when supplied")
         files["provenance/source-runtime.json"] = provenance_json
-    if timestamp_proof is not None:
-        if not isinstance(timestamp_proof, bytes) or not timestamp_proof:
-            raise CustomerBundleRejected("timestamp proof must be nonempty bytes when supplied")
-        files["timestamp/rfc3161.tsr"] = timestamp_proof
+    if timestamp_proof is not None and (
+        not isinstance(timestamp_proof, bytes) or not timestamp_proof
+    ):
+        raise CustomerBundleRejected("timestamp proof must be nonempty bytes when supplied")
 
     if production:
-        if provenance_json is None or timestamp_proof is None or timestamp_verifier is None:
-            raise CustomerBundleRejected("production bundle requires provenance and an independent RFC 3161 timestamp verifier")
-        try:
-            timestamp_valid = timestamp_verifier(timestamp_proof, signed_at)
-        except Exception as exc:
-            raise CustomerBundleRejected("independent timestamp verification failed") from exc
-        if timestamp_valid is not True:
-            raise CustomerBundleRejected("independent timestamp verification failed")
+        if provenance_json is None or timestamp_provider is None or timestamp_verifier is None:
+            raise CustomerBundleRejected("production bundle requires provenance and an independent RFC 3161 provider/verifier")
         if not isinstance(source_sha, str) or not HEX_40_RE.fullmatch(source_sha):
             raise CustomerBundleRejected("production bundle requires a 40-character source SHA")
         if not isinstance(image_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
@@ -226,8 +221,8 @@ def build_customer_bundle(
         },
         "source_sha": source_sha,
         "image_digest": image_digest,
-        "timestamp_proof_path": "timestamp/rfc3161.tsr" if timestamp_proof is not None else None,
-        "timestamp_proof_status": "VERIFIED" if production else ("PRESENT_NOT_VERIFIED" if timestamp_proof is not None else "NOT_PRESENT"),
+        "timestamp_proof_path": "timestamp/rfc3161.tsr" if (production or timestamp_proof is not None) else None,
+        "timestamp_proof_status": "ATTACHED_AND_ISSUER_VERIFIED" if production else ("PRESENT_NOT_VERIFIED" if timestamp_proof is not None else "NOT_PRESENT"),
         "evidence_scope": "ORDER_SCOPED_EXCERPT",
         "full_tenant_chain_recomputable": False,
         "files": [
@@ -235,10 +230,22 @@ def build_customer_bundle(
             for name, body in sorted(files.items())
         ],
         "control_files_excluded_from_file_list": [
-            "manifest.json", "manifest.sig", "igor/attestation.json", "igor/attestation.sig",
+            "manifest.json", "manifest.sig", "igor/attestation.json", "igor/attestation.sig", "timestamp/rfc3161.tsr",
         ],
     }
     manifest_bytes = canonical_json_bytes(manifest)
+    if production:
+        try:
+            timestamp_proof = timestamp_provider(manifest_bytes)
+            timestamp_valid = (
+                isinstance(timestamp_proof, bytes)
+                and bool(timestamp_proof)
+                and timestamp_verifier(timestamp_proof, manifest_bytes, signed_at) is True
+            )
+        except Exception as exc:
+            raise CustomerBundleRejected("independent RFC 3161 timestamp issuance/verification failed") from exc
+        if not timestamp_valid:
+            raise CustomerBundleRejected("independent RFC 3161 timestamp issuance/verification failed")
     manifest_signature = ola_signer.sign(manifest_bytes)
     if not isinstance(manifest_signature, bytes) or len(manifest_signature) != 64:
         raise BundleSignerRejected("OLA signer did not return a 64-byte Ed25519 signature")
@@ -248,6 +255,8 @@ def build_customer_bundle(
     archive_files["igor/attestation.sig"] = _b64url(igor_signature)
     archive_files["manifest.json"] = manifest_bytes
     archive_files["manifest.sig"] = _b64url(manifest_signature)
+    if timestamp_proof is not None:
+        archive_files["timestamp/rfc3161.tsr"] = timestamp_proof
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_STORED, strict_timestamps=True) as archive:
