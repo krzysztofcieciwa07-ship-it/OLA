@@ -108,7 +108,7 @@ def _signed_bundle(tenant_id, order_id):
     with SessionLocal() as db:
         db.add(bundle)
         db.commit()
-    return bundle.id
+    return bundle_id
 
 
 def test_delivery_lifecycle_has_distinct_persistent_bundle_grant_and_attempt_models():
