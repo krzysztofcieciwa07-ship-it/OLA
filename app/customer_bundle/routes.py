@@ -9,6 +9,7 @@ from app.customer_bundle.service import (
     CustomerBundleCreationRejected,
     create_customer_bundle_for_order,
 )
+from app.customer_bundle.recipient_auth import authenticate_customer_recipient
 from app.customer_bundle.delivery import (
     CustomerBundleDeliveryRejected,
     acknowledge_delivery_attempt,
@@ -32,6 +33,13 @@ router = APIRouter()
 def _actor(request: Request, role: str):
     try:
         return require_human_operator(request, required_role=role)
+    except HumanMembershipRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
+
+
+def _recipient(request: Request):
+    try:
+        return authenticate_customer_recipient(request)
     except HumanMembershipRejected as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
@@ -157,7 +165,7 @@ def download_customer_bundle(
     request: Request,
 ):
     """Stream an encrypted-at-rest bundle only to its OIDC-authenticated recipient."""
-    actor = _actor(request, "recipient")
+    actor = _recipient(request)
     runtime = getattr(request.app.state, "customer_bundle_runtime", None)
     storage = getattr(runtime, "storage", None)
     profile = _deployment_profile()
