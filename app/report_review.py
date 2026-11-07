@@ -21,6 +21,9 @@ from .models import (
     CheckoutOrder,
     CheckoutOrderControl,
     CheckoutReportReview,
+    HumanCheckoutReportReview,
+    HumanPrincipal,
+    HumanMembershipRole,
     EvidenceRecord,
     ApiKey,
 )
@@ -105,12 +108,22 @@ def _trusted_review_evidence(records, review, order_id):
         and payload.get("decision") == "REPORT_APPROVED"
     )
 
-def approve_paid_order_report(*, tenant_id: str, reviewer_id: str, order_id: str,
-                              tip_hash: str, report_sha256: str, reason: str) -> dict:
+def approve_paid_order_report(*, tenant_id: str, reviewer_id: str | None = None,
+                              reviewer_principal_id: str | None = None,
+                              reviewer_person_ref: str | None = None,
+                              order_id: str, tip_hash: str, report_sha256: str,
+                              reason: str) -> dict:
     if not all(isinstance(value, str) and value.strip() for value in (
-        tenant_id, reviewer_id, order_id, tip_hash, report_sha256, reason
+        tenant_id, order_id, tip_hash, report_sha256, reason
     )):
-        raise PaidReportReviewRejected(400, "order, reviewer, report digest, evidence tip and reason are required")
+        raise PaidReportReviewRejected(400, "order, report digest, evidence tip and reason are required")
+    legacy_actor = isinstance(reviewer_id, str) and bool(reviewer_id.strip())
+    human_actor = (
+        isinstance(reviewer_principal_id, str) and bool(reviewer_principal_id.strip())
+        and isinstance(reviewer_person_ref, str) and bool(reviewer_person_ref.strip())
+    )
+    if legacy_actor == human_actor:
+        raise PaidReportReviewRejected(400, "exactly one API-key or HR-backed human reviewer identity is required")
     if re.fullmatch(r"[0-9a-f]{64}", tip_hash) is None or re.fullmatch(r"[0-9a-f]{64}", report_sha256) is None:
         raise PaidReportReviewRejected(400, "report_sha256 and tip_hash must be lowercase SHA-256 digests")
     if len(reason.strip()) > 1000:
@@ -128,23 +141,58 @@ def approve_paid_order_report(*, tenant_id: str, reviewer_id: str, order_id: str
             CheckoutOrderControl.order_id == order_id,
             CheckoutOrderControl.tenant_id == tenant_id,
         ).with_for_update())
-        reviewer = db.get(ApiKey, reviewer_id)
-        if reviewer is None or reviewer.tenant_id != tenant_id or reviewer.role != "report_reviewer":
-            raise PaidReportReviewRejected(403, "a tenant-scoped report_reviewer API identity is required")
+        if human_actor:
+            reviewer = db.scalar(select(HumanPrincipal).where(
+                HumanPrincipal.id == reviewer_principal_id,
+                HumanPrincipal.tenant_id == tenant_id,
+                HumanPrincipal.status == "ACTIVE",
+            ).with_for_update())
+            role = db.scalar(select(HumanMembershipRole).where(
+                HumanMembershipRole.tenant_id == tenant_id,
+                HumanMembershipRole.principal_id == reviewer_principal_id,
+                HumanMembershipRole.role == "report_reviewer",
+                HumanMembershipRole.status == "ACTIVE",
+            ))
+            if (
+                reviewer is None
+                or not reviewer.person_ref
+                or reviewer.person_ref != reviewer_person_ref
+                or role is None
+            ):
+                raise PaidReportReviewRejected(403, "an active HR-backed report_reviewer membership is required")
+        else:
+            reviewer = db.get(ApiKey, reviewer_id)
+            if reviewer is None or reviewer.tenant_id != tenant_id or reviewer.role != "report_reviewer":
+                raise PaidReportReviewRejected(403, "a tenant-scoped report_reviewer API identity is required")
         job = db.scalar(select(CheckoutExecutionJob).where(
             CheckoutExecutionJob.order_id == order_id,
             CheckoutExecutionJob.tenant_id == tenant_id,
         ).with_for_update())
         if control is None or job is None:
             raise PaidReportReviewRejected(409, "execution or Human Gate record is missing")
-        if reviewer_id in {control.requester_id, control.approver_id}:
+        if human_actor:
+            if (
+                not control.requester_person_ref
+                or not control.approver_person_ref
+                or reviewer_person_ref in {control.requester_person_ref, control.approver_person_ref}
+            ):
+                raise PaidReportReviewRejected(
+                    403, "report reviewer must be HR-backed and distinct from requester and execution approver"
+                )
+        elif reviewer_id in {control.requester_id, control.approver_id}:
             raise PaidReportReviewRejected(403, "report reviewer must be distinct from requester and execution approver")
         if order.status != "EXECUTED_REVIEW_REQUIRED" or job.status != "EXECUTED_REVIEW_REQUIRED":
             raise PaidReportReviewRejected(409, "order is not awaiting customer report review")
-        existing = db.scalar(select(CheckoutReportReview).where(
-            CheckoutReportReview.order_id == order_id,
-            CheckoutReportReview.tenant_id == tenant_id,
-        ).with_for_update())
+        if human_actor:
+            existing = db.scalar(select(HumanCheckoutReportReview).where(
+                HumanCheckoutReportReview.order_id == order_id,
+                HumanCheckoutReportReview.tenant_id == tenant_id,
+            ).with_for_update())
+        else:
+            existing = db.scalar(select(CheckoutReportReview).where(
+                CheckoutReportReview.order_id == order_id,
+                CheckoutReportReview.tenant_id == tenant_id,
+            ).with_for_update())
         if existing is not None:
             raise PaidReportReviewRejected(409, "report has already been reviewed")
         try:
@@ -197,12 +245,21 @@ def approve_paid_order_report(*, tenant_id: str, reviewer_id: str, order_id: str
             raise PaidReportReviewRejected(409, "execution evidence does not bind the submitted report digest")
 
         reviewed_at = int(time.time())
-        review = CheckoutReportReview(
-            id=str(uuid.uuid4()), order_id=order_id, tenant_id=tenant_id,
-            reviewer_id=reviewer_id, status="APPROVED",
-            report_sha256=report_sha256, reviewed_tip_hash=tip_hash,
-            reason=reason.strip(), reviewed_at=reviewed_at,
-        )
+        if human_actor:
+            review = HumanCheckoutReportReview(
+                id=str(uuid.uuid4()), order_id=order_id, tenant_id=tenant_id,
+                reviewer_principal_id=reviewer_principal_id,
+                reviewer_person_ref=reviewer_person_ref, status="APPROVED",
+                report_sha256=report_sha256, reviewed_tip_hash=tip_hash,
+                reason=reason.strip(), reviewed_at=reviewed_at,
+            )
+        else:
+            review = CheckoutReportReview(
+                id=str(uuid.uuid4()), order_id=order_id, tenant_id=tenant_id,
+                reviewer_id=reviewer_id, status="APPROVED",
+                report_sha256=report_sha256, reviewed_tip_hash=tip_hash,
+                reason=reason.strip(), reviewed_at=reviewed_at,
+            )
         db.add(review)
         approval_record = _append_locked(db, tenant_id, "human.customer_report_approval", {
             "order_id": order_id,
@@ -211,6 +268,8 @@ def approve_paid_order_report(*, tenant_id: str, reviewer_id: str, order_id: str
             "requester_id": control.requester_id,
             "execution_approver_id": control.approver_id,
             "reviewer_id": reviewer_id,
+            "reviewer_principal_id": reviewer_principal_id,
+            "reviewer_person_ref": reviewer_person_ref,
             "report_sha256": report_sha256,
             "reviewed_tip_hash": tip_hash,
             "execution_completed_evidence_id": completion_record["id"],
@@ -239,6 +298,8 @@ def approve_paid_order_report(*, tenant_id: str, reviewer_id: str, order_id: str
         "status": "REPORT_APPROVED",
         "order_id": order_id,
         "reviewer_id": reviewer_id,
+        "reviewer_principal_id": reviewer_principal_id,
+        "reviewer_person_ref": reviewer_person_ref,
         "report_sha256": report_sha256,
         "review_evidence_id": approval_record["id"],
         "customer_delivery": "NOT_DELIVERED",
