@@ -114,6 +114,8 @@ def test_verifies_real_bundle_and_trusted_root_with_exact_oci_and_workflow_polic
     assert "--custom-trusted-root" in command
     assert command[command.index("--cert-identity") + 1] == WORKFLOW_IDENTITY
     assert command[command.index("--cert-oidc-issuer") + 1] == OIDC_ISSUER
+    assert command[command.index("--source-digest") + 1] == SOURCE_SHA
+    assert command[command.index("--source-ref") + 1] == SOURCE_REF
     assert command[command.index("--predicate-type") + 1] == PREDICATE_TYPE
 
 
