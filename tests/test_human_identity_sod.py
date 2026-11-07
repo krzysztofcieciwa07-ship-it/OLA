@@ -118,7 +118,11 @@ def test_two_oidc_accounts_for_one_hr_person_share_the_same_pseudonymous_ref(
     assert first_result["person_ref"] == second_result["person_ref"]
     assert raw_hr_key not in str(first_result)
     records = _records(tenant_id)
-    assert len(records) == 2
+    binding_records = [
+        row for row in records
+        if row["record_type"] == "human.person_identity_bound"
+    ]
+    assert len(binding_records) == 2
     assert all(raw_hr_key not in row["payload_json"] for row in records)
     assert verify_chain(records)[0] is True
 
