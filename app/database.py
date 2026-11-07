@@ -142,6 +142,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     """Fail closed unless the migrated schema and immutable evidence controls are present."""
     required_columns = {
         "tenants": {"id", "name"},
+        "tenant_identity_policies": {
+            "tenant_id", "human_gate_mode", "changed_at", "changed_by_ref", "reason",
+        },
         "api_keys": {"id", "tenant_id", "key_hash", "role"},
         "evidence_records": {
             "id", "tenant_id", "seq", "record_type", "payload_json",
@@ -209,9 +212,15 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             raise RuntimeError(f"PostgreSQL table {table_name} is missing required unique constraints/indexes")
 
     with bind.connect() as conn:
-        applied = conn.execute(text(
-            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
-        ), {"version": "ola_paid_order_report_review_v3"}).first()
+        applied_versions = {
+            row[0] for row in conn.execute(text(
+                "SELECT version FROM ola_schema_migrations WHERE version IN "
+                "(:report_review, :human_identity_policy)"
+            ), {
+                "report_review": "ola_paid_order_report_review_v3",
+                "human_identity_policy": "ola_human_identity_policy_v1",
+            }).all()
+        }
         trigger_rows = conn.execute(text("""
             SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -231,8 +240,15 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             """)).one()
         else:
             evidence_privileges = (False, False)
-    if applied is None:
-        raise RuntimeError("PostgreSQL schema migration version is missing")
+    missing_versions = {
+        "ola_paid_order_report_review_v3",
+        "ola_human_identity_policy_v1",
+    } - applied_versions
+    if missing_versions:
+        raise RuntimeError(
+            "PostgreSQL schema migration versions are missing: "
+            + ", ".join(sorted(missing_versions))
+        )
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
@@ -338,6 +354,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_paid_order_report_review_v3",
             "description": "Add order-bound independent report review and authenticated customer delivery records",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_identity_policy_v1",
+            "description": "Add persistent one-way tenant Human Gate identity policy",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
