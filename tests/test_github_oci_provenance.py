@@ -6,6 +6,8 @@ from app.customer_bundle.github_provenance import (
     OIDC_ISSUER,
     PREDICATE_TYPE,
     SCHEMA,
+    GitHubOCIProvenanceRejected,
+    create_github_oci_provenance_payload,
     verify_github_oci_provenance,
 )
 
@@ -323,3 +325,54 @@ def test_customer_bundle_cli_requires_out_of_band_sigstore_root_pin():
     assert _provenance_verifier(base) is None
     base["trusted_root_sha256"] = "c" * 64
     assert callable(_provenance_verifier(base))
+
+
+def test_provenance_packager_requires_out_of_band_trusted_root_pin(tmp_path, monkeypatch):
+    import hashlib
+    import pytest
+
+    _, bundle, root = _materials()
+    bundle_path = tmp_path / "attestation.bundle"
+    root_path = tmp_path / "trusted_root.jsonl"
+    bundle_path.write_text(bundle, encoding="utf-8")
+    root_bytes = (root + "\\n").encode()
+    root_path.write_bytes(root_bytes)
+    expected_pin = hashlib.sha256(root_bytes).hexdigest()
+    observed = []
+
+    def verify(_payload, _source_sha, _image_digest, **kwargs):
+        observed.append(kwargs["expected_trusted_root_sha256"])
+        return True
+
+    monkeypatch.setattr(
+        "app.customer_bundle.github_provenance.verify_github_oci_provenance",
+        verify,
+    )
+    packed = create_github_oci_provenance_payload(
+        bundle_path=bundle_path,
+        trusted_root_path=root_path,
+        repository=REPOSITORY,
+        repository_id=REPOSITORY_ID,
+        source_sha=SOURCE_SHA,
+        source_ref=SOURCE_REF,
+        workflow_identity=WORKFLOW_IDENTITY,
+        image_name=IMAGE_NAME,
+        image_digest=IMAGE_DIGEST,
+        expected_trusted_root_sha256=expected_pin,
+    )
+    assert json.loads(packed)["trusted_root_sha256"] == expected_pin
+    assert observed == [expected_pin]
+
+    with pytest.raises(GitHubOCIProvenanceRejected, match="TRUSTED_ROOT_PIN_MISMATCH"):
+        create_github_oci_provenance_payload(
+            bundle_path=bundle_path,
+            trusted_root_path=root_path,
+            repository=REPOSITORY,
+            repository_id=REPOSITORY_ID,
+            source_sha=SOURCE_SHA,
+            source_ref=SOURCE_REF,
+            workflow_identity=WORKFLOW_IDENTITY,
+            image_name=IMAGE_NAME,
+            image_digest=IMAGE_DIGEST,
+            expected_trusted_root_sha256="0" * 64,
+        )
