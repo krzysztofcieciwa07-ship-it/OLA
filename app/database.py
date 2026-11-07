@@ -271,6 +271,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "id", "tenant_id", "order_id", "bundle_id", "grant_id",
             "recipient_principal_id", "recipient_person_ref", "attempt_no", "status",
             "reason", "created_at", "started_at", "completed_at", "failed_at",
+            "acknowledged_at", "acknowledgement_evidence_id",
         },
         "ola_schema_migrations": {"version", "description", "applied_at"},
     }
@@ -320,7 +321,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied_versions = {
             row[0] for row in conn.execute(text(
                 "SELECT version FROM ola_schema_migrations WHERE version IN "
-                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc, :human_membership, :human_gate_actors, :human_policy_latch, :customer_bundle_delivery)"
+                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc, :human_membership, :human_gate_actors, :human_policy_latch, :customer_bundle_delivery, :customer_bundle_delivery_ack)"
             ), {
                 "report_review": "ola_paid_order_report_review_v3",
                 "human_identity_policy": "ola_human_identity_policy_v1",
@@ -330,6 +331,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
                 "human_gate_actors": "ola_human_gate_actors_v1",
                 "human_policy_latch": "ola_human_identity_policy_latch_v1",
                 "customer_bundle_delivery": "ola_customer_bundle_delivery_v1",
+                "customer_bundle_delivery_ack": "ola_customer_bundle_delivery_ack_v1",
             }).all()
         }
         trigger_rows = conn.execute(text("""
@@ -376,6 +378,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "ola_human_gate_actors_v1",
         "ola_human_identity_policy_latch_v1",
         "ola_customer_bundle_delivery_v1",
+        "ola_customer_bundle_delivery_ack_v1",
     } - applied_versions
     if missing_versions:
         raise RuntimeError(
@@ -432,6 +435,7 @@ def _migrate_sqlite_private_order_tasks(bind):
     api_key_columns = {column["name"] for column in inspector.get_columns("api_keys")}
     principal_columns = {column["name"] for column in inspector.get_columns("human_principals")}
     control_columns = {column["name"] for column in inspector.get_columns("checkout_order_controls")}
+    attempt_columns = {column["name"] for column in inspector.get_columns("customer_bundle_delivery_attempts")}
     with bind.begin() as conn:
         if "task" not in order_columns:
             conn.exec_driver_sql("ALTER TABLE checkout_orders ADD COLUMN task TEXT")
@@ -451,6 +455,10 @@ def _migrate_sqlite_private_order_tasks(bind):
             conn.exec_driver_sql("ALTER TABLE checkout_order_controls ADD COLUMN approver_principal_id VARCHAR(36)")
         if "approver_person_ref" not in control_columns:
             conn.exec_driver_sql("ALTER TABLE checkout_order_controls ADD COLUMN approver_person_ref VARCHAR(64)")
+        if "acknowledged_at" not in attempt_columns:
+            conn.exec_driver_sql("ALTER TABLE customer_bundle_delivery_attempts ADD COLUMN acknowledged_at INTEGER")
+        if "acknowledgement_evidence_id" not in attempt_columns:
+            conn.exec_driver_sql("ALTER TABLE customer_bundle_delivery_attempts ADD COLUMN acknowledgement_evidence_id VARCHAR(36)")
         conn.exec_driver_sql("""
             UPDATE checkout_orders
             SET task = (
@@ -561,6 +569,8 @@ def migrate_postgres_schema(target_engine):
         conn.execute(text("ALTER TABLE checkout_order_controls ADD COLUMN IF NOT EXISTS requester_person_ref VARCHAR(64)"))
         conn.execute(text("ALTER TABLE checkout_order_controls ADD COLUMN IF NOT EXISTS approver_principal_id VARCHAR(36)"))
         conn.execute(text("ALTER TABLE checkout_order_controls ADD COLUMN IF NOT EXISTS approver_person_ref VARCHAR(64)"))
+        conn.execute(text("ALTER TABLE customer_bundle_delivery_attempts ADD COLUMN IF NOT EXISTS acknowledged_at INTEGER"))
+        conn.execute(text("ALTER TABLE customer_bundle_delivery_attempts ADD COLUMN IF NOT EXISTS acknowledgement_evidence_id VARCHAR(36)"))
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
             VALUES (:version, :description)
@@ -592,6 +602,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_customer_bundle_delivery_v1",
             "description": "Add immutable bundle metadata, dual-controlled recipient grants and per-transfer attempts",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_customer_bundle_delivery_ack_v1",
+            "description": "Add separate explicit recipient acknowledgement after a completed bundle transfer",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
