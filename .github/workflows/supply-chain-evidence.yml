@@ -309,6 +309,63 @@ jobs:
           echo "image_digest=$digest" >> "$GITHUB_OUTPUT"
           printf 'OCI_IMAGE=%s@%s\n' "$IMAGE_NAME" "$digest" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Verify registry digest against running container imageID
+        id: runtime-image
+        shell: bash
+        env:
+          EXPECTED_IMAGE_ID: ${{ steps.build-image.outputs.image_id }}
+          OCI_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE_NAME@$OCI_DIGEST"
+          pulled_image_id="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME@$OCI_DIGEST")"
+          test "$pulled_image_id" = "$EXPECTED_IMAGE_ID"
+
+          container_name="ola-oci-runtime-proof-$GITHUB_RUN_ID"
+          cleanup() { docker rm -f "$container_name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run --detach --name "$container_name" \
+            --publish 127.0.0.1:18080:8000 \
+            --env OLA_API_KEY_PEPPER="$GITHUB_SHA" \
+            --env OLA_RUNTIME_COMMIT="$GITHUB_SHA" \
+            "$IMAGE_NAME@$OCI_DIGEST" >/dev/null
+
+          container_id="$(docker inspect --format '{{.Id}}' "$container_name")"
+          container_image_id="$(docker inspect --format '{{.Image}}' "$container_name")"
+          container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "$container_name")"
+          test "$container_image_id" = "$EXPECTED_IMAGE_ID"
+
+          healthy=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/health >/dev/null; then
+              healthy=true
+              break
+            fi
+            sleep 2
+          done
+          test "$healthy" = true
+
+          SOURCE_SHA="$GITHUB_SHA" IMAGE_NAME="$IMAGE_NAME" OCI_DIGEST="$OCI_DIGEST" \
+            IMAGE_ID="$container_image_id" CONTAINER_ID="$container_id" \
+            STARTED_AT="$container_started_at" python - <<'PY'
+          import json, os
+          proof = {
+              "schema": "ola-runtime-image-proof/v1",
+              "source_sha": os.environ["SOURCE_SHA"],
+              "image_name": os.environ["IMAGE_NAME"],
+              "image_digest": os.environ["OCI_DIGEST"],
+              "image_id": os.environ["IMAGE_ID"],
+              "container_id": os.environ["CONTAINER_ID"],
+              "container_started_at": os.environ["STARTED_AT"],
+              "health": "healthy",
+          }
+          with open("runtime-image-proof.json", "w", encoding="utf-8") as handle:
+              json.dump(proof, handle, sort_keys=True, separators=(",", ":"))
+              handle.write("\\n")
+          PY
+          printf 'RUNTIME_IMAGE_PROOF=VERIFIED\\n' >> "$GITHUB_STEP_SUMMARY"
+          printf 'OCI_DIGEST=%s\\nIMAGE_ID=%s\\n' "$OCI_DIGEST" "$container_image_id" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Generate OCI SLSA provenance attestation
         id: provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
@@ -363,6 +420,7 @@ jobs:
           name: ola-oci-slsa-evidence-${{ github.sha }}
           path: |
             source-runtime.json
+            runtime-image-proof.json
             sbom.spdx.json
             trusted_root.jsonl
             ${{ steps.provenance.outputs.bundle-path }}
