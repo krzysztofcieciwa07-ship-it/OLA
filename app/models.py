@@ -48,6 +48,38 @@ class HumanSession(Base):
     revoked_at = Column(Integer, nullable=True)
 
 
+class TenantIdentityProvider(Base):
+    """Tenant-controlled OIDC issuer configuration; secrets remain external."""
+    __tablename__ = "tenant_identity_providers"
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), primary_key=True)
+    issuer = Column(String(1024), nullable=False)
+    discovery_url = Column(String(1024), nullable=False)
+    client_id = Column(String(255), nullable=False)
+    client_secret_ref = Column(String(128), nullable=False)
+    redirect_uri = Column(String(1024), nullable=False)
+    id_token_algorithm = Column(String(32), nullable=False, default="RS256")
+    mfa_acr_values_json = Column(Text, nullable=False, default="[]")
+    mfa_amr_values_json = Column(Text, nullable=False, default="[]")
+    enabled = Column(Boolean, nullable=False, default=False)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    updated_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+
+
+class HumanPrincipal(Base):
+    """Mutable OIDC account mapping; raw identifiers stay outside append-only Evidence."""
+    __tablename__ = "human_principals"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    issuer = Column(String(1024), nullable=False)
+    subject = Column(String(512), nullable=False)
+    status = Column(String(32), nullable=False, default="UNASSIGNED")
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    last_authenticated_at = Column(Integer, nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "issuer", "subject", name="uq_human_principal_tenant_issuer_subject"),
+    )
+
+
 class EvidenceRecord(Base):
     __tablename__ = "evidence_records"
     id = Column(String(36), primary_key=True)
