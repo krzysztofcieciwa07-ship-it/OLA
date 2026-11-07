@@ -53,7 +53,14 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn("id-token: write", content)
         self.assertIn("Trivy scan exact image before publication", content)
         self.assertIn("Push exact scanned OCI image", content)
+        self.assertIn("Verify registry digest against running container imageID", content)
+        self.assertIn("docker pull \"$IMAGE_NAME@$OCI_DIGEST\"", content)
+        self.assertIn("docker inspect --format '{{.Image}}' \"$container_name\"", content)
+        self.assertIn('test "$container_image_id" = "$EXPECTED_IMAGE_ID"', content)
+        self.assertIn('runtime-image-proof.json', content)
         self.assertLess(content.index("Trivy scan exact image before publication"), content.index("Push exact scanned OCI image"))
+        self.assertLess(content.index("Push exact scanned OCI image"), content.index("Verify registry digest against running container imageID"))
+        self.assertLess(content.index("Verify registry digest against running container imageID"), content.index("Generate OCI SLSA provenance attestation"))
 
     def test_release_manifest_never_calls_green_ci_production_verified(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
