@@ -22,7 +22,7 @@ Offline verification rejects a missing or malformed bundle UUID, nonpositive ver
 
 The offline verifier separates cryptographic `status` from `lifecycle_status`: the same signed package may remain cryptographically `VERIFIED` or `PARTIAL`, while its lifecycle changes from `ACTIVE` to `EXPIRED` at `expires_at`. An expired signature is not described as invalid merely because time elapsed, but the API download endpoint refuses to stream an expired package.
 
-The offline verifier requires an out-of-band trust store. The bundle binds separate approval and signing moments: `approved_at` / `approved_tip_hash` identify the state approved by the reviewer; `signed_at` / `signing_tip_hash` identify the later state rechecked immediately before signing. IGOR signs an attestation bound to the order, report digest and both Evidence tips.
+The verifier requires an out-of-band trust store. For GitHub OCI provenance, the customer bundle carries the actual Sigstore attestation bundle and the Sigstore trusted-root material inside `provenance/source-runtime.json`; the verifier uses the local bundle/root and GitHub CLI policy checks. It does not query the GitHub attestations API, but it must resolve the immutable OCI digest from the configured registry. A private GHCR image therefore requires a read-only registry credential at verification time. The trust root must be refreshed through a separately controlled process when Sigstore roots rotate. The bundle binds separate approval and signing moments: `approved_at` / `approved_tip_hash` identify the state approved by the reviewer; `signed_at` / `signing_tip_hash` identify the later state rechecked immediately before signing. IGOR signs an attestation bound to the order, report digest and both Evidence tips.
 
 | Profile | Required result | Offline outcome |
 |---|---|---|
@@ -39,7 +39,14 @@ Issuance and every download both use a separately injected, out-of-band trust st
     "igor-prod-2026": "BASE64URL_RAW_32_BYTE_PUBLIC_KEY",
     "ola-prod-2026": "BASE64URL_RAW_32_BYTE_PUBLIC_KEY"
   },
-  "revoked_key_ids": []
+  "revoked_key_ids": [],
+  "provenance": {
+    "repository": "OWNER/REPOSITORY",
+    "repository_id": "IMMUTABLE_GITHUB_REPOSITORY_ID",
+    "source_ref": "refs/heads/main",
+    "workflow_identity": "https://github.com/OWNER/REPOSITORY/.github/workflows/supply-chain-evidence.yml@refs/heads/main",
+    "image_name": "ghcr.io/OWNER/REPOSITORY"
+  }
 }
 ```
 
@@ -53,7 +60,7 @@ python scripts/verify_customer_bundle.py customer-evidence.zip --trust-store tru
 
 
 
-Exit code `0` means cryptographically `VERIFIED` and lifecycle `ACTIVE`; `3` means cryptographically `PARTIAL`; `4` means signatures/integrity were checked but the bundle lifecycle is `EXPIRED`; `2` means `INVALID`. The CLI prints `status` and `lifecycle_status` separately. The current CLI loads Ed25519 and RFC 3161 trust, but does not yet load a production provenance-verifier adapter; therefore a production bundle is deliberately rejected with `PROVENANCE_ATTESTATION_VERIFIER_NOT_CONFIGURED` by this CLI. Programmatic production verification must inject the audited adapter explicitly. A trust store must be distributed independently from the bundle. Never trust a public key merely because it is included in the same ZIP.
+Exit code `0` means cryptographically `VERIFIED` and lifecycle `ACTIVE`; `3` means cryptographically `PARTIAL`; `4` means signatures/integrity were checked but the bundle lifecycle is `EXPIRED`; `2` means `INVALID`. The CLI prints `status` and `lifecycle_status` separately. The CLI loads Ed25519 and RFC 3161 trust and now constructs the GitHub OCI provenance verifier from the optional `provenance` trust policy. A production package is rejected with `PROVENANCE_ATTESTATION_VERIFIER_NOT_CONFIGURED` if that policy is missing or malformed. The verifier requires the packaged Sigstore bundle and trusted root, exact repository ID, exact workflow certificate identity, expected source ref, exact source commit, and exact OCI image digest. It invokes `gh attestation verify` with `--bundle` and `--custom-trusted-root`; it checks the resulting certificate and in-toto SLSA statement independently of a provider-supplied `verified=true` flag. The GitHub CLI binary is installed from its official APT repository after SHA-256 verification of the official keyring. A trust store must be distributed independently from the bundle. Never trust a public key merely because it is included in the same ZIP.
 
 ## Production gate
 
@@ -65,7 +72,7 @@ Exit code `0` means cryptographically `VERIFIED` and lifecycle `ACTIVE`; `3` mea
 - a nonempty RFC 3161 proof accepted by an independently configured timestamp verifier, including a defined `genTime` versus `signed_at` policy;
 - a separate offline timestamp trust adapter when validating the package.
 
-The repository currently provides a remote-signing interface, a fail-closed provenance-verifier callback contract and trust-store contract, not a deployed KMS/HSM integration, production provenance-verifier adapter or external timestamp authority. The standalone CLI intentionally cannot mark production provenance VERIFIED until that adapter is implemented and configured. Therefore a production bundle cannot be emitted or independently accepted merely by setting environment flags. Production remains blocked until separate IGOR and OLA signer services, KMS/HSM custody, TSA trust roots, customer delivery grants, retention and revocation procedures are configured and independently tested.
+The repository now provides a GitHub OCI/SLSA verifier adapter and a workflow that builds and pushes the OCI image, attests the exact registry digest, captures the real Sigstore bundle and trusted root, and packages them only after successful verification. The adapter is implemented but its first real release bundle has not yet been produced and verified on this branch. The runtime still requires explicit injection of a matching `provenance_provider` and `provenance_verifier`; no production runtime wiring or registry credential is claimed. The repository still does not provide deployed KMS/HSM custody or an external timestamp authority. Therefore a production bundle cannot be emitted or independently accepted merely by setting environment flags. Production remains blocked until separate IGOR and OLA signer services, KMS/HSM custody, TSA trust roots, customer delivery grants, retention and revocation procedures are configured and independently tested.
 
 ## Key lifecycle and revocation
 
