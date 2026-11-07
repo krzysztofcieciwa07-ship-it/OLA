@@ -192,79 +192,132 @@ jobs:
           retention-days: 30
 
 
-  release-attestations:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  oci-slsa-attestations:
+    # A trusted main release creates production-eligible evidence. Manual
+    # dispatch on a feature branch is a non-production rehearsal only.
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: write
       attestations: write
       id-token: write
     steps:
-      - name: Checkout protected release source
+      - name: Checkout exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Assert protected release source SHA
+
+      - name: Assert immutable source checkout
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Build release image and SPDX SBOM
+          test "$GITHUB_REF" = "refs/heads/main" || test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+
+      - name: Prepare immutable OCI image name
+        id: image
         shell: bash
         run: |
           set -euo pipefail
-          image="ola-release:$GITHUB_SHA"
-          docker build --pull --build-arg OLA_SOURCE_COMMIT="$GITHUB_SHA" --tag "$image" --file Dockerfile .
-          image_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
+          repository_lc="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          image_name="ghcr.io/$repository_lc"
+          echo "name=$image_name" >> "$GITHUB_OUTPUT"
+          echo "IMAGE_NAME=$image_name" >> "$GITHUB_ENV"
+
+      - name: Login to GitHub Container Registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and push exact OCI image
+        id: push
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx build --pull --load \
+            --build-arg OLA_SOURCE_COMMIT="$GITHUB_SHA" \
+            --tag "$IMAGE_NAME:$GITHUB_SHA" \
+            --file Dockerfile .
+          image_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_NAME:$GITHUB_SHA")"
           test "$image_source" = "$GITHUB_SHA"
-          docker save --output ola-image.tar "$image"
-      - name: Generate release SPDX SBOM
+          docker push "$IMAGE_NAME:$GITHUB_SHA"
+          repo_digest="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$IMAGE_NAME:$GITHUB_SHA")"
+          case "$repo_digest" in "$IMAGE_NAME@sha256:"*) ;; *) echo "::error::OCI registry digest missing"; exit 1;; esac
+          digest="${repo_digest##*@}"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "image_digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "OCI_IMAGE=$IMAGE_NAME@$digest" >> "$GITHUB_OUTPUT"
+          printf 'OCI_IMAGE=%s@%s\n' "$IMAGE_NAME" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate SPDX SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
-          image: ola-release:${{ github.sha }}
+          image: ${{ steps.image.outputs.name }}:${{ github.sha }}
           format: spdx-json
           output-file: sbom.spdx.json
           artifact-name: ola-release-sbom-${{ github.sha }}.spdx.json
-      - name: Generate SLSA provenance attestation
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
-        with:
-          subject-path: ola-image.tar
-      - name: Generate SBOM attestation
+
+      - name: Generate OCI SLSA provenance attestation
+        id: provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-path: ola-image.tar
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Generate OCI SBOM attestation
+        id: sbom-attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
           sbom-path: sbom.spdx.json
-      - name: Verify release provenance
-        env:
-          GH_TOKEN: ${{ github.token }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Export Sigstore trusted root
+        shell: bash
         run: |
           set -euo pipefail
-          gh attestation verify ola-image.tar -R "$GITHUB_REPOSITORY" --format json > attestation-verification.json
-          python - <<'PY'
-          import json, sys
-          data = json.load(open("attestation-verification.json", encoding="utf-8"))
-          results = [
-              item.get("verificationResult", {}).get("statement", {})
-              for item in data
-          ]
-          if not results:
-              sys.exit("NO_VERIFIED_ATTESTATION")
-          if not any(
-              item.get("_type") == "https://in-toto.io/Statement/v1"
-              and item.get("predicateType") == "https://slsa.dev/provenance/v1"
-              for item in results
-          ):
-              sys.exit("SLSA_PROVENANCE_MISSING")
-          print("RELEASE_ATTESTATION=VERIFIED")
-          PY
-      - name: Upload release provenance evidence
-        if: always()
+          gh attestation trusted-root > trusted_root.jsonl
+          test -s trusted_root.jsonl
+
+      - name: Verify and package exact OCI provenance bundle
+        shell: bash
+        env:
+          OCI_IMAGE_NAME: ${{ steps.image.outputs.name }}
+          OCI_IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          test -s "$PROVENANCE_BUNDLE"
+          workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/supply-chain-evidence.yml@$GITHUB_REF"
+          python scripts/package_github_oci_provenance.py \
+            --bundle "$PROVENANCE_BUNDLE" \
+            --trusted-root trusted_root.jsonl \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --source-sha "$GITHUB_SHA" \
+            --source-ref "$GITHUB_REF" \
+            --workflow-identity "$workflow_identity" \
+            --image-name "$OCI_IMAGE_NAME" \
+            --image-digest "$OCI_IMAGE_DIGEST" \
+            --output source-runtime.json
+
+      - name: Upload verified OCI provenance evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ola-release-provenance-${{ github.sha }}
+          name: ola-oci-slsa-evidence-${{ github.sha }}
           path: |
-            ola-image.tar
+            source-runtime.json
             sbom.spdx.json
-            attestation-verification.json
+            trusted_root.jsonl
+            ${{ steps.provenance.outputs.bundle-path }}
+            ${{ steps.sbom-attestation.outputs.bundle-path }}
           retention-days: 90
