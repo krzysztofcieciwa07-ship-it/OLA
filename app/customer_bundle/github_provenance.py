@@ -170,7 +170,14 @@ def verify_github_oci_provenance(
         root_lines = [line for line in trusted_root.splitlines() if line.strip()]
         if not root_lines or any(not line.lstrip().startswith(b"{") for line in root_lines):
             return False
-        json.loads(bundle.decode("utf-8"))
+        try:
+            json.loads(bundle.decode("utf-8"))
+        except json.JSONDecodeError:
+            bundle_lines = [line for line in bundle.splitlines() if line.strip()]
+            if not bundle_lines:
+                return False
+            for line in bundle_lines:
+                json.loads(line.decode("utf-8"))
         actual_root_sha256 = hashlib.sha256(trusted_root).hexdigest()
         if actual_root_sha256 != expected_trusted_root_sha256:
             return False
