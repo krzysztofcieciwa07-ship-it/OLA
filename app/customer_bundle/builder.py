@@ -8,7 +8,7 @@ import json
 import re
 import zipfile
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from app.customer_bundle.signers import BundleSignerRejected, Ed25519Signer
 
@@ -102,6 +102,7 @@ def build_customer_bundle(
     signing_tip_hash: str,
     signed_at: int,
     timestamp_proof: bytes | None = None,
+    timestamp_verifier: Callable[[bytes, int], bool] | None = None,
     source_sha: str | None = None,
     image_digest: str | None = None,
 ) -> BundleArtifact:
@@ -127,9 +128,9 @@ def build_customer_bundle(
     production = profile == PRODUCTION_PROFILE
     _validate_signers(igor_signer, ola_signer, production=production)
     clean_approval = _safe_approval(approval)
-    if clean_approval.get("approved_at") not in (None, approved_at):
+    if clean_approval.get("approved_at") != approved_at:
         raise CustomerBundleRejected("approval timestamp does not match the reviewed approval record")
-    if clean_approval.get("approved_tip_hash") not in (None, approved_tip_hash):
+    if clean_approval.get("approved_tip_hash") != approved_tip_hash:
         raise CustomerBundleRejected("approval Evidence tip does not match the reviewed approval record")
 
     try:
@@ -173,8 +174,14 @@ def build_customer_bundle(
         files["timestamp/rfc3161.tsr"] = timestamp_proof
 
     if production:
-        if provenance_json is None or timestamp_proof is None:
-            raise CustomerBundleRejected("production bundle requires provenance and independent timestamp proof")
+        if provenance_json is None or timestamp_proof is None or timestamp_verifier is None:
+            raise CustomerBundleRejected("production bundle requires provenance and an independent RFC 3161 timestamp verifier")
+        try:
+            timestamp_valid = timestamp_verifier(timestamp_proof, signed_at)
+        except Exception as exc:
+            raise CustomerBundleRejected("independent timestamp verification failed") from exc
+        if timestamp_valid is not True:
+            raise CustomerBundleRejected("independent timestamp verification failed")
         if not isinstance(source_sha, str) or not HEX_40_RE.fullmatch(source_sha):
             raise CustomerBundleRejected("production bundle requires a 40-character source SHA")
         if not isinstance(image_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
@@ -220,6 +227,7 @@ def build_customer_bundle(
         "source_sha": source_sha,
         "image_digest": image_digest,
         "timestamp_proof_path": "timestamp/rfc3161.tsr" if timestamp_proof is not None else None,
+        "timestamp_proof_status": "VERIFIED" if production else ("PRESENT_NOT_VERIFIED" if timestamp_proof is not None else "NOT_PRESENT"),
         "evidence_scope": "ORDER_SCOPED_EXCERPT",
         "full_tenant_chain_recomputable": False,
         "files": [
