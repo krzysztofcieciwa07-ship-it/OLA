@@ -114,6 +114,43 @@ def create_postgres_append_only_triggers(connection):
     BEFORE DELETE ON evidence_records
     FOR EACH ROW EXECUTE FUNCTION ola_reject_evidence_mutation()
     """)
+    connection.exec_driver_sql("""
+    CREATE OR REPLACE FUNCTION ola_enforce_human_identity_latch()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $ola$
+    BEGIN
+        IF TG_OP = 'UPDATE' AND OLD.required AND NOT NEW.required THEN
+            RAISE EXCEPTION 'human identity enforcement latch cannot be disabled'
+                USING ERRCODE = '55000';
+        END IF;
+        IF TG_OP = 'DELETE' AND OLD.required THEN
+            RAISE EXCEPTION 'human identity enforcement latch cannot be deleted'
+                USING ERRCODE = '55000';
+        END IF;
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        END IF;
+        RETURN NEW;
+    END;
+    $ola$;
+    """)
+    connection.exec_driver_sql(
+        "DROP TRIGGER IF EXISTS human_identity_enforcement_no_disable ON human_identity_enforcement"
+    )
+    connection.exec_driver_sql(
+        "DROP TRIGGER IF EXISTS human_identity_enforcement_no_delete ON human_identity_enforcement"
+    )
+    connection.exec_driver_sql("""
+    CREATE TRIGGER human_identity_enforcement_no_disable
+    BEFORE UPDATE OF required ON human_identity_enforcement
+    FOR EACH ROW EXECUTE FUNCTION ola_enforce_human_identity_latch()
+    """)
+    connection.exec_driver_sql("""
+    CREATE TRIGGER human_identity_enforcement_no_delete
+    BEFORE DELETE ON human_identity_enforcement
+    FOR EACH ROW EXECUTE FUNCTION ola_enforce_human_identity_latch()
+    """)
 
 
 def install_append_only_triggers(bind=None):
@@ -130,6 +167,18 @@ def install_append_only_triggers(bind=None):
             CREATE TRIGGER IF NOT EXISTS evidence_no_delete
             BEFORE DELETE ON evidence_records
             BEGIN SELECT RAISE(ABORT, 'evidence_records is append-only'); END;
+            """)
+            conn.exec_driver_sql("""
+            CREATE TRIGGER IF NOT EXISTS human_identity_enforcement_no_disable
+            BEFORE UPDATE OF required ON human_identity_enforcement
+            WHEN OLD.required = 1 AND NEW.required = 0
+            BEGIN SELECT RAISE(ABORT, 'human identity enforcement latch cannot be disabled'); END;
+            """)
+            conn.exec_driver_sql("""
+            CREATE TRIGGER IF NOT EXISTS human_identity_enforcement_no_delete
+            BEFORE DELETE ON human_identity_enforcement
+            WHEN OLD.required = 1
+            BEGIN SELECT RAISE(ABORT, 'human identity enforcement latch cannot be deleted'); END;
             """)
         return
     if target.dialect.name == "postgresql":
@@ -168,6 +217,24 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "reviewed_tip_hash", "reason", "approval_evidence_id", "reviewed_at",
             "delivery_evidence_id", "delivered_at",
         },
+        "human_principals": {"id", "status", "created_at"},
+        "human_identity_links": {
+            "id", "tenant_id", "principal_id", "issuer_lookup_hash",
+            "subject_lookup_hash", "person_ref_hash", "encrypted_issuer",
+            "encrypted_subject", "provisioning_source", "status", "created_at", "revoked_at",
+        },
+        "tenant_identity_configs": {
+            "tenant_id", "issuer", "client_id", "client_secret_ref",
+            "allowed_audiences_json", "mfa_claim_mapping_json", "active",
+            "created_at", "updated_at",
+        },
+        "tenant_memberships": {
+            "id", "tenant_id", "principal_id", "role", "status",
+            "provisioning_source", "created_by_principal_id", "created_at", "revoked_at",
+        },
+        "human_identity_enforcement": {
+            "id", "required", "enabled_at", "enabled_by_principal_id", "evidence_id",
+        },
         "ola_schema_migrations": {"version", "description", "applied_at"},
     }
     inspector = inspect(bind)
@@ -193,6 +260,11 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         },
         "checkout_order_controls": {("order_id",)},
         "checkout_execution_jobs": {("order_id",)},
+        "human_identity_links": {
+            ("tenant_id", "issuer_lookup_hash", "subject_lookup_hash"),
+            ("tenant_id", "person_ref_hash"),
+        },
+        "tenant_memberships": {("tenant_id", "principal_id", "role")},
     }
     for table_name, expected in expected_unique_constraints.items():
         actual = {
@@ -211,7 +283,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     with bind.connect() as conn:
         applied = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
-        ), {"version": "ola_paid_order_report_review_v3"}).first()
+        ), {"version": "ola_human_identity_v1"}).first()
         trigger_rows = conn.execute(text("""
             SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -220,6 +292,17 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             JOIN pg_proc AS p ON p.oid = t.tgfoid
             JOIN pg_namespace AS n ON n.oid = c.relnamespace
             WHERE c.relname = 'evidence_records'
+              AND n.nspname = current_schema()
+              AND NOT t.tgisinternal
+        """)).all()
+        latch_trigger_rows = conn.execute(text("""
+            SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
+                   pg_get_functiondef(p.oid)
+            FROM pg_trigger AS t
+            JOIN pg_class AS c ON c.oid = t.tgrelid
+            JOIN pg_proc AS p ON p.oid = t.tgfoid
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE c.relname = 'human_identity_enforcement'
               AND n.nspname = current_schema()
               AND NOT t.tgisinternal
         """)).all()
@@ -248,6 +331,23 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             or "USING ERRCODE = '55000'" not in normalized_function
         ):
             raise RuntimeError("PostgreSQL evidence append-only trigger definition is invalid")
+
+    latch_definitions = {row[0]: (row[1], row[2], row[3]) for row in latch_trigger_rows}
+    latch_expected = {
+        "human_identity_enforcement_no_disable": "BEFORE UPDATE",
+        "human_identity_enforcement_no_delete": "BEFORE DELETE",
+    }
+    for name, action in latch_expected.items():
+        trigger_def, function_name, function_def = latch_definitions.get(name, ("", "", ""))
+        normalized_trigger = re.sub(r"\s+", " ", trigger_def).upper()
+        normalized_function = re.sub(r"\s+", " ", function_def).upper()
+        if (
+            action not in normalized_trigger
+            or function_name != "ola_enforce_human_identity_latch"
+            or "HUMAN IDENTITY ENFORCEMENT LATCH CANNOT BE" not in normalized_function
+            or "USING ERRCODE = '55000'" not in normalized_function
+        ):
+            raise RuntimeError("PostgreSQL Human Identity enforcement trigger is invalid")
 
 
 def _migrate_sqlite_private_order_tasks(bind):
@@ -338,6 +438,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_paid_order_report_review_v3",
             "description": "Add order-bound independent report review and authenticated customer delivery records",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_identity_v1",
+            "description": "Add pseudonymous Human Identity tables and one-way production enforcement latch",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
