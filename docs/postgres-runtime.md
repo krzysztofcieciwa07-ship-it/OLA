@@ -46,8 +46,10 @@ GRANT USAGE ON SCHEMA public TO ola_runtime;
 GRANT SELECT, INSERT ON tenants TO ola_runtime;
 GRANT SELECT, INSERT, UPDATE ON tenant_identity_policies TO ola_runtime;
 GRANT SELECT, INSERT, UPDATE ON human_sessions TO ola_runtime;
-GRANT SELECT, UPDATE ON api_keys TO ola_runtime; -- owner_person_ref only; retain least-privilege column grants in production
-GRANT SELECT, INSERT, UPDATE ON tenant_identity_providers, human_principals,
+GRANT SELECT ON api_keys TO ola_runtime;
+GRANT UPDATE (owner_person_ref) ON api_keys TO ola_runtime;
+GRANT SELECT ON tenant_identity_providers TO ola_runtime;
+GRANT SELECT, INSERT, UPDATE ON human_principals,
     human_membership_roles, human_role_change_requests TO ola_runtime;
 GRANT SELECT, INSERT ON evidence_records TO ola_runtime;
 GRANT SELECT, INSERT, UPDATE ON stripe_events, checkout_orders,
