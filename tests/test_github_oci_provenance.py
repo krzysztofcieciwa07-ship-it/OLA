@@ -294,3 +294,16 @@ def test_runtime_provider_rejects_provenance_for_another_execution_image(tmp_pat
     )
     with pytest.raises(GitHubOCIProvenanceRejected, match="EXECUTION_SOURCE_IMAGE_IDENTITY_MISMATCH"):
         provider({"source_commit": SOURCE_SHA, "image_digest": "sha256:" + "c" * 64})
+
+
+
+def test_accepts_sigstore_bundle_jsonl_payload(monkeypatch):
+    payload = json.loads(_payload())
+    bundle = json.loads(base64.b64decode(payload["attestation_bundle_b64"]))
+    jsonl = (json.dumps(bundle) + "\\n" + json.dumps(bundle) + "\\n").encode()
+    payload["attestation_bundle_b64"] = base64.b64encode(jsonl).decode()
+    payload["bundle_sha256"] = __import__("hashlib").sha256(jsonl).hexdigest()
+    monkeypatch.setattr(
+        "app.customer_bundle.github_provenance.subprocess.run", _success,
+    )
+    assert _verify(monkeypatch, json.dumps(payload).encode()) is True
