@@ -199,6 +199,8 @@ def verify_customer_bundle(
             or igor_attestation.get("status") != "VERIFIED"
             or igor_attestation.get("order_id") != manifest.get("order_id")
             or igor_attestation.get("report_sha256") != report_sha
+            or igor_attestation.get("approved_tip_hash") != manifest.get("approved_tip_hash")
+            or igor_attestation.get("evidence_tip_hash") != manifest.get("signing_tip_hash")
         ):
             return _invalid(
                 "IGOR_ATTESTATION_BINDING_MISMATCH",
@@ -312,10 +314,24 @@ def verify_customer_bundle(
                 "VERIFIED_REPORT_REQUIRES_EMBEDDED_ORDER_BINDING",
                 igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
             )
+        provenance_status = manifest.get("provenance_status")
+        if provenance_status not in {"VERIFIED", "NOT_VERIFIED"}:
+            return _invalid(
+                "PROVENANCE_STATUS_MISSING_OR_UNKNOWN",
+                igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                report_sha=report_sha,
+            )
+        if status == "VERIFIED" and provenance_status != "VERIFIED":
+            return _invalid(
+                "VERIFIED_STATUS_REQUIRES_VERIFIED_PROVENANCE",
+                igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                report_sha=report_sha,
+            )
         timestamp_status = "NOT_PRESENT"
         if profile == PRODUCTION_PROFILE:
             if (
                 status != "VERIFIED"
+                or provenance_status != "VERIFIED"
                 or timestamp_path != "timestamp/rfc3161.tsr"
                 or manifest.get("timestamp_proof_status") != "ATTACHED_AND_ISSUER_VERIFIED"
             ):
@@ -346,6 +362,12 @@ def verify_customer_bundle(
                 )
             timestamp_status = "VERIFIED"
         elif profile == SANDBOX_PROFILE:
+            if provenance_status != "VERIFIED" and status != "PARTIAL":
+                return _invalid(
+                    "SANDBOX_PROVENANCE_MISSING_REQUIRES_PARTIAL",
+                    igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                    report_sha=report_sha,
+                )
             if timestamp_path is not None:
                 timestamp_status = "PRESENT_NOT_VERIFIED"
                 if status != "PARTIAL":
