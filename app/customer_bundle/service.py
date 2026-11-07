@@ -70,6 +70,7 @@ class CustomerBundleRuntime:
     igor_attestation_provider: Callable[[dict], dict]
     provenance_provider: Callable[[dict], dict | None]
     trusted_keys: dict[str, bytes]
+    provenance_verifier: Callable[[bytes, str, str], bool] | None = None
     revoked_key_ids: frozenset[str] = frozenset()
     timestamp_provider: Callable[[bytes], bytes] | None = None
     timestamp_verifier: Callable[[bytes, bytes, int], bool] | None = None
