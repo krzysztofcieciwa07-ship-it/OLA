@@ -7,7 +7,7 @@ import json
 import uuid
 
 from sqlalchemy import select
-from .database import SessionLocal
+from .database import SessionLocal, begin_write_transaction
 from .runtime_provenance import runtime_source_commit
 from .models import EvidenceRecord
 from .hashchain import sealed_payload_json, compute_record_hash_v2, verify_chain, trusted_record
@@ -30,11 +30,9 @@ def approve_workflow(*, tenant_id, approver_id, run_id, tip_hash, report_digest,
     if not expected_commit:
         raise WorkflowApprovalRejected(409, "runtime source commit unknown")
 
-    # Read and verify outside the SQLite database-wide writer reservation.
-    # An independent tenant writer remains free while IGOR scans the evidence.
+    # Read and verify outside the tenant-scoped write lock; IGOR can scan
+    # without blocking unrelated evidence writers.
     with SessionLocal() as db:
-        if db.bind.dialect.name != "sqlite":
-            raise WorkflowApprovalRejected(503, "approval transaction policy missing for this database")
         rows = db.scalars(
             select(EvidenceRecord)
             .where(EvidenceRecord.tenant_id == tenant_id)
@@ -67,12 +65,9 @@ def approve_workflow(*, tenant_id, approver_id, run_id, tip_hash, report_digest,
     if review.status != "VERIFIED":
         raise WorkflowApprovalRejected(409, "human review gate denied")
 
-    # Reacquire only the immutable chain tip under BEGIN IMMEDIATE.
-    # Any concurrent evidence or approval append invalidates the old consent.
+    # Reacquire the tenant chain lock and recheck the tip before writing.
     with SessionLocal() as db:
-        if db.bind.dialect.name != "sqlite":
-            raise WorkflowApprovalRejected(503, "approval transaction policy missing for this database")
-        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        begin_write_transaction(db, tenant_id=tenant_id)
         latest = db.scalar(
             select(EvidenceRecord)
             .where(EvidenceRecord.tenant_id == tenant_id)
@@ -121,8 +116,6 @@ def approve_nina_candidate(*, tenant_id, approver_id, run_id, tip_hash,
         raise WorkflowApprovalRejected(409, "runtime source identity unavailable")
 
     with SessionLocal() as db:
-        if db.bind.dialect.name != "sqlite":
-            raise WorkflowApprovalRejected(503, "approval transaction policy missing for this database")
         rows = db.scalars(
             select(EvidenceRecord)
             .where(EvidenceRecord.tenant_id == tenant_id)
@@ -177,9 +170,7 @@ def approve_nina_candidate(*, tenant_id, approver_id, run_id, tip_hash,
             raise WorkflowApprovalRejected(409, "candidate is not eligible for review")
 
     with SessionLocal() as db:
-        if db.bind.dialect.name != "sqlite":
-            raise WorkflowApprovalRejected(503, "approval transaction policy missing for this database")
-        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        begin_write_transaction(db, tenant_id=tenant_id)
         latest = db.scalar(
             select(EvidenceRecord)
             .where(EvidenceRecord.tenant_id == tenant_id)

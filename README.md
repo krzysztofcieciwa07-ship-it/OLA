@@ -22,9 +22,11 @@ The current source tree contains:
 
 - Python requirement in `pyproject.toml`: Python 3.11 or newer.
 - The Docker image installs Python 3.13 and starts `uvicorn app.main:app` on port 8000.
-- The current application database implementation uses SQLite. Its default file is `ola.db`; the path can be overridden with `OLA_EG_DB_PATH`.
-- Evidence writes use SQLite `BEGIN IMMEDIATE`, per-tenant sequence numbers, previous-record hashes, and append-only database triggers.
-- The database implementation explicitly rejects non-SQLite append operations until a separately audited policy exists. Do not describe the current application persistence as PostgreSQL.
+- SQLite remains the default local database. Its default file is `ola.db`; the path can be overridden with `OLA_EG_DB_PATH`.
+- PostgreSQL can be selected with `OLA_DATABASE_URL` (preferred) or `DATABASE_URL`. PostgreSQL URLs are normalized to SQLAlchemy's `postgresql+psycopg` dialect; Psycopg 3 is pinned in `requirements.txt`.
+- Evidence writes use SQLite `BEGIN IMMEDIATE` or PostgreSQL transaction-scoped, tenant-keyed advisory locks. Both preserve per-tenant sequence numbers and previous-record hashes.
+- PostgreSQL schema DDL is an explicit migration step (`scripts/migrate_postgres.py`) using `OLA_DATABASE_MIGRATION_URL`. API and worker startup verify the migrated schema and append-only triggers but do not create PostgreSQL tables with runtime credentials.
+- PostgreSQL support has a dedicated real-server integration test and GitHub Actions workflow. It is not production-certified until that workflow has passed on the exact candidate SHA and operational backup, TLS, privileges, pooling, and failover checks are verified.
 - `pyproject.toml` metadata names the distribution `ola-evidence-graph` and declares FastAPI; `requirements.txt` supplies the pinned runtime/test dependencies used by the Docker build.
 
 ## Main application surfaces
@@ -117,7 +119,7 @@ curl --fail-with-body -X POST "$OLA_BASE_URL/checkout" \
   -d '{"task":"Review the evidence trail for this workflow"}'
 ```
 
-The application creates an additive `checkout_orders` table through SQLAlchemy metadata initialization. It persists the tenant-scoped order reservation before calling Stripe, binds the Stripe session to that order, and passes a stable provider idempotency key derived from the order ID. Evidence appends for the same checkout are deduplicated under the SQLite write lock.
+The application creates an additive `checkout_orders` table through SQLAlchemy metadata initialization. It persists the tenant-scoped order reservation before calling Stripe, binds the Stripe session to that order, and passes a stable provider idempotency key derived from the order ID. Evidence appends for the same checkout are deduplicated under the tenant-scoped database write lock (SQLite `BEGIN IMMEDIATE` or PostgreSQL advisory lock).
 
 An order left in `CREATING` can be retried with the same client key while the Stripe idempotency retention window is safe. After 23 hours, automatic retries fail closed with HTTP 409 and require manual Stripe reconciliation; do not generate a new key to bypass that block.
 

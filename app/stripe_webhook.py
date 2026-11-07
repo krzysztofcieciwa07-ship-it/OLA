@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import uuid
 
@@ -11,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .database import SessionLocal, append_evidence_atomic
 from .hashchain import canonical_json
-from .models import StripeEvent, CheckoutOrder
+from .models import StripeEvent, CheckoutOrder, CheckoutOrderControl
 from .revenue import retrieve_checkout
 
 
@@ -115,10 +116,16 @@ def _validate_checkout(session: dict) -> str:
     ):
         raise HTTPException(status_code=400, detail="unexpected Stripe price, amount, currency or quantity")
 
-    task = _metadata_task(session)
-    if not task:
-        raise HTTPException(status_code=400, detail="audit task is required")
-    return task
+    request_hash = metadata.get("request_hash")
+    if isinstance(request_hash, str) and re.fullmatch(r"[0-9a-f]{64}", request_hash):
+        return request_hash
+
+    # Compatibility for sessions created before request_hash-only metadata.
+    # Legacy text is never re-persisted to StripeEvent or payment evidence.
+    legacy_task = _metadata_task(session)
+    if not legacy_task:
+        raise HTTPException(status_code=400, detail="checkout request hash is required")
+    return hashlib.sha256(legacy_task.encode("utf-8")).hexdigest()
 
 
 def process_checkout_event(payload: bytes, signature_header: str) -> dict:
@@ -156,7 +163,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
         raise HTTPException(status_code=503, detail="authoritative Stripe session lookup failed") from exc
     if not isinstance(session, dict) or session.get("id") != session_id:
         raise HTTPException(status_code=502, detail="Stripe returned a different Checkout Session")
-    task = _validate_checkout(session)
+    request_hash = _validate_checkout(session)
     metadata = session.get("metadata") or {}
     tenant_id = metadata.get("tenant_id")
     order_id = metadata.get("order_id")
@@ -175,6 +182,23 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
             or order.stripe_session_id != session_id
         ):
             raise HTTPException(status_code=409, detail="Stripe session is not bound to this OLA order")
+        if order.request_hash != request_hash:
+            raise HTTPException(
+                status_code=409,
+                detail="Stripe session request hash does not match the OLA order",
+            )
+        task = order.task
+        if not isinstance(task, str) or not task.strip():
+            legacy_task = _metadata_task(session)
+            if legacy_task and hashlib.sha256(legacy_task.encode("utf-8")).hexdigest() == order.request_hash:
+                task = legacy_task
+                order.task = task
+                db.commit()
+        if not isinstance(task, str) or not task.strip() or hashlib.sha256(task.encode("utf-8")).hexdigest() != order.request_hash:
+            raise HTTPException(
+                status_code=409,
+                detail="private OLA order task is missing or does not match its request hash; manual reconciliation required",
+            )
         if order.status == "PAID_PENDING_REVIEW" and order.payment_result_json:
             try:
                 return json.loads(order.payment_result_json)
@@ -216,7 +240,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
                 id=str(uuid.uuid4()),
                 event_id=event_id,
                 status="PROCESSING",
-                task=task,
+                task=None,
             ))
             try:
                 db.commit()
@@ -237,7 +261,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
             "product": OLA_PRODUCT,
             "amount_total": session.get("amount_total"),
             "currency": session.get("currency"),
-            "task": task,
+            "request_hash": request_hash,
             "execution_authorized": False,
             "review_required": True,
         },
@@ -280,6 +304,13 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
         completed.result_json = canonical_json(result)
         order.status = "PAID_PENDING_REVIEW"
         order.payment_result_json = canonical_json(result)
+        control = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == order_id,
+            CheckoutOrderControl.tenant_id == tenant_id,
+        ))
+        if control is not None:
+            control.status = "PAID_PENDING_REVIEW"
+            control.payment_evidence_id = payment_evidence_id
         db.commit()
 
     return result

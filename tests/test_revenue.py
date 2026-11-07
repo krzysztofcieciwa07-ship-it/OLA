@@ -1,3 +1,5 @@
+import hashlib
+import json
 import pytest
 
 from app.revenue import stripe_secret_key
@@ -92,3 +94,39 @@ def test_payment_verified_requires_sandbox_mode_and_order_binding():
 
     malformed = dict(session, metadata=[])
     assert payment_verified(malformed) is False
+
+
+def test_create_checkout_sends_only_order_references_and_task_hash(monkeypatch):
+    import urllib.request
+    from urllib.parse import parse_qs
+    from app.revenue import create_checkout
+
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_example")
+    monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
+    task = "confidential customer architecture and security details"
+    captured = {}
+
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self): return b'{"id":"cs_test_privacy123","url":"https://checkout.stripe.test/session"}'
+
+    def fake_urlopen(request, timeout):
+        captured["form"] = parse_qs(request.data.decode())
+        return Response()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    create_checkout(
+        task, "http://localhost:8000/payment-success", "http://localhost:8000/",
+        "tenant-private", idempotency_key="ola-checkout-private-123", order_id="order-private-123",
+    )
+    form = captured["form"]
+    assert "metadata[task]" not in form
+    assert form["metadata[request_hash]"] == [hashlib.sha256(task.encode()).hexdigest()]
+    assert form["metadata[order_id]"] == ["order-private-123"]
+    assert task not in request_data(captured["form"])
+
+
+def request_data(form):
+    return json.dumps(form)

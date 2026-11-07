@@ -5,11 +5,12 @@ import time
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from app import stripe_webhook
 from app.stripe_webhook import _validate_checkout, verify_stripe_signature
 from app.database import SessionLocal
-from app.models import Tenant, CheckoutOrder, EvidenceRecord
+from app.models import Tenant, CheckoutOrder, EvidenceRecord, CheckoutOrderControl, ApiKey, StripeEvent
 
 
 SECRET = "whsec_test_ola"
@@ -43,8 +44,10 @@ def _paid_session():
     }
 
 
-def _seed_checkout_order(session):
+def _seed_checkout_order(session, *, task=None):
     metadata = session["metadata"]
+    local_task = task or metadata.get("task")
+    request_hash = metadata.get("request_hash") or hashlib.sha256(local_task.encode()).hexdigest()
     with SessionLocal() as db:
         if db.get(Tenant, metadata["tenant_id"]) is None:
             db.add(Tenant(id=metadata["tenant_id"], name="stripe-webhook-test"))
@@ -53,7 +56,8 @@ def _seed_checkout_order(session):
             id=metadata["order_id"],
             tenant_id=metadata["tenant_id"],
             idempotency_key_hash=uuid.uuid4().hex,
-            request_hash=hashlib.sha256(metadata["task"].encode()).hexdigest(),
+            request_hash=request_hash,
+            task=local_task,
             status="CHECKOUT_CREATED",
             stripe_session_id=session["id"],
             checkout_url="https://checkout.stripe.test/session",
@@ -81,7 +85,9 @@ def test_stripe_signature_rejects_old_timestamp():
 
 def test_paid_ola_checkout_extracts_audit_task(monkeypatch):
     monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
-    assert _validate_checkout(_paid_session()) == "Audit this company workflow for evidence gaps."
+    assert _validate_checkout(_paid_session()) == hashlib.sha256(
+        "Audit this company workflow for evidence gaps.".encode()
+    ).hexdigest()
 
 
 @pytest.mark.parametrize(
@@ -106,7 +112,9 @@ def test_paid_checkout_uses_metadata_task_without_custom_fields(monkeypatch):
     monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
     session = _paid_session()
     assert "custom_fields" not in session
-    assert _validate_checkout(session) == "Audit this company workflow for evidence gaps."
+    assert _validate_checkout(session) == hashlib.sha256(
+        "Audit this company workflow for evidence gaps.".encode()
+    ).hexdigest()
 
 
 def test_paid_webhook_queues_review_and_never_executes_automatically(monkeypatch):
@@ -221,7 +229,9 @@ def test_paid_checkout_accepts_configured_price_amount_without_hardcoded_ola_pri
         "unit_amount": 14700,
         "currency": "eur",
     })
-    assert _validate_checkout(session) == "Audit this company workflow for evidence gaps."
+    assert _validate_checkout(session) == hashlib.sha256(
+        "Audit this company workflow for evidence gaps.".encode()
+    ).hexdigest()
 
 
 @pytest.mark.parametrize(
@@ -357,3 +367,99 @@ def test_webhook_rejects_checkout_session_bound_to_another_order(monkeypatch):
             payload, _signature(payload, int(time.time()))
         )
     assert getattr(exc.value, "status_code", None) == 409
+
+
+def test_paid_webhook_advances_order_control_to_human_review(monkeypatch):
+    from app.api_key_hashing import api_key_fingerprint
+
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
+    session = _paid_session()
+    _seed_checkout_order(session)
+    requester_id = str(uuid.uuid4())
+    requester_key = f"webhook-requester-{uuid.uuid4()}"
+    with SessionLocal() as db:
+        db.add(ApiKey(
+            id=requester_id,
+            tenant_id=session["metadata"]["tenant_id"],
+            key_hash=api_key_fingerprint(requester_key),
+        ))
+        db.add(CheckoutOrderControl(
+            id=str(uuid.uuid4()),
+            order_id=session["metadata"]["order_id"],
+            tenant_id=session["metadata"]["tenant_id"],
+            requester_id=requester_id,
+            status="CHECKOUT_CREATED",
+        ))
+        db.commit()
+    monkeypatch.setattr(stripe_webhook, "retrieve_checkout", lambda session_id: session)
+    event = {
+        "id": "evt_control_" + str(uuid.uuid4()),
+        "type": "checkout.session.completed",
+        "livemode": False,
+        "data": {"object": session},
+    }
+    payload = json.dumps(event, separators=(",", ":")).encode()
+    result = stripe_webhook.process_checkout_event(
+        payload, _signature(payload, int(time.time()))
+    )
+    with SessionLocal() as db:
+        control = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == session["metadata"]["order_id"]
+        ))
+    assert result["status"] == "PAID_PENDING_REVIEW"
+    assert control.status == "PAID_PENDING_REVIEW"
+    assert control.payment_evidence_id == result["payment_evidence_id"]
+
+
+def test_webhook_rejects_payment_session_task_not_bound_to_reserved_order(monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
+    session = _paid_session()
+    _seed_checkout_order(session)
+    session["metadata"]["task"] = "different task than the reserved OLA order"
+    monkeypatch.setattr(stripe_webhook, "retrieve_checkout", lambda session_id: session)
+    event = {
+        "id": "evt_wrong_task_" + str(uuid.uuid4()),
+        "type": "checkout.session.completed",
+        "livemode": False,
+        "data": {"object": {"id": session["id"]}},
+    }
+    payload = json.dumps(event, separators=(",", ":")).encode()
+    with pytest.raises(HTTPException) as exc:
+        stripe_webhook.process_checkout_event(
+            payload, _signature(payload, int(time.time()))
+        )
+    assert exc.value.status_code == 409
+    assert "request hash" in exc.value.detail
+
+
+def test_hash_only_stripe_metadata_never_persists_customer_task_to_payment_records(monkeypatch):
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
+    session = _paid_session()
+    task = session["metadata"].pop("task")
+    request_hash = hashlib.sha256(task.encode("utf-8")).hexdigest()
+    session["metadata"]["request_hash"] = request_hash
+    _seed_checkout_order(session, task=task)
+    monkeypatch.setattr(stripe_webhook, "retrieve_checkout", lambda _session_id: session)
+    event = {
+        "id": "evt_hash_only_" + str(uuid.uuid4()),
+        "type": "checkout.session.completed",
+        "livemode": False,
+        "data": {"object": {"id": session["id"]}},
+    }
+    payload = json.dumps(event, separators=(",", ":")).encode()
+    result = stripe_webhook.process_checkout_event(payload, _signature(payload, int(time.time())))
+    with SessionLocal() as db:
+        order = db.get(CheckoutOrder, session["metadata"]["order_id"])
+        stripe_event = db.scalar(select(StripeEvent).where(StripeEvent.event_id == event["id"]))
+        payment_evidence = db.get(EvidenceRecord, result["payment_evidence_id"])
+    assert order.task == task
+    assert stripe_event.task is None
+    payload_json = payment_evidence.payload_json
+    assert "task" not in json.loads(payload_json)
+    assert request_hash in payload_json
+    assert task not in payload_json

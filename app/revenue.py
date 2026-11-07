@@ -55,7 +55,7 @@ def create_checkout(task, success_url, cancel_url, tenant_id, *, idempotency_key
             "client_reference_id": order_id or hashlib.sha256(task.encode()).hexdigest(),
             "metadata[product]": PRODUCT_NAME,
             "metadata[offer]": OFFER,
-            "metadata[task]": task,
+            "metadata[request_hash]": hashlib.sha256(task.encode("utf-8")).hexdigest(),
             "metadata[tenant_id]": tenant_id,
             **({"metadata[order_id]": order_id} if order_id else {}),
         },
@@ -107,8 +107,12 @@ def payment_verified(session):
         and metadata.get("offer") == OFFER
         and isinstance(metadata.get("tenant_id"), str)
         and bool(metadata.get("tenant_id").strip())
-        and isinstance(metadata.get("task"), str)
-        and bool(metadata.get("task").strip())
+        and (
+            isinstance(metadata.get("request_hash"), str)
+            and len(metadata.get("request_hash")) == 64
+            and all(char in "0123456789abcdef" for char in metadata.get("request_hash"))
+            or isinstance(metadata.get("task"), str) and bool(metadata.get("task").strip())
+        )
         and isinstance(metadata.get("order_id"), str)
         and bool(metadata.get("order_id").strip())
     )

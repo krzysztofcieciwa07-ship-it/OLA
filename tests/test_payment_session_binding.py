@@ -38,6 +38,7 @@ def record_order(task, checkout_id, status, *, run_id=None):
             tenant_id=TENANT_ID,
             idempotency_key_hash=uuid.uuid4().hex,
             request_hash=hashlib.sha256(task.encode()).hexdigest(),
+            task=task,
             status=status,
             stripe_session_id=checkout_id,
             checkout_url="https://checkout.stripe.test/session",
@@ -58,7 +59,7 @@ def paid_session(checkout_id, task, order_id):
     }
 
 
-def test_payment_success_returns_result_from_exact_durable_order(monkeypatch):
+def test_payment_success_returns_status_without_durable_order_details(monkeypatch):
     task = "same audit request " + str(uuid.uuid4())
     record_order(task, "cs_test_first", "COMPLETED", run_id="run_first")
     second_order_id = record_order(task, "cs_test_second", "COMPLETED", run_id="run_second")
@@ -70,8 +71,11 @@ def test_payment_success_returns_result_from_exact_durable_order(monkeypatch):
     result = main.payment_success("cs_test_second")
 
     assert result["status"] == "COMPLETED"
-    assert result["run_id"] == "run_second"
-    assert result["result"]["checkout_session_id"] == "cs_test_second"
+    assert result["customer_delivery"] == "NOT_DELIVERED"
+    assert "run_id" not in result
+    assert "result" not in result
+    assert "task" not in result
+    assert "session_id" not in result
 
 
 def test_payment_success_does_not_disclose_another_session_result(monkeypatch):
@@ -127,3 +131,40 @@ def test_payment_success_rejects_session_with_another_orders_binding(monkeypatch
         assert exc.status_code == 403
     else:
         raise AssertionError("unbound Checkout Session must be rejected")
+
+
+def test_payment_success_never_discloses_private_report_or_task(monkeypatch):
+    task = "CONFIDENTIAL CUSTOMER TASK " + str(uuid.uuid4())
+    session_id = "cs_test_private_report"
+    order_id = record_order(task, session_id, "EXECUTED_REVIEW_REQUIRED")
+    private_report = {"customer_secret": "DO_NOT_DISCLOSE_" + uuid.uuid4().hex}
+    with SessionLocal() as db:
+        order = db.get(CheckoutOrder, order_id)
+        order.payment_result_json = json.dumps({
+            "status": "EXECUTED_REVIEW_REQUIRED",
+            "checkout_session_id": session_id,
+            "task": task,
+            "run_id": "private-run-id",
+            "report": private_report,
+            "execution": "COMPLETED",
+            "customer_delivery": "NOT_DELIVERED",
+        })
+        db.commit()
+    monkeypatch.setattr(
+        main, "retrieve_checkout",
+        lambda sid: paid_session(sid, task, order_id),
+    )
+
+    result = main.payment_success(session_id)
+    serialized = json.dumps(result, sort_keys=True)
+
+    assert result["status"] == "EXECUTED_REVIEW_REQUIRED"
+    assert result["customer_delivery"] == "NOT_DELIVERED"
+    assert result["next_gate"] == "CUSTOMER_REPORT_REVIEW"
+    for forbidden in (
+        "task", "result", "report", "run_id", "session_id", "order_id",
+        "payment_evidence_id", "evidence_tip_hash", "approval_record_hash",
+    ):
+        assert forbidden not in result
+    assert "DO_NOT_DISCLOSE_" not in serialized
+    assert task not in serialized
