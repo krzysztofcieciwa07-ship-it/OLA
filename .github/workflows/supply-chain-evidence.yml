@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: "37 3 * * 6"
   workflow_dispatch:
+    inputs:
+      expected_trusted_root_sha256:
+        description: "Out-of-band SHA-256 of the approved Sigstore trusted root. Leave blank only for root discovery; that run is not marked verified."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -220,6 +225,8 @@ jobs:
 
   oci-slsa-attestations:
     needs: [security-image, provenance-adapter-tests]
+    env:
+      EXPECTED_TRUST_ROOT_SHA256: ${{ inputs.expected_trusted_root_sha256 || vars.OLA_SIGSTORE_TRUST_ROOT_SHA256 }}
     # A trusted main release creates production-eligible evidence. Manual
     # dispatch on a feature branch is a non-production rehearsal only.
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/oidc-human-gate-customer-bundle-20261107')
@@ -392,7 +399,17 @@ jobs:
           gh attestation trusted-root > trusted_root.jsonl
           test -s trusted_root.jsonl
 
-      - name: Verify and package exact OCI provenance bundle
+      - name: Record Sigstore trust-root discovery pin (not yet approved)
+        if: env.EXPECTED_TRUST_ROOT_SHA256 == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum trusted_root.jsonl | awk '{print $1}' > trusted_root.sha256
+          printf 'ROOT_PIN_STATUS=PENDING_EXTERNAL_APPROVAL\\n' >> "$GITHUB_STEP_SUMMARY"
+          printf 'TRUSTED_ROOT_SHA256=%s\\n' "$(cat trusted_root.sha256)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify and package exact OCI provenance bundle with external root pin
+        if: env.EXPECTED_TRUST_ROOT_SHA256 != ''
         shell: bash
         env:
           OCI_IMAGE_NAME: ${{ steps.image.outputs.name }}
@@ -401,6 +418,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s "$PROVENANCE_BUNDLE"
+          [[ "$EXPECTED_TRUST_ROOT_SHA256" =~ ^[0-9a-f]{64}$ ]]
           workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/supply-chain-evidence.yml@$GITHUB_REF"
           python scripts/package_github_oci_provenance.py \
             --bundle "$PROVENANCE_BUNDLE" \
@@ -412,9 +430,11 @@ jobs:
             --workflow-identity "$workflow_identity" \
             --image-name "$OCI_IMAGE_NAME" \
             --image-digest "$OCI_IMAGE_DIGEST" \
+            --expected-trusted-root-sha256 "$EXPECTED_TRUST_ROOT_SHA256" \
             --output source-runtime.json
 
       - name: Upload verified OCI provenance evidence
+        if: env.EXPECTED_TRUST_ROOT_SHA256 != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ola-oci-slsa-evidence-${{ github.sha }}
@@ -426,3 +446,19 @@ jobs:
             ${{ steps.provenance.outputs.bundle-path }}
             ${{ steps.sbom-attestation.outputs.bundle-path }}
           retention-days: 90
+          if-no-files-found: error
+
+      - name: Upload Sigstore root discovery materials (unverified)
+        if: env.EXPECTED_TRUST_ROOT_SHA256 == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-sigstore-root-discovery-${{ github.sha }}
+          path: |
+            trusted_root.jsonl
+            trusted_root.sha256
+            runtime-image-proof.json
+            sbom.spdx.json
+            ${{ steps.provenance.outputs.bundle-path }}
+            ${{ steps.sbom-attestation.outputs.bundle-path }}
+          retention-days: 30
+          if-no-files-found: error
