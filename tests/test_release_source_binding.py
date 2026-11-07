@@ -25,7 +25,7 @@ class ReleaseSourceBindingTest(unittest.TestCase):
                     count += 1
                     block = "\n".join(lines[index + 1:index + 9])
                     self.assertIn("persist-credentials: false", block)
-                    if filename.endswith("supply-chain-evidence.yml") and current_job == "release-attestations":
+                    if filename.endswith("supply-chain-evidence.yml") and current_job == "oci-slsa-attestations":
                         self.assertIn("ref: " + RELEASE_SOURCE, block)
                         self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', "\n".join(lines[index:index + 20]))
                     else:
@@ -44,11 +44,16 @@ class ReleaseSourceBindingTest(unittest.TestCase):
                 self.assertIn('if [ "$checked_out" != "$EXPECTED_SOURCE_SHA" ]; then', content)
                 self.assertIn('exit 1', content)
 
-    def test_release_attestations_are_restricted_to_protected_main_push(self):
+    def test_release_attestations_are_gated_and_feature_dispatch_is_rehearsal_only(self):
         content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
-        self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", content)
+        self.assertIn("needs: [security-image, provenance-adapter-tests]", content)
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", content)
+        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/oidc-human-gate-customer-bundle-20261107'", content)
         self.assertIn("attestations: write", content)
         self.assertIn("id-token: write", content)
+        self.assertIn("Trivy scan exact image before publication", content)
+        self.assertIn("Push exact scanned OCI image", content)
+        self.assertLess(content.index("Trivy scan exact image before publication"), content.index("Push exact scanned OCI image"))
 
     def test_release_manifest_never_calls_green_ci_production_verified(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
