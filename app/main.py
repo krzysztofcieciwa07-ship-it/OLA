@@ -42,7 +42,7 @@ app.add_middleware(
     ServerSideSessionMiddleware,
     secure_cookie=_secure_human_cookie,
 )
-app.include_router(human_identity_router)
+app.router.routes.extend(human_identity_router.routes)
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
