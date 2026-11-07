@@ -208,7 +208,7 @@ def test_runtime_provider_returns_only_bytes_after_independent_verification(tmp_
         verifier=lambda payload, source, digest: calls.append((payload, source, digest)) or True,
     )
 
-    result = provider({"tenant_id": "tenant-not-used"})
+    result = provider({"tenant_id": "tenant-not-used", "source_commit": SOURCE_SHA, "image_digest": IMAGE_DIGEST})
     assert result == {
         "json_bytes": payload_path.read_bytes(),
         "verified": True,
@@ -233,8 +233,8 @@ def test_runtime_provider_fails_closed_on_provenance_verifier_rejection(tmp_path
         image_digest=IMAGE_DIGEST,
         verifier=lambda *_args: False,
     )
-    with pytest.raises(GitHubOCIProvenanceRejected, match="GITHUB_OCI_SLSA_VERIFICATION_FAILED"):
-        provider({})
+    with pytest.raises(GitHubOCIProvenanceRejected, match="EXECUTION_SOURCE_IMAGE_IDENTITY_MISMATCH"):
+        provider({"source_commit": SOURCE_SHA, "image_digest": IMAGE_DIGEST})
 
 
 def test_runtime_factory_requires_deployment_digest_and_pinned_trust_root(monkeypatch, tmp_path):
@@ -274,3 +274,23 @@ def test_runtime_factory_requires_deployment_digest_and_pinned_trust_root(monkey
     assert provider.source_sha == SOURCE_SHA
     assert provider.image_digest == IMAGE_DIGEST
     assert provider.verifier is verifier
+
+
+
+def test_runtime_provider_rejects_provenance_for_another_execution_image(tmp_path):
+    import pytest
+    from app.customer_bundle.github_provenance import (
+        GitHubOCIProvenanceProvider,
+        GitHubOCIProvenanceRejected,
+    )
+
+    payload_path = tmp_path / "source-runtime.json"
+    payload_path.write_bytes(b"test")
+    provider = GitHubOCIProvenanceProvider(
+        payload_path=payload_path,
+        source_sha=SOURCE_SHA,
+        image_digest=IMAGE_DIGEST,
+        verifier=lambda *_args: True,
+    )
+    with pytest.raises(GitHubOCIProvenanceRejected, match="EXECUTION_SOURCE_IMAGE_IDENTITY_MISMATCH"):
+        provider({"source_commit": SOURCE_SHA, "image_digest": "sha256:" + "c" * 64})
