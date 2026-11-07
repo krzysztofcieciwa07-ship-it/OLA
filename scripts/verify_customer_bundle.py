@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 
-def _read_trust_store(path: Path) -> tuple[dict[str, bytes], set[str], dict | None]:
+def _read_trust_store(path: Path) -> tuple[dict[str, bytes], set[str], dict | None, dict | None]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -36,7 +36,10 @@ def _read_trust_store(path: Path) -> tuple[dict[str, bytes], set[str], dict | No
     timestamp = data.get("timestamp")
     if timestamp is not None and not isinstance(timestamp, dict):
         raise ValueError("timestamp trust settings must be an object")
-    return trusted, set(revoked), timestamp
+    provenance = data.get("provenance")
+    if provenance is not None and not isinstance(provenance, dict):
+        raise ValueError("provenance trust settings must be an object")
+    return trusted, set(revoked), timestamp, provenance
 
 
 def _timestamp_verifier(config: dict | None, trust_store_dir: Path):
@@ -108,6 +111,36 @@ def _timestamp_verifier(config: dict | None, trust_store_dir: Path):
     return verify
 
 
+def _provenance_verifier(config: dict | None):
+    if not isinstance(config, dict):
+        return None
+    required = (
+        "repository", "repository_id", "workflow_identity",
+    )
+    if any(not isinstance(config.get(key), str) or not config[key] for key in required):
+        return None
+    source_ref = config.get("source_ref", "refs/heads/main")
+    image_name = config.get("image_name")
+    gh_binary = config.get("gh_binary", "gh")
+    if not isinstance(source_ref, str) or not source_ref:
+        return None
+    if image_name is not None and (not isinstance(image_name, str) or not image_name):
+        return None
+    if not isinstance(gh_binary, str) or not gh_binary:
+        return None
+
+    from app.customer_bundle.github_provenance import github_oci_provenance_verifier
+
+    return github_oci_provenance_verifier(
+        expected_repository=config["repository"],
+        expected_repository_id=config["repository_id"],
+        expected_workflow_identity=config["workflow_identity"],
+        expected_source_ref=source_ref,
+        expected_image_name=image_name,
+        gh_binary=gh_binary,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify a dual-signed OLA customer evidence bundle offline.")
     parser.add_argument("bundle", type=Path, help="Customer evidence ZIP")
@@ -120,8 +153,9 @@ def main() -> int:
     from app.customer_bundle.verifier import verify_customer_bundle
 
     try:
-        trusted, revoked, timestamp_config = _read_trust_store(args.trust_store)
+        trusted, revoked, timestamp_config, provenance_config = _read_trust_store(args.trust_store)
         timestamp_verifier = _timestamp_verifier(timestamp_config, args.trust_store.parent)
+        provenance_verifier = _provenance_verifier(provenance_config)
         bundle_bytes = args.bundle.read_bytes()
     except (OSError, ValueError) as exc:
         print(json.dumps({"status": "INVALID", "reason": str(exc)}, sort_keys=True))
@@ -132,6 +166,7 @@ def main() -> int:
         trusted_keys=trusted,
         revoked_key_ids=revoked,
         timestamp_verifier=timestamp_verifier,
+        provenance_verifier=provenance_verifier,
     )
     print(json.dumps({
         "status": report.status,
