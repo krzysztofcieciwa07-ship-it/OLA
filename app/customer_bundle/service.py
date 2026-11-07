@@ -23,7 +23,8 @@ from app.customer_bundle.builder import (
     canonical_json_bytes,
 )
 from app.customer_bundle.signers import Ed25519Signer
-from app.customer_bundle.storage import CustomerBundleStorage, CustomerBundleStorageRejected
+from app.customer_bundle.storage import CustomerBundleStorage
+from app.customer_bundle.verifier import verify_customer_bundle
 from app.database import SessionLocal, begin_write_transaction
 from app.hashchain import (
     EVIDENCE_META_KEY,
@@ -88,7 +89,7 @@ def _order_evidence_excerpt(records: list[dict], *, order_id: str) -> bytes:
     excerpt = []
     for record in records:
         payload = _payload(record)
-        if payload.get("order_id") != order_id:
+        if payload.get("order_id") != order_id or not trusted_record(record):
             continue
         safe_payload = {
             key: payload[key]
@@ -394,6 +395,28 @@ def create_customer_bundle_for_order(
         )
     except Exception as exc:
         raise CustomerBundleCreationRejected(409, f"customer bundle signing was blocked: {type(exc).__name__}") from exc
+
+    verification = verify_customer_bundle(
+        artifact.zip_bytes,
+        trusted_keys={
+            runtime.igor_signer.key_id: runtime.igor_signer.public_key_bytes,
+            runtime.ola_signer.key_id: runtime.ola_signer.public_key_bytes,
+        },
+        timestamp_verifier=runtime.timestamp_verifier,
+    )
+    if (
+        verification.status != artifact.status
+        or verification.igor_signature != "VERIFIED"
+        or verification.ola_signature != "VERIFIED"
+        or verification.manifest_sha256 != artifact.manifest_sha256
+        or verification.report_sha256 != artifact.report_sha256
+        or runtime.profile == PRODUCTION_PROFILE
+        and verification.timestamp_status != "VERIFIED"
+    ):
+        raise CustomerBundleCreationRejected(
+            409,
+            "independent offline verification of the generated customer bundle did not pass",
+        )
 
     object_ref = None
     try:
