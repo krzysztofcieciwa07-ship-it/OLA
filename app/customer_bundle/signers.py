@@ -34,7 +34,7 @@ class TestOnlyEd25519Signer:
     """In-memory signer for CI only. Never use for production customer bundles."""
     key_id: str
     custody_id: str
-    _private_key: Ed25519PrivateKey
+    _signing_key: Ed25519PrivateKey
     test_only: bool = True
 
     @classmethod
@@ -44,12 +44,12 @@ class TestOnlyEd25519Signer:
         return cls(
             key_id=key_id,
             custody_id=custody_id,
-            _private_key=Ed25519PrivateKey.generate(),
+            _signing_key=Ed25519PrivateKey.generate(),
         )
 
     @property
     def public_key_bytes(self) -> bytes:
-        return self._private_key.public_key().public_bytes(
+        return self._signing_key.public_key().public_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PublicFormat.Raw,
         )
@@ -57,7 +57,7 @@ class TestOnlyEd25519Signer:
     def sign(self, message: bytes) -> bytes:
         if not isinstance(message, bytes):
             raise BundleSignerRejected("Ed25519 signer accepts exact message bytes")
-        return self._private_key.sign(message)
+        return self._signing_key.sign(message)
 
 
 @dataclass(frozen=True)
