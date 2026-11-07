@@ -110,6 +110,7 @@ def verify_github_oci_provenance(
     expected_workflow_identity: str,
     expected_source_ref: str = "refs/heads/main",
     expected_image_name: str | None = None,
+    expected_trusted_root_sha256: str,
     gh_binary: str = "gh",
     timeout_seconds: int = 90,
 ) -> bool:
@@ -147,6 +148,9 @@ def verify_github_oci_provenance(
         or payload.get("workflow_identity") != expected_workflow_identity
         or payload.get("image_name") != image_name
         or payload.get("image_digest") != expected_image_digest
+        or not isinstance(expected_trusted_root_sha256, str)
+        or not HEX_64.fullmatch(expected_trusted_root_sha256)
+        or payload.get("trusted_root_sha256") != expected_trusted_root_sha256
     ):
         return False
 
@@ -167,6 +171,11 @@ def verify_github_oci_provenance(
         if not root_lines or any(not line.lstrip().startswith(b"{") for line in root_lines):
             return False
         json.loads(bundle.decode("utf-8"))
+        actual_root_sha256 = hashlib.sha256(trusted_root).hexdigest()
+        if actual_root_sha256 != expected_trusted_root_sha256:
+            return False
+        if payload.get("bundle_sha256") != hashlib.sha256(bundle).hexdigest():
+            return False
         for line in root_lines:
             json.loads(line.decode("utf-8"))
     except (GitHubOCIProvenanceRejected, UnicodeDecodeError, json.JSONDecodeError):
@@ -260,6 +269,7 @@ def create_github_oci_provenance_payload(
         expected_workflow_identity=workflow_identity,
         expected_source_ref=source_ref,
         expected_image_name=image_name,
+        expected_trusted_root_sha256=payload["trusted_root_sha256"],
         gh_binary=gh_binary,
     ):
         raise GitHubOCIProvenanceRejected("GITHUB_OCI_SLSA_VERIFICATION_FAILED")
@@ -273,6 +283,7 @@ def github_oci_provenance_verifier(
     expected_workflow_identity: str,
     expected_source_ref: str = "refs/heads/main",
     expected_image_name: str | None = None,
+    expected_trusted_root_sha256: str,
     gh_binary: str = "gh",
 ) -> Callable[[bytes, str, str], bool]:
     """Return the callback required by verify_customer_bundle()."""
@@ -284,6 +295,7 @@ def github_oci_provenance_verifier(
             expected_workflow_identity=expected_workflow_identity,
             expected_source_ref=expected_source_ref,
             expected_image_name=expected_image_name,
+            expected_trusted_root_sha256=expected_trusted_root_sha256,
             gh_binary=gh_binary,
         )
     return verify
