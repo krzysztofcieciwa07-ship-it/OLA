@@ -4,6 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "${{ github.event.pull_request.head.sha || github.sha }}"
+RELEASE_SOURCE = "${{ github.sha }}"
 
 
 class ReleaseSourceBindingTest(unittest.TestCase):
@@ -14,14 +15,21 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         ):
             with self.subTest(workflow=filename):
                 lines = (ROOT / filename).read_text(encoding="utf-8").splitlines()
+                current_job = None
                 count = 0
                 for index, line in enumerate(lines):
+                    if line.startswith("  ") and not line.startswith("    ") and line.endswith(":"):
+                        current_job = line.strip()[:-1]
                     if "uses: actions/checkout@" not in line:
                         continue
                     count += 1
                     block = "\n".join(lines[index + 1:index + 9])
-                    self.assertIn("ref: " + SOURCE, block)
                     self.assertIn("persist-credentials: false", block)
+                    if filename.endswith("supply-chain-evidence.yml") and current_job == "release-attestations":
+                        self.assertIn("ref: " + RELEASE_SOURCE, block)
+                        self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', "\n".join(lines[index:index + 20]))
+                    else:
+                        self.assertIn("ref: " + SOURCE, block)
                 self.assertGreater(count, 0)
 
     def test_scan_producers_check_actual_git_head(self):
@@ -36,12 +44,17 @@ class ReleaseSourceBindingTest(unittest.TestCase):
                 self.assertIn('if [ "$checked_out" != "$EXPECTED_SOURCE_SHA" ]; then', content)
                 self.assertIn('exit 1', content)
 
+    def test_release_attestations_are_restricted_to_protected_main_push(self):
+        content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
+        self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", content)
+        self.assertIn("attestations: write", content)
+        self.assertIn("id-token: write", content)
+
     def test_release_manifest_never_calls_green_ci_production_verified(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn('status="ATTESTED_PENDING_HUMAN"', content)
         self.assertNotIn('status="VERIFIED"', content)
         self.assertIn('python -m unittest discover -s tests -p "test_release_source_binding.py"', content)
-
 
     def test_runtime_image_source_is_embedded_and_not_environment_asserted(self):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
@@ -73,14 +86,13 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertNotIn('assert record_hash==api_key_fingerprint(', proof)
         self.assertIn('assert d["human_gate"]=="PENDING"', igor)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_pull_request_manifest_never_claims_attestation(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main' && success()", content)
         self.assertIn('source_attestation="NOT_PERFORMED"', content)
         self.assertIn('image_attestation="NOT_PERFORMED"', content)
         self.assertIn('status="PREMERGE_CI_PASSED"', content)
+
+
+if __name__ == "__main__":
+    unittest.main()
