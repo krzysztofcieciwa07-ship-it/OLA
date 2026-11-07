@@ -106,3 +106,64 @@ def test_oidc_required_checkout_rejects_api_key_without_hr_owner():
     )
     assert response.status_code == 403
     assert "HR-backed owner" in response.json()["detail"]
+
+
+def _legacy_tenant_with_order():
+    """Create a pre-OIDC tenant so public-origin enforcement is exercised."""
+    tenant_id = str(uuid.uuid4())
+    order_id = str(uuid.uuid4())
+    raw_key = f"legacy-human-gate-key-{uuid.uuid4()}"
+    key_id = str(uuid.uuid4())
+    with SessionLocal() as db:
+        db.add(Tenant(id=tenant_id, name="public-https-no-downgrade"))
+        db.flush()
+        db.add(ApiKey(
+            id=key_id,
+            tenant_id=tenant_id,
+            key_hash=api_key_fingerprint(raw_key),
+            role="tenant",
+        ))
+        db.add(CheckoutOrder(
+            id=order_id,
+            tenant_id=tenant_id,
+            idempotency_key_hash="f" * 64,
+            request_hash="e" * 64,
+            task="legacy order must be blocked on public HTTPS",
+            status="PAID_PENDING_REVIEW",
+            payment_result_json="{}",
+        ))
+        db.add(CheckoutOrderControl(
+            id=str(uuid.uuid4()),
+            order_id=order_id,
+            tenant_id=tenant_id,
+            requester_id=key_id,
+            requester_person_ref=None,
+            status="PAID_PENDING_REVIEW",
+        ))
+        db.commit()
+    return tenant_id, order_id, raw_key
+
+
+def test_public_https_forces_production_even_when_profile_env_says_sandbox(monkeypatch):
+    _tenant_id, order_id, raw_key = _legacy_tenant_with_order()
+    monkeypatch.setenv("OLA_PUBLIC_BASE_URL", "https://ola.example")
+    monkeypatch.setenv("OLA_DEPLOYMENT_PROFILE", "sandbox")
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {raw_key}"}
+    payload = {
+        "tip_hash": "0" * 64,
+        "report_sha256": "1" * 64,
+        "reason": "public HTTPS must never fall back to a legacy API-key operator",
+    }
+
+    approve = client.post(
+        f"/checkout-orders/{order_id}/approve",
+        headers=headers,
+        json=payload,
+    )
+    assert approve.status_code == 403
+    assert "production Human Gate requires persistent OIDC_REQUIRED policy" in approve.json()["detail"]
+
+    retrieve = client.get(f"/checkout-orders/{order_id}/report", headers=headers)
+    assert retrieve.status_code == 403
+    assert "production Human Gate requires persistent OIDC_REQUIRED policy" in retrieve.json()["detail"]
