@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.human_identity import oidc as oidc_api
+from app.human_identity import oidc as _oidc_module
 
 
 def test_human_identity_oidc_module_exists():
@@ -188,7 +188,7 @@ def test_step_up_auth_time_must_be_fresh_and_not_in_the_future(oidc_api):
 
 def test_provider_config_is_tenant_bound_and_uses_exact_trusted_redirect():
     provider = _provider()
-    config = oidc_api.validate_provider_config(
+    config = _oidc_module.validate_provider_config(
         provider,
         tenant_id="tenant-001",
         deployment_profile="production",
@@ -221,7 +221,7 @@ def test_provider_config_is_tenant_bound_and_uses_exact_trusted_redirect():
 )
 def test_untrusted_provider_issuer_redirect_or_secret_reference_is_rejected(overrides, environ):
     with pytest.raises(oidc_api.OidcLoginRejected):
-        oidc_api.validate_provider_config(
+        _oidc_module.validate_provider_config(
             _provider(**overrides),
             tenant_id="tenant-001",
             deployment_profile="production",
@@ -230,20 +230,20 @@ def test_untrusted_provider_issuer_redirect_or_secret_reference_is_rejected(over
 
 
 def test_secret_is_resolved_by_reference_not_stored_as_plaintext():
-    secret = oidc_api.resolve_client_secret(
+    secret = _oidc_module.resolve_client_secret(
         "OIDC_TEST_CLIENT_SECRET",
         environ={"OLA_SECRET_OIDC_TEST_CLIENT_SECRET": "secret-only-in-environment"},
     )
     assert secret == "secret-only-in-environment"
     with pytest.raises(oidc_api.OidcLoginRejected):
-        oidc_api.resolve_client_secret(
+        _oidc_module.resolve_client_secret(
             "OIDC_TEST_CLIENT_SECRET",
             environ={},
         )
 
 
 def test_authlib_client_is_registered_with_openid_scope_and_pkce_s256():
-    client, config = oidc_api.create_oidc_client(
+    client, config = _oidc_module.create_oidc_client(
         _provider(),
         tenant_id="tenant-001",
         environ={
