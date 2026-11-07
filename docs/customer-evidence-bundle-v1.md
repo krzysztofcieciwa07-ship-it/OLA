@@ -74,6 +74,8 @@ The verifier rejects unknown or revoked signer key IDs. Trust-store updates and 
 
 The bundle lifecycle is independent from each download attempt. A signed bundle remains `SIGNED` while it is downloaded more than once or by more than one authorized recipient. Each transfer attempt is stored separately, scoped to `bundle × recipient × attempt`; a blocked recipient does not mutate the bundle lifecycle.
 
+Recipient authentication is provider-neutral through `RecipientAuthProvider.authenticate(request) -> RecipientAuthentication(tenant_id, principal_id, auth_time, mfa_verified)`. The application re-resolves the principal, tenant membership, HR/customer person mapping and `recipient` role from its own database and requires fresh MFA; a provider cannot supply roles or person references. The working adapter today is OIDC. A WebAuthn/passkey or customer-IdP adapter can be injected at `app.state.customer_bundle_recipient_auth_provider`, but no such production adapter is shipped or configured yet.
+
 Current recipient routes:
 
 - `POST /checkout-orders/{order_id}/bundles` — report reviewer initiates creation; the service rechecks the approved report, full current tenant Evidence chain, exact approval Evidence and unique execution-completion Evidence, obtains IGOR/provenance attestations, builds the deterministic archive, verifies it offline, and persists it through the injected storage adapter. Returns 503 if signing, verification, timestamp or storage dependencies are absent.
