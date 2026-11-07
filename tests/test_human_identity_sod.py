@@ -30,10 +30,18 @@ def identity_pepper(monkeypatch):
 
 
 def _tenant():
+    from app.human_identity.policy import set_tenant_human_gate_mode
+
     tenant_id = str(uuid.uuid4())
     with SessionLocal() as db:
         db.add(Tenant(id=tenant_id, name="human-sod-test"))
         db.commit()
+    set_tenant_human_gate_mode(
+        tenant_id=tenant_id,
+        actor_ref="bootstrap-principal-owner",
+        reason="Enable OIDC for isolated Human SoD contract test",
+        target_mode="OIDC_REQUIRED",
+    )
     return tenant_id
 
 
