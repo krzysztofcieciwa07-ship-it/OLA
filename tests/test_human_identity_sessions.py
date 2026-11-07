@@ -118,7 +118,10 @@ def test_authlib_transient_state_is_encrypted_server_side_not_cookie(monkeypatch
 
     with SessionLocal() as db:
         HumanSession = importlib.import_module("app.models").HumanSession
-        rows = db.scalars(select(HumanSession)).all()
+        token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+        rows = db.scalars(
+            select(HumanSession).where(HumanSession.session_hash == token_hash)
+        ).all()
         assert len(rows) == 1
         row = rows[0]
         assert row.session_hash
