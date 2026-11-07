@@ -13,7 +13,7 @@ REPOSITORY = "krzysztofcieciwa07-ship-it/OLA"
 REPOSITORY_ID = "212613049"
 SOURCE_SHA = "a" * 40
 SOURCE_REF = "refs/heads/main"
-IMAGE_NAME = "ghcr.io/krzysztof cieciwa07-ship-it/ola"
+IMAGE_NAME = "ghcr.io/krzysztofcieciwa07-ship-it/ola"
 IMAGE_DIGEST = "sha256:" + "b" * 64
 WORKFLOW_IDENTITY = (
     "https://github.com/krzysztofcieciwa07-ship-it/OLA/"
@@ -75,9 +75,6 @@ def _success(command, **kwargs):
 
 
 def _verify(monkeypatch, payload=None, **overrides):
-    monkeypatch.setattr(
-        "app.customer_bundle.github_provenance.subprocess.run", _success,
-    )
     arguments = {
         "expected_repository": REPOSITORY,
         "expected_repository_id": REPOSITORY_ID,
