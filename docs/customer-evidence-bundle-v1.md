@@ -16,7 +16,16 @@ ZIP entries use sorted paths, fixed 1980-01-01 timestamps, fixed Unix file permi
 
 `evidence/order-evidence.ndjson` is an order-scoped excerpt. It preserves original record hashes for reference but is not the complete tenant chain and cannot independently recompute the tenant's whole Evidence Ledger. The verifier explicitly returns `full_tenant_chain_recomputed=false`.
 
-## Verification
+## Verification and profile matrix
+
+The offline verifier requires an out-of-band trust store. The bundle binds separate approval and signing moments: `approved_at` / `approved_tip_hash` identify the state approved by the reviewer; `signed_at` / `signing_tip_hash` identify the later state rechecked immediately before signing. IGOR signs an attestation bound to the order, report digest and both Evidence tips.
+
+| Profile | Required result | Offline outcome |
+|---|---|---|
+| `CUSTOMER_BUNDLE_SANDBOX_V1` | Distinct IGOR/OLA public keys and custody, valid signatures, report and file digests. `provenance_status=VERIFIED` and embedded report order binding are required for bundle status `VERIFIED`. Missing provenance or manifest-only order binding must be `PARTIAL`. | `VERIFIED` only when the signed profile says VERIFIED and all checks pass; otherwise PARTIAL or INVALID. |
+| `CUSTOMER_BUNDLE_PRODUCTION_V1` | Sandbox/test keys are forbidden; HR-backed requester, approver and reviewer are three different people; exact source SHA and image digest; independently verified provenance; externally verified RFC 3161 token; embedded order binding; independent signer custody. | Any missing or invalid gate is INVALID/BLOCKED; no production VERIFIED from a missing provenance or timestamp result. |
+
+A filtered `order-evidence.ndjson` retains original tenant-chain record hashes as references, but a recipient cannot recompute those hashes from the filtered fields. The file is therefore an OLA-signed attestation excerpt, not a complete independently recomputable tenant chain. The manifest and README explicitly keep `full_tenant_chain_recomputed=false`.
 
 The offline verifier requires an out-of-band trust store. Example:
 
@@ -65,6 +74,7 @@ The bundle lifecycle is independent from each download attempt. A signed bundle 
 
 Current recipient routes:
 
+- `POST /checkout-orders/{order_id}/bundles` — report reviewer initiates creation; the service rechecks the approved report, full current tenant Evidence chain, exact approval Evidence and unique execution-completion Evidence, obtains IGOR/provenance attestations, builds the deterministic archive, verifies it offline, and persists it through the injected storage adapter. Returns 503 if signing, verification, timestamp or storage dependencies are absent.
 - `POST /checkout-orders/{order_id}/bundle-grants` — request an order-only recipient grant (dual control required);
 - `POST /checkout-orders/{order_id}/bundle-grants/{grant_id}/approve` — approve the grant by a different HR-bound human;
 - `POST /checkout-orders/{order_id}/bundle-grants/{grant_id}/revoke` — revoke the grant;
@@ -77,4 +87,4 @@ The attempt row stores `acknowledged_at` and `acknowledgement_evidence_id`. Exis
 
 ## Current implementation boundary
 
-The repository contains the bundle builder, dual-signature verifier, recipient-grant lifecycle, encrypted sandbox storage adapter and authenticated download/acknowledgement routes. The production remote signer, external timestamp authority, durable production object-store adapter and deployment-level dependency wiring remain unconfigured. Do not describe the feature as an end-to-end customer delivery service until a bundle-creation orchestration route is wired to an independently verified IGOR attestation, approved provenance, production signers, timestamp authority and durable object storage.
+The repository contains the bundle builder, dual-signature verifier, approved-report orchestration service, recipient-grant lifecycle, encrypted sandbox storage adapter and authenticated creation/download/acknowledgement routes. Creation and download use the same explicitly injected storage runtime; a local filesystem adapter is never selected on public HTTPS or a production profile. The production remote signer, external timestamp authority, durable production object-store adapter and deployment-level dependency wiring remain unconfigured. The creation route therefore fails with 503 until those dependencies are explicitly provisioned. Do not describe this as an end-to-end production customer delivery service: only the code path and fail-closed contracts exist until independent services and a real customer transfer are verified.
