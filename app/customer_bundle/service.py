@@ -69,6 +69,8 @@ class CustomerBundleRuntime:
     storage: CustomerBundleStorage
     igor_attestation_provider: Callable[[dict], dict]
     provenance_provider: Callable[[dict], dict | None]
+    trusted_keys: dict[str, bytes]
+    revoked_key_ids: frozenset[str] = frozenset()
     timestamp_provider: Callable[[bytes], bytes] | None = None
     timestamp_verifier: Callable[[bytes, bytes, int], bool] | None = None
     bundle_ttl_seconds: int = 30 * 24 * 60 * 60
@@ -301,6 +303,15 @@ def create_customer_bundle_for_order(
             raise CustomerBundleCreationRejected(503, "customer bundle storage adapter is incomplete")
     if not callable(runtime.igor_attestation_provider) or not callable(runtime.provenance_provider):
         raise CustomerBundleCreationRejected(503, "independent IGOR and provenance verifiers are required")
+    if not isinstance(runtime.trusted_keys, dict) or not isinstance(runtime.revoked_key_ids, frozenset):
+        raise CustomerBundleCreationRejected(503, "an independent immutable customer-bundle trust store is required")
+    if (
+        runtime.trusted_keys.get(runtime.igor_signer.key_id) != runtime.igor_signer.public_key_bytes
+        or runtime.trusted_keys.get(runtime.ola_signer.key_id) != runtime.ola_signer.public_key_bytes
+        or runtime.igor_signer.key_id in runtime.revoked_key_ids
+        or runtime.ola_signer.key_id in runtime.revoked_key_ids
+    ):
+        raise CustomerBundleCreationRejected(503, "configured bundle signers do not match the active independent trust store")
 
     context = _load_approved_order(tenant_id, order_id)
     review = context["review"]
@@ -439,10 +450,8 @@ def create_customer_bundle_for_order(
 
     verification = verify_customer_bundle(
         artifact.zip_bytes,
-        trusted_keys={
-            runtime.igor_signer.key_id: runtime.igor_signer.public_key_bytes,
-            runtime.ola_signer.key_id: runtime.ola_signer.public_key_bytes,
-        },
+        trusted_keys=runtime.trusted_keys,
+        revoked_key_ids=runtime.revoked_key_ids,
         timestamp_verifier=runtime.timestamp_verifier,
     )
     if (
@@ -451,6 +460,10 @@ def create_customer_bundle_for_order(
         or verification.ola_signature != "VERIFIED"
         or verification.manifest_sha256 != artifact.manifest_sha256
         or verification.report_sha256 != artifact.report_sha256
+        or verification.bundle_id != bundle_id
+        or verification.bundle_version != bundle_version
+        or verification.profile != runtime.profile
+        or verification.expires_at != expires_at
         or runtime.profile == PRODUCTION_PROFILE
         and verification.timestamp_status != "VERIFIED"
     ):
