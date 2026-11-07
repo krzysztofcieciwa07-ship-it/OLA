@@ -54,7 +54,7 @@ def _materials():
 
 def _payload():
     output, bundle, root = _materials()
-    trusted_root_bytes = (root + "\\n").encode()
+    trusted_root_bytes = (root + "\n").encode()
     return json.dumps({
         "schema": SCHEMA,
         "repository": REPOSITORY,
@@ -84,7 +84,7 @@ def _verify(monkeypatch, payload=None, **overrides):
         "expected_workflow_identity": WORKFLOW_IDENTITY,
         "expected_source_ref": SOURCE_REF,
         "expected_image_name": IMAGE_NAME,
-        "expected_trusted_root_sha256": __import__("hashlib").sha256((_materials()[2] + "\\n").encode()).hexdigest(),
+        "expected_trusted_root_sha256": __import__("hashlib").sha256((_materials()[2] + "\n").encode()).hexdigest(),
     }
     arguments.update(overrides)
     return verify_github_oci_provenance(
@@ -181,7 +181,7 @@ def test_rejects_tampered_payload_metadata_before_cli(monkeypatch):
 
 def test_rejects_tampered_trusted_root_even_when_cli_would_succeed(monkeypatch):
     payload = json.loads(_payload())
-    payload["trusted_root_b64"] = base64.b64encode(b'{"trustedRoot":"attacker"}\\n').decode()
+    payload["trusted_root_b64"] = base64.b64encode(b'{"trustedRoot":"attacker"}\n').decode()
     called = []
     monkeypatch.setattr(
         "app.customer_bundle.github_provenance.subprocess.run",
