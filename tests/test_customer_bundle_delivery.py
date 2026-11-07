@@ -23,6 +23,7 @@ def _delivery_api():
         "revoke_recipient_grant",
         "begin_delivery_attempt",
         "complete_delivery_attempt",
+        "acknowledge_delivery_attempt",
     )
     missing = [name for name in required if not callable(getattr(module, name, None))]
     assert not missing, f"customer delivery lifecycle functions are missing: {missing}"
@@ -329,3 +330,93 @@ def test_customer_bundle_routes_require_human_identity_not_api_key():
         headers=headers,
     )
     assert download.status_code == 401
+
+
+def test_recipient_acknowledgement_is_separate_from_transfer_completion():
+    delivery = _delivery_api()
+    tenant_id, order_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
+    bundle_id = _signed_bundle(tenant_id, order_id)
+    grant = delivery.request_recipient_grant(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        requester_principal_id=requester_id,
+        requester_person_ref=people[requester_id],
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        reason="Grant access for acknowledgement contract",
+        expires_at=1_900_000_000,
+    )
+    delivery.approve_recipient_grant(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        grant_id=grant["grant_id"],
+        approver_principal_id=approver_id,
+        approver_person_ref=people[approver_id],
+        reason="Second administrator approves recipient",
+    )
+    attempt = delivery.begin_delivery_attempt(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        bundle_id=bundle_id,
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        now=1_800_000_100,
+    )
+    completed = delivery.complete_delivery_attempt(
+        tenant_id=tenant_id,
+        attempt_id=attempt["attempt_id"],
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        now=1_800_000_150,
+    )
+    assert completed["status"] == "COMPLETED"
+
+    from app.models import CustomerBundleDeliveryAttempt
+    with SessionLocal() as db:
+        row = db.get(CustomerBundleDeliveryAttempt, attempt["attempt_id"])
+        assert row.status == "COMPLETED"
+        assert row.acknowledged_at is None
+        assert row.acknowledgement_evidence_id is None
+
+    acknowledged = delivery.acknowledge_delivery_attempt(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        bundle_id=bundle_id,
+        attempt_id=attempt["attempt_id"],
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        now=1_800_000_200,
+    )
+    assert acknowledged["status"] == "ACKNOWLEDGED"
+
+    with SessionLocal() as db:
+        row = db.get(CustomerBundleDeliveryAttempt, attempt["attempt_id"])
+        assert row.status == "COMPLETED"
+        assert row.acknowledged_at == 1_800_000_200
+        assert row.acknowledgement_evidence_id == acknowledged["acknowledgement_evidence_id"]
+
+    with pytest.raises(delivery.CustomerBundleDeliveryRejected) as duplicate:
+        delivery.acknowledge_delivery_attempt(
+            tenant_id=tenant_id,
+            order_id=order_id,
+            bundle_id=bundle_id,
+            attempt_id=attempt["attempt_id"],
+            recipient_principal_id=recipient_id,
+            recipient_person_ref=people[recipient_id],
+            now=1_800_000_201,
+        )
+    assert duplicate.value.code == 409
+
+
+def test_recipient_acknowledgement_route_requires_oidc_recipient_session():
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    path = "/checkout-orders/{order_id}/bundles/{bundle_id}/attempts/{attempt_id}/acknowledge"
+    assert path in {route.path for route in app.routes}
+    response = TestClient(app).post(
+        "/checkout-orders/order-1/bundles/bundle-1/attempts/attempt-1/acknowledge",
+        headers={"X-API-Key": "api-key-is-not-a-human-recipient", "Origin": "http://localhost:8000"},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "authenticated Human Identity session is required"
