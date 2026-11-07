@@ -136,6 +136,31 @@ def verify_customer_bundle(
 
         if not isinstance(manifest, dict) or manifest.get("schema") != "ola-customer-evidence-bundle/v1":
             return _invalid("UNKNOWN_MANIFEST_SCHEMA")
+        bundle_id = manifest.get("bundle_id")
+        bundle_version = manifest.get("bundle_version")
+        created_at = manifest.get("created_at")
+        expires_at = manifest.get("expires_at")
+        if not isinstance(bundle_id, str) or not re.fullmatch(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            bundle_id,
+        ):
+            return _invalid("BUNDLE_ID_INVALID")
+        if type(bundle_version) is not int or bundle_version < 1:
+            return _invalid("BUNDLE_VERSION_INVALID")
+        if (
+            type(created_at) is not int
+            or type(expires_at) is not int
+            or type(manifest.get("signed_at")) is not int
+            or type(manifest.get("approved_at")) is not int
+            or created_at != manifest.get("signed_at")
+            or expires_at <= created_at
+            or manifest.get("approved_at") > created_at
+        ):
+            return _invalid("BUNDLE_LIFECYCLE_TIMESTAMPS_INVALID")
+        if not isinstance(manifest.get("tenant_id"), str) or not manifest.get("tenant_id"):
+            return _invalid("TENANT_ID_MISSING")
+        if not isinstance(manifest.get("order_id"), str) or not manifest.get("order_id"):
+            return _invalid("ORDER_ID_MISSING")
         try:
             if canonical_json_bytes(manifest) != manifest_bytes:
                 return _invalid("NON_CANONICAL_MANIFEST")
@@ -304,6 +329,40 @@ def verify_customer_bundle(
 
         profile = manifest.get("profile")
         status = manifest.get("status")
+        if profile == PRODUCTION_PROFILE:
+            approval = manifest.get("approval")
+            if not isinstance(approval, dict):
+                return _invalid(
+                    "PRODUCTION_APPROVAL_METADATA_MISSING",
+                    igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                    report_sha=report_sha,
+                )
+            person_refs = (
+                approval.get("requester_person_ref"),
+                approval.get("approver_person_ref"),
+                approval.get("reviewer_person_ref"),
+            )
+            if (
+                not all(isinstance(value, str) and value for value in person_refs)
+                or len(set(person_refs)) != 3
+            ):
+                return _invalid(
+                    "PRODUCTION_HUMAN_SEPARATION_INVALID",
+                    igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                    report_sha=report_sha,
+                )
+            if (
+                not isinstance(manifest.get("source_sha"), str)
+                or not re.fullmatch(r"[0-9a-f]{40}", manifest["source_sha"])
+                or not isinstance(manifest.get("image_digest"), str)
+                or not re.fullmatch(r"sha256:[0-9a-f]{64}", manifest["image_digest"])
+                or "provenance/source-runtime.json" not in listed
+            ):
+                return _invalid(
+                    "PRODUCTION_SOURCE_IMAGE_PROVENANCE_BINDING_INVALID",
+                    igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                    report_sha=report_sha,
+                )
         if profile == PRODUCTION_PROFILE and not report_has_embedded_order_binding:
             return _invalid(
                 "PRODUCTION_REPORT_ORDER_BINDING_MISSING",
