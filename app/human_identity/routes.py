@@ -118,7 +118,7 @@ def verify_human_csrf(request: Request, csrf_token: str | None) -> None:
 
 
 @router.get("/human/oidc/{tenant_id}/login")
-async def human_oidc_login(tenant_id: str, request: Request):
+async def human_oidc_login(tenant_id: str, request: Request, step_up: bool = False):
     if not _TENANT_PATH_RE.fullmatch(tenant_id):
         raise HTTPException(status_code=400, detail="invalid tenant identity path")
     _require_oidc_policy(tenant_id)
@@ -128,6 +128,12 @@ async def human_oidc_login(tenant_id: str, request: Request):
             provider,
             tenant_id=tenant_id,
         )
+        if step_up:
+            # Stored in the encrypted server-side session; cleared on login rotation.
+            request.session["ola_oidc_step_up"] = True
+            return await client.authorize_redirect(
+                request, config["redirect_uri"], prompt="login", max_age=300,
+            )
         return await client.authorize_redirect(request, config["redirect_uri"])
     except OidcLoginRejected as exc:
         raise HTTPException(status_code=503, detail="tenant OIDC login is not safely configured") from exc
@@ -146,6 +152,7 @@ async def human_oidc_callback(tenant_id: str, request: Request):
         client, _config = create_oidc_client(provider, tenant_id=tenant_id)
         # Authlib verifies authorization state, PKCE, ID-token signature/JWKS,
         # issuer, audience, expiry and nonce before exposing token['userinfo'].
+        step_up_requested = request.session.get("ola_oidc_step_up") is True
         token = await client.authorize_access_token(request)
         compact_id_token = token.get("id_token") if isinstance(token, dict) else None
         claims = token.get("userinfo") if isinstance(token, dict) else None
@@ -158,7 +165,11 @@ async def human_oidc_callback(tenant_id: str, request: Request):
             claims,
             signing_algorithm=algorithm,
             nonce_verified=True,
+            require_step_up=step_up_requested,
+            max_auth_age_seconds=300,
         )
+        if step_up_requested and not identity.mfa_verified:
+            raise OidcLoginRejected("fresh MFA step-up did not satisfy tenant MFA policy")
     except OidcLoginRejected as exc:
         raise HTTPException(status_code=401, detail="OIDC identity verification failed") from exc
     except Exception as exc:
