@@ -15,7 +15,7 @@ RUN git clone --filter=blob:none https://github.com/cli/cli.git /src \
     && go mod tidy \
     && module_version="$(go list -m -f '{{.Version}}' golang.org/x/net)" \
     && printf 'SELECTED_GOLANG_X_NET=%s\n' "$module_version" \
-    && test "$(printf '%s\\n' "$GO_NET_VERSION" "$module_version" | sort -V | head -n1)" = "$GO_NET_VERSION" \
+    && test "$module_version" = "$GO_NET_VERSION" \
     && mkdir -p /out \
     && go run script/build.go bin/gh GH_VERSION=v2.103.3 \
     && cp bin/gh /out/gh \
