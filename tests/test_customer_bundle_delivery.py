@@ -149,6 +149,7 @@ def test_recipient_grant_requires_dual_control_from_distinct_hr_people():
     with pytest.raises(delivery.CustomerBundleDeliveryRejected) as self_approval:
         delivery.approve_recipient_grant(
             tenant_id=tenant_id,
+            order_id=order_id,
             grant_id=request["grant_id"],
             approver_principal_id=requester_id,
             approver_person_ref=people[requester_id],
@@ -158,6 +159,7 @@ def test_recipient_grant_requires_dual_control_from_distinct_hr_people():
 
     approved = delivery.approve_recipient_grant(
         tenant_id=tenant_id,
+        order_id=order_id,
         grant_id=request["grant_id"],
         approver_principal_id=approver_id,
         approver_person_ref=people[approver_id],
