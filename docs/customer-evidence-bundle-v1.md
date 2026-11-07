@@ -51,7 +51,7 @@ python scripts/verify_customer_bundle.py customer-evidence.zip --trust-store tru
 
 
 
-Exit code `0` means `VERIFIED`; `3` means `PARTIAL`; `2` means `INVALID`. A trust store must be distributed independently from the bundle. Never trust a public key merely because it is included in the same ZIP.
+Exit code `0` means cryptographically `VERIFIED` and lifecycle `ACTIVE`; `3` means cryptographically `PARTIAL`; `4` means signatures/integrity were checked but the bundle lifecycle is `EXPIRED`; `2` means `INVALID`. The CLI prints `status` and `lifecycle_status` separately. A trust store must be distributed independently from the bundle. Never trust a public key merely because it is included in the same ZIP.
 
 ## Production gate
 
