@@ -415,7 +415,7 @@ def _expired_cookie_header(cookie_name: str, *, path: str, secure: bool) -> byte
     cookie[cookie_name]["expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
     if secure:
         cookie[cookie_name]["secure"] = True
-    return b"set-cookie: " + cookie.output(header="").strip().encode("latin-1")
+    return (b"set-cookie", cookie.output(header="").strip().encode("latin-1"))
 
 
 class ServerSideSessionMiddleware:
