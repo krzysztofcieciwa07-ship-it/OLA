@@ -1,4 +1,5 @@
 """Regression tests for opaque, encrypted, server-side Human Identity sessions."""
+import hashlib
 import importlib
 from importlib.util import find_spec
 import uuid
@@ -155,10 +156,15 @@ def test_human_login_rotates_session_and_binds_authenticated_context(monkeypatch
 
     with SessionLocal() as db:
         HumanSession = importlib.import_module("app.models").HumanSession
-        rows = db.scalars(select(HumanSession).order_by(HumanSession.created_at.asc())).all()
-        assert len(rows) == 2
-        assert rows[0].revoked_at is not None
-        assert rows[1].revoked_at is None
+        old_hash = hashlib.sha256(old_cookie.encode("ascii")).hexdigest()
+        new_hash = hashlib.sha256(new_cookie.encode("ascii")).hexdigest()
+        rows = db.scalars(
+            select(HumanSession).where(HumanSession.session_hash.in_((old_hash, new_hash)))
+        ).all()
+        by_hash = {row.session_hash: row for row in rows}
+        assert set(by_hash) == {old_hash, new_hash}
+        assert by_hash[old_hash].revoked_at is not None
+        assert by_hash[new_hash].revoked_at is None
 
 
 def test_tampered_expired_or_revoked_session_is_not_authenticated(monkeypatch, session_api):
@@ -174,6 +180,18 @@ def test_tampered_expired_or_revoked_session_is_not_authenticated(monkeypatch, s
     replay = TestClient(client.app)
     replay.cookies.set("ola_human_session", token)
     assert replay.get("/protected").json()["authenticated"] is False
+
+    # Expiry is checked against the server-side row, not cookie contents.
+    with SessionLocal() as db:
+        HumanSession = importlib.import_module("app.models").HumanSession
+        token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+        row = db.scalar(select(HumanSession).where(HumanSession.session_hash == token_hash))
+        assert row is not None
+        row.expires_at = 1
+        db.commit()
+    expired = TestClient(client.app)
+    expired.cookies.set("ola_human_session", token)
+    assert expired.get("/protected").json()["authenticated"] is False
 
     tampered = TestClient(client.app)
     tampered.cookies.set("ola_human_session", token[:-1] + ("A" if token[-1] != "A" else "B"))
