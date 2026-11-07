@@ -154,6 +154,7 @@ def test_downgrade_attempt_is_blocked_audited_and_never_changes_policy():
     [
         {"actor_ref": "", "reason": "valid reason", "target_mode": "OIDC_REQUIRED"},
         {"actor_ref": "principal-ref", "reason": "", "target_mode": "OIDC_REQUIRED"},
+        {"actor_ref": "person@example.com", "reason": "valid reason", "target_mode": "OIDC_REQUIRED"},
         {"actor_ref": "principal-ref", "reason": "valid reason", "target_mode": "UNKNOWN"},
     ],
 )
