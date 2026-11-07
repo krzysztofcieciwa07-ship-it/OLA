@@ -267,6 +267,16 @@ def _load_chain_and_validate_approval(tenant_id: str, order_id: str, context: di
     return records, records[-1]["record_hash"], approval_payload
 
 
+def _delete_unpersisted_object(runtime: CustomerBundleRuntime, object_ref: str) -> None:
+    try:
+        runtime.storage.delete(object_ref)
+    except Exception as exc:
+        raise CustomerBundleCreationRejected(
+            503,
+            "bundle persistence failed and encrypted orphan cleanup also failed; operator quarantine is required",
+        ) from exc
+
+
 def create_customer_bundle_for_order(
     *,
     tenant_id: str,
@@ -492,17 +502,11 @@ def create_customer_bundle_for_order(
             db.commit()
     except CustomerBundleCreationRejected:
         if object_ref:
-            try:
-                runtime.storage.delete(object_ref)
-            except Exception:
-                pass
+            _delete_unpersisted_object(runtime, object_ref)
         raise
     except Exception as exc:
         if object_ref:
-            try:
-                runtime.storage.delete(object_ref)
-            except Exception:
-                pass
+            _delete_unpersisted_object(runtime, object_ref)
         raise CustomerBundleCreationRejected(503, "signed bundle could not be persisted safely") from exc
 
     return {
