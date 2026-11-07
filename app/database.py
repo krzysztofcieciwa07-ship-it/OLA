@@ -158,9 +158,20 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         },
         "human_principals": {
             "id", "tenant_id", "issuer", "subject", "status",
+            "person_ref", "person_key_source", "person_bound_at",
             "created_at", "last_authenticated_at",
         },
-        "api_keys": {"id", "tenant_id", "key_hash", "role"},
+        "human_membership_roles": {
+            "id", "tenant_id", "principal_id", "role", "status",
+            "created_by_ref", "created_at", "revoked_at",
+        },
+        "human_role_change_requests": {
+            "id", "tenant_id", "requester_principal_id", "requester_person_ref",
+            "target_principal_id", "target_person_ref", "requested_role", "operation",
+            "reason", "status", "approver_principal_id", "approver_person_ref",
+            "requested_at", "approved_at", "request_evidence_id", "approval_evidence_id",
+        },
+        "api_keys": {"id", "tenant_id", "key_hash", "role", "owner_person_ref"},
         "evidence_records": {
             "id", "tenant_id", "seq", "record_type", "payload_json",
             "prev_hash", "record_hash",
@@ -212,6 +223,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "checkout_order_controls": {("order_id",)},
         "checkout_execution_jobs": {("order_id",)},
         "human_principals": {("tenant_id", "issuer", "subject")},
+        "human_membership_roles": {("tenant_id", "principal_id", "role")},
     }
     for table_name, expected in expected_unique_constraints.items():
         actual = {
@@ -231,12 +243,13 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied_versions = {
             row[0] for row in conn.execute(text(
                 "SELECT version FROM ola_schema_migrations WHERE version IN "
-                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc)"
+                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc, :human_membership)"
             ), {
                 "report_review": "ola_paid_order_report_review_v3",
                 "human_identity_policy": "ola_human_identity_policy_v1",
                 "human_sessions": "ola_human_sessions_v1",
                 "human_oidc": "ola_human_oidc_v1",
+                "human_membership": "ola_human_membership_sod_v1",
             }).all()
         }
         trigger_rows = conn.execute(text("""
@@ -263,6 +276,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "ola_human_identity_policy_v1",
         "ola_human_sessions_v1",
         "ola_human_oidc_v1",
+        "ola_human_membership_sod_v1",
     } - applied_versions
     if missing_versions:
         raise RuntimeError(
@@ -291,11 +305,20 @@ def _migrate_sqlite_private_order_tasks(bind):
     inspector = inspect(bind)
     order_columns = {column["name"] for column in inspector.get_columns("checkout_orders")}
     api_key_columns = {column["name"] for column in inspector.get_columns("api_keys")}
+    principal_columns = {column["name"] for column in inspector.get_columns("human_principals")}
     with bind.begin() as conn:
         if "task" not in order_columns:
             conn.exec_driver_sql("ALTER TABLE checkout_orders ADD COLUMN task TEXT")
         if "role" not in api_key_columns:
             conn.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'tenant'")
+        if "owner_person_ref" not in api_key_columns:
+            conn.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN owner_person_ref VARCHAR(64)")
+        if "person_ref" not in principal_columns:
+            conn.exec_driver_sql("ALTER TABLE human_principals ADD COLUMN person_ref VARCHAR(64)")
+        if "person_key_source" not in principal_columns:
+            conn.exec_driver_sql("ALTER TABLE human_principals ADD COLUMN person_key_source VARCHAR(32)")
+        if "person_bound_at" not in principal_columns:
+            conn.exec_driver_sql("ALTER TABLE human_principals ADD COLUMN person_bound_at INTEGER")
         conn.exec_driver_sql("""
             UPDATE checkout_orders
             SET task = (
@@ -398,6 +421,18 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_oidc_v1",
             "description": "Add tenant OIDC provider configuration and mutable human principal mappings",
+        })
+        conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS owner_person_ref VARCHAR(64)"))
+        conn.execute(text("ALTER TABLE human_principals ADD COLUMN IF NOT EXISTS person_ref VARCHAR(64)"))
+        conn.execute(text("ALTER TABLE human_principals ADD COLUMN IF NOT EXISTS person_key_source VARCHAR(32)"))
+        conn.execute(text("ALTER TABLE human_principals ADD COLUMN IF NOT EXISTS person_bound_at INTEGER"))
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_membership_sod_v1",
+            "description": "Add HR-backed person mapping, role membership and dual-control requests",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
