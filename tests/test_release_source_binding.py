@@ -76,7 +76,7 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         start = content.index("      - name: Trivy filesystem and config report")
         end = content.index("      - name: Upload Trivy filesystem SARIF", start)
         fs_scan = content[start:end]
-        self.assertIn("TRIVY_FILE_PATTERNS: 'pip:requirements-.*\\\\.txt'", fs_scan)
+        self.assertIn("TRIVY_FILE_PATTERNS: 'pip:requirements-.*\\.txt'", fs_scan)
         self.assertIn("severity: CRITICAL,HIGH,MEDIUM,LOW", fs_scan)
         self.assertIn('exit-code: "0"', fs_scan)
         self.assertIn("ignore-unfixed: false", fs_scan)
