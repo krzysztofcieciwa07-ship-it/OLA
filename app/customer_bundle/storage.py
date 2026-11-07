@@ -20,6 +20,7 @@ class CustomerBundleStorageRejected(ValueError):
 class CustomerBundleStorage(Protocol):
     def put(self, payload: bytes) -> str: ...
     def get(self, object_ref: str) -> bytes: ...
+    def delete(self, object_ref: str) -> None: ...
 
 
 class EncryptedLocalBundleStorage:
@@ -61,6 +62,27 @@ class EncryptedLocalBundleStorage:
         except OSError as exc:
             raise CustomerBundleStorageRejected("encrypted bundle object could not be persisted") from exc
         return "local-encrypted://" + filename
+
+    def delete(self, object_ref: str) -> None:
+        """Delete one validated encrypted object; missing objects are idempotent."""
+        match = self._REF_RE.fullmatch(object_ref or "")
+        if match is None:
+            raise CustomerBundleStorageRejected("bundle object reference is invalid")
+        target = self.root / (match.group(1) + ".olb")
+        try:
+            stat_result = target.lstat()
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise CustomerBundleStorageRejected("bundle object metadata could not be read") from exc
+        if not target.is_file() or target.is_symlink():
+            raise CustomerBundleStorageRejected("bundle object is not a regular private file")
+        if stat_result.st_mode & 0o077:
+            raise CustomerBundleStorageRejected("bundle object permissions are too broad")
+        try:
+            target.unlink()
+        except OSError as exc:
+            raise CustomerBundleStorageRejected("encrypted bundle object could not be deleted") from exc
 
     def get(self, object_ref: str) -> bytes:
         match = self._REF_RE.fullmatch(object_ref or "")
