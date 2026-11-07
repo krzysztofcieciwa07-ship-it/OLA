@@ -91,6 +91,7 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         testing = (ROOT / "requirements-test.txt").read_text(encoding="utf-8")
         compatibility = (ROOT / "requirements.txt").read_text(encoding="utf-8")
         self.assertIn("FROM alpine:3.24@sha256:", dockerfile)
+        self.assertIn("/sbin", dockerfile)
         self.assertIn("FROM python:3.13-alpine@sha256:", dockerfile)
         self.assertIn("COPY requirements-runtime.txt ./", dockerfile)
         self.assertIn("COPY --from=python-deps /opt/python-runtime/lib/", dockerfile)

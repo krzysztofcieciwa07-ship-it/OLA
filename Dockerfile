@@ -88,7 +88,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     OLA_EG_DB_PATH=/data/ola.db \
     OLA_BUILD_INFO_PATH=/app/ola-build-info.json \
-    PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin \
+    PATH=/opt/venv/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     LD_LIBRARY_PATH=/usr/local/lib
 
 WORKDIR /app
