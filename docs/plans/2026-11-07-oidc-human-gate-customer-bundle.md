@@ -1,5 +1,37 @@
 # OLA Human Identity i Customer Bundle — Implementation Plan
 
+> **Execution status (2026-11-07):** implementation changes are present in PR #190, but CI for the current head has not completed. Do not treat this plan as a test report or production acceptance.
+
+- PR: [#190](https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/190), Draft, stacked on PR #189.
+- Current verified branch head at last check: `098e5970f2cf48ca78309f9a945f74c5361da2d1`. Newer commits may supersede this SHA; read the branch ref before acting.
+- Branch base: PR #189 head `8e56b33df9a3e2806f3709fca90b07e4e595d28f`.
+- CI state for that head: 19 checks queued, zero completed; the latest subsequent commit has not yet completed CI.
+- No merge, production deploy, IdP, HR/SCIM, KMS/HSM, RFC 3161 TSA or production object store configuration has been performed.
+- Replit reviewer HTML remains unintegrated; its source/API contract has not been independently verified against this branch.
+- Current default app state deliberately has `customer_bundle_runtime = None`; the bundle issue/download path returns 503 until explicit dependencies are injected.
+
+## Implementation already present in PR #190
+
+- Human Identity: OIDC sessions, persistent tenant policy latch, HR-backed person refs, SoD and dual-control role change routes.
+- Production profile is derived from the public HTTPS origin; a conflicting sandbox environment label cannot downgrade Human Gate or bundle issue/download.
+- Paid decision reports can embed `order_id` before computing the report digest.
+- Customer bundle: deterministic dual-signed Ed25519 archive, independent trusted-key check, signer public-key alias rejection, bundle identity/version/created/expiry bound into the signed manifest, offline verifier and CLI.
+- Bundle issue service re-checks the approved report digest, exact approval Evidence, full tenant chain, unique execution completion record and current signing tip before persistence.
+- Production requires independent IGOR/provenance providers and RFC 3161 verifier/provider. Missing services fail closed.
+- Recipient grants and per-transfer attempts are separate; explicit ACK is a separate Evidence event and is not interpreted as report comprehension.
+- Recipient authentication has a provider-neutral interface. OIDC is the current adapter; WebAuthn/passkey is not implemented or configured.
+- Download re-verifies the ZIP against an independent trust store and database bundle metadata before streaming; expired packages are refused even when their signatures remain cryptographically valid.
+
+## Verification limitations
+
+- GitHub Actions for the current branch head were pending/queued at the last check. No claim of green CI is made.
+- PostgreSQL integration jobs may explicitly skip real integration tests when `OLA_TEST_POSTGRES_URL` is absent; a contract job alone is not a live database proof.
+- The code has not yet been run against a real tenant IdP/HR mapping, separate remote signer services, timestamp authority or durable production storage.
+- End-to-end customer delivery and real payment receipt remain UNVERIFIED.
+
+---
+
+
 > **For agentic workers:** Execute task by task. Do not merge PR #189 or deploy production.
 
 **Goal:** Zastąpić API-key identities dla ludzkich decyzji tożsamością federacyjną opartą o HR person key i dostarczać klientowi pakiet dowodowy z niezależnym podpisem IGOR oraz podpisem OLA.
