@@ -115,7 +115,7 @@ def _provenance_verifier(config: dict | None):
     if not isinstance(config, dict):
         return None
     required = (
-        "repository", "repository_id", "workflow_identity",
+        "repository", "repository_id", "workflow_identity", "trusted_root_sha256",
     )
     if any(not isinstance(config.get(key), str) or not config[key] for key in required):
         return None
@@ -137,6 +137,7 @@ def _provenance_verifier(config: dict | None):
         expected_workflow_identity=config["workflow_identity"],
         expected_source_ref=source_ref,
         expected_image_name=image_name,
+        expected_trusted_root_sha256=config["trusted_root_sha256"],
         gh_binary=gh_binary,
     )
 
