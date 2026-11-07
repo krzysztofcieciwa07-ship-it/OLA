@@ -18,7 +18,7 @@ ZIP entries use sorted paths, fixed 1980-01-01 timestamps, fixed Unix file permi
 
 ## Verification and profile matrix
 
-Offline verification rejects a missing or malformed bundle UUID, nonpositive version, creation/signing timestamp mismatch, or expiry not later than creation. Production verification also checks that source SHA is 40 hexadecimal characters, image digest is `sha256:` plus 64 hexadecimal characters, the provenance file is present and three distinct HR-backed person references are bound into the approval metadata.
+Offline verification rejects a missing or malformed bundle UUID, nonpositive version, creation/signing timestamp mismatch, or expiry not later than creation. Production verification also checks that source SHA is 40 hexadecimal characters, image digest is `sha256:` plus 64 hexadecimal characters, the provenance file is present and three distinct HR-backed person references are bound into the approval metadata. It additionally requires an injected `provenance_verifier(attestation_bytes, expected_source_sha, expected_image_digest) -> True` trust adapter. That adapter must independently verify the attestation signature, trusted issuer and workflow identity, repository/source commit, and OCI subject digest. A manifest flag or provider-supplied `verified=true` value is not a substitute.
 
 The offline verifier separates cryptographic `status` from `lifecycle_status`: the same signed package may remain cryptographically `VERIFIED` or `PARTIAL`, while its lifecycle changes from `ACTIVE` to `EXPIRED` at `expires_at`. An expired signature is not described as invalid merely because time elapsed, but the API download endpoint refuses to stream an expired package.
 
@@ -53,7 +53,7 @@ python scripts/verify_customer_bundle.py customer-evidence.zip --trust-store tru
 
 
 
-Exit code `0` means cryptographically `VERIFIED` and lifecycle `ACTIVE`; `3` means cryptographically `PARTIAL`; `4` means signatures/integrity were checked but the bundle lifecycle is `EXPIRED`; `2` means `INVALID`. The CLI prints `status` and `lifecycle_status` separately. A trust store must be distributed independently from the bundle. Never trust a public key merely because it is included in the same ZIP.
+Exit code `0` means cryptographically `VERIFIED` and lifecycle `ACTIVE`; `3` means cryptographically `PARTIAL`; `4` means signatures/integrity were checked but the bundle lifecycle is `EXPIRED`; `2` means `INVALID`. The CLI prints `status` and `lifecycle_status` separately. The current CLI loads Ed25519 and RFC 3161 trust, but does not yet load a production provenance-verifier adapter; therefore a production bundle is deliberately rejected with `PROVENANCE_ATTESTATION_VERIFIER_NOT_CONFIGURED` by this CLI. Programmatic production verification must inject the audited adapter explicitly. A trust store must be distributed independently from the bundle. Never trust a public key merely because it is included in the same ZIP.
 
 ## Production gate
 
@@ -61,11 +61,11 @@ Exit code `0` means cryptographically `VERIFIED` and lifecycle `ACTIVE`; `3` mea
 - separate remote signer custody for IGOR and OLA;
 - HR-backed approver and reviewer person references;
 - exact source SHA and OCI image digest;
-- source/runtime provenance;
-- a nonempty RFC 3161 proof accepted by an independently configured timestamp verifier;
+- source/runtime provenance validated by the independent offline verifier callback against the exact source SHA and OCI digest;
+- a nonempty RFC 3161 proof accepted by an independently configured timestamp verifier, including a defined `genTime` versus `signed_at` policy;
 - a separate offline timestamp trust adapter when validating the package.
 
-The repository currently provides a remote-signing interface and trust-store contract, not a deployed KMS/HSM integration or an external timestamp authority. Therefore a production bundle cannot be emitted merely by setting environment flags. Production remains blocked until separate IGOR and OLA signer services, KMS/HSM custody, TSA trust roots, customer delivery grants, retention and revocation procedures are configured and independently tested.
+The repository currently provides a remote-signing interface, a fail-closed provenance-verifier callback contract and trust-store contract, not a deployed KMS/HSM integration, production provenance-verifier adapter or external timestamp authority. The standalone CLI intentionally cannot mark production provenance VERIFIED until that adapter is implemented and configured. Therefore a production bundle cannot be emitted or independently accepted merely by setting environment flags. Production remains blocked until separate IGOR and OLA signer services, KMS/HSM custody, TSA trust roots, customer delivery grants, retention and revocation procedures are configured and independently tested.
 
 ## Key lifecycle and revocation
 
