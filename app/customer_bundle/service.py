@@ -454,6 +454,7 @@ def create_customer_bundle_for_order(
             trusted_keys=runtime.trusted_keys,
             revoked_key_ids=runtime.revoked_key_ids,
             timestamp_verifier=runtime.timestamp_verifier,
+            now=created_at,
         )
     except Exception as exc:
         raise CustomerBundleCreationRejected(503, "independent bundle verifier or timestamp trust service is unavailable") from exc
