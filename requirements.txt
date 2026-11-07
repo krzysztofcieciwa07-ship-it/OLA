@@ -1,14 +1,2 @@
-fastapi==0.142.2
-sqlalchemy==2.1.1
-httpx==0.28.1
-pytest==8.4.2
-uvicorn==0.54.0
-msgpack==1.2.3
-setuptools==84.0.0
-urllib3==2.8.0
-wheel==0.48.0
-psycopg[binary]==3.3.8
-cryptography==50.0.2
-Authlib==1.9.5
-httpx2==2.16.0
-joserfc==1.8.0
+# Backward-compatible test/development dependency entry point.
+-r requirements-test.txt
