@@ -347,6 +347,7 @@ def establish_human_session(
         "principal_ref": principal_ref,
         "auth_time": auth_time,
         "mfa_verified": mfa_verified,
+        "csrf_token": secrets.token_urlsafe(32),
     }
     session.rotate()
 
