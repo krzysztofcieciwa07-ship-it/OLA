@@ -1,6 +1,6 @@
 import uuid
 import time
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Text, ForeignKey, UniqueConstraint, Boolean
 from .database import Base
 
 
@@ -30,6 +30,22 @@ class TenantIdentityPolicy(Base):
     changed_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
     changed_by_ref = Column(String(128), nullable=False)
     reason = Column(Text, nullable=False)
+
+
+class HumanSession(Base):
+    """Server-side Human Identity session; cookie carries only session_hash input."""
+    __tablename__ = "human_sessions"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
+    principal_ref = Column(String(64), nullable=True, index=True)
+    session_hash = Column(String(64), nullable=False, unique=True, index=True)
+    session_data_encrypted = Column(Text, nullable=False)
+    auth_time = Column(Integer, nullable=True)
+    mfa_verified = Column(Boolean, nullable=False, default=False)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    updated_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    expires_at = Column(Integer, nullable=False)
+    revoked_at = Column(Integer, nullable=True)
 
 
 class EvidenceRecord(Base):
