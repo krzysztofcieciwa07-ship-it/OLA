@@ -186,6 +186,48 @@ jobs:
               --report-format=sarif \
               --report-path=/out/gitleaks-results.sarif \
               --log-level=debug
+      - name: Negative-control test — Gitleaks must detect an out-of-allowlist secret
+        env:
+          GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.24.3@sha256:e1b35e12a8c6fa8901f060459cfb6b2fc4c484d3afbe3b029733a3bbfab07055
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_dir="$(mktemp -d "$RUNNER_TEMP/gitleaks-negative-control.XXXXXX")"
+          config_dir="$RUNNER_TEMP/gitleaks-negative-control-config"
+          mkdir -p "$config_dir" "$RUNNER_TEMP/gitleaks-output"
+          cp .gitleaks.toml "$config_dir/gitleaks.toml"
+          cleanup() { rm -rf "$fixture_dir" "$config_dir"; }
+          trap cleanup EXIT
+
+          # Synthetic AWS-style key exists only in runner temp, never in the checkout or Git history.
+          synthetic_key="AKIA$(openssl rand -hex 8 | tr '[:lower:]' '[:upper:]')"
+          printf 'AWS_ACCESS_KEY_ID=%s\n' "$synthetic_key" > "$fixture_dir/untrusted-fixture.txt"
+          unset synthetic_key
+
+          set +e
+          docker run --rm \
+            --volume "$fixture_dir:/fixture:ro" \
+            --volume "$config_dir:/config:ro" \
+            --volume "$RUNNER_TEMP/gitleaks-output:/out" \
+            "$GITLEAKS_IMAGE" \
+            detect --no-git --source=/fixture --config=/config/gitleaks.toml \
+              --redact --verbose --exit-code=2 \
+              --report-format=sarif \
+              --report-path=/out/gitleaks-negative-control.sarif
+          scan_status=$?
+          set -e
+
+          if [ "$scan_status" -ne 2 ]; then
+            echo "::error::Negative control expected Gitleaks exit code 2 for a detected secret; got $scan_status"
+            exit 1
+          fi
+          if ! jq -e '[.runs[].results[]?] | length > 0' "$RUNNER_TEMP/gitleaks-output/gitleaks-negative-control.sarif" >/dev/null; then
+            echo "::error::Gitleaks returned the expected exit code but SARIF contains no findings"
+            exit 1
+          fi
+          echo "GITLEAKS_NEGATIVE_CONTROL=DETECTED"
+          echo "- Negative control: synthetic out-of-allowlist AWS-style key detected (exit 2; SARIF finding present)." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload complete-history Gitleaks SARIF
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
