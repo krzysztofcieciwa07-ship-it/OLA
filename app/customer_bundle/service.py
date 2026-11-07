@@ -267,6 +267,12 @@ def _load_chain_and_validate_approval(tenant_id: str, order_id: str, context: di
             completion.append(row)
     if len(completion) != 1:
         raise CustomerBundleCreationRejected(409, "unique trusted execution-completion record is required")
+    completion_payload = _payload(completion[0])
+    if (
+        completion_payload.get("source_commit") != context["job_result"].get("source_commit")
+        or completion_payload.get("image_digest") != context["job_result"].get("image_digest")
+    ):
+        raise CustomerBundleCreationRejected(409, "execution result source/image identity does not match trusted completion Evidence")
     return records, records[-1]["record_hash"], approval_payload
 
 
@@ -374,11 +380,22 @@ def create_customer_bundle_for_order(
     records, signing_tip_hash, _approval_payload = _load_chain_and_validate_approval(
         tenant_id, order_id, context,
     )
+    job_source_sha = context["job_result"].get("source_commit")
+    job_image_digest = context["job_result"].get("image_digest")
+    if runtime.profile == PRODUCTION_PROFILE and (
+        not isinstance(job_source_sha, str) or not HEX_64.fullmatch("0" * 24 + "0" * 16)
+        or not re.fullmatch(r"[0-9a-f]{40}", job_source_sha)
+        or not isinstance(job_image_digest, str)
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", job_image_digest)
+    ):
+        raise CustomerBundleCreationRejected(409, "production execution Evidence lacks exact source SHA and OCI image digest")
     signing_input = {
         "tenant_id": tenant_id,
         "order_id": order_id,
         "execution_job_id": context["job"].id,
         "report_sha256": review.report_sha256,
+        "source_commit": job_source_sha,
+        "image_digest": job_image_digest,
         "approved_tip_hash": review.reviewed_tip_hash,
         "evidence_tip_hash": signing_tip_hash,
         "tenant_evidence_records": records,
