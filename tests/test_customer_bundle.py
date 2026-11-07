@@ -242,3 +242,42 @@ def test_manifest_binds_report_without_requiring_order_id_inside_approved_report
     )
     assert result.status == "PARTIAL"
     assert result.report_sha256 == digest
+
+
+
+def test_builder_and_offline_verifier_reject_the_same_public_key_under_two_signer_ids(monkeypatch):
+    build, TestSigner, verify = _bundle_api()
+    from app.customer_bundle import builder as builder_module
+    from app.customer_bundle.signers import RemoteEd25519Signer
+
+    igor = TestSigner.generate(
+        key_id="igor-shared-key", custody_id="igor-independent-custody",
+    )
+    ola_alias = RemoteEd25519Signer(
+        key_id="ola-alias-key",
+        custody_id="ola-different-custody",
+        public_key_bytes=igor.public_key_bytes,
+        sign_request=lambda _key_id, message: igor.sign(message),
+    )
+    values = _inputs()
+    values["igor_attestation"]["report_sha256"] = hashlib.sha256(
+        values["report_json"]
+    ).hexdigest()
+
+    with pytest.raises(ValueError, match="distinct Ed25519 public keys"):
+        build(**values, igor_signer=igor, ola_signer=ola_alias)
+
+    # Exercise the independent offline verifier against a deliberately forged
+    # package. Bypass only the builder's guard so the verifier itself must reject
+    # the two aliases even though their key IDs and custody labels differ.
+    monkeypatch.setattr(builder_module, "_validate_signers", lambda *_args, **_kwargs: None)
+    forged = build(**values, igor_signer=igor, ola_signer=ola_alias)
+    result = verify(
+        forged.zip_bytes,
+        trusted_keys={
+            igor.key_id: igor.public_key_bytes,
+            ola_alias.key_id: igor.public_key_bytes,
+        },
+    )
+    assert result.status == "INVALID"
+    assert result.reason == "SIGNER_PUBLIC_KEYS_NOT_INDEPENDENT"
