@@ -251,12 +251,26 @@ def download_customer_bundle(
             pass
         raise HTTPException(status_code=503, detail="customer bundle could not be retrieved safely") from exc
 
-    verification = verify_customer_bundle(
-        payload,
-        trusted_keys=runtime.trusted_keys,
-        revoked_key_ids=runtime.revoked_key_ids,
-        timestamp_verifier=runtime.timestamp_verifier,
-    )
+    try:
+        verification = verify_customer_bundle(
+            payload,
+            trusted_keys=runtime.trusted_keys,
+            revoked_key_ids=runtime.revoked_key_ids,
+            timestamp_verifier=runtime.timestamp_verifier,
+        )
+    except Exception as exc:
+        try:
+            fail_delivery_attempt(
+                tenant_id=actor.tenant_id,
+                attempt_id=attempt["attempt_id"],
+                recipient_principal_id=actor.principal_id,
+                recipient_person_ref=actor.person_ref,
+                reason="bundle signature verifier or timestamp trust service failed",
+            )
+        except CustomerBundleDeliveryRejected:
+            pass
+        raise HTTPException(status_code=503, detail="customer bundle verification service is unavailable") from exc
+
     if (
         verification.status != expected_verification_status
         or verification.bundle_id != bundle_id
