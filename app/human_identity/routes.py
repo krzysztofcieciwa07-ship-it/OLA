@@ -14,7 +14,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 
-from app.database import SessionLocal
+from app.database import SessionLocal, append_evidence_atomic
 from app.models import HumanPrincipal, TenantIdentityProvider
 from app.human_identity.oidc import (
     OidcLoginRejected,
@@ -182,6 +182,20 @@ async def human_oidc_callback(tenant_id: str, request: Request):
         db.commit()
 
     try:
+        # The successful operator authentication is part of the tenant's
+        # append-only evidence chain. Store only the pseudonymous principal ref.
+        append_evidence_atomic(
+            tenant_id,
+            "human.operator_authenticated",
+            {
+                "principal_ref": principal_ref,
+                "auth_time": identity.auth_time,
+                "mfa_verified": identity.mfa_verified,
+                "authenticated_at": int(time.time()),
+                "decision": "AUTHENTICATED",
+            },
+            producer_id="ola_runtime",
+        )
         establish_human_session(
             request,
             tenant_id=tenant_id,
