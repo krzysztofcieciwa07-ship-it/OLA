@@ -316,6 +316,12 @@ def verify_customer_bundle(
         elif profile == SANDBOX_PROFILE:
             if timestamp_path is not None:
                 timestamp_status = "PRESENT_NOT_VERIFIED"
+                if status != "PARTIAL":
+                    return _invalid(
+                        "SANDBOX_TIMESTAMP_NOT_VERIFIED",
+                        igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                        report_sha=report_sha, timestamp=timestamp_status,
+                    )
             if status not in {"PARTIAL", "VERIFIED"}:
                 return _invalid(
                     "INVALID_SANDBOX_STATUS",
