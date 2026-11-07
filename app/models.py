@@ -320,6 +320,8 @@ class CustomerBundleDeliveryAttempt(Base):
     started_at = Column(Integer, nullable=True)
     completed_at = Column(Integer, nullable=True)
     failed_at = Column(Integer, nullable=True)
+    acknowledged_at = Column(Integer, nullable=True)
+    acknowledgement_evidence_id = Column(String(36), nullable=True)
     __table_args__ = (
         UniqueConstraint(
             "bundle_id", "recipient_person_ref", "attempt_no",
