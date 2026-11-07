@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, integration/ola-first-five-closure-20261106]
   schedule:
     - cron: "37 3 * * 6"
   workflow_dispatch:
@@ -116,8 +116,6 @@ jobs:
     permissions:
       contents: read
       security-events: write
-      attestations: write
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -183,53 +181,6 @@ jobs:
           output-file: sbom.spdx.json
           artifact-name: ola-sbom-${{ github.event.pull_request.head.sha || github.sha }}.spdx.json
 
-      - name: Save immutable image subject
-        run: docker save --output ola-image.tar ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Generate SLSA provenance attestation
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
-        with:
-          subject-path: ola-image.tar
-
-      - name: Generate SBOM attestation
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        with:
-          subject-path: ola-image.tar
-          sbom-path: sbom.spdx.json
-
-      - name: Independently verify artifact attestation
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh attestation verify ola-image.tar -R "$GITHUB_REPOSITORY" --format json > attestation-verification.json
-          python - <<'PY'
-          import json
-          import sys
-
-          data=json.load(open("attestation-verification.json",encoding="utf-8"))
-          results=[]
-          for item in data:
-              vr=item.get("verificationResult", {})
-              statement=vr.get("statement", {})
-              results.append({
-                  "statement_type": statement.get("_type"),
-                  "predicate_type": statement.get("predicateType"),
-                  "subject": statement.get("subject"),
-              })
-
-          print(json.dumps({"verification":results},sort_keys=True))
-          if not results:
-              sys.exit("No verified attestation statement returned")
-          if not any(x.get("statement_type")=="https://in-toto.io/Statement/v1" for x in results):
-              sys.exit("IN_TOTO_STATEMENT_MISSING")
-          if not any(x.get("predicate_type")=="https://slsa.dev/provenance/v1" for x in results):
-              sys.exit("SLSA_PROVENANCE_MISSING")
-          PY
-          echo "SIGSTORE=VERIFIED"
-          echo "IN_TOTO=VERIFIED"
-          echo "SLSA_PROVENANCE=VERIFIED"
-
       - name: Upload supply-chain evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -238,6 +189,77 @@ jobs:
           path: |
             trivy-fs-results.sarif
             sbom.spdx.json
-            ola-image.tar
-            attestation-verification.json
           retention-days: 30
+
+
+  release-attestations:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Checkout protected release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Assert protected release source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Build release image and SPDX SBOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ola-release:$GITHUB_SHA"
+          docker build --pull --build-arg OLA_SOURCE_COMMIT="$GITHUB_SHA" --tag "$image" --file Dockerfile .
+          image_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
+          test "$image_source" = "$GITHUB_SHA"
+          docker save --output ola-image.tar "$image"
+          python -m pip install --disable-pip-version-check cyclonedx-bom==7.2.1
+          syft "$image" -o spdx-json=sbom.spdx.json
+      - name: Generate SLSA provenance attestation
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: ola-image.tar
+      - name: Generate SBOM attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ola-image.tar
+          sbom-path: sbom.spdx.json
+      - name: Verify release provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh attestation verify ola-image.tar -R "$GITHUB_REPOSITORY" --format json > attestation-verification.json
+          python - <<'PY'
+          import json, sys
+          data = json.load(open("attestation-verification.json", encoding="utf-8"))
+          results = [
+              item.get("verificationResult", {}).get("statement", {})
+              for item in data
+          ]
+          if not results:
+              sys.exit("NO_VERIFIED_ATTESTATION")
+          if not any(
+              item.get("_type") == "https://in-toto.io/Statement/v1"
+              and item.get("predicateType") == "https://slsa.dev/provenance/v1"
+              for item in results
+          ):
+              sys.exit("SLSA_PROVENANCE_MISSING")
+          print("RELEASE_ATTESTATION=VERIFIED")
+          PY
+      - name: Upload release provenance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-release-provenance-${{ github.sha }}
+          path: |
+            ola-image.tar
+            sbom.spdx.json
+            attestation-verification.json
+          retention-days: 90
