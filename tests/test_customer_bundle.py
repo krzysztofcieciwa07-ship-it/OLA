@@ -19,6 +19,10 @@ def _inputs():
     return {
         "tenant_id": "tenant-customer-bundle-1",
         "order_id": "order-customer-bundle-1",
+        "bundle_id": "12345678-1234-4234-8234-123456789abc",
+        "bundle_version": 1,
+        "created_at": 1_800_000_100,
+        "expires_at": 1_900_000_100,
         "profile": "CUSTOMER_BUNDLE_SANDBOX_V1",
         "report_json": b'{"order_id":"order-customer-bundle-1","result":"verified"}',
         "evidence_excerpt": (
