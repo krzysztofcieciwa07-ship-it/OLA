@@ -53,6 +53,8 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn("id-token: write", content)
         self.assertIn("Trivy scan exact image before publication", content)
         self.assertIn("Push exact scanned OCI image", content)
+        self.assertEqual(content.count("ignore-unfixed: false"), 3)
+        self.assertNotIn("ignore-unfixed: true", content)
         self.assertIn("Verify registry digest against running container imageID", content)
         self.assertIn("docker pull \"$IMAGE_NAME@$OCI_DIGEST\"", content)
         self.assertIn("docker inspect --format '{{.Image}}' \"$container_name\"", content)
