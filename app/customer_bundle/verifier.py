@@ -268,18 +268,44 @@ def verify_customer_bundle(
                 "REPORT_JSON_INVALID",
                 igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
             )
+        report_has_embedded_order_binding = (
+            isinstance(report, dict)
+            and report.get("order_id") == manifest.get("order_id")
+        )
+        report_order_id = report.get("order_id") if isinstance(report, dict) else None
         if (
             not isinstance(report, dict)
-            or report.get("order_id") != manifest.get("order_id")
+            or (
+                "order_id" in report and report_order_id != manifest.get("order_id")
+            )
             or hashlib.sha256(archive.read("report/report.json")).hexdigest() != report_sha
         ):
             return _invalid(
                 "REPORT_BINDING_MISMATCH",
                 igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
             )
+        expected_report_binding = (
+            "EMBEDDED_ORDER_ID_MATCH"
+            if report_has_embedded_order_binding else "MANIFEST_ONLY"
+        )
+        if manifest.get("report_order_binding") != expected_report_binding:
+            return _invalid(
+                "REPORT_ORDER_BINDING_METADATA_MISMATCH",
+                igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+            )
 
         profile = manifest.get("profile")
         status = manifest.get("status")
+        if profile == PRODUCTION_PROFILE and not report_has_embedded_order_binding:
+            return _invalid(
+                "PRODUCTION_REPORT_ORDER_BINDING_MISSING",
+                igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+            )
+        if status == "VERIFIED" and not report_has_embedded_order_binding:
+            return _invalid(
+                "VERIFIED_REPORT_REQUIRES_EMBEDDED_ORDER_BINDING",
+                igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+            )
         timestamp_status = "NOT_PRESENT"
         if profile == PRODUCTION_PROFILE:
             if (
