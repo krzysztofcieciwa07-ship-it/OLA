@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline verification of an OLA customer evidence ZIP."""
+"""Verify an OLA customer evidence ZIP; OCI SLSA uses a local bundle/root and pinned registry subject."""
 import argparse
 import base64
 import json
@@ -142,7 +142,7 @@ def _provenance_verifier(config: dict | None):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify a dual-signed OLA customer evidence bundle offline.")
+    parser = argparse.ArgumentParser(description="Verify a dual-signed OLA customer evidence bundle and its OCI SLSA provenance.")
     parser.add_argument("bundle", type=Path, help="Customer evidence ZIP")
     parser.add_argument("--trust-store", required=True, type=Path, help="Out-of-band trusted Ed25519 public key JSON")
     args = parser.parse_args()
