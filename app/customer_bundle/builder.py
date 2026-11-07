@@ -91,6 +91,10 @@ def build_customer_bundle(
     *,
     tenant_id: str,
     order_id: str,
+    bundle_id: str,
+    bundle_version: int,
+    created_at: int,
+    expires_at: int,
     profile: str,
     report_json: bytes,
     evidence_excerpt: bytes,
@@ -120,6 +124,20 @@ def build_customer_bundle(
         raise CustomerBundleRejected("unknown customer bundle verification profile")
     if not isinstance(tenant_id, str) or not tenant_id or not isinstance(order_id, str) or not order_id:
         raise CustomerBundleRejected("tenant_id and order_id are required")
+    if not isinstance(bundle_id, str) or not re.fullmatch(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+        bundle_id,
+    ):
+        raise CustomerBundleRejected("bundle_id must be a canonical UUID")
+    if type(bundle_version) is not int or bundle_version < 1:
+        raise CustomerBundleRejected("bundle version must be a positive integer")
+    if (
+        type(created_at) is not int
+        or type(expires_at) is not int
+        or created_at != signed_at
+        or expires_at <= created_at
+    ):
+        raise CustomerBundleRejected("bundle creation and expiry timestamps are inconsistent")
     if not isinstance(report_json, bytes) or not report_json:
         raise CustomerBundleRejected("sanitized report JSON bytes are required")
     if not isinstance(evidence_excerpt, bytes):
@@ -244,6 +262,10 @@ def build_customer_bundle(
         "status": status,
         "tenant_id": tenant_id,
         "order_id": order_id,
+        "bundle_id": bundle_id,
+        "bundle_version": bundle_version,
+        "created_at": created_at,
+        "expires_at": expires_at,
         "report_sha256": report_sha256,
         "report_order_binding": (
             "EMBEDDED_ORDER_ID_MATCH"
