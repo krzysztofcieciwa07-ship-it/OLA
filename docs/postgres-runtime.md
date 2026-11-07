@@ -21,7 +21,7 @@ python scripts/migrate_postgres.py
 
 The migration script creates missing ORM tables, installs the two evidence
 append-only triggers, and records the additive migration versions, including
-`ola_human_identity_policy_v1` and `ola_human_sessions_v1`, in `ola_schema_migrations`. The persistent
+`ola_human_identity_policy_v1`, `ola_human_sessions_v1`, and `ola_human_oidc_v1`, in `ola_schema_migrations`. The persistent
 `tenant_identity_policies` row stores the one-way tenant transition from
 `LEGACY_API` to `OIDC_REQUIRED`; `human_sessions` stores opaque session-token
 hashes and Fernet-encrypted transient OIDC state or minimal operator context; API startup verifies its table and migration
