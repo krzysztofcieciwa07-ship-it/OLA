@@ -1,0 +1,22 @@
+# OLA-specific, narrowly scoped Gitleaks false-positive handling.
+# Gitleaks v8.24.3 is pinned by .github/workflows/supply-chain-evidence.yml.
+# Keep the embedded default rules enabled; this file only adds exact line exceptions.
+title = "OLA Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Exact historical test-only Ed25519 field declarations and synthetic HR fixture assignments; paths AND lines must match."
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^app/customer_bundle/signers\.py$''',
+  '''^tests/test_human_identity_sod\.py$'''
+]
+regexes = [
+  '''^\s*_signing_key:\s*Ed25519PrivateKey\s*$''',
+  '''^\s*_private_key:\s*Ed25519PrivateKey\s*$''',
+  '''^\s*raw_hr_key\s*=\s*"hr-fixture-person-001"\s*$''',
+  '''^\s*raw_hr_key\s*=\s*"HR-EMPLOYEE-000742"\s*$'''
+]
