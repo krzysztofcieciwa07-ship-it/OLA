@@ -129,3 +129,31 @@ def test_cli_returns_four_for_cryptographically_valid_expired_bundle(tmp_path):
     assert report["lifecycle_status"] == "EXPIRED"
     assert report["igor_signature"] == "VERIFIED"
     assert report["ola_signature"] == "VERIFIED"
+
+
+def test_timestamp_verifier_binds_rfc3161_gen_time_to_signed_at(monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+    from scripts.verify_customer_bundle import _timestamp_verifier
+
+    ca_file = tmp_path / "tsa-ca.pem"
+    ca_file.write_text("test-ca", encoding="utf-8")
+    gen_time = int(datetime(2026, 11, 7, 14, 45, tzinfo=timezone.utc).timestamp())
+
+    def fake_run(command, **_kwargs):
+        if "-verify" in command:
+            return subprocess.CompletedProcess(command, 0, stdout="Verification: OK", stderr="")
+        if "-text" in command:
+            return subprocess.CompletedProcess(
+                command, 0,
+                stdout="Status: Granted.\nTime stamp: Nov  7 14:45:00 2026 GMT\n",
+                stderr="",
+            )
+        raise AssertionError(f"unexpected OpenSSL command: {command}")
+
+    monkeypatch.setattr("scripts.verify_customer_bundle.subprocess.run", fake_run)
+    verifier = _timestamp_verifier({"ca_file": "tsa-ca.pem"}, tmp_path)
+
+    assert verifier is not None
+    assert verifier(b"timestamp-token", b"manifest", gen_time - 120) is True
+    assert verifier(b"timestamp-token", b"manifest", gen_time + 1) is False
+    assert verifier(b"timestamp-token", b"manifest", gen_time - 301) is False
