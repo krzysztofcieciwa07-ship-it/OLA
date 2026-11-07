@@ -26,6 +26,7 @@ from app.customer_bundle.signers import Ed25519Signer
 from app.customer_bundle.storage import CustomerBundleStorage, CustomerBundleStorageRejected
 from app.database import SessionLocal, begin_write_transaction
 from app.hashchain import (
+    EVIDENCE_META_KEY,
     GENESIS_HASH,
     compute_record_hash_v2,
     sealed_payload_json,
@@ -79,7 +80,7 @@ def _payload(record: dict) -> dict:
         raise CustomerBundleCreationRejected(409, "tenant Evidence payload is invalid") from None
     if not isinstance(value, dict):
         raise CustomerBundleCreationRejected(409, "tenant Evidence payload is not an object")
-    value.pop("_ola_evidence", None)
+    value.pop(EVIDENCE_META_KEY, None)
     return value
 
 
