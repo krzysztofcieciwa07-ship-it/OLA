@@ -195,3 +195,21 @@ def test_external_recipient_provider_must_supply_fresh_mfa(monkeypatch):
     )
     with pytest.raises(HumanMembershipRejected, match="valid principal and fresh MFA"):
         recipient_auth.authenticate_customer_recipient(request)
+
+
+def test_customer_bundle_runtime_requires_explicit_provenance_verifier_dependency():
+    from app.customer_bundle.service import CustomerBundleRuntime
+
+    verifier = lambda _payload, _source_sha, _image_digest: True
+    runtime = CustomerBundleRuntime(
+        profile="CUSTOMER_BUNDLE_PRODUCTION_V1",
+        igor_signer=None,
+        ola_signer=None,
+        storage=None,
+        igor_attestation_provider=lambda _payload: {},
+        provenance_provider=lambda _payload: None,
+        trusted_keys={},
+        provenance_verifier=verifier,
+    )
+
+    assert runtime.provenance_verifier is verifier
