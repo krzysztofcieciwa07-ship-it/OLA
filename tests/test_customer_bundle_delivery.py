@@ -103,7 +103,6 @@ def _signed_bundle(tenant_id, order_id):
         signed_at=1_800_000_010,
         signing_tip_hash="d" * 64,
         created_at=1_800_000_000,
-        signed_at=1_800_000_010,
         expires_at=1_900_000_000,
     )
     with SessionLocal() as db:
