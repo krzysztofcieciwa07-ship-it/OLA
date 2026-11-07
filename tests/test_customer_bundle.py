@@ -321,3 +321,27 @@ def test_offline_verifier_rejects_manifest_without_persisted_bundle_identity():
     )
     assert result.status == "INVALID"
     assert result.reason == "BUNDLE_ID_INVALID"
+
+
+def test_package_integrity_status_is_separate_from_expiry_lifecycle():
+    build, TestSigner, verify = _bundle_api()
+    igor = TestSigner.generate(key_id="igor-lifecycle-key", custody_id="igor-lifecycle-custody")
+    ola = TestSigner.generate(key_id="ola-lifecycle-key", custody_id="ola-lifecycle-custody")
+    values = _inputs()
+    values["igor_attestation"]["report_sha256"] = hashlib.sha256(
+        values["report_json"]
+    ).hexdigest()
+    artifact = build(**values, igor_signer=igor, ola_signer=ola)
+    trusted = {
+        igor.key_id: igor.public_key_bytes,
+        ola.key_id: ola.public_key_bytes,
+    }
+
+    active = verify(artifact.zip_bytes, trusted_keys=trusted, now=values["expires_at"] - 1)
+    expired = verify(artifact.zip_bytes, trusted_keys=trusted, now=values["expires_at"])
+
+    assert active.status == "PARTIAL"
+    assert active.lifecycle_status == "ACTIVE"
+    assert expired.status == "PARTIAL"
+    assert expired.lifecycle_status == "EXPIRED"
+    assert expired.manifest_sha256 == artifact.manifest_sha256
