@@ -454,6 +454,8 @@ def complete_delivery_attempt(
 def acknowledge_delivery_attempt(
     *,
     tenant_id: str,
+    order_id: str,
+    bundle_id: str,
     attempt_id: str,
     recipient_principal_id: str,
     recipient_person_ref: str,
@@ -477,6 +479,8 @@ def acknowledge_delivery_attempt(
         attempt = db.scalar(select(CustomerBundleDeliveryAttempt).where(
             CustomerBundleDeliveryAttempt.id == attempt_id,
             CustomerBundleDeliveryAttempt.tenant_id == tenant_id,
+            CustomerBundleDeliveryAttempt.order_id == order_id,
+            CustomerBundleDeliveryAttempt.bundle_id == bundle_id,
         ).with_for_update())
         if attempt is None:
             raise CustomerBundleDeliveryRejected(404, "delivery attempt not found")
