@@ -145,6 +145,11 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "tenant_identity_policies": {
             "tenant_id", "human_gate_mode", "changed_at", "changed_by_ref", "reason",
         },
+        "human_sessions": {
+            "id", "tenant_id", "principal_ref", "session_hash",
+            "session_data_encrypted", "auth_time", "mfa_verified",
+            "created_at", "updated_at", "expires_at", "revoked_at",
+        },
         "api_keys": {"id", "tenant_id", "key_hash", "role"},
         "evidence_records": {
             "id", "tenant_id", "seq", "record_type", "payload_json",
@@ -215,10 +220,11 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied_versions = {
             row[0] for row in conn.execute(text(
                 "SELECT version FROM ola_schema_migrations WHERE version IN "
-                "(:report_review, :human_identity_policy)"
+                "(:report_review, :human_identity_policy, :human_sessions)"
             ), {
                 "report_review": "ola_paid_order_report_review_v3",
                 "human_identity_policy": "ola_human_identity_policy_v1",
+                "human_sessions": "ola_human_sessions_v1",
             }).all()
         }
         trigger_rows = conn.execute(text("""
@@ -243,6 +249,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     missing_versions = {
         "ola_paid_order_report_review_v3",
         "ola_human_identity_policy_v1",
+        "ola_human_sessions_v1",
     } - applied_versions
     if missing_versions:
         raise RuntimeError(
@@ -362,6 +369,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_identity_policy_v1",
             "description": "Add persistent one-way tenant Human Gate identity policy",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_sessions_v1",
+            "description": "Add encrypted server-side human operator sessions",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
