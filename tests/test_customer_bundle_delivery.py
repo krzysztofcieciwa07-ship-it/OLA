@@ -188,6 +188,7 @@ def test_each_download_is_a_new_attempt_and_does_not_mutate_bundle_or_grant():
     )
     delivery.approve_recipient_grant(
         tenant_id=tenant_id,
+        order_id=order_id,
         grant_id=request["grant_id"],
         approver_principal_id=approver_id,
         approver_person_ref=people[approver_id],
@@ -260,6 +261,7 @@ def test_revoked_grant_creates_blocked_attempt_without_changing_bundle_state():
     )
     delivery.approve_recipient_grant(
         tenant_id=tenant_id,
+        order_id=order_id,
         grant_id=request["grant_id"],
         approver_principal_id=approver_id,
         approver_person_ref=people[approver_id],
@@ -267,6 +269,7 @@ def test_revoked_grant_creates_blocked_attempt_without_changing_bundle_state():
     )
     revoked = delivery.revoke_recipient_grant(
         tenant_id=tenant_id,
+        order_id=order_id,
         grant_id=request["grant_id"],
         actor_principal_id=approver_id,
         actor_person_ref=people[approver_id],
