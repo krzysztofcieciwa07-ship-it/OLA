@@ -7,6 +7,7 @@ import io
 import json
 import re
 import stat
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -44,6 +45,7 @@ class VerificationReport:
     bundle_version: int | None = None
     profile: str | None = None
     expires_at: int | None = None
+    lifecycle_status: str = "UNKNOWN"
 
 
 def _invalid(reason: str, *, igor="NOT_CHECKED", ola="NOT_CHECKED",
@@ -94,7 +96,8 @@ def verify_customer_bundle(
     *,
     trusted_keys: dict[str, bytes],
     revoked_key_ids: set[str] | frozenset[str] = frozenset(),
-    timestamp_verifier: Callable[[bytes, int], bool] | None = None,
+    timestamp_verifier: Callable[[bytes, bytes, int], bool] | None = None,
+    now: int | None = None,
 ) -> VerificationReport:
     """Verify ZIP safety, canonical manifest, two signatures and each listed file.
 
@@ -465,4 +468,9 @@ def verify_customer_bundle(
             bundle_version=bundle_version,
             profile=profile,
             expires_at=expires_at,
+            lifecycle_status=(
+                "EXPIRED"
+                if (int(time.time()) if now is None else now) >= expires_at
+                else "ACTIVE"
+            ),
         )
