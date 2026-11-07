@@ -92,7 +92,12 @@ def test_customer_bundle_has_two_independent_ed25519_signatures_and_is_determini
         assert "igor/attestation.sig" in names
         assert "report/report.json" in names
         assert "evidence/order-evidence.ndjson" in names
-        assert "manifest.json" not in json.loads(archive.read("manifest.json"))["files"]
+        manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["bundle_id"] == values["bundle_id"]
+        assert manifest["bundle_version"] == values["bundle_version"]
+        assert manifest["created_at"] == values["created_at"]
+        assert manifest["expires_at"] == values["expires_at"]
+        assert "manifest.json" not in manifest["files"]
         sig = base64.urlsafe_b64decode(
             archive.read("manifest.sig") + b"=" * (-len(archive.read("manifest.sig")) % 4)
         )
@@ -286,3 +291,33 @@ def test_builder_and_offline_verifier_reject_the_same_public_key_under_two_signe
     )
     assert result.status == "INVALID"
     assert result.reason == "SIGNER_PUBLIC_KEYS_NOT_INDEPENDENT"
+
+
+def test_offline_verifier_rejects_manifest_without_persisted_bundle_identity():
+    build, TestSigner, verify = _bundle_api()
+    igor = TestSigner.generate(key_id="igor-metadata-key", custody_id="igor-metadata-custody")
+    ola = TestSigner.generate(key_id="ola-metadata-key", custody_id="ola-metadata-custody")
+    values = _inputs()
+    values["igor_attestation"]["report_sha256"] = hashlib.sha256(values["report_json"]).hexdigest()
+    artifact = build(**values, igor_signer=igor, ola_signer=ola)
+
+    source = zipfile.ZipFile(io.BytesIO(artifact.zip_bytes))
+    with source:
+        entries = {name: source.read(name) for name in source.namelist()}
+    manifest = json.loads(entries["manifest.json"])
+    manifest.pop("bundle_id")
+    entries["manifest.json"] = __import__("app.customer_bundle.builder", fromlist=["canonical_json_bytes"]).canonical_json_bytes(manifest)
+    changed = io.BytesIO()
+    with zipfile.ZipFile(changed, "w", compression=zipfile.ZIP_STORED) as target:
+        for name in sorted(entries):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.create_system = 3
+            info.external_attr = 0o100644 << 16
+            target.writestr(info, entries[name])
+
+    result = verify(
+        changed.getvalue(),
+        trusted_keys={igor.key_id: igor.public_key_bytes, ola.key_id: ola.public_key_bytes},
+    )
+    assert result.status == "INVALID"
+    assert result.reason == "BUNDLE_ID_INVALID"
