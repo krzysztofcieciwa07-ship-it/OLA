@@ -11,3 +11,4 @@ psycopg[binary]==3.3.8
 cryptography==50.0.2
 Authlib==1.9.5
 httpx2==2.16.0
+joserfc==1.8.0
