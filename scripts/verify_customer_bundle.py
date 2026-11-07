@@ -3,8 +3,10 @@
 import argparse
 import base64
 import json
+import re
 import sys
 import subprocess
+from datetime import datetime, timezone
 import tempfile
 from pathlib import Path
 
@@ -42,6 +44,9 @@ def _timestamp_verifier(config: dict | None, trust_store_dir: Path):
         return None
     ca_value = config.get("ca_file")
     untrusted_value = config.get("untrusted_file")
+    max_gen_time_delay = config.get("max_gen_time_delay_seconds", 300)
+    if type(max_gen_time_delay) is not int or not 1 <= max_gen_time_delay <= 3600:
+        return None
     if not isinstance(ca_value, str) or not ca_value:
         return None
     ca_file = (trust_store_dir / ca_value).resolve() if not Path(ca_value).is_absolute() else Path(ca_value)
@@ -78,7 +83,25 @@ def _timestamp_verifier(config: dict | None, trust_store_dir: Path):
                 result = subprocess.run(
                     command, capture_output=True, text=True, check=False, timeout=20,
                 )
-                return result.returncode == 0
+                if result.returncode != 0:
+                    return False
+                details = subprocess.run(
+                    ["openssl", "ts", "-reply", "-in", str(token_path), "-text"],
+                    capture_output=True, text=True, check=False, timeout=20,
+                )
+                if details.returncode != 0:
+                    return False
+                match = re.search(r"^\\s*Time stamp:\\s*(.+?)\\s*$", details.stdout, re.MULTILINE)
+                if match is None:
+                    return False
+                timestamp_text = match.group(1)
+                if not timestamp_text.endswith(" GMT"):
+                    return False
+                parsed = datetime.strptime(
+                    timestamp_text[:-4].strip(), "%b %d %H:%M:%S %Y",
+                ).replace(tzinfo=timezone.utc)
+                gen_time = int(parsed.timestamp())
+                return signed_at <= gen_time <= signed_at + max_gen_time_delay
         except (OSError, subprocess.SubprocessError):
             return False
 
