@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import os
+import hashlib
 from pathlib import Path
 
 from app.customer_bundle.github_provenance import (
@@ -46,7 +46,7 @@ def main() -> int:
         return 2
 
     print(f"PROVENANCE_PACKAGE=VERIFIED")
-    print(f"PROVENANCE_SHA256={__import__('hashlib').sha256(payload).hexdigest()}")
+    print(f"PROVENANCE_SHA256={hashlib.sha256(payload).hexdigest()}")
     return 0
 
 
