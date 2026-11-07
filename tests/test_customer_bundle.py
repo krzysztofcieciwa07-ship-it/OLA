@@ -306,7 +306,12 @@ def test_offline_verifier_rejects_manifest_without_persisted_bundle_identity():
         entries = {name: source.read(name) for name in source.namelist()}
     manifest = json.loads(entries["manifest.json"])
     manifest.pop("bundle_id")
-    entries["manifest.json"] = __import__("app.customer_bundle.builder", fromlist=["canonical_json_bytes"]).canonical_json_bytes(manifest)
+    from app.customer_bundle.builder import canonical_json_bytes
+    changed_manifest = canonical_json_bytes(manifest)
+    entries["manifest.json"] = changed_manifest
+    entries["manifest.sig"] = base64.urlsafe_b64encode(
+        ola.sign(changed_manifest)
+    ).rstrip(b"=")
     changed = io.BytesIO()
     with zipfile.ZipFile(changed, "w", compression=zipfile.ZIP_STORED) as target:
         for name in sorted(entries):
