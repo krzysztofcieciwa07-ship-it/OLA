@@ -5,6 +5,10 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
+from app.customer_bundle.service import (
+    CustomerBundleCreationRejected,
+    create_customer_bundle_for_order,
+)
 from app.customer_bundle.delivery import (
     CustomerBundleDeliveryRejected,
     acknowledge_delivery_attempt,
@@ -41,6 +45,33 @@ def _csrf(request: Request, token: str | None) -> None:
 
 def _delivery_error(exc: CustomerBundleDeliveryRejected):
     raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
+
+
+@router.post("/checkout-orders/{order_id}/bundles")
+def create_customer_evidence_bundle(
+    order_id: str,
+    request: Request,
+    x_ola_csrf: str | None = Header(default=None),
+):
+    """Create a signed, order-scoped bundle from an independently approved report."""
+    actor = _actor(request, "report_reviewer")
+    _csrf(request, x_ola_csrf)
+    runtime = getattr(request.app.state, "customer_bundle_runtime", None)
+    if runtime is None:
+        raise HTTPException(
+            status_code=503,
+            detail="customer bundle signing, verification, timestamp and storage services are not configured",
+        )
+    try:
+        return create_customer_bundle_for_order(
+            tenant_id=actor.tenant_id,
+            order_id=order_id,
+            reviewer_principal_id=actor.principal_id,
+            reviewer_person_ref=actor.person_ref,
+            runtime=runtime,
+        )
+    except CustomerBundleCreationRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
 
 @router.post("/checkout-orders/{order_id}/bundle-grants")
