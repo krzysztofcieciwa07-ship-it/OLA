@@ -405,6 +405,7 @@ def create_customer_bundle_for_order(
         image_digest = provenance_result.get("image_digest")
     if runtime.profile == PRODUCTION_PROFILE and (
         runtime.timestamp_provider is None or runtime.timestamp_verifier is None
+        or not callable(runtime.provenance_verifier)
         or provenance_verified is not True
     ):
         raise CustomerBundleCreationRejected(503, "production TSA and independently verified provenance are not configured")
@@ -454,6 +455,7 @@ def create_customer_bundle_for_order(
             trusted_keys=runtime.trusted_keys,
             revoked_key_ids=runtime.revoked_key_ids,
             timestamp_verifier=runtime.timestamp_verifier,
+            provenance_verifier=runtime.provenance_verifier,
             now=created_at,
         )
     except Exception as exc:
