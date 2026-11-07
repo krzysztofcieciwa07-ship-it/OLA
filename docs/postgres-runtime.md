@@ -20,8 +20,11 @@ python scripts/migrate_postgres.py
 ```
 
 The migration script creates missing ORM tables, installs the two evidence
-append-only triggers, and records `ola_paid_order_outbox_v1` in
-`ola_schema_migrations`. It is additive: it does not alter existing columns,
+append-only triggers, and records the additive migration versions, including
+`ola_human_identity_policy_v1`, in `ola_schema_migrations`. The persistent
+`tenant_identity_policies` row stores the one-way tenant transition from
+`LEGACY_API` to `OIDC_REQUIRED`; API startup verifies its table and migration
+version but never performs PostgreSQL DDL. It is additive: it does not alter existing columns,
 delete data, or copy records from the SQLite database. Do not point an existing
 production tenant at the new database until a separately reviewed data-transfer
 and reconciliation procedure has been run. Future column changes require a
@@ -30,8 +33,8 @@ new explicit migration.
 The API and worker must use `OLA_DATABASE_URL` with a separate runtime role.
 Grant only the required DML privileges. In particular, `evidence_records`
 should grant `SELECT, INSERT` to the runtime role, not `UPDATE`, `DELETE` or `TRUNCATE`.
-The application verifies required tables and trigger presence on startup and
-fails closed if they are missing. The migration role must not be used as the
+The application verifies required tables, the human identity policy migration
+version and trigger presence on startup and fails closed if they are missing. The migration role must not be used as the
 runtime credential.
 
 Example minimum grants for the current payment/evidence tables (adapt the
@@ -40,6 +43,7 @@ role name and include other OLA tables when deploying the complete API):
 ```sql
 GRANT USAGE ON SCHEMA public TO ola_runtime;
 GRANT SELECT, INSERT ON tenants TO ola_runtime;
+GRANT SELECT ON tenant_identity_policies TO ola_runtime;
 GRANT SELECT ON api_keys TO ola_runtime;
 GRANT SELECT, INSERT ON evidence_records TO ola_runtime;
 GRANT SELECT, INSERT, UPDATE ON stripe_events, checkout_orders,
