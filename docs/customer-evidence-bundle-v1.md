@@ -22,7 +22,7 @@ Offline verification rejects a missing or malformed bundle UUID, nonpositive ver
 
 The offline verifier separates cryptographic `status` from `lifecycle_status`: the same signed package may remain cryptographically `VERIFIED` or `PARTIAL`, while its lifecycle changes from `ACTIVE` to `EXPIRED` at `expires_at`. An expired signature is not described as invalid merely because time elapsed, but the API download endpoint refuses to stream an expired package.
 
-The verifier requires an out-of-band trust store. For GitHub OCI provenance, the customer bundle carries the actual Sigstore attestation bundle and the Sigstore trusted-root material inside `provenance/source-runtime.json`; the verifier uses the local bundle/root and GitHub CLI policy checks. It does not query the GitHub attestations API, but it must resolve the immutable OCI digest from the configured registry. A private GHCR image therefore requires a read-only registry credential at verification time. The trust root must be refreshed through a separately controlled process when Sigstore roots rotate. The bundle binds separate approval and signing moments: `approved_at` / `approved_tip_hash` identify the state approved by the reviewer; `signed_at` / `signing_tip_hash` identify the later state rechecked immediately before signing. IGOR signs an attestation bound to the order, report digest and both Evidence tips.
+The verifier requires an out-of-band trust store. For GitHub OCI provenance, the customer bundle carries the actual Sigstore attestation bundle and the Sigstore trusted-root material inside `provenance/source-runtime.json`; the verifier uses the local bundle/root and GitHub CLI policy checks. It does not query the GitHub attestations API, but it must resolve the immutable OCI digest from the configured registry. A private GHCR image therefore requires a read-only registry credential at verification time. The trust root digest is pinned in the recipient trust store, outside the customer bundle. A bundle cannot introduce its own trust root. Root rotation requires an independently reviewed trust-store update and a new approved digest. The bundle binds separate approval and signing moments: `approved_at` / `approved_tip_hash` identify the state approved by the reviewer; `signed_at` / `signing_tip_hash` identify the later state rechecked immediately before signing. IGOR signs an attestation bound to the order, report digest and both Evidence tips.
 
 | Profile | Required result | Offline outcome |
 |---|---|---|
@@ -45,7 +45,8 @@ Issuance and every download both use a separately injected, out-of-band trust st
     "repository_id": "IMMUTABLE_GITHUB_REPOSITORY_ID",
     "source_ref": "refs/heads/main",
     "workflow_identity": "https://github.com/OWNER/REPOSITORY/.github/workflows/supply-chain-evidence.yml@refs/heads/main",
-    "image_name": "ghcr.io/OWNER/REPOSITORY"
+    "image_name": "ghcr.io/OWNER/REPOSITORY",
+    "trusted_root_sha256": "OUT_OF_BAND_SHA256_OF_APPROVED_SIGSTORE_TRUST_ROOT"
   }
 }
 ```
