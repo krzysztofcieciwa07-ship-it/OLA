@@ -184,7 +184,7 @@ jobs:
             echo "=== Python import paths ==="
             python -c "import sys; print(chr(10).join(sys.path))"
             echo "=== Runtime package resolution ==="
-            python -c "import importlib,importlib.metadata as m; names=(\"msgpack\",\"setuptools\",\"urllib3\"); [print(n, \"distribution=\", next((d.version for d in m.distributions() if (d.metadata.get(\"Name\") or \"\").lower()==n), \"NOT_FOUND\")) for n in names]; [print(n, \"module=\", getattr(importlib.import_module(n), \"__version__\", \"NO_VERSION\"), \"file=\", getattr(importlib.import_module(n), \"__file__\", \"NO_FILE\")) for n in names]"
+            python -c "import importlib,importlib.util,importlib.metadata as m; names=(\"msgpack\",\"setuptools\",\"urllib3\"); [print(n, \"distribution=\", next((d.version for d in m.distributions() if (d.metadata.get(\"Name\") or \"\").lower()==n), \"NOT_FOUND\"), \"module=\", (lambda x: (getattr(x,\"__version__\",\"NO_VERSION\"),getattr(x,\"__file__\",\"NO_FILE\")))(importlib.import_module(n)) if importlib.util.find_spec(n) else \"NOT_INSTALLED\") for n in names]"
             echo "=== All Python package metadata records ==="
             find / -type f \( -name METADATA -o -name PKG-INFO -o -name vendor.txt \) -print 2>/dev/null | sort | while IFS= read -r f; do
               case "$f" in
