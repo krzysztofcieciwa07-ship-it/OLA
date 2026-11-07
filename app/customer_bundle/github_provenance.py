@@ -195,6 +195,7 @@ def verify_github_oci_provenance(
             "--custom-trusted-root", str(trust_path),
             "--cert-identity", expected_workflow_identity,
             "--cert-oidc-issuer", OIDC_ISSUER,
+            "--deny-self-hosted-runners",
             "--source-digest", expected_source_sha,
             "--source-ref", expected_source_ref,
             "--predicate-type", PREDICATE_TYPE,
