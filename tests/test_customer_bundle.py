@@ -219,3 +219,26 @@ def test_bundle_builder_rejects_signing_timestamp_before_human_approval():
 
     with pytest.raises(ValueError, match="signing timestamp precedes approval"):
         build(**values, igor_signer=igor, ola_signer=ola)
+
+
+
+def test_manifest_binds_report_without_requiring_order_id_inside_approved_report_bytes():
+    build, TestSigner, verify = _bundle_api()
+    igor = TestSigner.generate(key_id="igor-report-order-bind", custody_id="igor-test-custody")
+    ola = TestSigner.generate(key_id="ola-report-order-bind", custody_id="ola-test-custody")
+    values = _inputs()
+    values["report_json"] = b'{"report_id":"order-customer-bundle-1","summary":"verified"}'
+    digest = hashlib.sha256(values["report_json"]).hexdigest()
+    values["approval"]["report_sha256"] = digest
+    values["igor_attestation"]["report_sha256"] = digest
+
+    artifact = build(**values, igor_signer=igor, ola_signer=ola)
+    result = verify(
+        artifact.zip_bytes,
+        trusted_keys={
+            igor.key_id: igor.public_key_bytes,
+            ola.key_id: ola.public_key_bytes,
+        },
+    )
+    assert result.status == "PARTIAL"
+    assert result.report_sha256 == digest
