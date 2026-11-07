@@ -233,6 +233,14 @@ def verify_customer_bundle(
             listed[path] = (digest, size)
 
         expected_names = set(listed) | SIGNATURE_CONTROL_FILES
+        timestamp_path = manifest.get("timestamp_proof_path")
+        if timestamp_path is not None:
+            if timestamp_path != "timestamp/rfc3161.tsr":
+                return _invalid(
+                    "UNSAFE_TIMESTAMP_PROOF_PATH",
+                    igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
+                )
+            expected_names.add(timestamp_path)
         if archive_names != expected_names:
             return _invalid(
                 "ARCHIVE_CONTENT_SET_MISMATCH",
@@ -273,12 +281,11 @@ def verify_customer_bundle(
         profile = manifest.get("profile")
         status = manifest.get("status")
         timestamp_status = "NOT_PRESENT"
-        timestamp_path = manifest.get("timestamp_proof_path")
         if profile == PRODUCTION_PROFILE:
             if (
                 status != "VERIFIED"
                 or timestamp_path != "timestamp/rfc3161.tsr"
-                or manifest.get("timestamp_proof_status") != "VERIFIED"
+                or manifest.get("timestamp_proof_status") != "ATTACHED_AND_ISSUER_VERIFIED"
             ):
                 return _invalid(
                     "PRODUCTION_PROFILE_GATES_MISSING",
@@ -293,7 +300,7 @@ def verify_customer_bundle(
                 )
             try:
                 token = archive.read(timestamp_path)
-                if not timestamp_verifier(token, manifest["signed_at"]):
+                if not timestamp_verifier(token, manifest_bytes, manifest["signed_at"]):
                     return _invalid(
                         "TIMESTAMP_PROOF_INVALID",
                         igor=igor_status, ola=ola_status, manifest_sha=manifest_sha,
