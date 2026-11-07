@@ -96,7 +96,7 @@ def test_two_oidc_accounts_for_one_hr_person_share_the_same_pseudonymous_ref(
     tenant_id = _tenant()
     first = _principal(tenant_id, "oidc-account-A")
     second = _principal(tenant_id, "oidc-account-B")
-    raw_hr_key = "-".join(("HR", "EMPLOYEE", "000742"))
+    raw_hr_key = "hr-fixture-person-001"
 
     first_result = membership_api.bind_principal_to_person(
         tenant_id=tenant_id,
