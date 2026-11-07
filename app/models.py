@@ -181,14 +181,33 @@ class CheckoutOrderControl(Base):
     order_id = Column(String(36), ForeignKey("checkout_orders.id"), nullable=False, unique=True)
     tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
     requester_id = Column(String(36), ForeignKey("api_keys.id"), nullable=False)
+    requester_person_ref = Column(String(64), nullable=True)
     status = Column(String(32), nullable=False)
     payment_evidence_id = Column(String(36), nullable=True)
     approver_id = Column(String(36), ForeignKey("api_keys.id"), nullable=True)
+    approver_principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=True)
+    approver_person_ref = Column(String(64), nullable=True)
     approval_reason = Column(Text, nullable=True)
     approved_tip_hash = Column(String(64), nullable=True)
     approval_record_hash = Column(String(64), nullable=True)
     created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
     approved_at = Column(Integer, nullable=True)
+
+
+class HumanCheckoutReportReview(Base):
+    """Report approval by a distinct HR-backed human reviewer."""
+    __tablename__ = "human_checkout_report_reviews"
+    id = Column(String(36), primary_key=True)
+    order_id = Column(String(36), ForeignKey("checkout_orders.id"), nullable=False, unique=True, index=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    reviewer_principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=False)
+    reviewer_person_ref = Column(String(64), nullable=False)
+    status = Column(String(32), nullable=False)
+    report_sha256 = Column(String(64), nullable=False)
+    reviewed_tip_hash = Column(String(64), nullable=False)
+    reason = Column(Text, nullable=False)
+    approval_evidence_id = Column(String(36), nullable=True)
+    reviewed_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
 
 
 class CheckoutExecutionJob(Base):
