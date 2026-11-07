@@ -46,12 +46,12 @@ def _claims(**overrides):
     return values
 
 
-def test_valid_id_token_is_bound_to_issuer_audience_nonce_and_explicit_mfa(oidc_api):
+def test_valid_id_token_is_bound_to_issuer_audience_and_explicit_mfa(oidc_api):
     identity = oidc_api.validate_verified_id_token(
         _provider(),
         _claims(),
         signing_algorithm="RS256",
-        expected_nonce="expected-one-time-nonce",
+        nonce_verified=True,
         now=1_800_000_100,
     )
 
@@ -71,10 +71,11 @@ def test_valid_id_token_is_bound_to_issuer_audience_nonce_and_explicit_mfa(oidc_
         ({}, "HS256", "expected-one-time-nonce"),
         ({"exp": 1_800_000_099}, "RS256", "expected-one-time-nonce"),
         ({"iat": 1_800_000_200}, "RS256", "expected-one-time-nonce"),
+        ({"exp": 1_800_000_000}, "RS256", "expected-one-time-nonce"),
         ({"sub": ""}, "RS256", "expected-one-time-nonce"),
     ],
 )
-def test_invalid_issuer_audience_nonce_algorithm_or_time_is_rejected(
+def test_invalid_issuer_audience_algorithm_or_time_is_rejected(
     oidc_api, claim_overrides, algorithm, nonce
 ):
     with pytest.raises(oidc_api.OidcLoginRejected):
@@ -82,7 +83,18 @@ def test_invalid_issuer_audience_nonce_algorithm_or_time_is_rejected(
             _provider(),
             _claims(**claim_overrides),
             signing_algorithm=algorithm,
-            expected_nonce=nonce,
+            nonce_verified=(nonce == "expected-one-time-nonce"),
+            now=1_800_000_100,
+        )
+
+
+def test_nonce_must_have_been_validated_by_authlib_callback(oidc_api):
+    with pytest.raises(oidc_api.OidcLoginRejected):
+        oidc_api.validate_verified_id_token(
+            _provider(),
+            _claims(),
+            signing_algorithm="RS256",
+            nonce_verified=False,
             now=1_800_000_100,
         )
 
@@ -93,7 +105,7 @@ def test_multiple_audiences_require_exact_authorized_party(oidc_api):
             _provider(),
             _claims(aud=["ola-operator-client", "another-client"]),
             signing_algorithm="RS256",
-            expected_nonce="expected-one-time-nonce",
+            nonce_verified=True,
             now=1_800_000_100,
         )
 
@@ -104,7 +116,7 @@ def test_multiple_audiences_require_exact_authorized_party(oidc_api):
             azp="ola-operator-client",
         ),
         signing_algorithm="RS256",
-        expected_nonce="expected-one-time-nonce",
+        nonce_verified=True,
         now=1_800_000_100,
     )
     assert identity.subject == "subject-001"
@@ -115,7 +127,7 @@ def test_mfa_is_false_unless_provider_policy_maps_acr_or_amr(oidc_api):
         _provider(mfa_acr_values_json="[]", mfa_amr_values_json="[]"),
         _claims(acr="urn:vendor:password", amr=["pwd", "mfa"]),
         signing_algorithm="RS256",
-        expected_nonce="expected-one-time-nonce",
+        nonce_verified=True,
         now=1_800_000_100,
     )
     assert identity.mfa_verified is False
@@ -126,7 +138,7 @@ def test_auth_time_is_optional_for_normal_login_but_required_for_step_up(oidc_ap
         _provider(),
         _claims(auth_time=None),
         signing_algorithm="RS256",
-        expected_nonce="expected-one-time-nonce",
+        nonce_verified=True,
         now=1_800_000_100,
         require_step_up=False,
     )
@@ -137,7 +149,7 @@ def test_auth_time_is_optional_for_normal_login_but_required_for_step_up(oidc_ap
             _provider(),
             _claims(auth_time=None),
             signing_algorithm="RS256",
-            expected_nonce="expected-one-time-nonce",
+            nonce_verified=True,
             now=1_800_000_100,
             require_step_up=True,
         )
@@ -149,7 +161,7 @@ def test_step_up_auth_time_must_be_fresh_and_not_in_the_future(oidc_api):
             _provider(),
             _claims(auth_time=1_800_000_000),
             signing_algorithm="RS256",
-            expected_nonce="expected-one-time-nonce",
+            nonce_verified=True,
             now=1_800_001_000,
             require_step_up=True,
             max_auth_age_seconds=300,
@@ -160,7 +172,7 @@ def test_step_up_auth_time_must_be_fresh_and_not_in_the_future(oidc_api):
             _provider(),
             _claims(auth_time=1_800_000_200),
             signing_algorithm="RS256",
-            expected_nonce="expected-one-time-nonce",
+            nonce_verified=True,
             now=1_800_000_100,
             require_step_up=True,
             max_auth_age_seconds=300,
