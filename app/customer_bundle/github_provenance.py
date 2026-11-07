@@ -373,7 +373,8 @@ def github_oci_provenance_runtime_from_env() -> tuple[GitHubOCIProvenanceProvide
       OLA_SIGSTORE_TRUST_ROOT_SHA256
 
     The running source SHA is read from app.runtime_provenance; no caller-supplied
-    source SHA is accepted. Private GHCR access, if required, uses GH_TOKEN.
+    source SHA is accepted. Private GHCR access requires a read-only Docker
+    credential helper or DOCKER_CONFIG mounted into this process.
     """
     from app.runtime_provenance import runtime_source_commit
 
