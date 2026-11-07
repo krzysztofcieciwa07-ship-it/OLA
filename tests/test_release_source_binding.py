@@ -95,6 +95,15 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn("OLA_LLM_MODE=deterministic python -m pytest -q", content)
         self.assertIn("EXACT_SOURCE_SHA_VERIFIED", content)
 
+    def test_product_gate_builds_and_tests_exact_pr_head(self):
+        content = (ROOT / ".github/workflows/ola-product-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}", content)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", content)
+        self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"', content)
+        self.assertIn('OLA_SOURCE_COMMIT="$EXPECTED_SOURCE_SHA"', content)
+        self.assertIn('OLA_RUNTIME_COMMIT="$EXPECTED_SOURCE_SHA"', content)
+        self.assertNotIn("GITHUB_SHA", content)
+
     def test_gitleaks_scans_the_complete_pr_commit_graph_without_baselines(self):
         content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
         self.assertIn("fetch-depth: 0", content)
