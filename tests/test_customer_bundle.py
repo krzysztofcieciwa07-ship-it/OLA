@@ -350,3 +350,87 @@ def test_package_integrity_status_is_separate_from_expiry_lifecycle():
     assert expired.status == "PARTIAL"
     assert expired.lifecycle_status == "EXPIRED"
     assert expired.manifest_sha256 == artifact.manifest_sha256
+
+
+def _production_bundle_with_remote_signers():
+    from app.customer_bundle.builder import build_customer_bundle
+    from app.customer_bundle.signers import RemoteEd25519Signer, TestOnlyEd25519Signer
+
+    igor_key = TestOnlyEd25519Signer.generate(
+        key_id="igor-prod-contract", custody_id="igor-remote-custody",
+    )
+    ola_key = TestOnlyEd25519Signer.generate(
+        key_id="ola-prod-contract", custody_id="ola-remote-custody",
+    )
+    igor = RemoteEd25519Signer(
+        key_id=igor_key.key_id, custody_id=igor_key.custody_id,
+        public_key_bytes=igor_key.public_key_bytes,
+        sign_request=lambda _key_id, message: igor_key.sign(message),
+    )
+    ola = RemoteEd25519Signer(
+        key_id=ola_key.key_id, custody_id=ola_key.custody_id,
+        public_key_bytes=ola_key.public_key_bytes,
+        sign_request=lambda _key_id, message: ola_key.sign(message),
+    )
+    values = _inputs()
+    values.update({
+        "profile": "CUSTOMER_BUNDLE_PRODUCTION_V1",
+        "provenance_json": b'{"attestation":"opaque-test-fixture"}',
+        "provenance_verified": True,
+        "source_sha": "a" * 40,
+        "image_digest": "sha256:" + "b" * 64,
+        "timestamp_provider": lambda _manifest: b"timestamp-test-fixture",
+        "timestamp_verifier": lambda _token, _manifest, _signed_at: True,
+    })
+    values["igor_attestation"]["report_sha256"] = hashlib.sha256(
+        values["report_json"]
+    ).hexdigest()
+    artifact = build_customer_bundle(
+        **values, igor_signer=igor, ola_signer=ola,
+    )
+    trusted = {
+        igor.key_id: igor.public_key_bytes,
+        ola.key_id: ola.public_key_bytes,
+    }
+    return artifact, trusted, values
+
+
+def test_production_offline_verifier_fails_closed_without_independent_provenance_verifier():
+    _build, _TestSigner, verify = _bundle_api()
+    artifact, trusted, _values = _production_bundle_with_remote_signers()
+
+    result = verify(
+        artifact.zip_bytes,
+        trusted_keys=trusted,
+        timestamp_verifier=lambda _token, _manifest, _signed_at: True,
+    )
+
+    assert result.status == "INVALID"
+    assert result.reason == "PROVENANCE_ATTESTATION_VERIFIER_NOT_CONFIGURED"
+
+
+def test_production_offline_verifier_binds_provenance_to_exact_source_and_image():
+    _build, _TestSigner, verify = _bundle_api()
+    artifact, trusted, values = _production_bundle_with_remote_signers()
+    observed = {}
+
+    def provenance_verifier(raw, source_sha, image_digest):
+        observed["raw"] = raw
+        observed["source_sha"] = source_sha
+        observed["image_digest"] = image_digest
+        return True
+
+    result = verify(
+        artifact.zip_bytes,
+        trusted_keys=trusted,
+        timestamp_verifier=lambda _token, _manifest, _signed_at: True,
+        provenance_verifier=provenance_verifier,
+        now=values["created_at"],
+    )
+
+    assert observed == {
+        "raw": values["provenance_json"],
+        "source_sha": values["source_sha"],
+        "image_digest": values["image_digest"],
+    }
+    assert result.status == "VERIFIED"
