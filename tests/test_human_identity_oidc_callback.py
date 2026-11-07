@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import time
 import uuid
 
 from cryptography.fernet import Fernet
@@ -70,16 +71,17 @@ def test_oidc_callback_maps_only_active_preprovisioned_principal(monkeypatch):
         async def authorize_access_token(self, request):
             # The fake client represents Authlib only at this external boundary:
             # it returns claims after a successful state/PKCE/JWKS/nonce validation.
+            now = int(time.time())
             return {
                 "id_token": _compact_id_token("RS256"),
                 "userinfo": {
                     "iss": issuer,
                     "sub": subject,
                     "aud": "ola-operator-client",
-                    "exp": 1_900_000_300,
-                    "iat": 1_900_000_000,
+                    "exp": now + 300,
+                    "iat": now - 10,
                     "nonce": "authlib-already-verified",
-                    "auth_time": 1_900_000_000,
+                    "auth_time": now - 5,
                     "acr": "urn:ola:loa:2",
                     "amr": ["pwd", "otp"],
                 },
@@ -148,14 +150,15 @@ def test_oidc_callback_rejects_unprovisioned_subject_without_creating_principal(
 
     class FakeAuthlibClient:
         async def authorize_access_token(self, request):
+            now = int(time.time())
             return {
                 "id_token": _compact_id_token("RS256"),
                 "userinfo": {
                     "iss": issuer,
                     "sub": subject,
                     "aud": "ola-operator-client",
-                    "exp": 1_900_000_300,
-                    "iat": 1_900_000_000,
+                    "exp": now + 300,
+                    "iat": now - 10,
                     "nonce": "authlib-already-verified",
                 },
                 "access_token": "temporary-only",
