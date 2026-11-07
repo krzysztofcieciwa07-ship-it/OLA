@@ -24,6 +24,7 @@ def _delivery_api():
         "begin_delivery_attempt",
         "complete_delivery_attempt",
         "acknowledge_delivery_attempt",
+        "assert_delivery_attempt_authorized",
     )
     missing = [name for name in required if not callable(getattr(module, name, None))]
     assert not missing, f"customer delivery lifecycle functions are missing: {missing}"
@@ -429,3 +430,59 @@ def test_recipient_acknowledgement_route_requires_oidc_recipient_session():
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "authenticated Human Identity session is required"
+
+
+
+def test_revoking_grant_invalidates_an_already_started_transfer():
+    delivery = _delivery_api()
+    tenant_id, order_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
+    bundle_id = _signed_bundle(tenant_id, order_id)
+
+    grant = delivery.request_recipient_grant(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        requester_principal_id=requester_id,
+        requester_person_ref=people[requester_id],
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        reason="Grant access for in-flight revocation test",
+        expires_at=1_900_000_000,
+    )
+    delivery.approve_recipient_grant(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        grant_id=grant["grant_id"],
+        approver_principal_id=approver_id,
+        approver_person_ref=people[approver_id],
+        reason="Approve access for in-flight revocation test",
+    )
+    attempt = delivery.begin_delivery_attempt(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        bundle_id=bundle_id,
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        now=1_800_000_100,
+    )
+    assert attempt["status"] == "STARTED"
+
+    revoked = delivery.revoke_recipient_grant(
+        tenant_id=tenant_id,
+        order_id=order_id,
+        grant_id=grant["grant_id"],
+        actor_principal_id=approver_id,
+        actor_person_ref=people[approver_id],
+        reason="Revoke access while transfer is in flight",
+        now=1_800_000_200,
+    )
+    assert revoked["status"] == "REVOKED"
+
+    with pytest.raises(delivery.CustomerBundleDeliveryRejected) as blocked:
+        delivery.assert_delivery_attempt_authorized(
+            tenant_id=tenant_id,
+            attempt_id=attempt["attempt_id"],
+            recipient_principal_id=recipient_id,
+            recipient_person_ref=people[recipient_id],
+            now=1_800_000_201,
+        )
+    assert blocked.value.code == 403
