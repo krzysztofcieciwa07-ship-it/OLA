@@ -307,13 +307,21 @@ def test_customer_bundle_routes_require_human_identity_not_api_key():
         "/checkout-orders/{order_id}/bundle-grants",
         "/checkout-orders/{order_id}/bundle-grants/{grant_id}/approve",
         "/checkout-orders/{order_id}/bundle-grants/{grant_id}/revoke",
+        "/checkout-orders/{order_id}/bundles",
         "/checkout-orders/{order_id}/bundles/{bundle_id}/download",
+        "/checkout-orders/{order_id}/bundles/{bundle_id}/attempts/{attempt_id}/acknowledge",
     }
     mounted_paths = {route.path for route in app.routes}
     assert required_paths <= mounted_paths
 
     client = TestClient(app)
     headers = {"X-API-Key": "not-a-human-session", "Origin": "http://localhost:8000"}
+    create_bundle = client.post(
+        "/checkout-orders/order-route-test/bundles",
+        headers=headers,
+    )
+    assert create_bundle.status_code == 401
+
     grant = client.post(
         "/checkout-orders/order-route-test/bundle-grants",
         headers=headers,
