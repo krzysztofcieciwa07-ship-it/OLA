@@ -1,5 +1,4 @@
 """Persistent, downgrade-resistant tenant Human Gate identity policy."""
-import json
 import time
 import uuid
 
