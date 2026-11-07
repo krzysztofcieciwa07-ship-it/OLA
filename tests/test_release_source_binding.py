@@ -71,6 +71,19 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertLess(content.index("Verify registry digest against running container imageID"), content.index("Generate OCI SLSA provenance attestation"))
 
 
+    def test_trivy_scans_both_runtime_and_test_requirement_manifests(self):
+        content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
+        start = content.index("      - name: Trivy filesystem and config report")
+        end = content.index("      - name: Upload Trivy filesystem SARIF", start)
+        fs_scan = content[start:end]
+        self.assertIn("TRIVY_FILE_PATTERNS: 'pip:requirements-.*\\\\.txt'", fs_scan)
+        self.assertIn("severity: CRITICAL,HIGH,MEDIUM,LOW", fs_scan)
+        self.assertIn('exit-code: "0"', fs_scan)
+        self.assertIn("ignore-unfixed: false", fs_scan)
+        self.assertIn("severity: CRITICAL,HIGH", content)
+        self.assertIn('exit-code: "1"', content)
+        self.assertIn("ignore-unfixed: false", content)
+    
     def test_gitleaks_scans_the_complete_pr_commit_graph_without_baselines(self):
         content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
         self.assertIn("fetch-depth: 0", content)
