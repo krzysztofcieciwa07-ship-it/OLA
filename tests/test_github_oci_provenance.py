@@ -10,7 +10,7 @@ from app.customer_bundle.github_provenance import (
 )
 
 REPOSITORY = "krzysztofcieciwa07-ship-it/OLA"
-REPOSITORY_ID = "212613049"
+REPOSITORY_ID = "1328264236"
 SOURCE_SHA = "a" * 40
 SOURCE_REF = "refs/heads/main"
 IMAGE_NAME = "ghcr.io/krzysztofcieciwa07-ship-it/ola"
