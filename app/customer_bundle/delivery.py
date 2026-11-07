@@ -450,6 +450,76 @@ def complete_delivery_attempt(
     return {"status": "COMPLETED", "attempt_id": attempt_id, "evidence_id": evidence["id"]}
 
 
+
+def acknowledge_delivery_attempt(
+    *,
+    tenant_id: str,
+    attempt_id: str,
+    recipient_principal_id: str,
+    recipient_person_ref: str,
+    now: int | None = None,
+) -> dict:
+    """Record an explicit recipient acknowledgement after a completed transfer.
+
+    This proves that the authenticated recipient account submitted an
+    acknowledgement. It does not prove that a human read or accepted the report.
+    """
+    acknowledged_at = int(time.time()) if now is None else now
+    if type(acknowledged_at) is not int:
+        raise CustomerBundleDeliveryRejected(400, "acknowledgement time must be an integer Unix timestamp")
+    with SessionLocal() as db:
+        begin_write_transaction(db, tenant_id=tenant_id)
+        _require_oidc_policy(db, tenant_id)
+        recipient = _principal(
+            db, tenant_id, recipient_principal_id, recipient_person_ref,
+        )
+        _require_role(db, tenant_id, recipient_principal_id, "recipient")
+        attempt = db.scalar(select(CustomerBundleDeliveryAttempt).where(
+            CustomerBundleDeliveryAttempt.id == attempt_id,
+            CustomerBundleDeliveryAttempt.tenant_id == tenant_id,
+        ).with_for_update())
+        if attempt is None:
+            raise CustomerBundleDeliveryRejected(404, "delivery attempt not found")
+        if (
+            attempt.recipient_principal_id != recipient_principal_id
+            or attempt.recipient_person_ref != recipient.person_ref
+        ):
+            raise CustomerBundleDeliveryRejected(403, "delivery attempt belongs to another recipient")
+        if attempt.status != "COMPLETED" or attempt.completed_at is None:
+            raise CustomerBundleDeliveryRejected(409, "only a completed transfer can be acknowledged")
+        if attempt.acknowledged_at is not None or attempt.acknowledgement_evidence_id:
+            raise CustomerBundleDeliveryRejected(409, "delivery attempt has already been acknowledged")
+        if acknowledged_at < attempt.completed_at:
+            raise CustomerBundleDeliveryRejected(400, "acknowledgement time precedes transfer completion")
+
+        evidence = _append_locked(
+            db, tenant_id,
+            "revenue.customer_bundle_delivery_attempt_acknowledged",
+            {
+                "order_id": attempt.order_id,
+                "bundle_id": attempt.bundle_id,
+                "grant_id": attempt.grant_id,
+                "attempt_id": attempt_id,
+                "attempt_no": attempt.attempt_no,
+                "recipient_person_ref": recipient.person_ref,
+                "status": "ACKNOWLEDGED",
+                "transfer_completed_at": attempt.completed_at,
+                "acknowledged_at": acknowledged_at,
+                "meaning": "authenticated_recipient_acknowledged_transfer_not_report_comprehension",
+            },
+        )
+        attempt.acknowledged_at = acknowledged_at
+        attempt.acknowledgement_evidence_id = evidence["id"]
+        db.commit()
+
+    return {
+        "status": "ACKNOWLEDGED",
+        "attempt_id": attempt_id,
+        "acknowledgement_evidence_id": evidence["id"],
+        "acknowledged_at": acknowledged_at,
+    }
+
+
 def fail_delivery_attempt(
     *,
     tenant_id: str,
