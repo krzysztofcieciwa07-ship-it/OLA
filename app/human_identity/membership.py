@@ -563,3 +563,38 @@ def bootstrap_tenant_admin(
         })
         db.commit()
     return {"status": "BOOTSTRAPPED", "principal_id": principal_id, "evidence_id": evidence["id"]}
+
+
+
+def require_human_operator(request, *, required_role: str, max_auth_age_seconds: int = 300) -> HumanPrincipalContext:
+    """Require an authenticated OIDC operator with recent MFA step-up and role."""
+    from app.human_identity.sessions import HumanSessionRejected, require_human_session
+
+    if required_role not in ALLOWED_ROLES:
+        raise HumanMembershipRejected(400, "required Human Gate role is not recognized")
+    try:
+        session = require_human_session(request)
+    except HumanSessionRejected as exc:
+        raise HumanMembershipRejected(exc.code, str(exc)) from exc
+    now = int(time.time())
+    if (
+        not session.mfa_verified
+        or type(session.auth_time) is not int
+        or type(max_auth_age_seconds) is not int
+        or not 30 <= max_auth_age_seconds <= 3600
+        or session.auth_time > now
+        or now - session.auth_time > max_auth_age_seconds
+    ):
+        raise HumanMembershipRejected(
+            403,
+            "fresh MFA step-up required; authenticate at /human/oidc/{tenant_id}/login?step_up=true",
+        )
+    context = resolve_human_principal_context(
+        tenant_id=session.tenant_id,
+        principal_id=session.principal_ref,
+        auth_time=session.auth_time,
+        mfa_verified=session.mfa_verified,
+    )
+    if required_role not in context.roles:
+        raise HumanMembershipRejected(403, f"active {required_role} membership is required")
+    return context
