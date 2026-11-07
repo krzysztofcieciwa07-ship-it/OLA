@@ -183,8 +183,8 @@ jobs:
           docker run --rm --entrypoint sh "$IMAGE" -c '
             for root in /usr/local/lib/python3.13 /opt/venv/lib/python3.13; do
               [ -d "$root" ] || continue
-              find "$root" -type f \\
-                \\( -path "*/msgpack*dist-info/METADATA" -o -path "*/setuptools*dist-info/METADATA" -o -path "*/urllib3*dist-info/METADATA" \\) \\
+              find "$root" -type f \
+                \( -path "*/msgpack*dist-info/METADATA" -o -path "*/setuptools*dist-info/METADATA" -o -path "*/urllib3*dist-info/METADATA" \\) \
                 -exec sh -c '\''for f do printf "%s " "$f"; grep -m1 "^Version:" "$f" || true; done'\'' sh {} +
             done
           '
@@ -200,10 +200,10 @@ jobs:
           cleanup() { docker rm -f "$container_name" >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           expected_image_id="$(docker image inspect --format '{{.Id}}' "$IMAGE")"
-          docker run --detach --name "$container_name" \\
-            --publish 127.0.0.1:18080:8000 \\
-            --env OLA_API_KEY_PEPPER="$EXPECTED_SOURCE_SHA" \\
-            --env OLA_RUNTIME_COMMIT="$EXPECTED_SOURCE_SHA" \\
+          docker run --detach --name "$container_name" \
+            --publish 127.0.0.1:18080:8000 \
+            --env OLA_API_KEY_PEPPER="$EXPECTED_SOURCE_SHA" \
+            --env OLA_RUNTIME_COMMIT="$EXPECTED_SOURCE_SHA" \
             "$IMAGE" >/dev/null
           actual_image_id="$(docker inspect --format '{{.Image}}' "$container_name")"
           test "$actual_image_id" = "$expected_image_id"
@@ -219,7 +219,7 @@ jobs:
             docker logs "$container_name"
             exit 1
           fi
-          printf 'RUNTIME_SMOKE=HEALTHY\\nIMAGE_ID=%s\\n' "$actual_image_id" >> "$GITHUB_STEP_SUMMARY"
+          printf 'RUNTIME_SMOKE=HEALTHY\\nIMAGE_ID=%s\n' "$actual_image_id" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Trivy filesystem and config report
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
