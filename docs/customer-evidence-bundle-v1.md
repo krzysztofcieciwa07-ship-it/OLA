@@ -29,7 +29,7 @@ The offline verifier requires an out-of-band trust store. The bundle binds separ
 
 A filtered `order-evidence.ndjson` retains original tenant-chain record hashes as references, but a recipient cannot recompute those hashes from the filtered fields. The file is therefore an OLA-signed attestation excerpt, not a complete independently recomputable tenant chain. The manifest and README explicitly keep `full_tenant_chain_recomputed=false`.
 
-The offline verifier requires an out-of-band trust store. Example:
+Issuance and every download both use a separately injected, out-of-band trust store; the signer objects' public metadata must match the active trust-store entries. The download path decrypts the stored ZIP, reruns the verifier, and compares bundle ID, version, profile, expiry, manifest digest and report digest to the database row before streaming any bytes. A mismatch or revoked/unknown signer blocks delivery and records a failed attempt. The client still receives the verifier and trust store independently. Example:
 
 ```json
 {
@@ -63,7 +63,7 @@ Exit code `0` means `VERIFIED`; `3` means `PARTIAL`; `2` means `INVALID`. A trus
 - a nonempty RFC 3161 proof accepted by an independently configured timestamp verifier;
 - a separate offline timestamp trust adapter when validating the package.
 
-The repository currently provides a remote-signing interface, not a deployed KMS/HSM integration or an external timestamp authority. Therefore a production bundle cannot be emitted merely by setting environment flags. Production remains blocked until separate IGOR and OLA signer services, KMS/HSM custody, TSA trust roots, customer delivery grants, retention and revocation procedures are configured and independently tested.
+The repository currently provides a remote-signing interface and trust-store contract, not a deployed KMS/HSM integration or an external timestamp authority. Therefore a production bundle cannot be emitted merely by setting environment flags. Production remains blocked until separate IGOR and OLA signer services, KMS/HSM custody, TSA trust roots, customer delivery grants, retention and revocation procedures are configured and independently tested.
 
 ## Key lifecycle and revocation
 
@@ -91,4 +91,4 @@ The attempt row stores `acknowledged_at` and `acknowledgement_evidence_id`. Exis
 
 ## Current implementation boundary
 
-The repository contains the bundle builder, dual-signature verifier, approved-report orchestration service, recipient-grant lifecycle, encrypted sandbox storage adapter and authenticated creation/download/acknowledgement routes. Creation and download use the same explicitly injected storage runtime; a local filesystem adapter is never selected on public HTTPS or a production profile. The production remote signer, external timestamp authority, durable production object-store adapter and deployment-level dependency wiring remain unconfigured. The creation route therefore fails with 503 until those dependencies are explicitly provisioned. Do not describe this as an end-to-end production customer delivery service: only the code path and fail-closed contracts exist until independent services and a real customer transfer are verified.
+The repository contains the bundle builder, dual-signature verifier, approved-report orchestration service, recipient-grant lifecycle, encrypted sandbox storage adapter and authenticated creation/download/acknowledgement routes. Creation and download use the same explicitly injected storage runtime; a local filesystem adapter is never selected on public HTTPS or a production profile. The production remote signer, independently managed trust-store distribution/rotation, external timestamp authority, durable production object-store adapter and deployment-level dependency wiring remain unconfigured. The creation route therefore fails with 503 until those dependencies are explicitly provisioned. Do not describe this as an end-to-end production customer delivery service: only the code path and fail-closed contracts exist until independent services and a real customer transfer are verified.
