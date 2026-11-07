@@ -292,3 +292,38 @@ def test_revoked_grant_creates_blocked_attempt_without_changing_bundle_state():
         attempt = db.get(CustomerBundleDeliveryAttempt, blocked["attempt_id"])
         assert bundle.status == "SIGNED"
         assert attempt.status == "BLOCKED"
+
+
+def test_customer_bundle_routes_require_human_identity_not_api_key():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    required_paths = {
+        "/checkout-orders/{order_id}/bundle-grants",
+        "/checkout-orders/{order_id}/bundle-grants/{grant_id}/approve",
+        "/checkout-orders/{order_id}/bundle-grants/{grant_id}/revoke",
+        "/checkout-orders/{order_id}/bundles/{bundle_id}/download",
+    }
+    mounted_paths = {route.path for route in app.routes}
+    assert required_paths <= mounted_paths
+
+    client = TestClient(app)
+    headers = {"X-API-Key": "not-a-human-session", "Origin": "http://localhost:8000"}
+    grant = client.post(
+        "/checkout-orders/order-route-test/bundle-grants",
+        headers=headers,
+        json={
+            "recipient_principal_id": "recipient-principal",
+            "recipient_person_ref": "person-ref-recipient",
+            "reason": "grant report access",
+            "expires_at": 1_900_000_000,
+        },
+    )
+    assert grant.status_code == 401
+
+    download = client.get(
+        "/checkout-orders/order-route-test/bundles/bundle-route-test/download",
+        headers=headers,
+    )
+    assert download.status_code == 401
