@@ -29,8 +29,20 @@ from .stripe_webhook import process_checkout_event
 from .order_approval import approve_paid_order, PaidOrderApprovalRejected
 from .paid_order_execution import execute_paid_order_job, verify_worker_token, PaidOrderExecutionRejected
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
+from .human_identity.sessions import ServerSideSessionMiddleware
+from .human_identity.routes import router as human_identity_router
 
 app = FastAPI(title="OLA Execution Gate")
+_public_base_url = os.environ.get("OLA_PUBLIC_BASE_URL", "")
+_secure_human_cookie = (
+    os.environ.get("OLA_DEPLOYMENT_PROFILE", "sandbox").strip().lower() == "production"
+    or _public_base_url.lower().startswith("https://")
+)
+app.add_middleware(
+    ServerSideSessionMiddleware,
+    secure_cookie=_secure_human_cookie,
+)
+app.include_router(human_identity_router)
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
