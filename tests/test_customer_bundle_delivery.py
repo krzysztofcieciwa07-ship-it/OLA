@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.database import SessionLocal
 from app.models import (
+    CheckoutOrder,
     HumanMembershipRole,
     HumanPrincipal,
     Tenant,
@@ -31,6 +32,7 @@ def _delivery_api():
 def _identity_fixture():
     tenant_id = str(uuid.uuid4())
     requester_id, approver_id, recipient_id = (str(uuid.uuid4()) for _ in range(3))
+    order_id = str(uuid.uuid4())
     people = {
         requester_id: "person-ref-admin-requester",
         approver_id: "person-ref-admin-approver",
@@ -44,6 +46,14 @@ def _identity_fixture():
             human_gate_mode="OIDC_REQUIRED",
             changed_by_ref="principal-ref-bootstrap",
             reason="delivery lifecycle contract test",
+        ))
+        db.add(CheckoutOrder(
+            id=order_id,
+            tenant_id=tenant_id,
+            idempotency_key_hash="d" * 64,
+            request_hash="e" * 64,
+            task="approved customer report",
+            status="REPORT_APPROVED",
         ))
         for principal_id, person_ref in people.items():
             db.add(HumanPrincipal(
@@ -69,7 +79,7 @@ def _identity_fixture():
                 created_by_ref="principal-ref-bootstrap",
             ))
         db.commit()
-    return tenant_id, requester_id, approver_id, recipient_id, people
+    return tenant_id, order_id, requester_id, approver_id, recipient_id, people
 
 
 def _signed_bundle(tenant_id, order_id):
@@ -121,8 +131,7 @@ def test_delivery_lifecycle_has_distinct_persistent_bundle_grant_and_attempt_mod
 
 def test_recipient_grant_requires_dual_control_from_distinct_hr_people():
     delivery = _delivery_api()
-    tenant_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
-    order_id = str(uuid.uuid4())
+    tenant_id, order_id, requester_id, approver_id, recipient_id, people = _identity_fixture()
 
     request = delivery.request_recipient_grant(
         tenant_id=tenant_id,
