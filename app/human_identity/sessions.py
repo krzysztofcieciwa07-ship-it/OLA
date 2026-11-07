@@ -402,7 +402,7 @@ def _set_cookie_header(
     cookie[cookie_name]["samesite"] = "lax"
     if secure:
         cookie[cookie_name]["secure"] = True
-    return b"set-cookie: " + cookie.output(header="").strip().encode("latin-1")
+    return (b"set-cookie", cookie.output(header="").strip().encode("latin-1"))
 
 
 def _expired_cookie_header(cookie_name: str, *, path: str, secure: bool) -> bytes:
