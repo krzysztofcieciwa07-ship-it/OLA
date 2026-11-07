@@ -465,6 +465,13 @@ def test_revoking_grant_invalidates_an_already_started_transfer():
         now=1_800_000_100,
     )
     assert attempt["status"] == "STARTED"
+    assert delivery.assert_delivery_attempt_authorized(
+        tenant_id=tenant_id,
+        attempt_id=attempt["attempt_id"],
+        recipient_principal_id=recipient_id,
+        recipient_person_ref=people[recipient_id],
+        now=1_800_000_150,
+    )["status"] == "AUTHORIZED"
 
     revoked = delivery.revoke_recipient_grant(
         tenant_id=tenant_id,
