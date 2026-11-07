@@ -140,3 +140,58 @@ def test_create_bundle_route_blocks_sandbox_runtime_on_public_https(monkeypatch)
 
     assert response.status_code == 503
     assert response.json()["detail"] == "public production delivery requires CUSTOMER_BUNDLE_PRODUCTION_V1"
+
+
+def test_external_recipient_provider_cannot_assign_its_own_ola_role(monkeypatch):
+    import time
+
+    from app.customer_bundle import recipient_auth
+    from app.human_identity.membership import HumanMembershipRejected
+
+    class ExternalPasskeyProvider:
+        def authenticate(self, _request):
+            return recipient_auth.RecipientAuthentication(
+                tenant_id="tenant-external",
+                principal_id="principal-external",
+                auth_time=int(time.time()),
+                mfa_verified=True,
+            )
+
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(
+            customer_bundle_recipient_auth_provider=ExternalPasskeyProvider(),
+        ))
+    )
+    # Provider returns identity/authentication only. OLA resolves role from its
+    # own tenant membership store and refuses an unassigned principal.
+    monkeypatch.setattr(
+        recipient_auth,
+        "resolve_human_principal_context",
+        lambda **_kwargs: SimpleNamespace(roles=frozenset({"customer_viewer"})),
+    )
+    with pytest.raises(HumanMembershipRejected, match="active recipient membership"):
+        recipient_auth.authenticate_customer_recipient(request)
+
+
+def test_external_recipient_provider_must_supply_fresh_mfa(monkeypatch):
+    import time
+
+    from app.customer_bundle import recipient_auth
+    from app.human_identity.membership import HumanMembershipRejected
+
+    class WeakProvider:
+        def authenticate(self, _request):
+            return recipient_auth.RecipientAuthentication(
+                tenant_id="tenant-external",
+                principal_id="principal-external",
+                auth_time=int(time.time()) - 600,
+                mfa_verified=False,
+            )
+
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(
+            customer_bundle_recipient_auth_provider=WeakProvider(),
+        ))
+    )
+    with pytest.raises(HumanMembershipRejected, match="valid principal and fresh MFA"):
+        recipient_auth.authenticate_customer_recipient(request)
