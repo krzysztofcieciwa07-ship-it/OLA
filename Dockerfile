@@ -100,7 +100,7 @@ RUN apk add --no-cache \
       openssl \
       sqlite-libs \
       zlib \
-      bzip2-libs \
+      libbz2 \
       xz-libs \
       libstdc++ \
       readline
