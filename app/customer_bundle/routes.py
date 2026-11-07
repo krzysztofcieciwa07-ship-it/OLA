@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.customer_bundle.delivery import (
     CustomerBundleDeliveryRejected,
+    acknowledge_delivery_attempt,
     approve_recipient_grant,
     begin_delivery_attempt,
     complete_delivery_attempt,
@@ -215,3 +216,27 @@ def download_customer_bundle(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.post("/checkout-orders/{order_id}/bundles/{bundle_id}/attempts/{attempt_id}/acknowledge")
+def acknowledge_customer_bundle_delivery(
+    order_id: str,
+    bundle_id: str,
+    attempt_id: str,
+    request: Request,
+    x_ola_csrf: str | None = Header(default=None),
+):
+    """Record a recipient account's explicit acknowledgement after transfer completion."""
+    actor = _actor(request, "recipient")
+    _csrf(request, x_ola_csrf)
+    try:
+        return acknowledge_delivery_attempt(
+            tenant_id=actor.tenant_id,
+            order_id=order_id,
+            bundle_id=bundle_id,
+            attempt_id=attempt_id,
+            recipient_principal_id=actor.principal_id,
+            recipient_person_ref=actor.person_ref,
+        )
+    except CustomerBundleDeliveryRejected as exc:
+        _delivery_error(exc)
