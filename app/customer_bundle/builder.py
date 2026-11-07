@@ -185,7 +185,7 @@ def build_customer_bundle(
             raise CustomerBundleRejected("production bundle requires HR-backed approver and reviewer person references")
         status = "VERIFIED"
     else:
-        status = "VERIFIED" if provenance_json is not None else "PARTIAL"
+        status = "VERIFIED" if provenance_json is not None and timestamp_proof is None else "PARTIAL"
 
     for name, body in files.items():
         if not _safe_archive_name(name) or not isinstance(body, bytes):
