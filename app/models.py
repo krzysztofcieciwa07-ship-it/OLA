@@ -244,3 +244,85 @@ class CheckoutReportReview(Base):
     reviewed_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
     delivery_evidence_id = Column(String(36), nullable=True)
     delivered_at = Column(Integer, nullable=True)
+
+
+class CustomerEvidenceBundle(Base):
+    """Immutable order-scoped signed artifact metadata; bytes live in private object storage."""
+    __tablename__ = "customer_evidence_bundles"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    order_id = Column(String(36), ForeignKey("checkout_orders.id"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    status = Column(String(24), nullable=False)
+    profile = Column(String(64), nullable=False)
+    manifest_sha256 = Column(String(64), nullable=False)
+    report_sha256 = Column(String(64), nullable=False)
+    igor_key_id = Column(String(255), nullable=False)
+    ola_key_id = Column(String(255), nullable=False)
+    storage_object_ref = Column(String(1024), nullable=False, unique=True)
+    approved_at = Column(Integer, nullable=False)
+    approved_tip_hash = Column(String(64), nullable=False)
+    signed_at = Column(Integer, nullable=False)
+    signing_tip_hash = Column(String(64), nullable=False)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    expires_at = Column(Integer, nullable=True)
+    revoked_at = Column(Integer, nullable=True)
+    status_reason = Column(Text, nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "order_id", "version",
+                         name="uq_customer_bundle_tenant_order_version"),
+    )
+
+
+class CustomerBundleRecipientGrant(Base):
+    """Dual-controlled recipient authorization scoped to exactly one paid order."""
+    __tablename__ = "customer_bundle_recipient_grants"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    order_id = Column(String(36), ForeignKey("checkout_orders.id"), nullable=False, index=True)
+    recipient_principal_id = Column(
+        String(36), ForeignKey("human_principals.id"), nullable=False, index=True
+    )
+    recipient_person_ref = Column(String(64), nullable=False, index=True)
+    requester_principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=False)
+    requester_person_ref = Column(String(64), nullable=False)
+    approver_principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=True)
+    approver_person_ref = Column(String(64), nullable=True)
+    status = Column(String(24), nullable=False, default="PENDING")
+    reason = Column(Text, nullable=False)
+    requested_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    approved_at = Column(Integer, nullable=True)
+    expires_at = Column(Integer, nullable=False)
+    revoked_at = Column(Integer, nullable=True)
+    request_evidence_id = Column(String(36), nullable=True)
+    approval_evidence_id = Column(String(36), nullable=True)
+    revocation_evidence_id = Column(String(36), nullable=True)
+
+
+class CustomerBundleDeliveryAttempt(Base):
+    """One transfer attempt per bundle and recipient; retries create new rows."""
+    __tablename__ = "customer_bundle_delivery_attempts"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    order_id = Column(String(36), ForeignKey("checkout_orders.id"), nullable=False, index=True)
+    bundle_id = Column(
+        String(36), ForeignKey("customer_evidence_bundles.id"), nullable=False, index=True
+    )
+    grant_id = Column(
+        String(36), ForeignKey("customer_bundle_recipient_grants.id"), nullable=True, index=True
+    )
+    recipient_principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=False)
+    recipient_person_ref = Column(String(64), nullable=False)
+    attempt_no = Column(Integer, nullable=False)
+    status = Column(String(24), nullable=False)
+    reason = Column(String(100), nullable=True)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    started_at = Column(Integer, nullable=True)
+    completed_at = Column(Integer, nullable=True)
+    failed_at = Column(Integer, nullable=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "bundle_id", "recipient_person_ref", "attempt_no",
+            name="uq_customer_bundle_recipient_attempt",
+        ),
+    )
