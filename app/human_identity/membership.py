@@ -415,14 +415,16 @@ def approve_role_change(
             },
         )
         change.approval_evidence_id = evidence["id"]
+        result_target_principal_id = change.target_principal_id
+        result_role = change.requested_role
         db.commit()
 
     return {
         "status": "APPROVED",
         "change_id": change_id,
         "approval_evidence_id": evidence["id"],
-        "target_principal_id": change.target_principal_id,
-        "role": change.requested_role,
+        "target_principal_id": result_target_principal_id,
+        "role": result_role,
     }
 
 
@@ -456,6 +458,7 @@ def assign_api_key_owner(
         assert_distinct_humans(requester.person_ref, approver.person_ref)
         if owner.person_ref in {requester.person_ref, approver.person_ref}:
             raise HumanMembershipRejected(403, "API key owner must be independent from both approving administrators")
+        owner_person_ref = owner.person_ref
 
         api_key = db.scalar(select(ApiKey).where(
             ApiKey.id == api_key_id,
@@ -472,7 +475,7 @@ def assign_api_key_owner(
             db, tenant_id, "human.api_key_owner_bound", {
                 "tenant_id": tenant_id,
                 "api_key_id": api_key_id,
-                "owner_person_ref": owner.person_ref,
+                "owner_person_ref": owner_person_ref,
                 "requester_person_ref": requester.person_ref,
                 "approver_person_ref": approver.person_ref,
                 "reason": reason,
@@ -485,7 +488,7 @@ def assign_api_key_owner(
     return {
         "status": "OWNER_BOUND",
         "api_key_id": api_key_id,
-        "owner_person_ref": owner.person_ref,
+        "owner_person_ref": owner_person_ref,
         "evidence_id": evidence["id"],
     }
 
