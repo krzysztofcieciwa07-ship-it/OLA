@@ -22,6 +22,16 @@ class ApiKey(Base):
     role = Column(String(32), nullable=False, default="tenant")
 
 
+class TenantIdentityPolicy(Base):
+    """Persistent, monotonic tenant policy for human approval identities."""
+    __tablename__ = "tenant_identity_policies"
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), primary_key=True)
+    human_gate_mode = Column(String(32), nullable=False, default="LEGACY_API")
+    changed_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    changed_by_ref = Column(String(128), nullable=False)
+    reason = Column(Text, nullable=False)
+
+
 class EvidenceRecord(Base):
     __tablename__ = "evidence_records"
     id = Column(String(36), primary_key=True)
