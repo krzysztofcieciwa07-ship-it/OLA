@@ -387,7 +387,7 @@ def github_oci_provenance_runtime_from_env() -> tuple[GitHubOCIProvenanceProvide
         expected_trusted_root_sha256=required["OLA_SIGSTORE_TRUST_ROOT_SHA256"],
         gh_binary=gh_binary,
     )
-    source_sha = runtime_source_commit() or ""
+    source_sha = runtime_source_commit(require_build_info=True) or ""
     provider = GitHubOCIProvenanceProvider(
         payload_path=Path(required["OLA_GITHUB_PROVENANCE_FILE"]),
         source_sha=source_sha,
