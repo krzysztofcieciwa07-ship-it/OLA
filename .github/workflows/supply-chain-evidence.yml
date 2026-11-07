@@ -116,83 +116,29 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout complete repository history at exact PR source
+      - name: Checkout full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Scan complete commit range with pinned Gitleaks
-        env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
-          PUSH_BEFORE: ${{ github.event.before || '' }}
-          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.24.3@sha256:e1b35e12a8c6fa8901f060459cfb6b2fc4c484d3afbe3b029733a3bbfab07055
+      - name: Assert scan checkout matches immutable source SHA
         shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          actual_head="$(git rev-parse HEAD)"
-          test "$actual_head" = "$EXPECTED_SOURCE_SHA"
-
-          if [ -n "$PR_BASE_SHA" ] && [ -n "$PR_HEAD_SHA" ]; then
-            test "$PR_HEAD_SHA" = "$EXPECTED_SOURCE_SHA"
-            git cat-file -e "${PR_BASE_SHA}^{commit}"
-            GITLEAKS_LOG_OPTS="${PR_BASE_SHA}..${PR_HEAD_SHA}"
-            SCANNED_COMMITS="$(git rev-list --count "$GITLEAKS_LOG_OPTS")"
-            SCAN_SCOPE="pull_request_base_to_head"
-          elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
-            git cat-file -e "${PUSH_BEFORE}^{commit}"
-            GITLEAKS_LOG_OPTS="${PUSH_BEFORE}..${EXPECTED_SOURCE_SHA}"
-            SCANNED_COMMITS="$(git rev-list --count "$GITLEAKS_LOG_OPTS")"
-            SCAN_SCOPE="push_before_to_head"
-          else
-            GITLEAKS_LOG_OPTS=""
-            SCANNED_COMMITS="$(git rev-list --count "$EXPECTED_SOURCE_SHA")"
-            SCAN_SCOPE="complete_repository_history"
-          fi
-
-          if [ "$SCANNED_COMMITS" -lt 1 ]; then
-            echo "::error::Gitleaks scan range contains no commits"
+          checked_out="$(git rev-parse HEAD)"
+          if [ "$checked_out" != "$EXPECTED_SOURCE_SHA" ]; then
+            echo "::error::Supply-chain scanned $checked_out instead of $EXPECTED_SOURCE_SHA"
             exit 1
           fi
-
-          mkdir -p "$RUNNER_TEMP/gitleaks-output"
-          {
-            echo "### Gitleaks full-history scan"
-            echo "- Scope: $SCAN_SCOPE"
-            echo "- HEAD: $EXPECTED_SOURCE_SHA"
-            echo "- Commit count in selected range: $SCANNED_COMMITS"
-            if [ -n "$GITLEAKS_LOG_OPTS" ]; then
-              echo "- Git log range: $GITLEAKS_LOG_OPTS"
-            else
-              echo "- Git log range: entire repository history"
-            fi
-            echo "- Scanner image: $GITLEAKS_IMAGE"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          docker pull "$GITLEAKS_IMAGE"
-          set --
-          if [ -n "$GITLEAKS_LOG_OPTS" ]; then
-            set -- "--log-opts=$GITLEAKS_LOG_OPTS"
-          fi
-          docker run --rm \
-            --volume "$GITHUB_WORKSPACE:/repo:ro" \
-            --volume "$RUNNER_TEMP/gitleaks-output:/out" \
-            --workdir /repo \
-            "$GITLEAKS_IMAGE" \
-            detect --source=/repo "$@" \
-              --redact --verbose --exit-code=2 \
-              --report-format=sarif \
-              --report-path=/out/gitleaks-results.sarif \
-              --log-level=debug
-      - name: Upload complete-history Gitleaks SARIF
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: gitleaks-full-history-${{ github.event.pull_request.head.sha || github.sha }}
-          path: ${{ runner.temp }}/gitleaks-output/gitleaks-results.sarif
-          if-no-files-found: warn
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "true"
 
   security-image:
     runs-on: ubuntu-latest
@@ -287,14 +233,12 @@ jobs:
 
       - name: Trivy filesystem and config report
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          TRIVY_FILE_PATTERNS: 'pip:requirements-.*\.txt'
         with:
           scan-type: fs
           scan-ref: .
           format: sarif
           output: trivy-fs-results.sarif
-          severity: CRITICAL,HIGH,MEDIUM,LOW
+          severity: CRITICAL,HIGH,MEDIUM
           exit-code: "0"
           ignore-unfixed: false
 

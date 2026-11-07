@@ -61,6 +61,15 @@ def test_bundle_builder_and_verifier_modules_exist():
     assert importlib.util.find_spec("app.customer_bundle.verifier") is not None
 
 
+
+def test_test_only_signer_generates_fresh_ephemeral_ed25519_keys():
+    _build, TestSigner, _verify = _bundle_api()
+    first = TestSigner.generate(key_id="ephemeral-key-a", custody_id="test-custody-a")
+    second = TestSigner.generate(key_id="ephemeral-key-b", custody_id="test-custody-b")
+    assert first.public_key_bytes != second.public_key_bytes
+    message = b"ephemeral-signing-key-regression"
+    assert first.sign(message) != second.sign(message)
+
 def test_customer_bundle_has_two_independent_ed25519_signatures_and_is_deterministic():
     build, TestSigner, verify = _bundle_api()
     igor = TestSigner.generate(key_id="igor-test-key-1", custody_id="igor-test-custody")
