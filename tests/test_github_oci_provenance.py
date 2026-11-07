@@ -233,7 +233,7 @@ def test_runtime_provider_fails_closed_on_provenance_verifier_rejection(tmp_path
         image_digest=IMAGE_DIGEST,
         verifier=lambda *_args: False,
     )
-    with pytest.raises(GitHubOCIProvenanceRejected, match="EXECUTION_SOURCE_IMAGE_IDENTITY_MISMATCH"):
+    with pytest.raises(GitHubOCIProvenanceRejected, match="GITHUB_OCI_SLSA_VERIFICATION_FAILED"):
         provider({"source_commit": SOURCE_SHA, "image_digest": IMAGE_DIGEST})
 
 
