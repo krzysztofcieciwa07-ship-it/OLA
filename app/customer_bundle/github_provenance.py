@@ -249,14 +249,20 @@ def create_github_oci_provenance_payload(
     workflow_identity: str,
     image_name: str,
     image_digest: str,
+    expected_trusted_root_sha256: str,
     gh_binary: str = "gh",
 ) -> bytes:
-    """Package and verify actual build outputs for later independent checks."""
+    """Package actual build outputs only against an out-of-band trust-root pin."""
+    if not isinstance(expected_trusted_root_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_trusted_root_sha256):
+        raise GitHubOCIProvenanceRejected("TRUSTED_ROOT_PIN_MISSING_OR_INVALID")
     try:
         bundle = bundle_path.read_bytes()
         trusted_root = trusted_root_path.read_bytes()
     except OSError as exc:
         raise GitHubOCIProvenanceRejected("ATTESTATION_MATERIAL_UNREADABLE") from exc
+    actual_trusted_root_sha256 = hashlib.sha256(trusted_root).hexdigest()
+    if actual_trusted_root_sha256 != expected_trusted_root_sha256:
+        raise GitHubOCIProvenanceRejected("TRUSTED_ROOT_PIN_MISMATCH")
     payload = {
         "schema": SCHEMA,
         "repository": repository,
@@ -279,7 +285,7 @@ def create_github_oci_provenance_payload(
         expected_workflow_identity=workflow_identity,
         expected_source_ref=source_ref,
         expected_image_name=image_name,
-        expected_trusted_root_sha256=payload["trusted_root_sha256"],
+        expected_trusted_root_sha256=expected_trusted_root_sha256,
         gh_binary=gh_binary,
     ):
         raise GitHubOCIProvenanceRejected("GITHUB_OCI_SLSA_VERIFICATION_FAILED")
