@@ -184,7 +184,7 @@ jobs:
             for root in /usr/local/lib/python3.13 /opt/venv/lib/python3.13; do
               [ -d "$root" ] || continue
               find "$root" -type f \
-                \( -path "*/msgpack*dist-info/METADATA" -o -path "*/setuptools*dist-info/METADATA" -o -path "*/urllib3*dist-info/METADATA" \\) \
+                \( -path "*/msgpack*dist-info/METADATA" -o -path "*/setuptools*dist-info/METADATA" -o -path "*/urllib3*dist-info/METADATA" \) \
                 -exec sh -c '\''for f do printf "%s " "$f"; grep -m1 "^Version:" "$f" || true; done'\'' sh {} +
             done
           '
@@ -219,7 +219,7 @@ jobs:
             docker logs "$container_name"
             exit 1
           fi
-          printf 'RUNTIME_SMOKE=HEALTHY\\nIMAGE_ID=%s\n' "$actual_image_id" >> "$GITHUB_STEP_SUMMARY"
+          printf 'RUNTIME_SMOKE=HEALTHY\nIMAGE_ID=%s\n' "$actual_image_id" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Trivy filesystem and config report
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
