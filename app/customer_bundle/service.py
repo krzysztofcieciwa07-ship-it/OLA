@@ -383,7 +383,7 @@ def create_customer_bundle_for_order(
     job_source_sha = context["job_result"].get("source_commit")
     job_image_digest = context["job_result"].get("image_digest")
     if runtime.profile == PRODUCTION_PROFILE and (
-        not isinstance(job_source_sha, str) or not HEX_64.fullmatch("0" * 24 + "0" * 16)
+        not isinstance(job_source_sha, str)
         or not re.fullmatch(r"[0-9a-f]{40}", job_source_sha)
         or not isinstance(job_image_digest, str)
         or not re.fullmatch(r"sha256:[0-9a-f]{64}", job_image_digest)
@@ -425,6 +425,8 @@ def create_customer_bundle_for_order(
         runtime.timestamp_provider is None or runtime.timestamp_verifier is None
         or not callable(runtime.provenance_verifier)
         or provenance_verified is not True
+        or source_sha != job_source_sha
+        or image_digest != job_image_digest
     ):
         raise CustomerBundleCreationRejected(503, "production TSA and independently verified provenance are not configured")
 
