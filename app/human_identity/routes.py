@@ -40,7 +40,30 @@ _TENANT_PATH_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 def _deployment_profile() -> str:
-    return os.environ.get("OLA_DEPLOYMENT_PROFILE", "sandbox").strip().lower()
+    """Derive a fail-closed deployment profile from the configured public origin.
+
+    A public HTTPS origin is production regardless of a weaker environment
+    label. Non-production profiles are accepted only for loopback HTTP. This
+    prevents a missing or mis-set OLA_DEPLOYMENT_PROFILE from reopening the
+    legacy API-key Human Gate on a public deployment.
+    """
+    configured = os.environ.get("OLA_DEPLOYMENT_PROFILE")
+    public_base = os.environ.get("OLA_PUBLIC_BASE_URL", "").strip()
+    parsed = urlsplit(public_base)
+
+    if parsed.scheme == "https" and parsed.netloc:
+        return "production"
+
+    if (
+        parsed.scheme == "http"
+        and parsed.netloc
+        and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    ):
+        if not configured:
+            return "sandbox"
+        return configured.strip().lower()
+
+    return "invalid"
 
 
 def _provider_for_tenant(tenant_id: str) -> TenantIdentityProvider:
