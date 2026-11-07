@@ -196,7 +196,7 @@ def test_enabled_oidc_policy_cannot_be_downgraded_or_deleted_by_direct_database_
 
 
 def test_public_https_origin_cannot_be_misconfigured_as_sandbox(monkeypatch):
-    from app.main import _deployment_profile
+    from app.human_identity.routes import _deployment_profile
 
     monkeypatch.setenv("OLA_PUBLIC_BASE_URL", "https://ola.example")
     monkeypatch.setenv("OLA_DEPLOYMENT_PROFILE", "sandbox")
@@ -204,7 +204,7 @@ def test_public_https_origin_cannot_be_misconfigured_as_sandbox(monkeypatch):
 
 
 def test_public_https_origin_defaults_to_production_when_profile_is_missing(monkeypatch):
-    from app.main import _deployment_profile
+    from app.human_identity.routes import _deployment_profile
 
     monkeypatch.setenv("OLA_PUBLIC_BASE_URL", "https://ola.example")
     monkeypatch.delenv("OLA_DEPLOYMENT_PROFILE", raising=False)
