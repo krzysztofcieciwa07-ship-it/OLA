@@ -178,7 +178,7 @@ jobs:
           output: trivy-fs-results.sarif
           severity: CRITICAL,HIGH,MEDIUM
           exit-code: "0"
-          ignore-unfixed: true
+          ignore-unfixed: false
 
       - name: Upload Trivy filesystem SARIF
         if: always()
@@ -195,7 +195,7 @@ jobs:
           format: table
           severity: CRITICAL,HIGH
           exit-code: "1"
-          ignore-unfixed: true
+          ignore-unfixed: false
           skip-setup-trivy: true
 
       - name: Generate SPDX SBOM
@@ -286,7 +286,7 @@ jobs:
           format: table
           severity: CRITICAL,HIGH
           exit-code: "1"
-          ignore-unfixed: true
+          ignore-unfixed: false
 
       - name: Generate SPDX SBOM for exact image
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
