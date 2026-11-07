@@ -106,6 +106,7 @@ def build_customer_bundle(
     timestamp_proof: bytes | None = None,
     timestamp_provider: Callable[[bytes], bytes] | None = None,
     timestamp_verifier: Callable[[bytes, bytes, int], bool] | None = None,
+    provenance_verified: bool = False,
     source_sha: str | None = None,
     image_digest: str | None = None,
 ) -> BundleArtifact:
@@ -158,8 +159,12 @@ def build_customer_bundle(
         igor_payload.get("status") != "VERIFIED"
         or igor_payload.get("order_id") != order_id
         or igor_payload.get("report_sha256") != report_sha256
+        or igor_payload.get("approved_tip_hash") != approved_tip_hash
+        or igor_payload.get("evidence_tip_hash") != signing_tip_hash
     ):
-        raise CustomerBundleRejected("IGOR attestation is not verified for this exact order and report")
+        raise CustomerBundleRejected(
+            "IGOR attestation is not verified for this exact order, report and approval/signing Evidence tips"
+        )
     igor_bytes = canonical_json_bytes(igor_payload)
     igor_signature = igor_signer.sign(igor_bytes)
     if not isinstance(igor_signature, bytes) or len(igor_signature) != 64:
@@ -183,9 +188,18 @@ def build_customer_bundle(
     ):
         raise CustomerBundleRejected("timestamp proof must be nonempty bytes when supplied")
 
+    if type(provenance_verified) is not bool:
+        raise CustomerBundleRejected("provenance_verified must be an explicit boolean")
     if production:
-        if provenance_json is None or timestamp_provider is None or timestamp_verifier is None:
-            raise CustomerBundleRejected("production bundle requires provenance and an independent RFC 3161 provider/verifier")
+        if (
+            provenance_json is None
+            or provenance_verified is not True
+            or timestamp_provider is None
+            or timestamp_verifier is None
+        ):
+            raise CustomerBundleRejected(
+                "production bundle requires independently verified provenance and an independent RFC 3161 provider/verifier"
+            )
         if not isinstance(source_sha, str) or not HEX_40_RE.fullmatch(source_sha):
             raise CustomerBundleRejected("production bundle requires a 40-character source SHA")
         if not isinstance(image_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
@@ -212,6 +226,7 @@ def build_customer_bundle(
         status = (
             "VERIFIED"
             if provenance_json is not None
+            and provenance_verified is True
             and timestamp_proof is None
             and report_has_embedded_order_binding
             else "PARTIAL"
@@ -255,6 +270,7 @@ def build_customer_bundle(
         },
         "source_sha": source_sha,
         "image_digest": image_digest,
+        "provenance_status": "VERIFIED" if provenance_verified is True else "NOT_VERIFIED",
         "timestamp_proof_path": "timestamp/rfc3161.tsr" if (production or timestamp_proof is not None) else None,
         "timestamp_proof_status": "ATTACHED_AND_ISSUER_VERIFIED" if production else ("PRESENT_NOT_VERIFIED" if timestamp_proof is not None else "NOT_PRESENT"),
         "evidence_scope": "ORDER_SCOPED_EXCERPT",
