@@ -43,7 +43,7 @@ def _records_for_tenant(db, tenant_id: str):
     return rows, records
 
 
-def _validate_paid_order(db, *, tenant_id, order_id, approver_id, tip_hash):
+def _validate_paid_order(db, *, tenant_id, order_id, approver_id=None, approver_principal_id=None, approver_person_ref=None, tip_hash):
     order = db.scalar(
         select(CheckoutOrder)
         .where(CheckoutOrder.id == order_id)
@@ -58,8 +58,18 @@ def _validate_paid_order(db, *, tenant_id, order_id, approver_id, tip_hash):
     ).with_for_update())
     if control is None or not control.requester_id:
         raise PaidOrderApprovalRejected(409, "order requester identity is not proven; manual reconciliation required")
-    if control.requester_id == approver_id:
-        raise PaidOrderApprovalRejected(403, "checkout requester cannot approve their own order")
+    if approver_person_ref is not None:
+        if not approver_principal_id or approver_id is not None:
+            raise PaidOrderApprovalRejected(400, "OIDC approver principal and person reference are required without an API key")
+        if not control.requester_person_ref:
+            raise PaidOrderApprovalRejected(409, "requester API key has no HR-backed accountable owner; manual identity reconciliation required")
+        if control.requester_person_ref == approver_person_ref:
+            raise PaidOrderApprovalRejected(403, "checkout requester and execution approver must be different humans")
+    else:
+        if not isinstance(approver_id, str) or not approver_id:
+            raise PaidOrderApprovalRejected(400, "legacy API approver identity is required")
+        if control.requester_id == approver_id:
+            raise PaidOrderApprovalRejected(403, "checkout requester cannot approve their own order")
     if order.status != "PAID_PENDING_REVIEW" or control.status != "PAID_PENDING_REVIEW":
         raise PaidOrderApprovalRejected(409, "order is not awaiting Human Gate approval")
 
@@ -152,12 +162,18 @@ def _validate_paid_order(db, *, tenant_id, order_id, approver_id, tip_hash):
     return order, control, payment, checkout_proof, proof, private_task, rows, records
 
 
-def approve_paid_order(*, tenant_id: str, approver_id: str, order_id: str,
-                       tip_hash: str, reason: str) -> dict:
+def approve_paid_order(*, tenant_id: str, approver_id: str | None = None,
+                       approver_principal_id: str | None = None,
+                       approver_person_ref: str | None = None,
+                       order_id: str, tip_hash: str, reason: str) -> dict:
     if not all(isinstance(value, str) and value.strip() for value in (
-        tenant_id, approver_id, order_id, tip_hash, reason
+        tenant_id, order_id, tip_hash, reason
     )):
         raise PaidOrderApprovalRejected(400, "order, evidence tip and nonempty reason are required")
+    if approver_id is not None and (approver_principal_id is not None or approver_person_ref is not None):
+        raise PaidOrderApprovalRejected(400, "API key and OIDC Human Gate identities cannot be combined")
+    if approver_person_ref is not None and not approver_principal_id:
+        raise PaidOrderApprovalRejected(400, "OIDC approver principal is required")
     if re.fullmatch(r"[0-9a-f]{64}", tip_hash) is None:
         raise PaidOrderApprovalRejected(400, "tip_hash must be a lowercase SHA-256 digest")
     if len(reason.strip()) > 1000:
@@ -171,7 +187,8 @@ def approve_paid_order(*, tenant_id: str, approver_id: str, order_id: str,
     with SessionLocal() as db:
         _validate_paid_order(
             db, tenant_id=tenant_id, order_id=order_id,
-            approver_id=approver_id, tip_hash=tip_hash,
+            approver_id=approver_id, approver_principal_id=approver_principal_id,
+            approver_person_ref=approver_person_ref, tip_hash=tip_hash,
         )
 
     with SessionLocal() as db:
@@ -189,7 +206,10 @@ def approve_paid_order(*, tenant_id: str, approver_id: str, order_id: str,
             "order_id": order_id,
             "tenant_id": tenant_id,
             "requester_id": control.requester_id,
+            "requester_person_ref": control.requester_person_ref,
             "approver_id": approver_id,
+            "approver_principal_id": approver_principal_id,
+            "approver_person_ref": approver_person_ref,
             "reason": reason.strip(),
             "checkout_session_id": order.stripe_session_id,
             "stripe_event_id": payment["event_id"],
@@ -223,6 +243,8 @@ def approve_paid_order(*, tenant_id: str, approver_id: str, order_id: str,
         ))
         control.status = "APPROVED_FOR_EXECUTION"
         control.approver_id = approver_id
+        control.approver_principal_id = approver_principal_id
+        control.approver_person_ref = approver_person_ref
         control.approval_reason = reason.strip()
         control.approved_tip_hash = tip_hash
         control.approval_record_hash = record_hash
@@ -243,6 +265,8 @@ def approve_paid_order(*, tenant_id: str, approver_id: str, order_id: str,
         "status": "APPROVED_FOR_EXECUTION",
         "order_id": order_id,
         "approver_id": approver_id,
+        "approver_principal_id": approver_principal_id,
+        "approver_person_ref": approver_person_ref,
         "approved_tip_hash": tip_hash,
         "approval_record_hash": record_hash,
         "approval_record_id": record_id,
