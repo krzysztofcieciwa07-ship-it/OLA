@@ -19,10 +19,7 @@ from app.customer_bundle.delivery import (
     request_recipient_grant,
     revoke_recipient_grant,
 )
-from app.customer_bundle.storage import (
-    CustomerBundleStorageRejected,
-    customer_bundle_storage_from_environment,
-)
+from app.customer_bundle.storage import CustomerBundleStorageRejected
 from app.database import SessionLocal
 from app.human_identity.membership import HumanMembershipRejected, require_human_operator
 from app.human_identity.routes import _deployment_profile, verify_human_csrf
@@ -152,6 +149,19 @@ def download_customer_bundle(
 ):
     """Stream an encrypted-at-rest bundle only to its OIDC-authenticated recipient."""
     actor = _actor(request, "recipient")
+    runtime = getattr(request.app.state, "customer_bundle_runtime", None)
+    storage = getattr(runtime, "storage", None)
+    profile = _deployment_profile()
+    if (
+        storage is None
+        or not callable(getattr(storage, "get", None))
+        or profile in {"production", "invalid"}
+        and getattr(runtime, "profile", None) != "CUSTOMER_BUNDLE_PRODUCTION_V1"
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="the same approved customer-bundle storage runtime used for issuance is not configured",
+        )
     try:
         attempt = begin_delivery_attempt(
             tenant_id=actor.tenant_id,
@@ -181,8 +191,7 @@ def download_customer_bundle(
         object_ref = bundle.storage_object_ref if bundle is not None else None
         version = bundle.version if bundle is not None else None
 
-    storage = customer_bundle_storage_from_environment(profile=_deployment_profile())
-    if storage is None or not object_ref:
+    if not object_ref:
         try:
             fail_delivery_attempt(
                 tenant_id=actor.tenant_id,
