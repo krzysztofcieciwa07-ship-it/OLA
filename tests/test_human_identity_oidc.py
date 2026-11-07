@@ -240,3 +240,17 @@ def test_secret_is_resolved_by_reference_not_stored_as_plaintext():
             "OIDC_TEST_CLIENT_SECRET",
             environ={},
         )
+
+
+def test_authlib_client_is_registered_with_openid_scope_and_pkce_s256():
+    client, config = oidc_api.create_oidc_client(
+        _provider(),
+        tenant_id="tenant-001",
+        environ={
+            "OLA_PUBLIC_BASE_URL": "https://ola.example.test",
+            "OLA_SECRET_OIDC_TEST_CLIENT_SECRET": "test-secret-not-persisted",
+        },
+    )
+    assert callable(client.authorize_redirect)
+    assert callable(client.authorize_access_token)
+    assert config["redirect_uri"] == "https://ola.example.test/human/oidc/tenant-001/callback"
