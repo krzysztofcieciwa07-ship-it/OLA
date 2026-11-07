@@ -107,6 +107,8 @@ def verify_customer_bundle(
     """
     if not isinstance(bundle_bytes, bytes) or not bundle_bytes:
         return _invalid("EMPTY_BUNDLE")
+    if now is not None and type(now) is not int:
+        return _invalid("INVALID_VERIFICATION_TIME")
     if not isinstance(trusted_keys, dict):
         return _invalid("INVALID_TRUST_STORE")
     revoked = set(revoked_key_ids)
