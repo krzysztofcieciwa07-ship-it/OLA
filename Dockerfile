@@ -43,6 +43,9 @@ RUN python -m venv --without-pip /tmp/venv \
 
 FROM cgr.dev/chainguard/python:3.13 AS runtime
 
+ARG OLA_SOURCE_COMMIT=UNKNOWN
+LABEL org.opencontainers.image.revision=${OLA_SOURCE_COMMIT}
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     OLA_EG_DB_PATH=/data/ola.db \
