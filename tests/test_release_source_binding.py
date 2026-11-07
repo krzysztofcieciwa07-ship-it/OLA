@@ -84,6 +84,17 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('exit-code: "1"', content)
         self.assertIn("ignore-unfixed: false", content)
     
+
+    def test_full_suite_has_a_separate_exact_pr_head_workflow(self):
+        content = (ROOT / ".github/workflows/exact-head-validation.yml").read_text(encoding="utf-8")
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha }}", content)
+        self.assertIn("EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}", content)
+        self.assertIn('actual="$(git rev-parse HEAD)"', content)
+        self.assertIn('if [ "$actual" != "$EXPECTED_SOURCE_SHA" ]; then', content)
+        self.assertIn("requirements-test.txt", content)
+        self.assertIn("OLA_LLM_MODE=deterministic python -m pytest -q", content)
+        self.assertIn("EXACT_SOURCE_SHA_VERIFIED", content)
+
     def test_gitleaks_scans_the_complete_pr_commit_graph_without_baselines(self):
         content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
         self.assertIn("fetch-depth: 0", content)
