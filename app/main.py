@@ -32,6 +32,7 @@ from .report_review import approve_paid_order_report, deliver_paid_order_report,
 from .human_identity.sessions import ServerSideSessionMiddleware
 from .human_identity.routes import router as human_identity_router, verify_human_csrf
 from .human_identity.membership import HumanMembershipRejected, require_human_operator
+from .human_identity.policy import HumanIdentityPolicyRejected, require_human_identity_mode
 
 app = FastAPI(title="OLA Execution Gate")
 _public_base_url = os.environ.get("OLA_PUBLIC_BASE_URL", "")
@@ -264,8 +265,15 @@ def create_checkout_session(
     with SessionLocal() as db:
         requester_key = db.get(ApiKey, requester_id)
         identity_policy = db.get(TenantIdentityPolicy, tenant_id)
-        identity_mode = identity_policy.human_gate_mode if identity_policy is not None else "LEGACY_API"
+        stored_mode = identity_policy.human_gate_mode if identity_policy is not None else "LEGACY_API"
         requester_person_ref = requester_key.owner_person_ref if requester_key is not None else None
+    try:
+        identity_mode = require_human_identity_mode(
+            tenant_id=tenant_id,
+            deployment_profile=os.environ.get("OLA_DEPLOYMENT_PROFILE", "sandbox"),
+        )
+    except HumanIdentityPolicyRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
     if identity_mode == "OIDC_REQUIRED" and not requester_person_ref:
         raise HTTPException(
             status_code=403,
@@ -862,8 +870,15 @@ def _checkout_tenant_identity_mode(order_id: str) -> tuple[str, str]:
         order = db.get(CheckoutOrder, order_id)
         if order is None:
             raise HTTPException(status_code=404, detail="paid order not found")
-        policy = db.get(TenantIdentityPolicy, order.tenant_id)
-        return order.tenant_id, policy.human_gate_mode if policy is not None else "LEGACY_API"
+        tenant_id = order.tenant_id
+    try:
+        mode = require_human_identity_mode(
+            tenant_id=tenant_id,
+            deployment_profile=os.environ.get("OLA_DEPLOYMENT_PROFILE", "sandbox"),
+        )
+    except HumanIdentityPolicyRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
+    return tenant_id, mode
 
 
 def _require_oidc_checkout_operator(
