@@ -403,6 +403,68 @@ def begin_delivery_attempt(
     }
 
 
+
+def assert_delivery_attempt_authorized(
+    *,
+    tenant_id: str,
+    attempt_id: str,
+    recipient_principal_id: str,
+    recipient_person_ref: str,
+    now: int | None = None,
+) -> dict:
+    """Revalidate a started transfer before each response chunk is released.
+
+    This bounds the revocation race to at most one in-flight chunk; bytes already
+    sent to a recipient cannot be recalled.
+    """
+    checked_at = int(time.time()) if now is None else now
+    if type(checked_at) is not int:
+        raise CustomerBundleDeliveryRejected(400, "authorization time must be an integer Unix timestamp")
+
+    with SessionLocal() as db:
+        _require_oidc_policy(db, tenant_id)
+        recipient = _principal(
+            db, tenant_id, recipient_principal_id, recipient_person_ref,
+        )
+        _require_role(db, tenant_id, recipient_principal_id, "recipient")
+        attempt = db.scalar(select(CustomerBundleDeliveryAttempt).where(
+            CustomerBundleDeliveryAttempt.id == attempt_id,
+            CustomerBundleDeliveryAttempt.tenant_id == tenant_id,
+        ).with_for_update())
+        if attempt is None:
+            raise CustomerBundleDeliveryRejected(404, "delivery attempt not found")
+        if (
+            attempt.recipient_principal_id != recipient_principal_id
+            or attempt.recipient_person_ref != recipient.person_ref
+        ):
+            raise CustomerBundleDeliveryRejected(403, "delivery attempt belongs to another recipient")
+        if attempt.status != "STARTED":
+            raise CustomerBundleDeliveryRejected(409, "delivery attempt is no longer active")
+
+        bundle = db.scalar(select(CustomerEvidenceBundle).where(
+            CustomerEvidenceBundle.id == attempt.bundle_id,
+            CustomerEvidenceBundle.tenant_id == tenant_id,
+            CustomerEvidenceBundle.order_id == attempt.order_id,
+        ).with_for_update())
+        if (
+            bundle is None
+            or bundle.status != "SIGNED"
+            or (bundle.expires_at is not None and bundle.expires_at <= checked_at)
+        ):
+            raise CustomerBundleDeliveryRejected(403, "customer bundle is no longer available for delivery")
+
+        grant = db.scalar(select(CustomerBundleRecipientGrant).where(
+            CustomerBundleRecipientGrant.id == attempt.grant_id,
+            CustomerBundleRecipientGrant.tenant_id == tenant_id,
+            CustomerBundleRecipientGrant.order_id == attempt.order_id,
+            CustomerBundleRecipientGrant.recipient_principal_id == recipient_principal_id,
+            CustomerBundleRecipientGrant.recipient_person_ref == recipient.person_ref,
+        ).with_for_update()) if attempt.grant_id else None
+        if grant is None or grant.status != "ACTIVE" or grant.expires_at <= checked_at:
+            raise CustomerBundleDeliveryRejected(403, "recipient grant is no longer active")
+
+    return {"status": "AUTHORIZED", "attempt_id": attempt_id}
+
 def complete_delivery_attempt(
     *,
     tenant_id: str,
