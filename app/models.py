@@ -20,6 +20,9 @@ class ApiKey(Base):
     tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
     key_hash = Column(String(64), nullable=False, unique=True)
     role = Column(String(32), nullable=False, default="tenant")
+    # Pseudonymous HR-backed owner; required for accountable requester SoD
+    # when the tenant has enabled OIDC_REQUIRED.
+    owner_person_ref = Column(String(64), nullable=True, index=True)
 
 
 class TenantIdentityPolicy(Base):
@@ -73,11 +76,55 @@ class HumanPrincipal(Base):
     issuer = Column(String(1024), nullable=False)
     subject = Column(String(512), nullable=False)
     status = Column(String(32), nullable=False, default="UNASSIGNED")
+    # HMAC-derived tenant-scoped identity of a real HR person, never raw HR data.
+    person_ref = Column(String(64), nullable=True, index=True)
+    person_key_source = Column(String(32), nullable=True)
+    person_bound_at = Column(Integer, nullable=True)
     created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
     last_authenticated_at = Column(Integer, nullable=True)
     __table_args__ = (
         UniqueConstraint("tenant_id", "issuer", "subject", name="uq_human_principal_tenant_issuer_subject"),
     )
+
+
+class HumanMembershipRole(Base):
+    """Tenant role binding to an explicitly provisioned human principal."""
+    __tablename__ = "human_membership_roles"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=False, index=True)
+    role = Column(String(40), nullable=False)
+    status = Column(String(24), nullable=False, default="ACTIVE")
+    created_by_ref = Column(String(64), nullable=False)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    revoked_at = Column(Integer, nullable=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "principal_id", "role",
+            name="uq_human_membership_role_tenant_principal_role",
+        ),
+    )
+
+
+class HumanRoleChangeRequest(Base):
+    """Dual-controlled request to grant or revoke a privileged tenant role."""
+    __tablename__ = "human_role_change_requests"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    requester_principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=False)
+    requester_person_ref = Column(String(64), nullable=False)
+    target_principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=False)
+    target_person_ref = Column(String(64), nullable=False)
+    requested_role = Column(String(40), nullable=False)
+    operation = Column(String(12), nullable=False)
+    reason = Column(Text, nullable=False)
+    status = Column(String(24), nullable=False, default="PENDING")
+    approver_principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=True)
+    approver_person_ref = Column(String(64), nullable=True)
+    requested_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    approved_at = Column(Integer, nullable=True)
+    request_evidence_id = Column(String(36), nullable=True)
+    approval_evidence_id = Column(String(36), nullable=True)
 
 
 class EvidenceRecord(Base):
