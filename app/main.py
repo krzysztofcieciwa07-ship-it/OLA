@@ -33,6 +33,7 @@ from .human_identity.sessions import ServerSideSessionMiddleware
 from .human_identity.routes import router as human_identity_router, verify_human_csrf
 from .human_identity.membership import HumanMembershipRejected, require_human_operator
 from .human_identity.policy import HumanIdentityPolicyRejected, require_human_identity_mode
+from .customer_bundle.routes import router as customer_bundle_router
 
 app = FastAPI(title="OLA Execution Gate")
 _public_base_url = os.environ.get("OLA_PUBLIC_BASE_URL", "")
@@ -45,6 +46,7 @@ app.add_middleware(
     secure_cookie=_secure_human_cookie,
 )
 app.router.routes.extend(human_identity_router.routes)
+app.router.routes.extend(customer_bundle_router.routes)
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
