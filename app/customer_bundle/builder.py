@@ -138,13 +138,10 @@ def build_customer_bundle(
         report_obj = json.loads(report_json.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CustomerBundleRejected("report JSON is invalid") from exc
-    if (
-        not isinstance(report_obj, dict)
-        or (
-            "order_id" in report_obj
-            and report_obj.get("order_id") != order_id
-        )
-    ):
+    if not isinstance(report_obj, dict):
+        raise CustomerBundleRejected("report JSON must be an object")
+    report_has_embedded_order_binding = report_obj.get("order_id") == order_id
+    if "order_id" in report_obj and not report_has_embedded_order_binding:
         raise CustomerBundleRejected("report order_id conflicts with the signed manifest order")
     report_sha256 = _sha256(report_json)
     if clean_approval.get("report_sha256") != report_sha256:
@@ -196,6 +193,10 @@ def build_customer_bundle(
             clean_approval.get("approver_person_ref"),
             clean_approval.get("reviewer_person_ref"),
         )
+        if not report_has_embedded_order_binding:
+            raise CustomerBundleRejected(
+                "production bundle requires the approved report bytes to embed the exact order_id"
+            )
         if not all(isinstance(value, str) and value for value in person_refs):
             raise CustomerBundleRejected(
                 "production bundle requires HR-backed requester, approver and reviewer person references"
@@ -206,7 +207,13 @@ def build_customer_bundle(
             )
         status = "VERIFIED"
     else:
-        status = "VERIFIED" if provenance_json is not None and timestamp_proof is None else "PARTIAL"
+        status = (
+            "VERIFIED"
+            if provenance_json is not None
+            and timestamp_proof is None
+            and report_has_embedded_order_binding
+            else "PARTIAL"
+        )
 
     for name, body in files.items():
         if not _safe_archive_name(name) or not isinstance(body, bytes):
@@ -221,6 +228,10 @@ def build_customer_bundle(
         "tenant_id": tenant_id,
         "order_id": order_id,
         "report_sha256": report_sha256,
+        "report_order_binding": (
+            "EMBEDDED_ORDER_ID_MATCH"
+            if report_has_embedded_order_binding else "MANIFEST_ONLY"
+        ),
         "approved_at": approved_at,
         "approved_tip_hash": approved_tip_hash,
         "signed_at": signed_at,
