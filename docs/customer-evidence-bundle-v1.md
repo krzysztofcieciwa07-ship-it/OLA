@@ -80,7 +80,7 @@ Exit code `0` means cryptographically `VERIFIED` and lifecycle `ACTIVE`; `3` mea
 - separate remote signer custody for IGOR and OLA;
 - HR-backed approver and reviewer person references;
 - exact source SHA and OCI image digest;
-- source/runtime provenance validated by the independent offline verifier callback against the exact source SHA and OCI digest;
+- source/runtime provenance validated by the independent GitHub OCI/SLSA verifier callback against the exact source SHA and OCI digest, using the packaged local bundle and pinned trusted root plus registry access to resolve the immutable OCI subject;
 - a nonempty RFC 3161 proof accepted by an independently configured timestamp verifier, including a defined `genTime` versus `signed_at` policy;
 - a separate offline timestamp trust adapter when validating the package.
 
