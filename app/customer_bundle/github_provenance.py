@@ -299,3 +299,97 @@ def github_oci_provenance_verifier(
             gh_binary=gh_binary,
         )
     return verify
+
+
+class GitHubOCIProvenanceProvider:
+    """Load and independently verify the provenance evidence for this runtime.
+
+    The source SHA comes from the immutable image build-info file. The image
+    digest and evidence file path are deployment-supplied immutable settings.
+    Missing or mismatched material raises instead of returning provider claims.
+    """
+
+    def __init__(
+        self,
+        *,
+        payload_path: Path,
+        source_sha: str,
+        image_digest: str,
+        verifier: Callable[[bytes, str, str], bool],
+    ):
+        if not isinstance(payload_path, Path) or not payload_path.is_file():
+            raise GitHubOCIProvenanceRejected("PROVENANCE_EVIDENCE_FILE_MISSING")
+        if not isinstance(source_sha, str) or not HEX_40.fullmatch(source_sha):
+            raise GitHubOCIProvenanceRejected("RUNTIME_SOURCE_SHA_INVALID")
+        if not isinstance(image_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
+            raise GitHubOCIProvenanceRejected("RUNTIME_OCI_DIGEST_INVALID")
+        if not callable(verifier):
+            raise GitHubOCIProvenanceRejected("PROVENANCE_VERIFIER_NOT_CONFIGURED")
+        self.payload_path = payload_path
+        self.source_sha = source_sha
+        self.image_digest = image_digest
+        self.verifier = verifier
+
+    def __call__(self, _signing_input: dict) -> dict:
+        try:
+            payload = self.payload_path.read_bytes()
+        except OSError as exc:
+            raise GitHubOCIProvenanceRejected("PROVENANCE_EVIDENCE_FILE_UNREADABLE") from exc
+        if not self.verifier(payload, self.source_sha, self.image_digest):
+            raise GitHubOCIProvenanceRejected("GITHUB_OCI_SLSA_VERIFICATION_FAILED")
+        return {
+            "json_bytes": payload,
+            "verified": True,
+            "source_sha": self.source_sha,
+            "image_digest": self.image_digest,
+        }
+
+
+def github_oci_provenance_runtime_from_env() -> tuple[GitHubOCIProvenanceProvider, Callable[[bytes, str, str], bool]]:
+    """Create the provenance provider/verifier pair from explicit deployment settings.
+
+    Required environment variables:
+      OLA_GITHUB_PROVENANCE_FILE
+      OLA_OCI_IMAGE_DIGEST
+      OLA_GITHUB_REPOSITORY
+      OLA_GITHUB_REPOSITORY_ID
+      OLA_GITHUB_WORKFLOW_IDENTITY
+      OLA_SIGSTORE_TRUST_ROOT_SHA256
+
+    The running source SHA is read from app.runtime_provenance; no caller-supplied
+    source SHA is accepted. Private GHCR access, if required, uses GH_TOKEN.
+    """
+    from app.runtime_provenance import runtime_source_commit
+
+    required = {
+        "OLA_GITHUB_PROVENANCE_FILE": os.environ.get("OLA_GITHUB_PROVENANCE_FILE"),
+        "OLA_OCI_IMAGE_DIGEST": os.environ.get("OLA_OCI_IMAGE_DIGEST"),
+        "OLA_GITHUB_REPOSITORY": os.environ.get("OLA_GITHUB_REPOSITORY"),
+        "OLA_GITHUB_REPOSITORY_ID": os.environ.get("OLA_GITHUB_REPOSITORY_ID"),
+        "OLA_GITHUB_WORKFLOW_IDENTITY": os.environ.get("OLA_GITHUB_WORKFLOW_IDENTITY"),
+        "OLA_SIGSTORE_TRUST_ROOT_SHA256": os.environ.get("OLA_SIGSTORE_TRUST_ROOT_SHA256"),
+    }
+    missing = [key for key, value in required.items() if not isinstance(value, str) or not value]
+    if missing:
+        raise GitHubOCIProvenanceRejected("PROVENANCE_RUNTIME_CONFIG_MISSING:" + ",".join(missing))
+    repository = required["OLA_GITHUB_REPOSITORY"]
+    source_ref = os.environ.get("OLA_GITHUB_SOURCE_REF", "refs/heads/main")
+    image_name = os.environ.get("OLA_GITHUB_IMAGE_NAME") or f"ghcr.io/{repository.lower()}"
+    gh_binary = os.environ.get("OLA_GH_BINARY", "gh")
+    verifier = github_oci_provenance_verifier(
+        expected_repository=repository,
+        expected_repository_id=required["OLA_GITHUB_REPOSITORY_ID"],
+        expected_workflow_identity=required["OLA_GITHUB_WORKFLOW_IDENTITY"],
+        expected_source_ref=source_ref,
+        expected_image_name=image_name,
+        expected_trusted_root_sha256=required["OLA_SIGSTORE_TRUST_ROOT_SHA256"],
+        gh_binary=gh_binary,
+    )
+    source_sha = runtime_source_commit() or ""
+    provider = GitHubOCIProvenanceProvider(
+        payload_path=Path(required["OLA_GITHUB_PROVENANCE_FILE"]),
+        source_sha=source_sha,
+        image_digest=required["OLA_OCI_IMAGE_DIGEST"],
+        verifier=verifier,
+    )
+    return provider, verifier
