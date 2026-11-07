@@ -183,9 +183,14 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "payment_result_json",
         },
         "checkout_order_controls": {
-            "id", "order_id", "tenant_id", "requester_id", "status",
-            "payment_evidence_id", "approver_id", "approval_reason", "approved_tip_hash",
-            "approval_record_hash", "created_at", "approved_at",
+            "id", "order_id", "tenant_id", "requester_id", "requester_person_ref", "status",
+            "payment_evidence_id", "approver_id", "approver_principal_id", "approver_person_ref",
+            "approval_reason", "approved_tip_hash", "approval_record_hash", "created_at", "approved_at",
+        },
+        "human_checkout_report_reviews": {
+            "id", "order_id", "tenant_id", "reviewer_principal_id", "reviewer_person_ref",
+            "status", "report_sha256", "reviewed_tip_hash", "reason",
+            "approval_evidence_id", "reviewed_at",
         },
         "checkout_execution_jobs": {
             "id", "tenant_id", "order_id", "approval_record_hash", "task", "status",
@@ -243,13 +248,14 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied_versions = {
             row[0] for row in conn.execute(text(
                 "SELECT version FROM ola_schema_migrations WHERE version IN "
-                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc, :human_membership)"
+                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc, :human_membership, :human_gate_actors)"
             ), {
                 "report_review": "ola_paid_order_report_review_v3",
                 "human_identity_policy": "ola_human_identity_policy_v1",
                 "human_sessions": "ola_human_sessions_v1",
                 "human_oidc": "ola_human_oidc_v1",
                 "human_membership": "ola_human_membership_sod_v1",
+                "human_gate_actors": "ola_human_gate_actors_v1",
             }).all()
         }
         trigger_rows = conn.execute(text("""
@@ -277,6 +283,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "ola_human_sessions_v1",
         "ola_human_oidc_v1",
         "ola_human_membership_sod_v1",
+        "ola_human_gate_actors_v1",
     } - applied_versions
     if missing_versions:
         raise RuntimeError(
@@ -306,6 +313,7 @@ def _migrate_sqlite_private_order_tasks(bind):
     order_columns = {column["name"] for column in inspector.get_columns("checkout_orders")}
     api_key_columns = {column["name"] for column in inspector.get_columns("api_keys")}
     principal_columns = {column["name"] for column in inspector.get_columns("human_principals")}
+    control_columns = {column["name"] for column in inspector.get_columns("checkout_order_controls")}
     with bind.begin() as conn:
         if "task" not in order_columns:
             conn.exec_driver_sql("ALTER TABLE checkout_orders ADD COLUMN task TEXT")
@@ -319,6 +327,12 @@ def _migrate_sqlite_private_order_tasks(bind):
             conn.exec_driver_sql("ALTER TABLE human_principals ADD COLUMN person_key_source VARCHAR(32)")
         if "person_bound_at" not in principal_columns:
             conn.exec_driver_sql("ALTER TABLE human_principals ADD COLUMN person_bound_at INTEGER")
+        if "requester_person_ref" not in control_columns:
+            conn.exec_driver_sql("ALTER TABLE checkout_order_controls ADD COLUMN requester_person_ref VARCHAR(64)")
+        if "approver_principal_id" not in control_columns:
+            conn.exec_driver_sql("ALTER TABLE checkout_order_controls ADD COLUMN approver_principal_id VARCHAR(36)")
+        if "approver_person_ref" not in control_columns:
+            conn.exec_driver_sql("ALTER TABLE checkout_order_controls ADD COLUMN approver_person_ref VARCHAR(64)")
         conn.exec_driver_sql("""
             UPDATE checkout_orders
             SET task = (
@@ -426,6 +440,9 @@ def migrate_postgres_schema(target_engine):
         conn.execute(text("ALTER TABLE human_principals ADD COLUMN IF NOT EXISTS person_ref VARCHAR(64)"))
         conn.execute(text("ALTER TABLE human_principals ADD COLUMN IF NOT EXISTS person_key_source VARCHAR(32)"))
         conn.execute(text("ALTER TABLE human_principals ADD COLUMN IF NOT EXISTS person_bound_at INTEGER"))
+        conn.execute(text("ALTER TABLE checkout_order_controls ADD COLUMN IF NOT EXISTS requester_person_ref VARCHAR(64)"))
+        conn.execute(text("ALTER TABLE checkout_order_controls ADD COLUMN IF NOT EXISTS approver_principal_id VARCHAR(36)"))
+        conn.execute(text("ALTER TABLE checkout_order_controls ADD COLUMN IF NOT EXISTS approver_person_ref VARCHAR(64)"))
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
             VALUES (:version, :description)
@@ -433,6 +450,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_membership_sod_v1",
             "description": "Add HR-backed person mapping, role membership and dual-control requests",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_gate_actors_v1",
+            "description": "Bind paid order requester, approver and report reviewer to HR-backed human principals",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
