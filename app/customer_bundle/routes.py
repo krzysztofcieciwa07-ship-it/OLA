@@ -21,6 +21,7 @@ from app.customer_bundle.delivery import (
     revoke_recipient_grant,
 )
 from app.customer_bundle.storage import CustomerBundleStorageRejected
+from app.customer_bundle.verifier import verify_customer_bundle
 from app.database import SessionLocal
 from app.human_identity.membership import HumanMembershipRejected, require_human_operator
 from app.human_identity.routes import _deployment_profile, verify_human_csrf
@@ -172,6 +173,8 @@ def download_customer_bundle(
     if (
         storage is None
         or not callable(getattr(storage, "get", None))
+        or not isinstance(getattr(runtime, "trusted_keys", None), dict)
+        or not isinstance(getattr(runtime, "revoked_key_ids", None), frozenset)
         or profile in {"production", "invalid"}
         and getattr(runtime, "profile", None) != "CUSTOMER_BUNDLE_PRODUCTION_V1"
     ):
@@ -207,6 +210,16 @@ def download_customer_bundle(
         ))
         object_ref = bundle.storage_object_ref if bundle is not None else None
         version = bundle.version if bundle is not None else None
+        expected_manifest_sha256 = bundle.manifest_sha256 if bundle is not None else None
+        expected_report_sha256 = bundle.report_sha256 if bundle is not None else None
+        expected_profile = bundle.profile if bundle is not None else None
+        expected_expiry = bundle.expires_at if bundle is not None else None
+        expected_lifecycle_status = bundle.status if bundle is not None else None
+        expected_verification_status = (
+            "PARTIAL"
+            if bundle is not None and bundle.status_reason
+            else "VERIFIED"
+        )
 
     if not object_ref:
         try:
@@ -226,7 +239,7 @@ def download_customer_bundle(
 
     try:
         payload = storage.get(object_ref)
-    except CustomerBundleStorageRejected as exc:
+    except Exception as exc:
         try:
             fail_delivery_attempt(
                 tenant_id=actor.tenant_id,
@@ -238,6 +251,36 @@ def download_customer_bundle(
         except CustomerBundleDeliveryRejected:
             pass
         raise HTTPException(status_code=503, detail="customer bundle could not be retrieved safely") from exc
+
+    verification = verify_customer_bundle(
+        payload,
+        trusted_keys=runtime.trusted_keys,
+        revoked_key_ids=runtime.revoked_key_ids,
+        timestamp_verifier=runtime.timestamp_verifier,
+    )
+    if (
+        verification.status != expected_verification_status
+        or verification.bundle_id != bundle_id
+        or verification.bundle_version != version
+        or verification.profile != expected_profile
+        or verification.expires_at != expected_expiry
+        or verification.manifest_sha256 != expected_manifest_sha256
+        or verification.report_sha256 != expected_report_sha256
+        or expected_lifecycle_status != "SIGNED"
+        or profile in {"production", "invalid"}
+        and verification.timestamp_status != "VERIFIED"
+    ):
+        try:
+            fail_delivery_attempt(
+                tenant_id=actor.tenant_id,
+                attempt_id=attempt["attempt_id"],
+                recipient_principal_id=actor.principal_id,
+                recipient_person_ref=actor.person_ref,
+                reason="stored bundle failed independent signature, manifest or lifecycle verification",
+            )
+        except CustomerBundleDeliveryRejected:
+            pass
+        raise HTTPException(status_code=503, detail="customer bundle integrity verification failed")
 
     filename = f"OLA-customer-evidence-v{version}.zip"
 
