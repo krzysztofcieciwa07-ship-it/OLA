@@ -1,6 +1,6 @@
 import uuid
 import time
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, Column, String, Integer, Text, ForeignKey, UniqueConstraint
 from .database import Base
 
 
@@ -33,6 +33,80 @@ class EvidenceRecord(Base):
     record_hash = Column(String(64), nullable=False)
     __table_args__ = (UniqueConstraint("tenant_id", "seq", name="uq_evidence_tenant_seq"),)
 
+
+
+
+class HumanPrincipal(Base):
+    """Pseudonymous OLA identity; external IdP claims are stored separately."""
+    __tablename__ = "human_principals"
+    id = Column(String(36), primary_key=True, default=uid)
+    status = Column(String(24), nullable=False, default="ACTIVE")
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+
+
+class HumanIdentityLink(Base):
+    """Mutable encrypted link from one tenant's IdP subject to an OLA principal."""
+    __tablename__ = "human_identity_links"
+    id = Column(String(36), primary_key=True, default=uid)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=False, index=True)
+    issuer_lookup_hash = Column(String(64), nullable=False)
+    subject_lookup_hash = Column(String(64), nullable=False)
+    person_ref_hash = Column(String(64), nullable=False)
+    encrypted_issuer = Column(Text, nullable=False)
+    encrypted_subject = Column(Text, nullable=False)
+    provisioning_source = Column(String(32), nullable=False)
+    status = Column(String(24), nullable=False, default="ACTIVE")
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    revoked_at = Column(Integer, nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "issuer_lookup_hash", "subject_lookup_hash",
+                         name="uq_human_identity_external_subject"),
+        UniqueConstraint("tenant_id", "person_ref_hash", name="uq_human_identity_person_ref"),
+    )
+
+
+class TenantIdentityConfig(Base):
+    """One trusted identity issuer and explicit MFA claim map per tenant."""
+    __tablename__ = "tenant_identity_configs"
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), primary_key=True)
+    issuer = Column(Text, nullable=False)
+    client_id = Column(String(255), nullable=False)
+    client_secret_ref = Column(String(255), nullable=False)
+    allowed_audiences_json = Column(Text, nullable=False)
+    mfa_claim_mapping_json = Column(Text, nullable=False, default="{}")
+    active = Column(Boolean, nullable=False, default=False)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    updated_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+
+
+class TenantMembership(Base):
+    """Explicit tenant membership and role; login alone never grants membership."""
+    __tablename__ = "tenant_memberships"
+    id = Column(String(36), primary_key=True, default=uid)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=False, index=True)
+    role = Column(String(32), nullable=False)
+    status = Column(String(24), nullable=False, default="ACTIVE")
+    provisioning_source = Column(String(32), nullable=False)
+    created_by_principal_id = Column(String(36), ForeignKey("human_principals.id"), nullable=True)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    revoked_at = Column(Integer, nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "principal_id", "role", name="uq_tenant_principal_role"),
+    )
+
+
+class HumanIdentityEnforcement(Base):
+    """One-way latch requiring Human Identity for production human actions."""
+    __tablename__ = "human_identity_enforcement"
+    id = Column(String(36), primary_key=True, default="production")
+    required = Column(Boolean, nullable=False, default=False)
+    enabled_at = Column(Integer, nullable=True)
+    enabled_by_principal_id = Column(
+        String(36), ForeignKey("human_principals.id"), nullable=True
+    )
+    evidence_id = Column(String(36), nullable=True)
 
 
 class StripeEvent(Base):
