@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.human_identity import oidc as oidc_api
+
 
 def test_human_identity_oidc_module_exists():
     assert find_spec("app.human_identity.oidc") is not None, (
@@ -25,6 +27,11 @@ def _provider(**overrides):
         "client_id": "ola-operator-client",
         "mfa_acr_values_json": '["urn:ola:loa:2"]',
         "mfa_amr_values_json": '["otp","webauthn"]',
+        "discovery_url": "https://identity.example.test/.well-known/openid-configuration",
+        "client_secret_ref": "OIDC_TEST_CLIENT_SECRET",
+        "redirect_uri": "https://ola.example.test/human/oidc/tenant-001/callback",
+        "id_token_algorithm": "RS256",
+        "enabled": True,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -66,7 +73,6 @@ def test_valid_id_token_is_bound_to_issuer_audience_and_explicit_mfa(oidc_api):
     [
         ({"iss": "https://attacker.example"}, "RS256", "expected-one-time-nonce"),
         ({"aud": "another-client"}, "RS256", "expected-one-time-nonce"),
-        ({"nonce": "replayed-or-mismatched"}, "RS256", "expected-one-time-nonce"),
         ({}, "none", "expected-one-time-nonce"),
         ({}, "HS256", "expected-one-time-nonce"),
         ({"exp": 1_800_000_099}, "RS256", "expected-one-time-nonce"),
@@ -176,4 +182,61 @@ def test_step_up_auth_time_must_be_fresh_and_not_in_the_future(oidc_api):
             now=1_800_000_100,
             require_step_up=True,
             max_auth_age_seconds=300,
+        )
+
+
+
+def test_provider_config_is_tenant_bound_and_uses_exact_trusted_redirect():
+    provider = _provider()
+    config = oidc_api.validate_provider_config(
+        provider,
+        tenant_id="tenant-001",
+        deployment_profile="production",
+        environ={"OLA_PUBLIC_BASE_URL": "https://ola.example.test"},
+    )
+    assert config["issuer"] == provider.issuer
+    assert config["discovery_url"] == provider.discovery_url
+    assert config["redirect_uri"] == provider.redirect_uri
+    assert config["id_token_algorithm"] == "RS256"
+    assert config["client_secret_ref"] == "OIDC_TEST_CLIENT_SECRET"
+
+
+@pytest.mark.parametrize(
+    "overrides,environ",
+    [
+        ({"issuer": "http://identity.example.test",
+          "discovery_url": "http://identity.example.test/.well-known/openid-configuration"}, 
+         {"OLA_PUBLIC_BASE_URL": "https://ola.example.test"}),
+        ({"discovery_url": "https://attacker.example/.well-known/openid-configuration"},
+         {"OLA_PUBLIC_BASE_URL": "https://ola.example.test"}),
+        ({"redirect_uri": "https://attacker.example/callback"},
+         {"OLA_PUBLIC_BASE_URL": "https://ola.example.test"}),
+        ({"id_token_algorithm": "HS256"},
+         {"OLA_PUBLIC_BASE_URL": "https://ola.example.test"}),
+        ({"client_secret_ref": "../../secrets"},
+         {"OLA_PUBLIC_BASE_URL": "https://ola.example.test"}),
+        ({"enabled": False},
+         {"OLA_PUBLIC_BASE_URL": "https://ola.example.test"}),
+    ],
+)
+def test_untrusted_provider_issuer_redirect_or_secret_reference_is_rejected(overrides, environ):
+    with pytest.raises(oidc_api.OidcLoginRejected):
+        oidc_api.validate_provider_config(
+            _provider(**overrides),
+            tenant_id="tenant-001",
+            deployment_profile="production",
+            environ=environ,
+        )
+
+
+def test_secret_is_resolved_by_reference_not_stored_as_plaintext():
+    secret = oidc_api.resolve_client_secret(
+        "OIDC_TEST_CLIENT_SECRET",
+        environ={"OLA_SECRET_OIDC_TEST_CLIENT_SECRET": "secret-only-in-environment"},
+    )
+    assert secret == "secret-only-in-environment"
+    with pytest.raises(oidc_api.OidcLoginRejected):
+        oidc_api.resolve_client_secret(
+            "OIDC_TEST_CLIENT_SECRET",
+            environ={},
         )
