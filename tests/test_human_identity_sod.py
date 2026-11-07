@@ -96,12 +96,12 @@ def test_two_oidc_accounts_for_one_hr_person_share_the_same_pseudonymous_ref(
     tenant_id = _tenant()
     first = _principal(tenant_id, "oidc-account-A")
     second = _principal(tenant_id, "oidc-account-B")
-    raw_hr_key = "hr-fixture-person-001"
+    hr_person_identifier = "hr-fixture-person-001"
 
     first_result = membership_api.bind_principal_to_person(
         tenant_id=tenant_id,
         principal_id=first,
-        person_key=raw_hr_key,
+        person_key=hr_person_identifier,
         source="HR_SCIM",
         actor_ref="principal-provisioner-1",
         reason="SCIM identity sync",
@@ -109,21 +109,21 @@ def test_two_oidc_accounts_for_one_hr_person_share_the_same_pseudonymous_ref(
     second_result = membership_api.bind_principal_to_person(
         tenant_id=tenant_id,
         principal_id=second,
-        person_key=raw_hr_key,
+        person_key=hr_person_identifier,
         source="HR_SCIM",
         actor_ref="principal-provisioner-1",
         reason="SCIM identity sync for second IdP account",
     )
 
     assert first_result["person_ref"] == second_result["person_ref"]
-    assert raw_hr_key not in str(first_result)
+    assert hr_person_identifier not in str(first_result)
     records = _records(tenant_id)
     binding_records = [
         row for row in records
         if row["record_type"] == "human.person_identity_bound"
     ]
     assert len(binding_records) == 2
-    assert all(raw_hr_key not in row["payload_json"] for row in records)
+    assert all(hr_person_identifier not in row["payload_json"] for row in records)
     assert verify_chain(records)[0] is True
 
 
