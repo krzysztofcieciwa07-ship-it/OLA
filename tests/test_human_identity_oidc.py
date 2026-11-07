@@ -84,7 +84,7 @@ def test_valid_id_token_is_bound_to_issuer_audience_and_explicit_mfa(oidc_api):
 def test_invalid_issuer_audience_algorithm_or_time_is_rejected(
     oidc_api, claim_overrides, algorithm
 ):
-    with pytest.raises(oidc_api.OidcLoginRejected):
+    with pytest.raises(_oidc_module.OidcLoginRejected):
         oidc_api.validate_verified_id_token(
             _provider(),
             _claims(**claim_overrides),
@@ -95,7 +95,7 @@ def test_invalid_issuer_audience_algorithm_or_time_is_rejected(
 
 
 def test_nonce_must_have_been_validated_by_authlib_callback(oidc_api):
-    with pytest.raises(oidc_api.OidcLoginRejected):
+    with pytest.raises(_oidc_module.OidcLoginRejected):
         oidc_api.validate_verified_id_token(
             _provider(),
             _claims(),
@@ -106,7 +106,7 @@ def test_nonce_must_have_been_validated_by_authlib_callback(oidc_api):
 
 
 def test_multiple_audiences_require_exact_authorized_party(oidc_api):
-    with pytest.raises(oidc_api.OidcLoginRejected):
+    with pytest.raises(_oidc_module.OidcLoginRejected):
         oidc_api.validate_verified_id_token(
             _provider(),
             _claims(aud=["ola-operator-client", "another-client"]),
@@ -150,7 +150,7 @@ def test_auth_time_is_optional_for_normal_login_but_required_for_step_up(oidc_ap
     )
     assert identity.auth_time is None
 
-    with pytest.raises(oidc_api.OidcLoginRejected):
+    with pytest.raises(_oidc_module.OidcLoginRejected):
         oidc_api.validate_verified_id_token(
             _provider(),
             _claims(auth_time=None),
@@ -162,7 +162,7 @@ def test_auth_time_is_optional_for_normal_login_but_required_for_step_up(oidc_ap
 
 
 def test_step_up_auth_time_must_be_fresh_and_not_in_the_future(oidc_api):
-    with pytest.raises(oidc_api.OidcLoginRejected):
+    with pytest.raises(_oidc_module.OidcLoginRejected):
         oidc_api.validate_verified_id_token(
             _provider(),
             _claims(auth_time=1_800_000_000),
@@ -173,7 +173,7 @@ def test_step_up_auth_time_must_be_fresh_and_not_in_the_future(oidc_api):
             max_auth_age_seconds=300,
         )
 
-    with pytest.raises(oidc_api.OidcLoginRejected):
+    with pytest.raises(_oidc_module.OidcLoginRejected):
         oidc_api.validate_verified_id_token(
             _provider(),
             _claims(auth_time=1_800_000_200),
@@ -220,7 +220,7 @@ def test_provider_config_is_tenant_bound_and_uses_exact_trusted_redirect():
     ],
 )
 def test_untrusted_provider_issuer_redirect_or_secret_reference_is_rejected(overrides, environ):
-    with pytest.raises(oidc_api.OidcLoginRejected):
+    with pytest.raises(_oidc_module.OidcLoginRejected):
         _oidc_module.validate_provider_config(
             _provider(**overrides),
             tenant_id="tenant-001",
@@ -235,7 +235,7 @@ def test_secret_is_resolved_by_reference_not_stored_as_plaintext():
         environ={"OLA_SECRET_OIDC_TEST_CLIENT_SECRET": "secret-only-in-environment"},
     )
     assert secret == "secret-only-in-environment"
-    with pytest.raises(oidc_api.OidcLoginRejected):
+    with pytest.raises(_oidc_module.OidcLoginRejected):
         _oidc_module.resolve_client_secret(
             "OIDC_TEST_CLIENT_SECRET",
             environ={},
