@@ -69,27 +69,27 @@ def test_valid_id_token_is_bound_to_issuer_audience_and_explicit_mfa(oidc_api):
 
 
 @pytest.mark.parametrize(
-    "claim_overrides,algorithm,nonce",
+    "claim_overrides,algorithm",
     [
-        ({"iss": "https://attacker.example"}, "RS256", "expected-one-time-nonce"),
-        ({"aud": "another-client"}, "RS256", "expected-one-time-nonce"),
-        ({}, "none", "expected-one-time-nonce"),
-        ({}, "HS256", "expected-one-time-nonce"),
-        ({"exp": 1_800_000_099}, "RS256", "expected-one-time-nonce"),
-        ({"iat": 1_800_000_200}, "RS256", "expected-one-time-nonce"),
-        ({"exp": 1_800_000_000}, "RS256", "expected-one-time-nonce"),
-        ({"sub": ""}, "RS256", "expected-one-time-nonce"),
+        ({"iss": "https://attacker.example"}, "RS256"),
+        ({"aud": "another-client"}, "RS256"),
+        ({}, "none"),
+        ({}, "HS256"),
+        ({"exp": 1_800_000_099}, "RS256"),
+        ({"iat": 1_800_000_200}, "RS256"),
+        ({"exp": 1_800_000_000}, "RS256"),
+        ({"sub": ""}, "RS256"),
     ],
 )
 def test_invalid_issuer_audience_algorithm_or_time_is_rejected(
-    oidc_api, claim_overrides, algorithm, nonce
+    oidc_api, claim_overrides, algorithm
 ):
     with pytest.raises(oidc_api.OidcLoginRejected):
         oidc_api.validate_verified_id_token(
             _provider(),
             _claims(**claim_overrides),
             signing_algorithm=algorithm,
-            nonce_verified=(nonce == "expected-one-time-nonce"),
+            nonce_verified=True,
             now=1_800_000_100,
         )
 
