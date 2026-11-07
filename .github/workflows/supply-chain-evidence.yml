@@ -219,8 +219,13 @@ jobs:
           image_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
           test "$image_source" = "$GITHUB_SHA"
           docker save --output ola-image.tar "$image"
-          python -m pip install --disable-pip-version-check cyclonedx-bom==7.2.1
-          syft "$image" -o spdx-json=sbom.spdx.json
+      - name: Generate release SPDX SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: ola-release:${{ github.sha }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: ola-release-sbom-${{ github.sha }}.spdx.json
       - name: Generate SLSA provenance attestation
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
