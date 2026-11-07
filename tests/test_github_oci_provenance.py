@@ -307,3 +307,19 @@ def test_accepts_sigstore_bundle_jsonl_payload(monkeypatch):
         "app.customer_bundle.github_provenance.subprocess.run", _success,
     )
     assert _verify(monkeypatch, json.dumps(payload).encode()) is True
+
+
+
+def test_customer_bundle_cli_requires_out_of_band_sigstore_root_pin():
+    from scripts.verify_customer_bundle import _provenance_verifier
+
+    base = {
+        "repository": REPOSITORY,
+        "repository_id": REPOSITORY_ID,
+        "workflow_identity": WORKFLOW_IDENTITY,
+        "source_ref": SOURCE_REF,
+        "image_name": IMAGE_NAME,
+    }
+    assert _provenance_verifier(base) is None
+    base["trusted_root_sha256"] = "c" * 64
+    assert callable(_provenance_verifier(base))
