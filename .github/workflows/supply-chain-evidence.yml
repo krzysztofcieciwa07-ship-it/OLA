@@ -309,14 +309,6 @@ jobs:
           echo "image_digest=$digest" >> "$GITHUB_OUTPUT"
           printf 'OCI_IMAGE=%s@%s\n' "$IMAGE_NAME" "$digest" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Generate SPDX SBOM
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
-        with:
-          image: ${{ steps.image.outputs.name }}:${{ github.sha }}
-          format: spdx-json
-          output-file: sbom.spdx.json
-          artifact-name: ola-release-sbom-${{ github.sha }}.spdx.json
-
       - name: Generate OCI SLSA provenance attestation
         id: provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
