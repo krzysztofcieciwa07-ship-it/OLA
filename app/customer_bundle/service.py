@@ -319,7 +319,7 @@ def create_customer_bundle_for_order(
             CustomerEvidenceBundle.profile == runtime.profile,
             CustomerEvidenceBundle.status == "SIGNED",
         ).order_by(CustomerEvidenceBundle.version.desc()).limit(1))
-    if existing is not None:
+    if existing is not None and (existing.expires_at is None or existing.expires_at > created_at):
         return {
             "status": "ALREADY_SIGNED",
             "bundle_id": existing.id,
@@ -327,7 +327,34 @@ def create_customer_bundle_for_order(
             "profile": existing.profile,
             "manifest_sha256": existing.manifest_sha256,
             "report_sha256": existing.report_sha256,
+            "expires_at": existing.expires_at,
         }
+    if existing is not None:
+        with SessionLocal() as db:
+            begin_write_transaction(db, tenant_id=tenant_id)
+            expired = db.scalar(select(CustomerEvidenceBundle).where(
+                CustomerEvidenceBundle.id == existing.id,
+                CustomerEvidenceBundle.tenant_id == tenant_id,
+            ).with_for_update())
+            if expired is not None and expired.status == "SIGNED" and expired.expires_at <= created_at:
+                expired.status = "EXPIRED"
+                expired.status_reason = "bundle expiry reached before re-issuance"
+                _append_locked(db, tenant_id, "revenue.customer_evidence_bundle_expired", {
+                    "order_id": order_id,
+                    "bundle_id": expired.id,
+                    "version": expired.version,
+                    "expired_at": created_at,
+                    "reason": expired.status_reason,
+                })
+                db.commit()
+
+    bundle_id = str(uuid.uuid4())
+    expires_at = created_at + runtime.bundle_ttl_seconds
+    with SessionLocal() as db:
+        bundle_version = (db.scalar(select(func.max(CustomerEvidenceBundle.version)).where(
+            CustomerEvidenceBundle.tenant_id == tenant_id,
+            CustomerEvidenceBundle.order_id == order_id,
+        )) or 0) + 1
 
     report_json = _report_bytes(context["job_result"], expected_digest=review.report_sha256)
     if not HEX_64.fullmatch(review.reviewed_tip_hash or ""):
@@ -385,6 +412,10 @@ def create_customer_bundle_for_order(
         artifact = build_customer_bundle(
             tenant_id=tenant_id,
             order_id=order_id,
+            bundle_id=bundle_id,
+            bundle_version=bundle_version,
+            created_at=created_at,
+            expires_at=expires_at,
             profile=runtime.profile,
             report_json=report_json,
             evidence_excerpt=evidence_excerpt,
@@ -433,8 +464,6 @@ def create_customer_bundle_for_order(
         object_ref = runtime.storage.put(artifact.zip_bytes)
         if not isinstance(object_ref, str) or not object_ref:
             raise CustomerBundleCreationRejected(503, "storage adapter returned an invalid object reference")
-        bundle_id = str(uuid.uuid4())
-        expires_at = created_at + runtime.bundle_ttl_seconds
         with SessionLocal() as db:
             begin_write_transaction(db, tenant_id=tenant_id)
             latest = db.scalar(select(EvidenceRecord).where(
@@ -459,10 +488,13 @@ def create_customer_bundle_for_order(
                 or current_review.approval_evidence_id != review.approval_evidence_id
             ):
                 raise CustomerBundleCreationRejected(409, "approved report changed during bundle signing")
-            version = (db.scalar(select(func.max(CustomerEvidenceBundle.version)).where(
+            current_version = db.scalar(select(func.max(CustomerEvidenceBundle.version)).where(
                 CustomerEvidenceBundle.tenant_id == tenant_id,
                 CustomerEvidenceBundle.order_id == order_id,
-            )) or 0) + 1
+            )) or 0
+            if current_version + 1 != bundle_version:
+                raise CustomerBundleCreationRejected(409, "bundle version changed during signing; bundle must be rebuilt")
+            version = bundle_version
             bundle = CustomerEvidenceBundle(
                 id=bundle_id,
                 tenant_id=tenant_id,
