@@ -85,8 +85,9 @@ def _identity_fixture():
 def _signed_bundle(tenant_id, order_id):
     from app.models import CustomerEvidenceBundle
 
+    bundle_id = str(uuid.uuid4())
     bundle = CustomerEvidenceBundle(
-        id=str(uuid.uuid4()),
+        id=bundle_id,
         tenant_id=tenant_id,
         order_id=order_id,
         version=1,
@@ -96,7 +97,7 @@ def _signed_bundle(tenant_id, order_id):
         report_sha256="b" * 64,
         igor_key_id="igor-key-1",
         ola_key_id="ola-key-1",
-        storage_object_ref="opaque-encrypted-object-1",
+        storage_object_ref=f"opaque-encrypted-object-{bundle_id}",
         created_at=1_800_000_000,
         signed_at=1_800_000_010,
         expires_at=1_900_000_000,
