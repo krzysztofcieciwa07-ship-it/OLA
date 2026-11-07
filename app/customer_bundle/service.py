@@ -448,12 +448,15 @@ def create_customer_bundle_for_order(
     except Exception as exc:
         raise CustomerBundleCreationRejected(409, f"customer bundle signing was blocked: {type(exc).__name__}") from exc
 
-    verification = verify_customer_bundle(
-        artifact.zip_bytes,
-        trusted_keys=runtime.trusted_keys,
-        revoked_key_ids=runtime.revoked_key_ids,
-        timestamp_verifier=runtime.timestamp_verifier,
-    )
+    try:
+        verification = verify_customer_bundle(
+            artifact.zip_bytes,
+            trusted_keys=runtime.trusted_keys,
+            revoked_key_ids=runtime.revoked_key_ids,
+            timestamp_verifier=runtime.timestamp_verifier,
+        )
+    except Exception as exc:
+        raise CustomerBundleCreationRejected(503, "independent bundle verifier or timestamp trust service is unavailable") from exc
     if (
         verification.status != artifact.status
         or verification.igor_signature != "VERIFIED"
