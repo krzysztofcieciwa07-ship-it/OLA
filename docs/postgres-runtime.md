@@ -21,9 +21,10 @@ python scripts/migrate_postgres.py
 
 The migration script creates missing ORM tables, installs the two evidence
 append-only triggers, and records the additive migration versions, including
-`ola_human_identity_policy_v1`, in `ola_schema_migrations`. The persistent
+`ola_human_identity_policy_v1` and `ola_human_sessions_v1`, in `ola_schema_migrations`. The persistent
 `tenant_identity_policies` row stores the one-way tenant transition from
-`LEGACY_API` to `OIDC_REQUIRED`; API startup verifies its table and migration
+`LEGACY_API` to `OIDC_REQUIRED`; `human_sessions` stores opaque session-token
+hashes and Fernet-encrypted transient OIDC state or minimal operator context; API startup verifies its table and migration
 version but never performs PostgreSQL DDL. It is additive: it does not alter existing columns,
 delete data, or copy records from the SQLite database. Do not point an existing
 production tenant at the new database until a separately reviewed data-transfer
@@ -43,7 +44,8 @@ role name and include other OLA tables when deploying the complete API):
 ```sql
 GRANT USAGE ON SCHEMA public TO ola_runtime;
 GRANT SELECT, INSERT ON tenants TO ola_runtime;
-GRANT SELECT ON tenant_identity_policies TO ola_runtime;
+GRANT SELECT, INSERT, UPDATE ON tenant_identity_policies TO ola_runtime;
+GRANT SELECT, INSERT, UPDATE ON human_sessions TO ola_runtime;
 GRANT SELECT ON api_keys TO ola_runtime;
 GRANT SELECT, INSERT ON evidence_records TO ola_runtime;
 GRANT SELECT, INSERT, UPDATE ON stripe_events, checkout_orders,
