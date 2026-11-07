@@ -333,7 +333,13 @@ class GitHubOCIProvenanceProvider:
         self.image_digest = image_digest
         self.verifier = verifier
 
-    def __call__(self, _signing_input: dict) -> dict:
+    def __call__(self, signing_input: dict) -> dict:
+        if (
+            not isinstance(signing_input, dict)
+            or signing_input.get("source_commit") != self.source_sha
+            or signing_input.get("image_digest") != self.image_digest
+        ):
+            raise GitHubOCIProvenanceRejected("EXECUTION_SOURCE_IMAGE_IDENTITY_MISMATCH")
         try:
             payload = self.payload_path.read_bytes()
         except OSError as exc:
