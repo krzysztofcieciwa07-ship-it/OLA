@@ -70,6 +70,39 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertLess(content.index("Push exact scanned OCI image"), content.index("Verify registry digest against running container imageID"))
         self.assertLess(content.index("Verify registry digest against running container imageID"), content.index("Generate OCI SLSA provenance attestation"))
 
+
+    def test_gitleaks_scans_the_complete_pr_commit_graph_without_baselines(self):
+        content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
+        self.assertIn("fetch-depth: 0", content)
+        self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}", content)
+        self.assertIn("PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}", content)
+        self.assertIn('git rev-list --count "$GITLEAKS_LOG_OPTS"', content)
+        self.assertIn('GITLEAKS_LOG_OPTS="${PR_BASE_SHA}..${PR_HEAD_SHA}"', content)
+        self.assertIn('--log-opts=$GITLEAKS_LOG_OPTS', content)
+        self.assertIn("ghcr.io/gitleaks/gitleaks:v8.24.3@sha256:e1b35e12a8c6fa8901f060459cfb6b2fc4c484d3afbe3b029733a3bbfab07055", content)
+        self.assertNotIn("gitleaks/gitleaks-action@", content)
+        self.assertNotIn("--first-parent", content)
+        self.assertNotIn("--no-merges", content)
+        self.assertNotIn("--baseline-path", content)
+
+    def test_runtime_image_excludes_python_package_manager_and_test_tooling(self):
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        runtime = (ROOT / "requirements-runtime.txt").read_text(encoding="utf-8")
+        testing = (ROOT / "requirements-test.txt").read_text(encoding="utf-8")
+        compatibility = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+        self.assertIn("FROM alpine:3.24@sha256:", dockerfile)
+        self.assertIn("FROM python:3.13-alpine@sha256:", dockerfile)
+        self.assertIn("COPY requirements-runtime.txt ./", dockerfile)
+        self.assertIn("COPY --from=python-deps /opt/python-runtime/lib/", dockerfile)
+        self.assertIn('"site-packages"', dockerfile)
+        self.assertIn('"ensurepip"', dockerfile)
+        self.assertNotIn("COPY tests ./tests", dockerfile)
+        self.assertIn("requirements-runtime.txt", compatibility)
+        self.assertIn("-r requirements-runtime.txt", testing)
+        for package in ("pytest==", "setuptools==", "wheel=="):
+            self.assertNotIn(package, runtime)
+            self.assertIn(package, testing)
+
     def test_release_manifest_never_calls_green_ci_production_verified(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn('status="ATTESTED_PENDING_HUMAN"', content)
