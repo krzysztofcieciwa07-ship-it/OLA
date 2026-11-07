@@ -56,8 +56,8 @@ def _safe_approval(approval: dict) -> dict:
     if not isinstance(approval, dict) or approval.get("status") != "REPORT_APPROVED":
         raise CustomerBundleRejected("independently approved customer report is required")
     allowed = (
-        "status", "approved_at", "approved_tip_hash",
-        "approver_person_ref", "reviewer_person_ref",
+        "status", "approved_at", "approved_tip_hash", "report_sha256",
+        "requester_person_ref", "approver_person_ref", "reviewer_person_ref",
     )
     return {key: approval[key] for key in allowed if key in approval}
 
@@ -141,6 +141,10 @@ def build_customer_bundle(
     if not isinstance(report_obj, dict) or report_obj.get("order_id") != order_id:
         raise CustomerBundleRejected("report must be bound to this exact order")
     report_sha256 = _sha256(report_json)
+    if clean_approval.get("report_sha256") != report_sha256:
+        raise CustomerBundleRejected("approval report digest does not match sanitized report")
+    if signed_at < approved_at:
+        raise CustomerBundleRejected("signing timestamp precedes approval")
 
     if not isinstance(igor_attestation, dict):
         raise CustomerBundleRejected("independent IGOR attestation is required")
@@ -181,8 +185,19 @@ def build_customer_bundle(
             raise CustomerBundleRejected("production bundle requires a 40-character source SHA")
         if not isinstance(image_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest):
             raise CustomerBundleRejected("production bundle requires an OCI sha256 image digest")
-        if not clean_approval.get("approver_person_ref") or not clean_approval.get("reviewer_person_ref"):
-            raise CustomerBundleRejected("production bundle requires HR-backed approver and reviewer person references")
+        person_refs = (
+            clean_approval.get("requester_person_ref"),
+            clean_approval.get("approver_person_ref"),
+            clean_approval.get("reviewer_person_ref"),
+        )
+        if not all(isinstance(value, str) and value for value in person_refs):
+            raise CustomerBundleRejected(
+                "production bundle requires HR-backed requester, approver and reviewer person references"
+            )
+        if len(set(person_refs)) != 3:
+            raise CustomerBundleRejected(
+                "production requester, approver and reviewer must be three distinct HR-backed people"
+            )
         status = "VERIFIED"
     else:
         status = "VERIFIED" if provenance_json is not None and timestamp_proof is None else "PARTIAL"
