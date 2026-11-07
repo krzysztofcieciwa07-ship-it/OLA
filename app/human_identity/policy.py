@@ -1,4 +1,5 @@
 """Persistent, downgrade-resistant tenant Human Gate identity policy."""
+import re
 import time
 import uuid
 
@@ -11,6 +12,7 @@ from app.models import EvidenceRecord, Tenant, TenantIdentityPolicy
 
 VALID_MODES = frozenset({"LEGACY_API", "OIDC_REQUIRED"})
 VALID_PROFILES = frozenset({"sandbox", "test", "development", "production"})
+ACTOR_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{5,127}$")
 
 
 class HumanIdentityPolicyRejected(ValueError):
@@ -58,8 +60,10 @@ def set_tenant_human_gate_mode(
         raise HumanIdentityPolicyRejected(400, "target mode must be LEGACY_API or OIDC_REQUIRED")
     if len(reason.strip()) > 1000:
         raise HumanIdentityPolicyRejected(400, "policy reason exceeds 1000 characters")
-    if len(actor_ref.strip()) > 128:
-        raise HumanIdentityPolicyRejected(400, "actor reference exceeds 128 characters")
+    if ACTOR_REF_RE.fullmatch(actor_ref.strip()) is None:
+        raise HumanIdentityPolicyRejected(
+            400, "actor reference must be a pseudonymous identifier without email or personal text"
+        )
 
     blocked = False
     result = None
