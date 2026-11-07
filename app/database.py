@@ -114,6 +114,45 @@ def create_postgres_append_only_triggers(connection):
     BEFORE DELETE ON evidence_records
     FOR EACH ROW EXECUTE FUNCTION ola_reject_evidence_mutation()
     """)
+    connection.exec_driver_sql("""
+    CREATE OR REPLACE FUNCTION ola_guard_tenant_identity_policy()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $ola$
+    BEGIN
+        IF TG_OP = 'UPDATE'
+           AND OLD.human_gate_mode = 'OIDC_REQUIRED'
+           AND NEW.human_gate_mode <> 'OIDC_REQUIRED' THEN
+            RAISE EXCEPTION 'tenant Human Gate identity policy cannot be downgraded'
+                USING ERRCODE = '55000';
+        END IF;
+        IF TG_OP = 'DELETE' AND OLD.human_gate_mode = 'OIDC_REQUIRED' THEN
+            RAISE EXCEPTION 'tenant Human Gate identity policy cannot be deleted'
+                USING ERRCODE = '55000';
+        END IF;
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        END IF;
+        RETURN NEW;
+    END;
+    $ola$;
+    """)
+    connection.exec_driver_sql(
+        "DROP TRIGGER IF EXISTS tenant_identity_policy_no_downgrade ON tenant_identity_policies"
+    )
+    connection.exec_driver_sql(
+        "DROP TRIGGER IF EXISTS tenant_identity_policy_no_delete ON tenant_identity_policies"
+    )
+    connection.exec_driver_sql("""
+    CREATE TRIGGER tenant_identity_policy_no_downgrade
+    BEFORE UPDATE OF human_gate_mode ON tenant_identity_policies
+    FOR EACH ROW EXECUTE FUNCTION ola_guard_tenant_identity_policy()
+    """)
+    connection.exec_driver_sql("""
+    CREATE TRIGGER tenant_identity_policy_no_delete
+    BEFORE DELETE ON tenant_identity_policies
+    FOR EACH ROW EXECUTE FUNCTION ola_guard_tenant_identity_policy()
+    """)
 
 
 def install_append_only_triggers(bind=None):
@@ -130,6 +169,19 @@ def install_append_only_triggers(bind=None):
             CREATE TRIGGER IF NOT EXISTS evidence_no_delete
             BEFORE DELETE ON evidence_records
             BEGIN SELECT RAISE(ABORT, 'evidence_records is append-only'); END;
+            """)
+            conn.exec_driver_sql("""
+            CREATE TRIGGER IF NOT EXISTS tenant_identity_policy_no_downgrade
+            BEFORE UPDATE OF human_gate_mode ON tenant_identity_policies
+            WHEN OLD.human_gate_mode = 'OIDC_REQUIRED'
+              AND NEW.human_gate_mode <> 'OIDC_REQUIRED'
+            BEGIN SELECT RAISE(ABORT, 'tenant Human Gate identity policy cannot be downgraded'); END;
+            """)
+            conn.exec_driver_sql("""
+            CREATE TRIGGER IF NOT EXISTS tenant_identity_policy_no_delete
+            BEFORE DELETE ON tenant_identity_policies
+            WHEN OLD.human_gate_mode = 'OIDC_REQUIRED'
+            BEGIN SELECT RAISE(ABORT, 'tenant Human Gate identity policy cannot be deleted'); END;
             """)
         return
     if target.dialect.name == "postgresql":
@@ -248,7 +300,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied_versions = {
             row[0] for row in conn.execute(text(
                 "SELECT version FROM ola_schema_migrations WHERE version IN "
-                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc, :human_membership, :human_gate_actors)"
+                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc, :human_membership, :human_gate_actors, :human_policy_latch)"
             ), {
                 "report_review": "ola_paid_order_report_review_v3",
                 "human_identity_policy": "ola_human_identity_policy_v1",
@@ -256,6 +308,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
                 "human_oidc": "ola_human_oidc_v1",
                 "human_membership": "ola_human_membership_sod_v1",
                 "human_gate_actors": "ola_human_gate_actors_v1",
+                "human_policy_latch": "ola_human_identity_policy_latch_v1",
             }).all()
         }
         trigger_rows = conn.execute(text("""
@@ -269,14 +322,30 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
               AND n.nspname = current_schema()
               AND NOT t.tgisinternal
         """)).all()
+        policy_trigger_rows = conn.execute(text("""
+            SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
+                   pg_get_functiondef(p.oid)
+            FROM pg_trigger AS t
+            JOIN pg_class AS c ON c.oid = t.tgrelid
+            JOIN pg_proc AS p ON p.oid = t.tgfoid
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE c.relname = 'tenant_identity_policies'
+              AND n.nspname = current_schema()
+              AND NOT t.tgisinternal
+        """)).all()
         if enforce_runtime_privileges:
             evidence_privileges = conn.execute(text("""
                 SELECT has_table_privilege(current_user, 'evidence_records', 'UPDATE'),
                        has_table_privilege(current_user, 'evidence_records', 'DELETE'),
                        has_table_privilege(current_user, 'evidence_records', 'TRUNCATE')
             """)).one()
+            policy_privileges = conn.execute(text("""
+                SELECT has_table_privilege(current_user, 'tenant_identity_policies', 'DELETE'),
+                       has_table_privilege(current_user, 'tenant_identity_policies', 'TRUNCATE')
+            """)).one()
         else:
-            evidence_privileges = (False, False)
+            evidence_privileges = (False, False, False)
+            policy_privileges = (False, False)
     missing_versions = {
         "ola_paid_order_report_review_v3",
         "ola_human_identity_policy_v1",
@@ -284,6 +353,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "ola_human_oidc_v1",
         "ola_human_membership_sod_v1",
         "ola_human_gate_actors_v1",
+        "ola_human_identity_policy_latch_v1",
     } - applied_versions
     if missing_versions:
         raise RuntimeError(
@@ -292,6 +362,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         )
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
+    if enforce_runtime_privileges and any(policy_privileges):
+        raise RuntimeError("PostgreSQL runtime role must not have DELETE or TRUNCATE on tenant_identity_policies")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
     expected = {"evidence_no_update": "BEFORE UPDATE", "evidence_no_delete": "BEFORE DELETE"}
     for name, action in expected.items():
@@ -305,6 +377,30 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             or "USING ERRCODE = '55000'" not in normalized_function
         ):
             raise RuntimeError("PostgreSQL evidence append-only trigger definition is invalid")
+
+    policy_definitions = {
+        row[0]: (row[1], row[2], row[3]) for row in policy_trigger_rows
+    }
+    policy_expected = {
+        "tenant_identity_policy_no_downgrade": "BEFORE UPDATE",
+        "tenant_identity_policy_no_delete": "BEFORE DELETE",
+    }
+    for name, action in policy_expected.items():
+        trigger_def, function_name, function_def = policy_definitions.get(
+            name, ("", "", "")
+        )
+        normalized_trigger = re.sub(r"\s+", " ", trigger_def).upper()
+        normalized_function = re.sub(r"\s+", " ", function_def).upper()
+        if (
+            action not in normalized_trigger
+            or function_name != "ola_guard_tenant_identity_policy"
+            or "OLD.HUMAN_GATE_MODE = 'OIDC_REQUIRED'" not in normalized_function
+            or "TENANT HUMAN GATE IDENTITY POLICY CANNOT BE" not in normalized_function
+            or "USING ERRCODE = '55000'" not in normalized_function
+        ):
+            raise RuntimeError(
+                "PostgreSQL tenant Human Gate identity policy trigger definition is invalid"
+            )
 
 
 def _migrate_sqlite_private_order_tasks(bind):
@@ -458,6 +554,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_gate_actors_v1",
             "description": "Bind paid order requester, approver and report reviewer to HR-backed human principals",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_identity_policy_latch_v1",
+            "description": "Enforce one-way OIDC_REQUIRED transitions at the database layer",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
