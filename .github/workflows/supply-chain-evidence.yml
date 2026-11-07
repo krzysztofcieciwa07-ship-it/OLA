@@ -219,7 +219,7 @@ jobs:
   oci-slsa-attestations:
     # A trusted main release creates production-eligible evidence. Manual
     # dispatch on a feature branch is a non-production rehearsal only.
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/oidc-human-gate-customer-bundle-20261107')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -238,7 +238,11 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$GITHUB_REF" = "refs/heads/main" || test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            test "$GITHUB_REF" = "refs/heads/feat/oidc-human-gate-customer-bundle-20261107"
+          else
+            test "$GITHUB_REF" = "refs/heads/main"
+          fi
 
       - name: Prepare immutable OCI image name
         id: image
