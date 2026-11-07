@@ -2,6 +2,7 @@
 import base64
 import io
 import json
+import hashlib
 import zipfile
 
 import pytest
@@ -29,6 +30,12 @@ def _inputs():
             "status": "REPORT_APPROVED",
             "approved_at": 1_800_000_000,
             "approved_tip_hash": "b" * 64,
+            "report_sha256": hashlib.sha256(
+                b'{"order_id":"order-customer-bundle-1","result":"verified"}'
+            ).hexdigest(),
+            "requester_person_ref": "person-ref-requester",
+            "approver_person_ref": "person-ref-approver",
+            "reviewer_person_ref": "person-ref-reviewer",
         },
         "igor_attestation": {
             "status": "VERIFIED",
@@ -183,3 +190,32 @@ def test_bundle_rejects_duplicate_or_path_traversal_entries():
     result = verify(output.getvalue(), trusted_keys=trusted)
     assert result.status == "INVALID"
     assert result.reason == "UNSAFE_ARCHIVE_PATH"
+
+
+
+def test_bundle_builder_rejects_approval_digest_for_a_different_report():
+    build, TestSigner, _verify = _bundle_api()
+    igor = TestSigner.generate(key_id="igor-approval-binding", custody_id="igor-test-custody")
+    ola = TestSigner.generate(key_id="ola-approval-binding", custody_id="ola-test-custody")
+    values = _inputs()
+    values["approval"]["report_sha256"] = "0" * 64
+    values["igor_attestation"]["report_sha256"] = hashlib.sha256(
+        values["report_json"]
+    ).hexdigest()
+
+    with pytest.raises(ValueError, match="approval report digest does not match"):
+        build(**values, igor_signer=igor, ola_signer=ola)
+
+
+def test_bundle_builder_rejects_signing_timestamp_before_human_approval():
+    build, TestSigner, _verify = _bundle_api()
+    igor = TestSigner.generate(key_id="igor-time-order", custody_id="igor-test-custody")
+    ola = TestSigner.generate(key_id="ola-time-order", custody_id="ola-test-custody")
+    values = _inputs()
+    values["igor_attestation"]["report_sha256"] = hashlib.sha256(
+        values["report_json"]
+    ).hexdigest()
+    values["signed_at"] = values["approved_at"] - 1
+
+    with pytest.raises(ValueError, match="signing timestamp precedes approval"):
+        build(**values, igor_signer=igor, ola_signer=ola)
