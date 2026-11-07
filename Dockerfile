@@ -73,7 +73,11 @@ RUN rm -rf /usr/local/lib/python3.13/site-packages/pip \
            /usr/local/lib/python3.13/ensurepip \
            /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13 \
     && test ! -e /usr/local/lib/python3.13/site-packages/pip \
+    && test ! -e /usr/local/lib/python3.13/site-packages/pip/_vendor/vendor.txt \
     && test ! -d /usr/local/lib/python3.13/ensurepip \
+    && test ! -e /usr/local/bin/pip \
+    && test ! -e /usr/local/bin/pip3 \
+    && test ! -e /usr/local/bin/pip3.13 \
     && OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python -c 'import json,os,pathlib; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"]},sort_keys=True),encoding="utf-8")' \
     && adduser -D --uid 10001 ola \
     && mkdir -p /data \
