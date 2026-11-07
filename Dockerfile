@@ -1,4 +1,4 @@
-FROM golang:1.27.0-bookworm AS gh-builder
+FROM golang:1.27.3-bookworm AS gh-builder
 
 ARG GH_CLI_COMMIT=63837fb778d6a39f02be0ce76ff89f2bc8d74bdc
 ARG GO_NET_VERSION=v0.62.0
