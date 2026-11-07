@@ -361,10 +361,10 @@ jobs:
           }
           with open("runtime-image-proof.json", "w", encoding="utf-8") as handle:
               json.dump(proof, handle, sort_keys=True, separators=(",", ":"))
-              handle.write("\\n")
+              handle.write("\n")
           PY
-          printf 'RUNTIME_IMAGE_PROOF=VERIFIED\\n' >> "$GITHUB_STEP_SUMMARY"
-          printf 'OCI_DIGEST=%s\\nIMAGE_ID=%s\\n' "$OCI_DIGEST" "$container_image_id" >> "$GITHUB_STEP_SUMMARY"
+          printf 'RUNTIME_IMAGE_PROOF=VERIFIED\n' >> "$GITHUB_STEP_SUMMARY"
+          printf 'OCI_DIGEST=%s\nIMAGE_ID=%s\n' "$OCI_DIGEST" "$container_image_id" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate OCI SLSA provenance attestation
         id: provenance
