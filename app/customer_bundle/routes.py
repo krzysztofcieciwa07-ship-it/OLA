@@ -13,6 +13,7 @@ from app.customer_bundle.recipient_auth import authenticate_customer_recipient
 from app.customer_bundle.delivery import (
     CustomerBundleDeliveryRejected,
     acknowledge_delivery_attempt,
+    assert_delivery_attempt_authorized,
     approve_recipient_grant,
     begin_delivery_attempt,
     complete_delivery_attempt,
@@ -299,27 +300,50 @@ def download_customer_bundle(
     filename = f"OLA-customer-evidence-v{version}.zip"
 
     def stream():
+        revocation_blocked = False
         try:
-            yield payload
-        except BaseException:
-            try:
-                fail_delivery_attempt(
-                    tenant_id=actor.tenant_id,
-                    attempt_id=attempt["attempt_id"],
-                    recipient_principal_id=actor.principal_id,
-                    recipient_person_ref=actor.person_ref,
-                    reason="client disconnected or transfer failed",
-                )
-            except CustomerBundleDeliveryRejected:
-                pass
-            raise
-        else:
+            chunk_size = 64 * 1024
+            for offset in range(0, len(payload), chunk_size):
+                try:
+                    assert_delivery_attempt_authorized(
+                        tenant_id=actor.tenant_id,
+                        attempt_id=attempt["attempt_id"],
+                        recipient_principal_id=actor.principal_id,
+                        recipient_person_ref=actor.person_ref,
+                    )
+                except CustomerBundleDeliveryRejected as exc:
+                    revocation_blocked = True
+                    try:
+                        fail_delivery_attempt(
+                            tenant_id=actor.tenant_id,
+                            attempt_id=attempt["attempt_id"],
+                            recipient_principal_id=actor.principal_id,
+                            recipient_person_ref=actor.person_ref,
+                            reason="recipient grant or bundle authorization changed during transfer",
+                        )
+                    except CustomerBundleDeliveryRejected:
+                        pass
+                    raise RuntimeError("customer bundle transfer aborted after authorization changed") from exc
+                yield payload[offset:offset + chunk_size]
             complete_delivery_attempt(
                 tenant_id=actor.tenant_id,
                 attempt_id=attempt["attempt_id"],
                 recipient_principal_id=actor.principal_id,
                 recipient_person_ref=actor.person_ref,
             )
+        except BaseException:
+            if not revocation_blocked:
+                try:
+                    fail_delivery_attempt(
+                        tenant_id=actor.tenant_id,
+                        attempt_id=attempt["attempt_id"],
+                        recipient_principal_id=actor.principal_id,
+                        recipient_person_ref=actor.person_ref,
+                        reason="client disconnected or transfer failed",
+                    )
+                except CustomerBundleDeliveryRejected:
+                    pass
+            raise
 
     return StreamingResponse(
         stream(),
