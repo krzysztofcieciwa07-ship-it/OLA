@@ -243,7 +243,7 @@ def test_runtime_factory_requires_deployment_digest_and_pinned_trust_root(monkey
         github_oci_provenance_runtime_from_env,
     )
 
-    monkeypatch.setattr("app.runtime_provenance.runtime_source_commit", lambda: SOURCE_SHA)
+    monkeypatch.setattr("app.runtime_provenance.runtime_source_commit", lambda **_kwargs: SOURCE_SHA)
     for key in (
         "OLA_GITHUB_PROVENANCE_FILE",
         "OLA_OCI_IMAGE_DIGEST",
