@@ -174,6 +174,12 @@ def verify_customer_bundle(
         igor_public = trusted_keys.get(igor_key_id)
         if igor_public is None:
             return _invalid("UNKNOWN_IGOR_KEY", ola=ola_status)
+        if not isinstance(igor_public, bytes) or len(igor_public) != 32:
+            return _invalid("INVALID_IGOR_PUBLIC_KEY", ola=ola_status)
+        if not isinstance(ola_public, bytes) or len(ola_public) != 32:
+            return _invalid("INVALID_OLA_PUBLIC_KEY", ola=ola_status)
+        if igor_public == ola_public:
+            return _invalid("SIGNER_PUBLIC_KEYS_NOT_INDEPENDENT", ola=ola_status)
         igor_signature = _decode_signature(igor_signature_raw)
         if igor_signature is None:
             return _invalid("INVALID_IGOR_SIGNATURE_FORMAT", ola=ola_status)
