@@ -176,7 +176,10 @@ def download_customer_bundle(
         or not isinstance(getattr(runtime, "trusted_keys", None), dict)
         or not isinstance(getattr(runtime, "revoked_key_ids", None), frozenset)
         or profile in {"production", "invalid"}
-        and getattr(runtime, "profile", None) != "CUSTOMER_BUNDLE_PRODUCTION_V1"
+        and (
+            getattr(runtime, "profile", None) != "CUSTOMER_BUNDLE_PRODUCTION_V1"
+            or not callable(getattr(runtime, "provenance_verifier", None))
+        )
     ):
         raise HTTPException(
             status_code=503,
@@ -258,6 +261,7 @@ def download_customer_bundle(
             trusted_keys=runtime.trusted_keys,
             revoked_key_ids=runtime.revoked_key_ids,
             timestamp_verifier=runtime.timestamp_verifier,
+            provenance_verifier=getattr(runtime, "provenance_verifier", None),
         )
     except Exception as exc:
         try:
@@ -266,7 +270,7 @@ def download_customer_bundle(
                 attempt_id=attempt["attempt_id"],
                 recipient_principal_id=actor.principal_id,
                 recipient_person_ref=actor.person_ref,
-                reason="bundle signature verifier or timestamp trust service failed",
+                reason="bundle signature, provenance or timestamp trust service failed",
             )
         except CustomerBundleDeliveryRejected:
             pass
