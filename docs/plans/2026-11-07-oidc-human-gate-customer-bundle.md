@@ -3,7 +3,7 @@
 > **Execution status (2026-11-07):** implementation changes are present in PR #190, but CI for the current head has not completed. Do not treat this plan as a test report or production acceptance.
 
 - PR: [#190](https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/190), Draft, stacked on PR #189.
-- Current branch head at last check: `d362d272eb90f1d0e7496a401f10296db6a8c38a`. Re-read the branch ref before acting.
+- Current branch head at last check: `dfdee63e2c7a2df24cf0559f8ff4f85babbcb3ce`. Re-read the branch ref before acting.
 - Branch base: PR #189 head `8e56b33df9a3e2806f3709fca90b07e4e595d28f`.
 - CI state for that head: 19 checks queued, zero completed. No PASS or FAIL result exists for this SHA yet.
 - No merge, production deploy, IdP, HR/SCIM, KMS/HSM, RFC 3161 TSA or production object store configuration has been performed.
