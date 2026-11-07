@@ -1,14 +1,23 @@
 # OLA Human Identity i Customer Bundle — Implementation Plan
 
-> **Execution status (2026-11-07):** implementation changes are present in PR #190, but CI for the current head has not completed. Do not treat this plan as a test report or production acceptance.
-
-- PR: [#190](https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/190), Draft, stacked on PR #189.
-- Current branch head at last check: `dfdee63e2c7a2df24cf0559f8ff4f85babbcb3ce`. Re-read the branch ref before acting.
-- Branch base: PR #189 head `8e56b33df9a3e2806f3709fca90b07e4e595d28f`.
-- CI state for that head: 19 checks queued, zero completed. No PASS or FAIL result exists for this SHA yet.
-- No merge, production deploy, IdP, HR/SCIM, KMS/HSM, RFC 3161 TSA or production object store configuration has been performed.
-- Replit reviewer HTML remains unintegrated; its source/API contract has not been independently verified against this branch.
-- Current default app state deliberately has `customer_bundle_runtime = None`; the bundle issue/download path returns 503 until explicit dependencies are injected.
+> **Stan techniczny (2026-11-07, branch head `01ed93e6f2fb02f52722923a1a1d192ae34e6f4e`):** PR #190 pozostaje otwarty jako Draft i jest ułożony na PR #189. Zmiany obejmują teraz 51 plików. PR nie został scalony, a produkcja nie została wdrożona.
+>
+> **CI:** 17/17 workflowów dla SHA `01ed93e6f2fb02f52722923a1a1d192ae34e6f4e` zakończonych sukcesem. Check-runs: 20 SUCCESS, 1 SKIPPED (opcjonalny tor OpenAI/IGOR, ponieważ w tym przebiegu nie było dostępnego sekretu OpenAI). Wynik dotyczy dokładnie wskazanego SHA, nie dowodzi integracji z zewnętrznym IdP, HR, KMS, TSA, Stripe ani klientem produkcyjnym.
+>
+> **Rzeczywisty runtime:** Ollama `qwen2.5:0.5b-instruct`, sześć wywołań LLM i sześciu agentów, wynik `391`, status VERIFIED. Osobny przebieg NINA → IGOR → provenance → replay zakończony VERIFIED; niezależny IGOR potwierdził łańcuch dowodowy i atestację, a mutacja danych została zablokowana. Etykieta obrazu, `ola-build-info.json` i źródłowy SHA są zgodne.
+>
+> **Human Gate:** wynik przepływu pozostaje REVIEW / HOLD. W paczce IGOR `human_gate=PENDING`; CI nie zatwierdza decyzji człowieka. Nie wykonano finalnej akceptacji operatora.
+>
+> **Płatności:** kontrolowana faktura testowa została zweryfikowana, ale przelew ma status `READY_NOT_SENT`. Stripe Revenue Gate jest DEFERRED; brak dowodu realnego checkoutu, potwierdzonej płatności i przychodu.
+>
+> **Produkcja — NO-GO:** brak potwierdzonej konfiguracji produkcyjnego IdP/MFA, HR/SCIM person mapping, niezależnego KMS/HSM custody dla signerów IGOR/OLA, zaufanego RFC 3161 TSA lub transparency service oraz szyfrowanego, trwałego storage/restore. WebAuthn/passkey dla odbiorcy również nie jest zaimplementowany ani skonfigurowany.
+>
+> - PR: [#190](https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/190), Draft, stacked on PR #189.
+> - Branch: `feat/oidc-human-gate-customer-bundle-20261107`.
+> - Ostatni zweryfikowany head: `01ed93e6f2fb02f52722923a1a1d192ae34e6f4e`.
+> - Base PR #189 pozostaje osobnym, niescalonym etapem. Nie scalać PR #189 ani PR #190 i nie wdrażać produkcji bez osobnej decyzji oraz dowodów zewnętrznych.
+>
+> Poniższe checklisty zachowują pierwotny plan wykonania. Nie zostały zbiorczo odhaczone wstecznie — stan bieżący wynika z powyższych dowodów i wyników CI, a nie z automatycznego zaznaczenia historycznych kroków TDD.
 
 ## Implementation already present in PR #190
 
@@ -25,10 +34,13 @@
 
 ## Verification limitations
 
-- GitHub Actions for the current branch head were pending/queued at the last check. No claim of green CI is made.
-- PostgreSQL integration jobs may explicitly skip real integration tests when `OLA_TEST_POSTGRES_URL` is absent; a contract job alone is not a live database proof.
-- The code has not yet been run against a real tenant IdP/HR mapping, separate remote signer services, timestamp authority or durable production storage.
-- End-to-end customer delivery and real payment receipt remain UNVERIFIED.
+- CI for `01ed93e6f2fb02f52722923a1a1d192ae34e6f4e` is GREEN (17/17 workflows); this is a source-bound CI result, not production acceptance.
+- The E2E artifact proves controlled runtime execution and recovery. Its invoice scenario is a test fixture and ends at `READY_NOT_SENT`; it does not prove checkout, settlement, transfer or revenue.
+- The real LLM evidence is from Ollama `qwen2.5:0.5b-instruct`. The optional OpenAI path was skipped; no real OpenAI call is claimed.
+- The NINA/IGOR flow is independently verified, but the result is REVIEW and Human Gate remains PENDING/HOLD until a human operator approves it.
+- The PostgreSQL workflow is a contract gate; a live production PostgreSQL deployment and migration/restore drill remain separate proof requirements.
+- No run against a real tenant IdP with production MFA and HR/SCIM mapping, remote KMS/HSM signer custody, trusted TSA/transparency, encrypted durable object storage or real customer delivery has been demonstrated.
+- No production payment has been received and no production deployment has been performed.
 
 ---
 
