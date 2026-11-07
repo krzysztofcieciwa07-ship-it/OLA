@@ -35,7 +35,7 @@ def _write_bundle(tmp_path: Path, *, lifecycle: str) -> tuple[Path, Path]:
         key_id="igor-cli-" + lifecycle.lower(),
         custody_id="igor-cli-custody",
     )
-    ola = TestOnlyEd25519Signer.generate(
+    ola = LocalBundleSigner.generate(
         key_id="ola-cli-" + lifecycle.lower(),
         custody_id="ola-cli-custody",
     )
