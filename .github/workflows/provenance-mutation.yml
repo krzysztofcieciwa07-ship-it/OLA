@@ -25,7 +25,10 @@ jobs:
           persist-credentials: false
 
       - name: Build deployment image
-        run: docker build --tag ola:${GITHUB_SHA} .
+        run: |
+          set -euo pipefail
+          docker build --build-arg OLA_SOURCE_COMMIT="${GITHUB_SHA}" --tag "ola:${GITHUB_SHA}" .
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "ola:${GITHUB_SHA}")" = "${GITHUB_SHA}"
 
       - name: Start deployment image with source provenance
         run: |
@@ -33,6 +36,7 @@ jobs:
           docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" --name ola-provenance -p 8000:8000 \
             -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" \
             ola:${GITHUB_SHA}
+          docker exec -e EXPECTED_SOURCE_SHA="${GITHUB_SHA}" ola-provenance python -c 'import json,os; d=json.load(open("/app/ola-build-info.json")); assert d["source_commit"] == os.environ["EXPECTED_SOURCE_SHA"], d'
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then exit 0; fi
             sleep 1
