@@ -150,6 +150,16 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "session_data_encrypted", "auth_time", "mfa_verified",
             "created_at", "updated_at", "expires_at", "revoked_at",
         },
+        "tenant_identity_providers": {
+            "tenant_id", "issuer", "discovery_url", "client_id",
+            "client_secret_ref", "redirect_uri", "id_token_algorithm",
+            "mfa_acr_values_json", "mfa_amr_values_json", "enabled",
+            "created_at", "updated_at",
+        },
+        "human_principals": {
+            "id", "tenant_id", "issuer", "subject", "status",
+            "created_at", "last_authenticated_at",
+        },
         "api_keys": {"id", "tenant_id", "key_hash", "role"},
         "evidence_records": {
             "id", "tenant_id", "seq", "record_type", "payload_json",
@@ -201,6 +211,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         },
         "checkout_order_controls": {("order_id",)},
         "checkout_execution_jobs": {("order_id",)},
+        "human_principals": {("tenant_id", "issuer", "subject")},
     }
     for table_name, expected in expected_unique_constraints.items():
         actual = {
@@ -220,11 +231,12 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied_versions = {
             row[0] for row in conn.execute(text(
                 "SELECT version FROM ola_schema_migrations WHERE version IN "
-                "(:report_review, :human_identity_policy, :human_sessions)"
+                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc)"
             ), {
                 "report_review": "ola_paid_order_report_review_v3",
                 "human_identity_policy": "ola_human_identity_policy_v1",
                 "human_sessions": "ola_human_sessions_v1",
+                "human_oidc": "ola_human_oidc_v1",
             }).all()
         }
         trigger_rows = conn.execute(text("""
@@ -250,6 +262,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "ola_paid_order_report_review_v3",
         "ola_human_identity_policy_v1",
         "ola_human_sessions_v1",
+        "ola_human_oidc_v1",
     } - applied_versions
     if missing_versions:
         raise RuntimeError(
@@ -377,6 +390,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_sessions_v1",
             "description": "Add encrypted server-side human operator sessions",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_oidc_v1",
+            "description": "Add tenant OIDC provider configuration and mutable human principal mappings",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
