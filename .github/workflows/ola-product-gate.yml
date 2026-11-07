@@ -79,7 +79,7 @@ jobs:
           import hashlib,json,os,sqlite3,urllib.request,uuid
           tid=str(uuid.uuid4()); key="product-gate-key"; db=sqlite3.connect("/data/ola.db")
           db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tid,"product-gate"))
-          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",(str(uuid.uuid4()),tid,api_key_fingerprint(key)))
+          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash,role) VALUES (?,?,?,?)",(str(uuid.uuid4()),tid,api_key_fingerprint(key),"tenant"))
           db.commit(); db.close()
           task="Calculate 17 * 23 and return the verified result."
           req=urllib.request.Request("http://127.0.0.1:8000/agent-run",data=json.dumps({"task":task}).encode(),headers={"Content-Type":"application/json","X-API-Key":key},method="POST")
@@ -102,7 +102,7 @@ jobs:
           import hashlib,json,sqlite3,urllib.request,uuid
           tid=str(uuid.uuid4()); key="nina-chain-key"; db=sqlite3.connect("/data/ola.db")
           db.execute("INSERT INTO tenants(id,name) VALUES (?,?)",(tid,"nina-chain"))
-          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)",(str(uuid.uuid4()),tid,api_key_fingerprint(key)))
+          db.execute("INSERT INTO api_keys(id,tenant_id,key_hash,role) VALUES (?,?,?,?)",(str(uuid.uuid4()),tid,api_key_fingerprint(key),"tenant"))
           db.commit(); db.close()
           req=urllib.request.Request("http://127.0.0.1:8000/nina-run",data=json.dumps({"task":"Calculate 17 * 23 and return the verified result.","requested_tools":["safe_expression"],"human_approved":False}).encode(),headers={"Content-Type":"application/json","X-API-Key":key},method="POST")
           with urllib.request.urlopen(req,timeout=120) as r: d=json.load(r)

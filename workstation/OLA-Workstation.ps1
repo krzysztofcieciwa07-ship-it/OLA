@@ -71,7 +71,7 @@ if (-not $healthy) { docker logs $Container | Set-Content (Join-Path $EvidenceDi
 Write-Gate "RUNTIME_HEALTH" "VERIFIED" "health endpoint"
 $rawKey = ([guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N"))
 $tenantId = [guid]::NewGuid().ToString()
-docker exec $Container python -c "import hashlib,sqlite3,uuid; db=sqlite3.connect('/data/ola.db'); tid='$tenantId'; key='$rawKey'; db.execute('INSERT INTO tenants(id,name) VALUES (?,?)',(tid,'ola-workstation')); db.execute('INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)',(str(uuid.uuid4()),tid,__import__('app.api_key_hashing',fromlist=['api_key_fingerprint']).api_key_fingerprint(key))); db.commit(); db.close()" | Out-Null
+docker exec $Container python -c "import hashlib,sqlite3,uuid; db=sqlite3.connect('/data/ola.db'); tid='$tenantId'; key='$rawKey'; db.execute('INSERT INTO tenants(id,name) VALUES (?,?)',(tid,'ola-workstation')); db.execute('INSERT INTO api_keys(id,tenant_id,key_hash,role) VALUES (?,?,?,?)',(str(uuid.uuid4()),tid,__import__('app.api_key_hashing',fromlist=['api_key_fingerprint']).api_key_fingerprint(key),'tenant')); db.commit(); db.close()" | Out-Null
 $headers = @{ "X-API-Key" = $rawKey; "Content-Type" = "application/json" }
 $body = @{ task = "Calculate 17 * 23 and return the verified result." } | ConvertTo-Json
 $agentResult = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$Port/agent-run" -Headers $headers -Body $body -TimeoutSec 30

@@ -27,8 +27,8 @@ from app.api_key_hashing import api_key_fingerprint
 p=json.load(sys.stdin)
 db=sqlite3.connect('/data/ola.db')
 db.execute('INSERT INTO tenants(id,name) VALUES (?,?)',(p['tenant_id'],'synthetic-staging'))
-db.execute('INSERT INTO api_keys(id,tenant_id,key_hash) VALUES (?,?,?)',
-           (str(uuid.uuid4()),p['tenant_id'],api_key_fingerprint(p['key'])))
+db.execute('INSERT INTO api_keys(id,tenant_id,key_hash,role) VALUES (?,?,?,?)',
+           (str(uuid.uuid4()),p['tenant_id'],api_key_fingerprint(p['key']),'tenant'))
 db.commit()
 db.close()
 """
