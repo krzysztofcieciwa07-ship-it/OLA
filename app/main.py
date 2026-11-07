@@ -30,7 +30,11 @@ from .order_approval import approve_paid_order, PaidOrderApprovalRejected
 from .paid_order_execution import execute_paid_order_job, verify_worker_token, PaidOrderExecutionRejected
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
 from .human_identity.sessions import ServerSideSessionMiddleware
-from .human_identity.routes import router as human_identity_router, verify_human_csrf
+from .human_identity.routes import (
+    router as human_identity_router,
+    verify_human_csrf,
+    _deployment_profile,
+)
 from .human_identity.membership import HumanMembershipRejected, require_human_operator
 from .human_identity.policy import HumanIdentityPolicyRejected, require_human_identity_mode
 from .customer_bundle.routes import router as customer_bundle_router
@@ -874,9 +878,11 @@ def _checkout_tenant_identity_mode(order_id: str) -> tuple[str, str]:
             raise HTTPException(status_code=404, detail="paid order not found")
         tenant_id = order.tenant_id
     try:
+        # Use the same public-origin-derived, fail-closed profile as the OIDC
+        # routes. An environment label must never downgrade a public HTTPS host.
         mode = require_human_identity_mode(
             tenant_id=tenant_id,
-            deployment_profile=os.environ.get("OLA_DEPLOYMENT_PROFILE", "sandbox"),
+            deployment_profile=_deployment_profile(),
         )
     except HumanIdentityPolicyRejected as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
