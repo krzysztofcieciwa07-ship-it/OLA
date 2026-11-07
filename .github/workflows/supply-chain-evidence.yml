@@ -149,7 +149,7 @@ jobs:
           else
             GITLEAKS_LOG_OPTS=""
             SCANNED_COMMITS="$(git rev-list --count "$EXPECTED_SOURCE_SHA")"
-            SCAN_SCOPE="complete_first_parent_repository_history"
+            SCAN_SCOPE="complete_repository_history"
           fi
 
           if [ "$SCANNED_COMMITS" -lt 1 ]; then
