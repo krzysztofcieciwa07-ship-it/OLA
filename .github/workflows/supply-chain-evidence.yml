@@ -399,14 +399,21 @@ jobs:
           gh attestation trusted-root > trusted_root.jsonl
           test -s trusted_root.jsonl
 
+      - name: Require configured trust-root pin for main releases
+        if: github.event_name == 'push' && env.EXPECTED_TRUST_ROOT_SHA256 == ''
+        shell: bash
+        run: |
+          echo "::error::OLA_SIGSTORE_TRUST_ROOT_SHA256 is required for main-branch attestation"
+          exit 1
+
       - name: Record Sigstore trust-root discovery pin (not yet approved)
-        if: env.EXPECTED_TRUST_ROOT_SHA256 == ''
+        if: github.event_name == 'workflow_dispatch' && env.EXPECTED_TRUST_ROOT_SHA256 == ''
         shell: bash
         run: |
           set -euo pipefail
           sha256sum trusted_root.jsonl | awk '{print $1}' > trusted_root.sha256
-          printf 'ROOT_PIN_STATUS=PENDING_EXTERNAL_APPROVAL\\n' >> "$GITHUB_STEP_SUMMARY"
-          printf 'TRUSTED_ROOT_SHA256=%s\\n' "$(cat trusted_root.sha256)" >> "$GITHUB_STEP_SUMMARY"
+          printf 'ROOT_PIN_STATUS=PENDING_EXTERNAL_APPROVAL\n' >> "$GITHUB_STEP_SUMMARY"
+          printf 'TRUSTED_ROOT_SHA256=%s\n' "$(cat trusted_root.sha256)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify and package exact OCI provenance bundle with external root pin
         if: env.EXPECTED_TRUST_ROOT_SHA256 != ''
@@ -449,7 +456,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload Sigstore root discovery materials (unverified)
-        if: env.EXPECTED_TRUST_ROOT_SHA256 == ''
+        if: github.event_name == 'workflow_dispatch' && env.EXPECTED_TRUST_ROOT_SHA256 == ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ola-sigstore-root-discovery-${{ github.sha }}
