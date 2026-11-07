@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import uuid
 
@@ -90,7 +91,11 @@ def _execution_context(db, job: CheckoutExecutionJob):
         payment_result = json.loads(order.payment_result_json or "")
     except (ValueError, TypeError):
         raise PaidOrderExecutionRejected(409, "Human Gate or payment evidence is invalid") from None
-    current_source = runtime_source_commit()
+    production_profile = os.environ.get("OLA_DEPLOYMENT_PROFILE", "sandbox").strip().lower() == "production"
+    current_source = runtime_source_commit(require_build_info=production_profile)
+    current_image_digest = os.environ.get("OLA_OCI_IMAGE_DIGEST", "")
+    if (production_profile and re.fullmatch(r"sha256:[0-9a-f]{64}", current_image_digest) is None):
+        raise PaidOrderExecutionRejected(503, "production OCI image digest is not pinned")
     if (not isinstance(current_source, str) or len(current_source) != 40
             or not isinstance(approval_payload, dict)
             or approval_payload.get("source_commit") != current_source
@@ -142,7 +147,11 @@ def _execution_context(db, job: CheckoutExecutionJob):
         raise PaidOrderExecutionRejected(409, "checkout or payment evidence does not match the approved order")
     if hashlib.sha256(job.task.encode("utf-8")).hexdigest() != order.request_hash:
         raise PaidOrderExecutionRejected(409, "execution task does not match the paid order scope")
-    return order, control, evidence
+    runtime_identity = {
+        "source_commit": current_source,
+        "image_digest": current_image_digest if re.fullmatch(r"sha256:[0-9a-f]{64}", current_image_digest) else None,
+    }
+    return order, control, evidence, runtime_identity
 
 
 def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
@@ -188,7 +197,7 @@ def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
         if job.status != "QUEUED" or job.attempt_count != 0:
             raise PaidOrderExecutionRejected(409, "execution job is terminal or already attempted")
         try:
-            order, control, _ = _execution_context(db, job)
+            order, control, _, runtime_identity = _execution_context(db, job)
         except PaidOrderExecutionRejected as exc:
             if exc.code == 409:
                 job.status = "BLOCKED"
@@ -229,7 +238,8 @@ def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
             "requester_id": control.requester_id,
             "approver_id": control.approver_id,
             "attempt": 1,
-            "source_commit": runtime_source_commit(),
+            "source_commit": runtime_identity["source_commit"],
+            "image_digest": runtime_identity["image_digest"],
         })
         db.commit()
         tenant_id = job.tenant_id
@@ -276,6 +286,8 @@ def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
             "invocation_type": invocation_type,
             "real_llm_invoked": real_llm_invoked,
             "llm_invocations": llm_invocations,
+            "source_commit": runtime_identity["source_commit"],
+            "image_digest": runtime_identity["image_digest"],
             "replay_status": result.get("replay_verification", {}).get("status"),
             "decision_report_sha256": report.get("report_sha256"),
             "report": result,
@@ -323,6 +335,8 @@ def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
             "started_evidence_id": start_evidence["id"],
             "run_id": public_result.get("run_id"),
             "status": final_status,
+            "source_commit": runtime_identity["source_commit"],
+            "image_digest": runtime_identity["image_digest"],
             "decision_report_sha256": public_result.get("decision_report_sha256"),
             "error_code": error_code,
         })
