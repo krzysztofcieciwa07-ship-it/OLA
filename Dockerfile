@@ -64,6 +64,16 @@ COPY tests ./tests
 COPY web ./web
 
 RUN apk add --no-cache ca-certificates libgcc libffi openssl \
+    && echo "=== Base-image pip vendored packages before removal ===" \
+    && cat /usr/local/lib/python3.13/site-packages/pip/_vendor/vendor.txt \
+    && echo "=== Base-image ensurepip wheels before removal ===" \
+    && find /usr/local/lib/python3.13/ensurepip -maxdepth 2 -type f -name '*.whl' -print 2>/dev/null || true
+RUN rm -rf /usr/local/lib/python3.13/site-packages/pip \
+           /usr/local/lib/python3.13/site-packages/pip-*.dist-info \
+           /usr/local/lib/python3.13/ensurepip \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13 \
+    && test ! -e /usr/local/lib/python3.13/site-packages/pip \
+    && test ! -d /usr/local/lib/python3.13/ensurepip \
     && OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python -c 'import json,os,pathlib; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"]},sort_keys=True),encoding="utf-8")' \
     && adduser -D --uid 10001 ola \
     && mkdir -p /data \
