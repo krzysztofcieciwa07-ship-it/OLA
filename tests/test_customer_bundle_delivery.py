@@ -129,9 +129,10 @@ def test_delivery_lifecycle_has_distinct_persistent_bundle_grant_and_attempt_mod
     assert {"status", "recipient_principal_id", "recipient_person_ref"} <= set(
         models.CustomerBundleRecipientGrant.__table__.columns.keys()
     )
-    assert {"status", "attempt_no", "bundle_id", "grant_id"} <= set(
-        models.CustomerBundleDeliveryAttempt.__table__.columns.keys()
-    )
+    assert {
+        "status", "attempt_no", "bundle_id", "grant_id",
+        "acknowledged_at", "acknowledgement_evidence_id",
+    } <= set(models.CustomerBundleDeliveryAttempt.__table__.columns.keys())
 
 
 def test_recipient_grant_requires_dual_control_from_distinct_hr_people():
