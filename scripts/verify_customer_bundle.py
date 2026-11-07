@@ -8,8 +8,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from app.customer_bundle.verifier import verify_customer_bundle
-
 
 def _read_trust_store(path: Path) -> tuple[dict[str, bytes], set[str], dict | None]:
     try:
@@ -92,6 +90,11 @@ def main() -> int:
     parser.add_argument("bundle", type=Path, help="Customer evidence ZIP")
     parser.add_argument("--trust-store", required=True, type=Path, help="Out-of-band trusted Ed25519 public key JSON")
     args = parser.parse_args()
+
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from app.customer_bundle.verifier import verify_customer_bundle
 
     try:
         trusted, revoked, timestamp_config = _read_trust_store(args.trust_store)

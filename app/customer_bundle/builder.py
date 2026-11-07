@@ -131,6 +131,10 @@ def build_customer_bundle(
         raise CustomerBundleRejected("bundle_id must be a canonical UUID")
     if type(bundle_version) is not int or bundle_version < 1:
         raise CustomerBundleRejected("bundle version must be a positive integer")
+    if type(approved_at) is not int or type(signed_at) is not int:
+        raise CustomerBundleRejected("approval and signing timestamps must be integer Unix timestamps")
+    if signed_at < approved_at:
+        raise CustomerBundleRejected("signing timestamp precedes approval")
     if (
         type(created_at) is not int
         or type(expires_at) is not int
@@ -142,8 +146,6 @@ def build_customer_bundle(
         raise CustomerBundleRejected("sanitized report JSON bytes are required")
     if not isinstance(evidence_excerpt, bytes):
         raise CustomerBundleRejected("order evidence excerpt must be bytes")
-    if not isinstance(approved_at, int) or not isinstance(signed_at, int):
-        raise CustomerBundleRejected("approval and signing timestamps must be integer Unix timestamps")
     if not HEX_64_RE.fullmatch(approved_tip_hash or "") or not HEX_64_RE.fullmatch(signing_tip_hash or ""):
         raise CustomerBundleRejected("approval and signing Evidence tips must be SHA-256 digests")
 
@@ -167,9 +169,6 @@ def build_customer_bundle(
     report_sha256 = _sha256(report_json)
     if clean_approval.get("report_sha256") != report_sha256:
         raise CustomerBundleRejected("approval report digest does not match sanitized report")
-    if signed_at < approved_at:
-        raise CustomerBundleRejected("signing timestamp precedes approval")
-
     if not isinstance(igor_attestation, dict):
         raise CustomerBundleRejected("independent IGOR attestation is required")
     igor_payload = dict(igor_attestation)
