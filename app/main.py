@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.exc import IntegrityError
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, append_evidence_atomic, prepare_runtime_schema, verify_postgres_schema
@@ -120,7 +120,17 @@ def bootstrap_staging_bff_key(x_staging_bootstrap_token: str | None = Header(def
             db.commit()
         except IntegrityError as exc:
             db.rollback()
+            original = getattr(exc, "orig", None)
+            driver_diag = getattr(original, "diag", None)
+            database_diagnostics["sqlstate"] = (
+                getattr(original, "sqlstate", None)
+                or getattr(driver_diag, "sqlstate", None)
+            )
+            database_diagnostics["constraint"] = getattr(driver_diag, "constraint_name", None)
             with SessionLocal() as diagnostic_db:
+                database_diagnostics["db_user"] = diagnostic_db.execute(
+                    text("SELECT current_user")
+                ).scalar_one()
                 database_diagnostics["tenant_exists_after_conflict"] = (
                     diagnostic_db.get(Tenant, tenant_id) is not None
                 )
@@ -132,6 +142,12 @@ def bootstrap_staging_bff_key(x_staging_bootstrap_token: str | None = Header(def
                         )
                     ) or 0
                 )
+                database_diagnostics["tenants_insert_privilege"] = diagnostic_db.execute(
+                    text("SELECT has_table_privilege(current_user, 'public.tenants', 'INSERT')")
+                ).scalar_one()
+                database_diagnostics["api_keys_insert_privilege"] = diagnostic_db.execute(
+                    text("SELECT has_table_privilege(current_user, 'public.api_keys', 'INSERT')")
+                ).scalar_one()
             return JSONResponse(
                 status_code=409,
                 content={"detail": "staging BFF key insert conflict", "diagnostics": database_diagnostics},
