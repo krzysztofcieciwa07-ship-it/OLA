@@ -41,12 +41,12 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#030609;border:1px so
 
   <section class="panel" aria-labelledby="run-title">
     <h2 id="run-title">Uruchom zadanie</h2>
-    <p class="muted">Wykonanie wymaga skonfigurowanego klucza usługi po stronie BFF i rzeczywistego dostawcy LLM. Zadanie oraz zdarzenia przebiegu są zapisywane w Evidence.</p>
+    <p class="muted">Wykonanie wymaga klucza usługi po stronie BFF. Raport pokazuje rzeczywisty tryb runtime i provenance. VERIFIED w trybie deterministycznym potwierdza ścieżkę Evidence/IGOR, ale nie dowodzi wywołania zewnętrznego LLM.</p>
     <form id="runForm">
       <label for="task"><strong>Instrukcja dla OLA</strong></label>
       <textarea id="task" maxlength="2000" required placeholder="Opisz jedno konkretne zadanie do wykonania…"></textarea>
       <div class="row">
-        <small>Maksymalnie 2000 znaków · narzędzie: llm_agent · brak dostępu do checkoutu</small>
+        <small>Maksymalnie 2000 znaków · tryb runtime jawny w raporcie · bez checkoutu</small>
         <button id="runBtn" type="submit">Uruchom na stagingu</button>
       </div>
     </form>
@@ -101,12 +101,21 @@ runForm.addEventListener("submit", async (event) => {
     const igorOk = payload.igor && payload.igor.status === "VERIFIED";
     const provenanceOk = payload.provenance && payload.provenance.status === "VERIFIED";
     const replayOk = payload.replay_verification && payload.replay_verification.status === "VERIFIED";
-    const allProofsOk = response.ok && ninaOk && igorOk && provenanceOk && replayOk;
-    const humanReviewPending = payload.human_gate && payload.human_gate.status !== "APPROVED";
-    if (allProofsOk && humanReviewPending) {
-      runState.textContent = "NINA / IGOR / provenance / replay VERIFIED — Human Gate nadal wymaga zatwierdzenia";
-    } else if (allProofsOk) {
-      runState.textContent = "Dowody wykonania zweryfikowane";
+    const integrityProofsOk = response.ok && ninaOk && igorOk && provenanceOk && replayOk;
+    const invocationType = payload.provenance && payload.provenance.invocation_type;
+    const realLlmVerified = invocationType === "real_llm";
+    const humanGateStatus = payload.human_gate && payload.human_gate.status
+      ? payload.human_gate.status
+      : "UNKNOWN";
+    if (integrityProofsOk && realLlmVerified) {
+      runState.textContent = humanGateStatus === "APPROVED"
+        ? "NINA / IGOR / provenance / replay VERIFIED — real LLM confirmed"
+        : "NINA / IGOR / provenance / replay VERIFIED — Human Gate nadal wymaga zatwierdzenia";
+    } else if (integrityProofsOk) {
+      runState.textContent = "Evidence / IGOR VERIFIED — tryb runtime: "
+        + (invocationType || "UNKNOWN")
+        + "; wywołanie realnego LLM nie jest potwierdzone; Human Gate: "
+        + humanGateStatus;
     } else {
       runState.textContent = "Wynik nie został w pełni zweryfikowany";
     }
