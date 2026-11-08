@@ -92,7 +92,7 @@ pytest
 Build and run the container:
 
 ```bash
-docker build -t ola:local .
+docker build --build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)" -t ola:local .
 docker run --rm -p 8000:8000 -v ola-data:/data ola:local
 ```
 
