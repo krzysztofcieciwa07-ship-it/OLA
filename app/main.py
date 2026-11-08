@@ -87,13 +87,14 @@ def bootstrap_staging_bff_key(x_staging_bootstrap_token: str | None = Header(def
     tenant_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "ola-di-os://staging/bff/v1"))
     raw_key = "ola_stg_" + secrets.token_urlsafe(32)
     key_hash = api_key_fingerprint(raw_key)
+    key_id = str(uuid.uuid4())
 
     with SessionLocal() as db:
         if db.get(Tenant, tenant_id) is not None:
             raise HTTPException(status_code=409, detail="staging BFF key already bootstrapped")
         db.add(Tenant(id=tenant_id, name="OLA di-OS Staging BFF"))
         db.add(ApiKey(
-            id=str(uuid.uuid4()),
+            id=key_id,
             tenant_id=tenant_id,
             key_hash=key_hash,
             role="service",
@@ -109,7 +110,7 @@ def bootstrap_staging_bff_key(x_staging_bootstrap_token: str | None = Header(def
         content={
             "api_key": raw_key,
             "tenant_id": tenant_id,
-            "key_id": db.get(ApiKey, None).id if False else None,
+            "key_id": key_id,
             "scope": "staging_only",
             "issued_once": True,
         },
