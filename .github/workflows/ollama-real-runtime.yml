@@ -71,7 +71,7 @@ jobs:
           PY
 
       - name: Build OLA image
-        run: docker build --tag ola-ollama-e2e --file Dockerfile .
+        run: docker build --build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)" --tag ola-ollama-e2e --file Dockerfile .
 
       - name: Start OLA against live Ollama
         shell: bash
