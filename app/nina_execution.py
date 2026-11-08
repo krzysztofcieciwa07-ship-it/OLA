@@ -30,6 +30,9 @@ def run_nina_task(tenant_id, requester_id, task_text, requested_tools, *, execut
     if plan.status != "ALLOW":
         return {
             "task_id": nina_task.task_id,
+            "result": None,
+            "evidence_ids": [],
+            "evidence_count": 0,
             "nina": {"status": plan.status, "reason": plan.reason},
             "igor": {"status": "UNKNOWN", "reason": "execution did not start"},
             "provenance": {"status": "NOT_CREATED"},
@@ -195,6 +198,9 @@ def run_nina_task(tenant_id, requester_id, task_text, requested_tools, *, execut
     return {
         "task_id": nina_task.task_id,
         "run_id": run_id,
+        "result": runtime["runtime"].get("final_result"),
+        "evidence_ids": [record["id"] for record in run_record_dicts],
+        "evidence_count": len(run_record_dicts),
         "tip_hash": tip_hash,
         "nina": nina_summary,
         "igor": igor_summary,
