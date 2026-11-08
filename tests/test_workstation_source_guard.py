@@ -13,7 +13,7 @@ def test_workstation_script_is_single_and_source_pinned():
     text = SCRIPT.read_text(encoding="utf-8")
     assert text.count('Write-Gate "WORKSTATION" "READY"') == 1
     assert text.count("git verify-commit $SourceCommit") == 1
-    assert text.count('docker build --tag $Image') == 1
+    assert text.count('docker build --build-arg "OLA_SOURCE_COMMIT=$actual" --tag $Image $RepoDir') == 1
     assert "^[0-9a-fA-F]{40}$" in text
     assert "OLA_SIGNER_FINGERPRINT" in text
     assert re.search(r'\$signatureStatus\s+-ne\s+"G"', text)
