@@ -97,8 +97,19 @@ runForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({ task })
     });
     const payload = await response.json();
-    const ok = response.ok && payload.status === "COMPLETED_UNVERIFIED";
-    runState.textContent = ok ? "Wykonanie zakończone — weryfikacja osobno" : "Brak potwierdzonego wykonania";
+    const ninaOk = payload.nina && payload.nina.status === "VERIFIED";
+    const igorOk = payload.igor && payload.igor.status === "VERIFIED";
+    const provenanceOk = payload.provenance && payload.provenance.status === "VERIFIED";
+    const replayOk = payload.replay_verification && payload.replay_verification.status === "VERIFIED";
+    const allProofsOk = response.ok && ninaOk && igorOk && provenanceOk && replayOk;
+    const humanReviewPending = payload.human_gate && payload.human_gate.status !== "APPROVED";
+    if (allProofsOk && humanReviewPending) {
+      runState.textContent = "NINA / IGOR / provenance / replay VERIFIED — Human Gate nadal wymaga zatwierdzenia";
+    } else if (allProofsOk) {
+      runState.textContent = "Dowody wykonania zweryfikowane";
+    } else {
+      runState.textContent = "Wynik nie został w pełni zweryfikowany";
+    }
     show(runOutput, { http_status: response.status, ...payload });
   } catch {
     runState.textContent = "Błąd połączenia";
