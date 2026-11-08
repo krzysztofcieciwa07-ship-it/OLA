@@ -8,7 +8,6 @@ const json = (res, status, payload) => {
 
 function getBaseUrl() {
   const raw = process.env.OLA_API_BASE_URL || "https://ola-fastapi-api-staging.up.railway.app";
-  if (!raw) throw new Error("OLA_API_BASE_URL is not configured");
   const url = new URL(raw);
   if (url.protocol !== "https:" || !url.hostname.endsWith(".up.railway.app")) {
     throw new Error("OLA_API_BASE_URL must be an HTTPS Railway service domain");
@@ -55,7 +54,7 @@ module.exports = async function handler(req, res) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 240000);
   try {
-    const upstream = await fetch(base + "/nina-workflow", {
+    const upstream = await fetch(base + "/nina-run", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -64,7 +63,10 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         task,
-        requested_tools: ["llm_agent"]
+        requested_tools: ["safe_expression"],
+        human_approved: false,
+        human_actor: "staging-console",
+        human_reason: "Browser submission is not independent human approval."
       }),
       cache: "no-store",
       signal: controller.signal
@@ -80,30 +82,44 @@ module.exports = async function handler(req, res) {
         ? result.detail.slice(0, 400)
         : "The OLA runtime rejected or could not complete this request.";
       return json(res, upstream.status >= 500 ? 503 : upstream.status, {
-        error: "ola_workflow_failed",
+        error: "ola_run_failed",
         upstream_status: upstream.status,
         detail
       });
     }
 
-    // Only return the execution contract fields; never proxy arbitrary upstream headers.
+    const evidenceIds = Array.isArray(result.evidence_ids)
+      ? result.evidence_ids.slice(0, 100)
+      : (result.decision_report && Array.isArray(result.decision_report.evidence_ids)
+        ? result.decision_report.evidence_ids.slice(0, 100)
+        : []);
+
+    // Explicit allowlist: expose the result and proof contract, never arbitrary upstream headers.
     return json(res, 200, {
       status: result.status || "UNKNOWN",
+      task_id: result.task_id || null,
       run_id: result.run_id || null,
-      results: result.results || {},
-      failed: result.failed || {},
-      skipped: result.skipped || [],
-      plan_digest: result.plan_digest || null,
-      evidence_ids: Array.isArray(result.evidence_ids) ? result.evidence_ids : [],
-      igor: result.igor || { status: "UNKNOWN", reason: "No IGOR report returned" },
-      human_gate: result.human_gate || "UNKNOWN",
-      verified: result.verified === true
+      result: Object.prototype.hasOwnProperty.call(result, "result") ? result.result : null,
+      evidence_ids: evidenceIds,
+      evidence_count: Number.isInteger(result.evidence_count)
+        ? result.evidence_count
+        : evidenceIds.length,
+      tip_hash: result.tip_hash || null,
+      nina: result.nina || { status: "UNKNOWN" },
+      igor: result.igor || { status: "UNKNOWN" },
+      provenance: result.provenance || { status: "UNKNOWN" },
+      replay: Array.isArray(result.replay) ? result.replay.slice(0, 100) : [],
+      replay_verification: result.replay_verification || { status: "UNKNOWN" },
+      policy: result.policy || { status: "UNKNOWN" },
+      status_fields: result.status_fields || {},
+      human_gate: result.human_gate || { status: "UNKNOWN" },
+      decision_report: result.decision_report || null
     });
   } catch (error) {
     return json(res, 503, {
       error: "ola_upstream_unavailable",
       message: error && error.name === "AbortError"
-        ? "OLA workflow exceeded the 240-second BFF timeout."
+        ? "OLA execution exceeded the 240-second BFF timeout."
         : "Unable to complete the request against the staging OLA runtime."
     });
   } finally {
