@@ -110,6 +110,9 @@ def bootstrap_staging_bff_key(x_staging_bootstrap_token: str | None = Header(def
                 headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
             )
         db.add(Tenant(id=tenant_id, name="OLA di-OS Staging BFF"))
+        # Persist the parent first: there is no ORM relationship ordering
+        # this FK dependency, so api_keys must not flush before tenants.
+        db.flush()
         db.add(ApiKey(
             id=key_id,
             tenant_id=tenant_id,
