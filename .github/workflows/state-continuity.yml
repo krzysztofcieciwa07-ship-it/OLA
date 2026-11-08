@@ -18,7 +18,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Build runtime image
-        run: docker build -t ola-state-continuity .
+        run: docker build --build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)" -t ola-state-continuity .
       - name: Start runtime with persistent volume
         shell: bash
         run: |
