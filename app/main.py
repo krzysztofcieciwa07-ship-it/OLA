@@ -949,6 +949,7 @@ def get_evidence_tip(x_api_key: str | None = Header(default=None)):
             )
         ) or 0
         return {
+            "tenant_id": tenant_id,
             "tip_hash": latest.record_hash if latest else "0" * 64,
             "record_count": int(count),
         }
