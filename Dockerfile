@@ -6,9 +6,12 @@ RUN apt-get update     && apt-get upgrade -y     && apt-get install -y --no-inst
 
 WORKDIR /app
 
-ARG OLA_SOURCE_COMMIT=UNKNOWN
+# Railway exposes the triggering Git commit at build time only when declared as ARG.
+# Local/CI callers may still override OLA_SOURCE_COMMIT explicitly.
+ARG RAILWAY_GIT_COMMIT_SHA=UNKNOWN
+ARG OLA_SOURCE_COMMIT=${RAILWAY_GIT_COMMIT_SHA}
 LABEL org.opencontainers.image.revision=${OLA_SOURCE_COMMIT}
-RUN OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python3.13 -c 'import json,os,pathlib; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"]},sort_keys=True),encoding="utf-8")'
+RUN OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python3.13 -c 'import json,os,pathlib,re; commit=os.environ["OLA_SOURCE_COMMIT"]; assert re.fullmatch(r"[0-9a-f]{40}", commit), "OLA_SOURCE_COMMIT must be an exact lowercase 40-character Git SHA"; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":commit},sort_keys=True),encoding="utf-8")'
 ENV OLA_BUILD_INFO_PATH=/app/ola-build-info.json
 
 COPY requirements.txt ./
