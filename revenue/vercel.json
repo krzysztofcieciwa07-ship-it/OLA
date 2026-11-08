@@ -3,9 +3,6 @@
   "functions": {
     "api/ola/run.js": {
       "maxDuration": 300
-    },
-    "api/ola/smoke.js": {
-      "maxDuration": 300
     }
   },
   "headers": [
