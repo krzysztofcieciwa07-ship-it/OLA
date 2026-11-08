@@ -59,6 +59,19 @@ def http(path, payload=None, key=None):
         return exc.code, json.loads(exc.read())
 
 
+def source_identity_matches(body, expected_commit):
+    identity = body.get("source_identity")
+    return (
+        isinstance(identity, dict)
+        and identity.get("schema") == "ola-source-identity/v1"
+        and identity.get("status") == "VERIFIED"
+        and identity.get("method") == "immutable_build_info"
+        and identity.get("source_commit") == expected_commit
+        and body.get("source_commit") == expected_commit
+        and body.get("failed_checks") == []
+    )
+
+
 def await_ready(expected_commit, timeout=110):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -66,7 +79,7 @@ def await_ready(expected_commit, timeout=110):
             code, body = http("/readyz")
             if (code == 200 and body.get("core_status") == "READY"
                     and body.get("system_acceptance") == "NOT_VERIFIED"
-                    and body.get("source_commit") == expected_commit):
+                    and source_identity_matches(body, expected_commit)):
                 return
         except (OSError, ValueError, TimeoutError):
             pass
@@ -198,8 +211,8 @@ def main():
         for _ in range(12):
             status, body = http("/readyz")
             if (status != 200 or body.get("core_status") != "READY"
-                    or body.get("source_commit") != commit):
-                raise RuntimeError("source-bound readyz not stable for 12-second observation")
+                    or not source_identity_matches(body, commit)):
+                raise RuntimeError("strict source identity not stable for 12-second observation")
             time.sleep(1)
         checks.append("health_stable_12s")
         proof = {
