@@ -78,6 +78,10 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn("RELEASE_IMAGE_SOURCE_BINDING=VERIFIED", release)
         self.assertIn("build_info_mutable", (ROOT / "app/main.py").read_text(encoding="utf-8"))
         self.assertIn("OLA_RUNTIME_COMMIT is a compatibility fallback", runtime)
+        self.assertIn("ARG RAILWAY_GIT_COMMIT_SHA=UNKNOWN", dockerfile)
+        self.assertIn("ARG OLA_SOURCE_COMMIT=${RAILWAY_GIT_COMMIT_SHA}", dockerfile)
+        self.assertIn('re.fullmatch(r"[0-9a-f]{40}", commit)', dockerfile)
+        self.assertLess(dockerfile.index("ARG RAILWAY_GIT_COMMIT_SHA="), dockerfile.index("ARG OLA_SOURCE_COMMIT="))
 
     def test_automated_runtime_never_claims_human_approval(self):
         proof = (ROOT / ".github/workflows/nina-real-runtime-provenance.yml").read_text(encoding="utf-8")
