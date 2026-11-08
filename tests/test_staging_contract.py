@@ -24,7 +24,8 @@ def test_rehearsal_covers_restart_restore_tamper_and_stability():
                      "health_stable_12s", "BACKUP_RESTORE",
                      "PRAGMA integrity_check", "sqlite_backup_restore_verified",
                      "image_revision_matches", "core_readyz_source_bound",
-                     "source_identity_verified"):
+                     "source_identity_verified", "source_identity_matches",
+                     "ola-source-identity/v1", "immutable_build_info", "failed_checks"):
         assert contract in script
 
 

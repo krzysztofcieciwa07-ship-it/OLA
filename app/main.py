@@ -157,19 +157,38 @@ def core_readiness():
     evidence triggers. No secrets or database paths enter the response.
     """
     failed = []
-    source = runtime_source_commit() or ""
-    if re.fullmatch(r"[a-fA-F0-9]{40}", source) is None:
+    # Readiness is always strict. Runtime environment markers are caller-
+    # controlled and must never substitute for image build metadata here.
+    source = runtime_source_commit(require_build_info=True) or ""
+    if re.fullmatch(r"[0-9a-f]{40}", source) is None:
         failed.append("source_commit")
 
-    if os.getenv("OLA_REQUIRE_BUILD_INFO", "0") == "1":
-        build_path = Path(os.getenv("OLA_BUILD_INFO_PATH", "/app/ola-build-info.json"))
-        try:
-            file_mode = build_path.stat().st_mode
-            parent_mode = build_path.parent.stat().st_mode
-            if (file_mode & 0o222) or (parent_mode & 0o222):
-                failed.append("build_info_mutable")
-        except OSError:
-            failed.append("build_info_missing")
+    build_path = Path(os.getenv("OLA_BUILD_INFO_PATH", "/app/ola-build-info.json"))
+    try:
+        file_mode = build_path.stat().st_mode
+        parent_mode = build_path.parent.stat().st_mode
+        if (file_mode & 0o222) or (parent_mode & 0o222):
+            failed.append("build_info_mutable")
+    except OSError:
+        failed.append("build_info_missing")
+
+    # Optional deployment pin: when supplied, the image metadata must match
+    # the exact source SHA expected by the deployment controller.
+    expected_source = os.getenv("OLA_BUILD_EXPECTED_SHA", "").strip()
+    if expected_source:
+        if re.fullmatch(r"[0-9a-f]{40}", expected_source) is None:
+            failed.append("expected_source_commit")
+        elif source != expected_source:
+            failed.append("source_commit_mismatch")
+
+    source_identity_ok = (
+        bool(source)
+        and "source_commit" not in failed
+        and "build_info_missing" not in failed
+        and "build_info_mutable" not in failed
+        and "expected_source_commit" not in failed
+        and "source_commit_mismatch" not in failed
+    )
 
     pepper = os.getenv("OLA_API_KEY_PEPPER", "")
     if len(pepper.encode("utf-8")) < 32:
@@ -214,7 +233,13 @@ def core_readiness():
         content={
             "core_status": "BLOCKED" if failed else "READY",
             "system_acceptance": "NOT_VERIFIED",
-            "source_commit": source if "source_commit" not in failed else None,
+            "source_commit": source if source_identity_ok else None,
+            "source_identity": {
+                "schema": "ola-source-identity/v1",
+                "status": "VERIFIED" if source_identity_ok else "UNAVAILABLE",
+                "method": "immutable_build_info" if source_identity_ok else None,
+                "source_commit": source if source_identity_ok else None,
+            },
             "failed_checks": failed,
             "scope": "local_core_only",
         },
@@ -924,6 +949,7 @@ def get_evidence_tip(x_api_key: str | None = Header(default=None)):
             )
         ) or 0
         return {
+            "tenant_id": tenant_id,
             "tip_hash": latest.record_hash if latest else "0" * 64,
             "record_count": int(count),
         }

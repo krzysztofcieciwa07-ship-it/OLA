@@ -18,7 +18,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Build runtime image
-        run: docker build -t ola-stress .
+        run: docker build --build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)" -t ola-stress .
       - name: Start runtime
         shell: bash
         run: |

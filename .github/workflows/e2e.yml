@@ -44,7 +44,7 @@ jobs:
         run: python scripts/verify_readme_claims.py
 
       - name: Build deployment image
-        run: docker build --tag ola:${GITHUB_SHA} .
+        run: docker build --build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)" --tag ola:${GITHUB_SHA} .
 
       - name: Run deployment image
         run: |

@@ -12,14 +12,16 @@ def client():
     return TestClient(app)
 
 
-def test_readyz_blocks_if_commit_missing(monkeypatch):
+def test_readyz_blocks_if_build_info_missing_even_when_runtime_commit_is_set(monkeypatch, tmp_path):
     monkeypatch.setenv("OLA_API_KEY_PEPPER", "runtime-check-fixture-0123456789abcdef")
-    monkeypatch.delenv("OLA_RUNTIME_COMMIT", raising=False)
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "a" * 40)
+    monkeypatch.setenv("OLA_BUILD_INFO_PATH", str(tmp_path / "missing.json"))
     response = client().get("/readyz")
     assert response.status_code == 503
     body = response.json()
     assert body["core_status"] == "BLOCKED"
     assert "source_commit" in body["failed_checks"]
+    assert body["source_identity"]["status"] == "UNAVAILABLE"
     assert body["system_acceptance"] == "NOT_VERIFIED"
 
 
@@ -31,18 +33,34 @@ def test_readyz_blocks_if_auth_pepper_missing(monkeypatch):
     assert "api_key_pepper" in response.json()["failed_checks"]
 
 
-def test_readyz_does_not_leak_pepper_and_returns_core_only(monkeypatch):
+def test_readyz_does_not_leak_pepper_and_returns_verified_build_identity(monkeypatch, tmp_path):
+    import json
     secret = "runtime-test-secret-0123456789abcdef"
+    path = tmp_path / "ola-build-info.json"
+    source = "a" * 40
+    path.write_text(json.dumps({"schema": "ola-build-info/v1", "source_commit": source}))
+    path.chmod(0o444)
+    tmp_path.chmod(0o555)
+    monkeypatch.setenv("OLA_BUILD_INFO_PATH", str(path))
     monkeypatch.setenv("OLA_API_KEY_PEPPER", secret)
-    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "a" * 40)
-    response = client().get("/readyz")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["core_status"] == "READY"
-    assert body["system_acceptance"] == "NOT_VERIFIED"
-    assert body["source_commit"] == "a" * 40
-    assert body["failed_checks"] == []
-    assert secret not in response.text
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "b" * 40)
+    try:
+        response = client().get("/readyz")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["core_status"] == "READY"
+        assert body["system_acceptance"] == "NOT_VERIFIED"
+        assert body["source_commit"] == source
+        assert body["source_identity"] == {
+            "schema": "ola-source-identity/v1",
+            "status": "VERIFIED",
+            "method": "immutable_build_info",
+            "source_commit": source,
+        }
+        assert body["failed_checks"] == []
+        assert secret not in response.text
+    finally:
+        tmp_path.chmod(0o755)
 
 
 def test_readyz_blocks_without_append_only_evidence_guards(monkeypatch):
@@ -99,7 +117,8 @@ def test_strict_readyz_blocks_mutable_build_info_and_ignores_env_spoof(monkeypat
     response = client().get("/readyz")
     assert response.status_code == 503
     body = response.json()
-    assert body["source_commit"] == source
+    assert body["source_commit"] is None
+    assert body["source_identity"]["status"] == "UNAVAILABLE"
     assert "build_info_mutable" in body["failed_checks"]
 
 
@@ -120,5 +139,28 @@ def test_strict_readyz_accepts_read_only_embedded_build_info(monkeypatch, tmp_pa
         body = response.json()
         assert body["source_commit"] == source
         assert body["core_status"] == "READY"
+    finally:
+        tmp_path.chmod(0o755)
+
+
+def test_readyz_blocks_build_info_when_expected_sha_does_not_match(monkeypatch, tmp_path):
+    import json
+    path = tmp_path / "ola-build-info.json"
+    embedded = "a" * 40
+    expected = "b" * 40
+    path.write_text(json.dumps({"schema": "ola-build-info/v1", "source_commit": embedded}))
+    path.chmod(0o444)
+    tmp_path.chmod(0o555)
+    monkeypatch.setenv("OLA_BUILD_INFO_PATH", str(path))
+    monkeypatch.setenv("OLA_BUILD_EXPECTED_SHA", expected)
+    monkeypatch.setenv("OLA_API_KEY_PEPPER", "runtime-check-fixture-0123456789abcdef")
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", expected)
+    try:
+        response = client().get("/readyz")
+        assert response.status_code == 503
+        body = response.json()
+        assert "source_commit_mismatch" in body["failed_checks"]
+        assert body["source_identity"]["status"] == "UNAVAILABLE"
+        assert body["source_commit"] is None
     finally:
         tmp_path.chmod(0o755)

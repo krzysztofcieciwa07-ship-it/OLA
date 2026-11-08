@@ -47,7 +47,7 @@ jobs:
           python -m pip install -r requirements.txt
           OLA_LLM_MODE=deterministic python -m pytest -q
       - name: Build exact-source runtime
-        run: docker build --tag "ola-product:${GITHUB_SHA}" .
+        run: docker build --build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)" --tag "ola-product:${GITHUB_SHA}" .
       - name: Start runtime
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

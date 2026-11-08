@@ -62,7 +62,7 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Build deployment image from exact source
         if: ${{ env.OPENAI_AVAILABLE == 'true' }}
-        run: docker build --tag "ola:${EXPECTED_COMMIT}" .
+        run: docker build --build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)" --tag "ola:${EXPECTED_COMMIT}" .
       - name: Run real runtime
         if: ${{ env.OPENAI_AVAILABLE == 'true' }}
         env:

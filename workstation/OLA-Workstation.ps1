@@ -54,7 +54,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Gate "SOURCE_PIN" "VERIFIED" $actual
 "repository=$RepoUrl" | Set-Content (Join-Path $EvidenceDir "source.txt")
 "commit=$actual" | Add-Content (Join-Path $EvidenceDir "source.txt")
-docker build --tag $Image $RepoDir | Tee-Object -FilePath (Join-Path $EvidenceDir "docker-build.log")
+docker build --build-arg "OLA_SOURCE_COMMIT=$actual" --tag $Image $RepoDir | Tee-Object -FilePath (Join-Path $EvidenceDir "docker-build.log")
 if ($LASTEXITCODE -ne 0) { Write-Gate "IMAGE_BUILD" "BLOCKED" "Docker build failed"; exit 40 }
 Write-Gate "IMAGE_BUILD" "VERIFIED" $Image
 docker run --rm $Image python -m pytest -q | Tee-Object -FilePath (Join-Path $EvidenceDir "pytest.txt")

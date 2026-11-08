@@ -532,6 +532,7 @@ def test_evidence_tip_requires_tenant_api_key_and_returns_only_tip(monkeypatch):
     )
     assert response.status_code == 200, response.text
     body = response.json()
+    assert body["tenant_id"] == ctx["tenant_id"]
     assert len(body["tip_hash"]) == 64
     assert body["record_count"] >= 2
-    assert set(body) == {"tip_hash", "record_count"}
+    assert set(body) == {"tenant_id", "tip_hash", "record_count"}

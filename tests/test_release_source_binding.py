@@ -53,6 +53,22 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn("chmod -R a-w /app", dockerfile)
         self.assertIn("ola-build-info.json", dockerfile)
         self.assertIn("--build-arg OLA_SOURCE_COMMIT=", nina)
+        for workflow in (
+            ".github/workflows/e2e.yml",
+            ".github/workflows/ola-product-gate.yml",
+            ".github/workflows/runtime-stress.yml",
+            ".github/workflows/state-continuity.yml",
+            ".github/workflows/provenance-mutation.yml",
+            ".github/workflows/provenance-gate-final.yml",
+            ".github/workflows/ollama-real-runtime.yml",
+            ".github/workflows/supply-chain-evidence.yml",
+            ".github/workflows/igor-independent-evidence.yml",
+            ".github/workflows/nina-real-runtime-provenance.yml",
+        ):
+            with self.subTest(workflow=workflow):
+                self.assertIn("--build-arg OLA_SOURCE_COMMIT=", (ROOT / workflow).read_text(encoding="utf-8"))
+        self.assertIn('OLA_SOURCE_COMMIT=$actual', (ROOT / "workstation/OLA-Workstation.ps1").read_text(encoding="utf-8"))
+        self.assertIn('--build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)"', (ROOT / "README.md").read_text(encoding="utf-8"))
         self.assertIn("OLA_REQUIRE_BUILD_INFO=1", nina)
         self.assertIn("0000000000000000000000000000000000000000", nina)
         self.assertIn("--build-arg OLA_SOURCE_COMMIT=", release)
