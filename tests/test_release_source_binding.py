@@ -67,7 +67,7 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         ):
             with self.subTest(workflow=workflow):
                 self.assertIn("--build-arg OLA_SOURCE_COMMIT=", (ROOT / workflow).read_text(encoding="utf-8"))
-        self.assertIn("--build-arg OLA_SOURCE_COMMIT=", (ROOT / "workstation/OLA-Workstation.ps1").read_text(encoding="utf-8"))
+        self.assertIn('OLA_SOURCE_COMMIT=$actual', (ROOT / "workstation/OLA-Workstation.ps1").read_text(encoding="utf-8"))
         self.assertIn('--build-arg OLA_SOURCE_COMMIT="$(git rev-parse HEAD)"', (ROOT / "README.md").read_text(encoding="utf-8"))
         self.assertIn("OLA_REQUIRE_BUILD_INFO=1", nina)
         self.assertIn("0000000000000000000000000000000000000000", nina)
