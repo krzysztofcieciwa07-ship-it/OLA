@@ -36,10 +36,10 @@ def postgres_db(monkeypatch):
         with admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{schema}" TO "{runtime_role}"')
             conn.exec_driver_sql(
-                f'GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA "{schema}" TO "{runtime_role}"'
+                f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "{schema}".evidence_records TO "{runtime_role}"'
             )
             conn.exec_driver_sql(
-                f'REVOKE UPDATE, DELETE ON TABLE "{schema}".evidence_records FROM "{runtime_role}"'
+                f'GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA "{schema}" TO "{runtime_role}"'
             )
             conn.exec_driver_sql(
                 f'REVOKE ALL ON TABLE "{schema}".ola_schema_migrations FROM "{runtime_role}"'
@@ -66,6 +66,10 @@ def postgres_db(monkeypatch):
         monkeypatch.setattr(database, "SessionLocal", sessionmaker(
             bind=runtime_engine, autocommit=False, autoflush=False,
         ))
+        with migration_engine.begin() as conn:
+            assert database.restrict_postgres_evidence_runtime_privileges(
+                conn, runtime_role=runtime_role
+            ) is True
         database.verify_postgres_schema(runtime_engine)
         yield database, runtime_engine, migration_engine, admin_engine, runtime_role, schema
     finally:
@@ -135,8 +139,8 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
         )
     with pytest.raises(RuntimeError, match="must not have UPDATE, DELETE or TRUNCATE"):
         database.verify_postgres_schema(runtime_engine)
-    with _admin_engine.begin() as conn:
-        conn.exec_driver_sql(
-            f'REVOKE UPDATE, TRUNCATE ON TABLE "{_schema}".evidence_records FROM "{runtime_role}"'
-        )
+    with migration_engine.begin() as conn:
+        assert database.restrict_postgres_evidence_runtime_privileges(
+            conn, runtime_role=runtime_role
+        ) is True
     database.verify_postgres_schema(runtime_engine)

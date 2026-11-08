@@ -116,6 +116,45 @@ def create_postgres_append_only_triggers(connection):
     """)
 
 
+def restrict_postgres_evidence_runtime_privileges(connection, runtime_role="ola_runtime"):
+    """Enforce and verify append-only privileges for a PostgreSQL runtime role.
+
+    The role may inherit privileges through membership, so verification uses
+    has_table_privilege after REVOKE rather than trusting the ACL text alone.
+    Missing roles are a no-op for isolated integration schemas that create
+    their own runtime role later.
+    """
+    if not isinstance(runtime_role, str) or not re.fullmatch(r"[a-z_][a-z0-9_]*", runtime_role):
+        raise ValueError("invalid PostgreSQL runtime role identifier")
+    exists = connection.execute(
+        text("SELECT 1 FROM pg_roles WHERE rolname = :role"),
+        {"role": runtime_role},
+    ).first()
+    if exists is None:
+        return False
+
+    quoted_role = f'"{runtime_role}"'
+    connection.exec_driver_sql(
+        f"REVOKE UPDATE, DELETE, TRUNCATE ON TABLE evidence_records FROM {quoted_role}"
+    )
+    connection.exec_driver_sql(
+        f"GRANT SELECT, INSERT ON TABLE evidence_records TO {quoted_role}"
+    )
+    privileges = connection.execute(text("""
+        SELECT has_table_privilege(:role, 'evidence_records', 'SELECT'),
+               has_table_privilege(:role, 'evidence_records', 'INSERT'),
+               has_table_privilege(:role, 'evidence_records', 'UPDATE'),
+               has_table_privilege(:role, 'evidence_records', 'DELETE'),
+               has_table_privilege(:role, 'evidence_records', 'TRUNCATE')
+    """), {"role": runtime_role}).one()
+    if not privileges[0] or not privileges[1] or any(privileges[2:]):
+        raise RuntimeError(
+            f"PostgreSQL runtime role {runtime_role} does not have the required "
+            "SELECT/INSERT-only privileges on evidence_records"
+        )
+    return True
+
+
 def install_append_only_triggers(bind=None):
     """Create SQLite triggers; on PostgreSQL verify migration-installed triggers."""
     target = bind or engine
@@ -315,6 +354,10 @@ def migrate_postgres_schema(target_engine):
         """))
         conn.execute(text("UPDATE stripe_events SET task = NULL WHERE task IS NOT NULL"))
         create_postgres_append_only_triggers(conn)
+        restrict_postgres_evidence_runtime_privileges(
+            conn,
+            runtime_role=os.getenv("OLA_DATABASE_RUNTIME_ROLE", "ola_runtime").strip(),
+        )
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
             VALUES (:version, :description)
