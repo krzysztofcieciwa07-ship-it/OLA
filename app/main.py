@@ -90,8 +90,25 @@ def bootstrap_staging_bff_key(x_staging_bootstrap_token: str | None = Header(def
     key_id = str(uuid.uuid4())
 
     with SessionLocal() as db:
-        if db.get(Tenant, tenant_id) is not None:
-            raise HTTPException(status_code=409, detail="staging BFF key already bootstrapped")
+        existing_tenant = db.get(Tenant, tenant_id)
+        existing_service_key_count = db.scalar(
+            select(func.count()).select_from(ApiKey).where(
+                ApiKey.tenant_id == tenant_id,
+                ApiKey.role == "service",
+            )
+        ) or 0
+        database_diagnostics = {
+            "dialect": engine.dialect.name,
+            "database": engine.url.database if engine.dialect.name == "postgresql" else "sqlite",
+            "tenant_exists": existing_tenant is not None,
+            "service_key_count": int(existing_service_key_count),
+        }
+        if existing_tenant is not None:
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "staging BFF key already bootstrapped", "diagnostics": database_diagnostics},
+                headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+            )
         db.add(Tenant(id=tenant_id, name="OLA di-OS Staging BFF"))
         db.add(ApiKey(
             id=key_id,
@@ -103,7 +120,23 @@ def bootstrap_staging_bff_key(x_staging_bootstrap_token: str | None = Header(def
             db.commit()
         except IntegrityError as exc:
             db.rollback()
-            raise HTTPException(status_code=409, detail="staging BFF key already bootstrapped") from exc
+            with SessionLocal() as diagnostic_db:
+                database_diagnostics["tenant_exists_after_conflict"] = (
+                    diagnostic_db.get(Tenant, tenant_id) is not None
+                )
+                database_diagnostics["service_key_count_after_conflict"] = int(
+                    diagnostic_db.scalar(
+                        select(func.count()).select_from(ApiKey).where(
+                            ApiKey.tenant_id == tenant_id,
+                            ApiKey.role == "service",
+                        )
+                    ) or 0
+                )
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "staging BFF key insert conflict", "diagnostics": database_diagnostics},
+                headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+            )
 
     return JSONResponse(
         status_code=201,
