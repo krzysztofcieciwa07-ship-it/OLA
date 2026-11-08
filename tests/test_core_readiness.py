@@ -117,7 +117,8 @@ def test_strict_readyz_blocks_mutable_build_info_and_ignores_env_spoof(monkeypat
     response = client().get("/readyz")
     assert response.status_code == 503
     body = response.json()
-    assert body["source_commit"] == source
+    assert body["source_commit"] is None
+    assert body["source_identity"]["status"] == "UNAVAILABLE"
     assert "build_info_mutable" in body["failed_checks"]
 
 
