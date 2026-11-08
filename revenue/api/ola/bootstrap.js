@@ -52,7 +52,8 @@ module.exports = async function handler(req, res) {
 
   if (upstream.status !== 201 || !payload || typeof payload.api_key !== "string") {
     return json(res, upstream.status >= 500 ? 503 : upstream.status, {
-      error: payload && payload.detail ? payload.detail : "staging_bootstrap_failed"
+      error: payload && payload.detail ? payload.detail : "staging_bootstrap_failed",
+      diagnostics: payload && payload.diagnostics ? payload.diagnostics : null
     });
   }
 
