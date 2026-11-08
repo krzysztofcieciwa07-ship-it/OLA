@@ -7,7 +7,7 @@ const json = (res, status, payload) => {
 };
 
 function getBaseUrl() {
-  const raw = process.env.OLA_API_BASE_URL;
+  const raw = process.env.OLA_API_BASE_URL || "https://ola-fastapi-api-staging.up.railway.app";
   if (!raw) throw new Error("OLA_API_BASE_URL is not configured");
   const url = new URL(raw);
   if (url.protocol !== "https:" || !url.hostname.endsWith(".up.railway.app")) {
