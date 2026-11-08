@@ -2,13 +2,14 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import uuid
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.exc import IntegrityError
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, append_evidence_atomic, prepare_runtime_schema, verify_postgres_schema
@@ -64,6 +65,109 @@ def bearer_identity(authorization):
     if not token:
         raise HTTPException(status_code=401, detail="missing bearer token")
     return identity_from_key(token)
+
+
+@app.post("/_internal/staging/bootstrap-bff-key")
+def bootstrap_staging_bff_key(x_staging_bootstrap_token: str | None = Header(default=None)):
+    """Issue one tenant-scoped BFF key once, only in Railway staging.
+
+    The bootstrap token is separate from the resulting API key and is removed
+    from the deployment environment after the one-time operation.
+    """
+    expected = os.getenv("OLA_STAGING_BOOTSTRAP_SECRET", "")
+    environment = os.getenv("RAILWAY_ENVIRONMENT_NAME", "")
+    if (
+        environment != "staging"
+        or len(expected) < 48
+        or not x_staging_bootstrap_token
+        or not secrets.compare_digest(expected, x_staging_bootstrap_token)
+    ):
+        raise HTTPException(status_code=404, detail="not found")
+
+    tenant_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "ola-di-os://staging/bff/v1"))
+    raw_key = "ola_stg_" + secrets.token_urlsafe(32)
+    key_hash = api_key_fingerprint(raw_key)
+    key_id = str(uuid.uuid4())
+
+    with SessionLocal() as db:
+        existing_tenant = db.get(Tenant, tenant_id)
+        existing_service_key_count = db.scalar(
+            select(func.count()).select_from(ApiKey).where(
+                ApiKey.tenant_id == tenant_id,
+                ApiKey.role == "service",
+            )
+        ) or 0
+        database_diagnostics = {
+            "dialect": engine.dialect.name,
+            "database": engine.url.database if engine.dialect.name == "postgresql" else "sqlite",
+            "tenant_exists": existing_tenant is not None,
+            "service_key_count": int(existing_service_key_count),
+        }
+        if existing_tenant is not None:
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "staging BFF key already bootstrapped", "diagnostics": database_diagnostics},
+                headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+            )
+        db.add(Tenant(id=tenant_id, name="OLA di-OS Staging BFF"))
+        # Persist the parent first: there is no ORM relationship ordering
+        # this FK dependency, so api_keys must not flush before tenants.
+        db.flush()
+        db.add(ApiKey(
+            id=key_id,
+            tenant_id=tenant_id,
+            key_hash=key_hash,
+            role="service",
+        ))
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            original = getattr(exc, "orig", None)
+            driver_diag = getattr(original, "diag", None)
+            database_diagnostics["sqlstate"] = (
+                getattr(original, "sqlstate", None)
+                or getattr(driver_diag, "sqlstate", None)
+            )
+            database_diagnostics["constraint"] = getattr(driver_diag, "constraint_name", None)
+            with SessionLocal() as diagnostic_db:
+                database_diagnostics["db_user"] = diagnostic_db.execute(
+                    text("SELECT current_user")
+                ).scalar_one()
+                database_diagnostics["tenant_exists_after_conflict"] = (
+                    diagnostic_db.get(Tenant, tenant_id) is not None
+                )
+                database_diagnostics["service_key_count_after_conflict"] = int(
+                    diagnostic_db.scalar(
+                        select(func.count()).select_from(ApiKey).where(
+                            ApiKey.tenant_id == tenant_id,
+                            ApiKey.role == "service",
+                        )
+                    ) or 0
+                )
+                database_diagnostics["tenants_insert_privilege"] = diagnostic_db.execute(
+                    text("SELECT has_table_privilege(current_user, 'public.tenants', 'INSERT')")
+                ).scalar_one()
+                database_diagnostics["api_keys_insert_privilege"] = diagnostic_db.execute(
+                    text("SELECT has_table_privilege(current_user, 'public.api_keys', 'INSERT')")
+                ).scalar_one()
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "staging BFF key insert conflict", "diagnostics": database_diagnostics},
+                headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+            )
+
+    return JSONResponse(
+        status_code=201,
+        content={
+            "api_key": raw_key,
+            "tenant_id": tenant_id,
+            "key_id": key_id,
+            "scope": "staging_only",
+            "issued_once": True,
+        },
+        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+    )
 
 
 def append_record(tenant_id, record_type, payload, *, deduplicate=False):
