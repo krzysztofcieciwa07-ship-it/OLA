@@ -210,6 +210,15 @@ def consume_nonce(
 
     db = SessionLocal()
     try:
+        # SQLite's local single-process runtime has no separate SQL role.
+        # Keep its small development ledger bounded here; PostgreSQL cleanup
+        # is deliberately delegated to the separate maintenance principal.
+        if db.get_bind().dialect.name == "sqlite":
+            db.execute(
+                delete(SecureBridgeNonce).where(
+                    SecureBridgeNonce.expires_at <= current_time
+                )
+            )
         db.add(SecureBridgeNonce(
             key_id=key_id,
             nonce_hash=nonce_hash,

@@ -1,6 +1,7 @@
 """Contract tests for the Ed25519 authenticated agent invocation boundary."""
 
 import asyncio
+import hashlib
 import base64
 import json
 import secrets
@@ -438,6 +439,6 @@ def test_sqlite_nonce_insert_prunes_expired_rows_for_local_runtime():
             SecureBridgeNonce.key_id == key_id
         ).all()
     assert len(rows) == 1
-    assert rows[0].nonce_hash == __import__("hashlib").sha256(
+    assert rows[0].nonce_hash == hashlib.sha256(
         ("e" * 64).encode("ascii")
     ).hexdigest()
