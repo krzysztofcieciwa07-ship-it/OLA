@@ -128,14 +128,22 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
         required = {
             "capability", "tool", "tool_output", "result", "status",
             "agent_instance_id", "execution_boundary", "context_digest",
-            "invocation_type", "model", "provider",
+            "invocation_type", "model", "provider", "task_digest",
+            "input_digest", "model_output_digest",
         }
         if not required.issubset(payload):
             return fail(f"execution evidence incomplete for {agent}")
         if payload.get("commit") != expected_commit:
             return fail(f"runtime commit provenance mismatch for {agent}")
-        if payload.get("status") != "VERIFIED":
-            return fail(f"execution not verified for {agent}")
+        if payload.get("status") != "EXECUTED":
+            return fail(f"execution not complete for {agent}")
+        for digest_key in ("context_digest", "task_digest", "input_digest", "model_output_digest"):
+            digest_value = payload.get(digest_key)
+            if (not isinstance(digest_value, str) or len(digest_value) != 64
+                    or any(character not in "0123456789abcdef" for character in digest_value)):
+                return fail(f"invalid {digest_key} for {agent}")
+        if agent == "self_reflection" and payload.get("tool_output") != "PASS":
+            return fail("self-reflection did not pass")
         if payload.get("capability") != EXPECTED_CAPABILITIES.get(agent):
             return fail(f"unexpected capability for {agent}")
         if payload.get("execution_boundary") != "independent":
