@@ -1,0 +1,87 @@
+name: ${OLA_COMPOSE_PROJECT:-ola-certificate-apocalypse}
+services:
+  tls-target:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ola-chaos-tls:${OLA_SCENARIO_RUN_ID:-local}
+    command: ["tls"]
+    environment:
+      OLA_SERVER_MODE: tls
+      OLA_SCENARIO_RUN_ID: ${OLA_SCENARIO_RUN_ID:?run context missing}
+      OLA_SCENARIO_CHALLENGE: ${OLA_SCENARIO_CHALLENGE:?run challenge missing}
+      TLS_CERT_FILE: /run/certs/current/server.crt
+      TLS_KEY_FILE: /run/certs/current/server.key
+    volumes:
+      - ${OLA_CERT_DIR:?certificate directory required}:/run/certs:ro
+    user: "${OLA_UID:-1000}:${OLA_GID:-1000}"
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    networks: ["chaos"]
+
+  control-sentinel:
+    image: ola-chaos-tls:${OLA_SCENARIO_RUN_ID:-local}
+    command: ["control"]
+    environment:
+      OLA_SERVER_MODE: control
+      OLA_SCENARIO_RUN_ID: ${OLA_SCENARIO_RUN_ID:?run context missing}
+      OLA_SCENARIO_CHALLENGE: ${OLA_SCENARIO_CHALLENGE:?run challenge missing}
+    user: "${OLA_UID:-1000}:${OLA_GID:-1000}"
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    networks: ["chaos"]
+    depends_on: ["tls-target"]
+
+  chaos-runner:
+    image: python:3.13-slim
+    command: ["sleep", "infinity"]
+    environment:
+      OLA_SCENARIO_RUN_ID: ${OLA_SCENARIO_RUN_ID:?run context missing}
+      OLA_SCENARIO_CHALLENGE: ${OLA_SCENARIO_CHALLENGE:?run challenge missing}
+      OLA_TLS_HOST: tls-target
+      OLA_CONTROL_HOST: control-sentinel
+      TLS_PORT: "8443"
+      CONTROL_PORT: "8080"
+      OLA_CERT_DIR: /certs
+    volumes:
+      - ${OLA_REPO_ROOT:?repository root required}:/workspace:ro
+      - ${OLA_RUNTIME_DIR:?runtime directory required}:/evidence:rw
+      - ${OLA_CERT_DIR:?certificate directory required}:/certs:ro
+    user: "${OLA_UID:-1000}:${OLA_GID:-1000}"
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    networks: ["chaos"]
+    depends_on: ["tls-target", "control-sentinel"]
+
+  k6-runner:
+    image: grafana/k6:2.3.0
+    profiles: ["tools"]
+    entrypoint: ["k6"]
+    command: ["version"]
+    environment:
+      SSL_CERT_FILE: /evidence/certs/ca.crt
+      BASE_URL: https://tls-target:8443/health
+      RUN_ID: ${OLA_SCENARIO_RUN_ID:?run context missing}
+      CHALLENGE: ${OLA_SCENARIO_CHALLENGE:?run context missing}
+      FAULT_AFTER_SECONDS: ${OLA_FAULT_AFTER_SECONDS:?fault schedule missing}
+      FAULT_DURATION_SECONDS: ${OLA_FAULT_DURATION_SECONDS:?fault duration missing}
+      REQUEST_TIMEOUT: ${OLA_REQUEST_TIMEOUT:?request timeout missing}
+    volumes:
+      - ${OLA_SCENARIO_DIR:?scenario directory required}:/scenario:ro
+      - ${OLA_RUNTIME_DIR:?runtime directory required}:/evidence:rw
+    user: "${OLA_UID:-1000}:${OLA_GID:-1000}"
+    networks: ["chaos"]
+
+networks:
+  chaos:
+    internal: true
+    name: ${OLA_COMPOSE_PROJECT:?project name required}_chaos
