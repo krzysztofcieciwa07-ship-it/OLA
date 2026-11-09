@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -143,3 +145,34 @@ def test_published_docker_inspect_redacts_ephemeral_challenge():
     assert "OLA_SCENARIO_CHALLENGE=super-secret-challenge" not in json.dumps(sanitized)
     assert "OLA_SCENARIO_CHALLENGE=<redacted>" in json.dumps(sanitized)
     assert original[0]["Config"]["Env"][-1] == "OLA_SCENARIO_CHALLENGE=super-secret-challenge"
+
+
+
+def test_generated_good_certificate_validates_compose_service_hostname(tmp_path):
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    (runtime / "run_context.json").write_text(json.dumps({
+        "run_id": "contract-test-run",
+        "challenge_sha256": "0" * 64
+    }), encoding="utf-8")
+
+    generator = ROOT / "scripts/chaos/generate_tls_material.py"
+    subprocess.run(
+        [sys.executable, str(generator), "good", "--runtime", str(runtime)],
+        check=True,
+        capture_output=True,
+        text=True
+    )
+
+    cert_dir = runtime / "certs"
+    verification = subprocess.run(
+        [
+            "openssl", "verify",
+            "-CAfile", str(cert_dir / "ca.crt"),
+            "-verify_hostname", "tls-target",
+            str(cert_dir / "current/server.crt")
+        ],
+        capture_output=True,
+        text=True
+    )
+    assert verification.returncode == 0, verification.stdout + verification.stderr
