@@ -3,7 +3,11 @@ import json
 from pathlib import Path
 
 import pytest
-from jsonschema import Draft202012Validator
+
+try:
+    from jsonschema import Draft202012Validator
+except ImportError:  # Installed by the dedicated chaos workflow, not by OLA runtime CI.
+    Draft202012Validator = None
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = json.loads((ROOT / "schemas/chaos-scenario-v0.schema.json").read_text())
@@ -19,7 +23,13 @@ _assert_module = importlib.util.module_from_spec(_assert_spec)
 _assert_spec.loader.exec_module(_assert_module)
 
 
+def require_jsonschema():
+    if Draft202012Validator is None:
+        pytest.skip("jsonschema is installed and exercised by the dedicated chaos workflow")
+
+
 def test_certificate_apocalypse_matches_v0_schema():
+    require_jsonschema()
     Draft202012Validator.check_schema(SCHEMA)
     errors = list(Draft202012Validator(SCHEMA).iter_errors(SCENARIO))
     assert errors == []
@@ -32,6 +42,7 @@ def test_fault_catalog_marks_only_tls_expiry_as_implemented():
 
 
 def test_public_target_is_rejected_by_schema():
+    require_jsonschema()
     invalid = json.loads(json.dumps(SCENARIO))
     invalid["target"]["base_url"] = "https://example.com"
     errors = list(Draft202012Validator(SCHEMA).iter_errors(invalid))
@@ -46,6 +57,7 @@ def test_scoring_weights_are_normalized_and_thresholds_increase():
 
 
 def test_unknown_fault_is_rejected_by_schema():
+    require_jsonschema()
     invalid = json.loads(json.dumps(SCENARIO))
     invalid["fault"]["id"] = "pretend_certificate_was_fixed"
     errors = list(Draft202012Validator(SCHEMA).iter_errors(invalid))
@@ -53,6 +65,7 @@ def test_unknown_fault_is_rejected_by_schema():
 
 
 def test_missing_stability_policy_is_rejected():
+    require_jsonschema()
     invalid = json.loads(json.dumps(SCENARIO))
     del invalid["anti_llm"]["min_stable_seconds"]
     errors = list(Draft202012Validator(SCHEMA).iter_errors(invalid))
