@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID, ObjectIdentifier
 
@@ -43,7 +43,7 @@ def _der_utf8_string(value: str) -> bytes:
     else:
         raw = size.to_bytes((size.bit_length() + 7) // 8, "big")
         length = bytes([0x80 | len(raw)]) + raw
-    return b"\\x0c" + length + encoded
+    return b"\x0c" + length + encoded
 
 
 def _bundle(run_id=RUN_ID, run_attempt=RUN_ATTEMPT, *, include_extension=True):
@@ -70,7 +70,7 @@ def _bundle(run_id=RUN_ID, run_attempt=RUN_ATTEMPT, *, include_extension=True):
         "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
         "verificationMaterial": {
             "certificate": {
-                "rawBytes": base64.b64encode(certificate.public_bytes(x509.Encoding.DER)).decode("ascii"),
+                "rawBytes": base64.b64encode(certificate.public_bytes(serialization.Encoding.DER)).decode("ascii"),
             },
         },
     }, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -97,7 +97,7 @@ def _statement():
 
 def _payload(*, run_id=RUN_ID, run_attempt=RUN_ATTEMPT, bundle_bytes=None):
     actual_bundle = bundle_bytes or _bundle(run_id, run_attempt)
-    trusted_root = b'{"trustedRoot":"synthetic-test-root"}\\n'
+    trusted_root = b'{"trustedRoot":"synthetic-test-root"}\n'
     return json.dumps({
         "schema": SCHEMA,
         "repository": REPOSITORY,
@@ -131,7 +131,10 @@ def _verified_cli_result():
 
 
 def _verify(monkeypatch, *, payload=None, expected_run_id=RUN_ID, expected_run_attempt=RUN_ATTEMPT):
-    raw, root_sha = _payload() if payload is None else (payload, hashlib.sha256(b'{"trustedRoot":"synthetic-test-root"}\\n').hexdigest())
+    raw, root_sha = _payload() if payload is None else (
+        payload,
+        hashlib.sha256(b'{"trustedRoot":"synthetic-test-root"}\n').hexdigest(),
+    )
 
     def successful_gh_verify(command, **kwargs):
         bundle_path = Path(command[command.index("--bundle") + 1])
