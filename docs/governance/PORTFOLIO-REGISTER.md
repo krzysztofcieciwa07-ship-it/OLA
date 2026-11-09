@@ -60,7 +60,7 @@ The linked GitHub identity exposes 10 repositories owned by this user account an
 
 ## 3.1 Live PR and branch hygiene snapshot
 
-The 2026-11-09 API snapshot shows 167 branches and 77 open PRs (65 Draft, 12 ready). Forty-two open PRs have not been updated for more than 14 days; seven have not been updated for more than 30 days. Use age only to prioritise review, not as an automatic reason to close. Triage each PR into **MERGE CANDIDATE**, **SUPERSEDED**, **BLOCKED**, or **CLOSE WITH REASON**.
+The 2026-11-09 API snapshot shows 167 branches and 77 open PRs (65 Draft, 12 ready). Forty-two open PRs have not been updated for more than 14 days; seven have not been updated for more than 30 days. Use age only to prioritise review, not as an automatic reason to close. Triage each PR into **MERGE CANDIDATE**, **SUPERSEDED**, **BLOCKED**, or **CLOSE WITH REASON**. The row-level snapshot is in [OPEN-PR-TRIAGE-2026-11-09.csv](OPEN-PR-TRIAGE-2026-11-09.csv); all 77 entries begin as `UNREVIEWED` and require an explicit disposition.
 
 For the governance PR itself, commit `56185487aca8879197b2a71897e0082f799fce56` had 29 latest check contexts at snapshot: 27 succeeded and 2 were skipped. The skipped contexts are not passes. No PR review had been submitted. This is not a merge approval.
 
