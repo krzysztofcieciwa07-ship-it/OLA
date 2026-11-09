@@ -118,3 +118,69 @@ def test_agent_runtime_http_endpoint_blocks_unknown_commit(monkeypatch):
     )
     assert response.status_code == 200
     assert response.json()["status"] == "BLOCK"
+
+
+def test_safe_expression_blocks_arithmetic_and_complexity_failures():
+    from app.agent_runtime import _safe_expression
+
+    assert "outside safe execution policy" in _safe_expression("calculate 1/0")
+    assert "complexity limit" in _safe_expression("1+" + "+".join(["1"] * 100))
+    assert "safe execution policy" in _safe_expression("(" * 40 + "1" + ")" * 40)
+
+
+def test_deterministic_mode_never_calls_external_provider(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "deterministic")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("deterministic mode must not make network requests")
+
+    monkeypatch.setattr(httpx, "post", forbidden)
+    assert _invoke_llm("codeact", "calculate 1+1", {}) is None
+
+
+def test_agent_run_rejects_oversized_task_before_writing_evidence(monkeypatch):
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", TEST_SOURCE_COMMIT)
+    tenant_id = _seed_tenant("agent-key-oversized")
+    result = run_agent_task(tenant_id, "x" * 4097)
+
+    assert result["status"] == "BLOCK"
+    assert result["evidence_count"] == 0
+    assert result["run_id"] is None
+
+
+def test_agent_failure_writes_terminal_run_evidence(monkeypatch):
+    from app.agent_runtime import AGENT_ROLES
+    from app.hashchain import verify_chain
+    from app.models import EvidenceRecord
+    from sqlalchemy import select
+    import json
+
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", TEST_SOURCE_COMMIT)
+    tenant_id = _seed_tenant("agent-key-failure-terminal")
+
+    from app import agent_runtime
+    original = agent_runtime._append_agent_evidence
+    calls = {"count": 0}
+
+    def fail_on_second(tenant, run_id, agent, task, previous_output, execution):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise RuntimeError("synthetic failure")
+        return original(tenant, run_id, agent, task, previous_output, execution)
+
+    monkeypatch.setattr(agent_runtime, "_append_agent_evidence", fail_on_second)
+    result = run_agent_task(tenant_id, "safe synthetic task")
+
+    assert result["status"] == "FAILED"
+    with SessionLocal() as db:
+        rows = db.scalars(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq)).all()
+    types = [row.record_type for row in rows]
+    assert "execution.run.start" in types
+    assert "execution.run.error" in types
+    assert "execution.run.end" in types
+    assert not any("safe synthetic task" in row.payload_json for row in rows)
