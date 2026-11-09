@@ -417,4 +417,6 @@ def test_provenance_packager_requires_out_of_band_trusted_root_pin(tmp_path, mon
             image_name=IMAGE_NAME,
             image_digest=IMAGE_DIGEST,
             expected_trusted_root_sha256="0" * 64,
+            run_id=RUN_ID,
+            run_attempt=RUN_ATTEMPT,
         )
