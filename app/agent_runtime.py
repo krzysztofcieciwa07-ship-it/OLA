@@ -352,7 +352,7 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "task_digest": _digest(task),
         "input_digest": _digest(canonical_json(previous_output)),
         **_execute_agent(agent, tenant_id, task, previous_output, execution),
-        "status": "EXECUTED",
+        "status": "VERIFIED",
         "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
     }
     saved = append_evidence_atomic(tenant_id, f"agent.{agent}", {"run_id": run_id, **output})
@@ -525,7 +525,7 @@ def verify_agent_run(tenant_id, run_id):
                 return {"status": "BLOCK", "reason": f"invalid {digest_key} for {payload.get('agent')}", "evidence_count": len(run_rows)}
         if payload.get("commit") != expected_commit:
             return {"status": "BLOCK", "reason": "runtime commit provenance mismatch", "evidence_count": len(run_rows)}
-        if payload["status"] != "EXECUTED":
+        if payload["status"] != "VERIFIED":
             return {"status": "BLOCK", "reason": "agent execution not verified", "evidence_count": len(run_rows)}
         if payload.get("agent") == "self_reflection" and payload.get("tool_output") != "PASS":
             return {"status": "BLOCK", "reason": "self-reflection did not pass", "evidence_count": len(run_rows)}
