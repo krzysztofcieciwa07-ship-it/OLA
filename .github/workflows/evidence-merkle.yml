@@ -1,0 +1,32 @@
+name: OLA Evidence Merkle Checkpoints
+
+on:
+  pull_request:
+    paths:
+      - "app/evidence_merkle.py"
+      - "tests/test_evidence_merkle.py"
+      - "docs/evidence-merkle-checkpoints-v0.1.md"
+      - "requirements.txt"
+      - ".github/workflows/evidence-merkle.yml"
+  push:
+    branches: ["feat/evidence-merkle-checkpoints-20261109"]
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-merkle:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install repository dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile application and tests
+        run: python -m compileall -q app tests
+      - name: Merkle checkpoint contract tests
+        run: pytest -q tests/test_evidence_merkle.py
