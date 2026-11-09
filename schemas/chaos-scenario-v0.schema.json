@@ -22,8 +22,8 @@
       "required": ["runtime", "service", "base_url", "resources", "collateral_sentinels"],
       "properties": {
         "runtime": { "const": "docker-compose" },
-        "service": { "type": "string", "minLength": 1 },
-        "base_url": { "type": "string", "pattern": "^https://(127\\.0\\.0\\.1|localhost)(:[0-9]+)?$" },
+        "service": { "const": "tls-target" },
+        "base_url": { "const": "https://tls-target:8443" },
         "resources": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
         "collateral_sentinels": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }
       }

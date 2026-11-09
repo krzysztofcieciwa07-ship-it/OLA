@@ -17,26 +17,32 @@ def main():
     args = parser.parse_args()
     runtime = args.output.resolve()
     runtime.mkdir(parents=True, exist_ok=True)
-    scenario = json.loads(args.scenario.read_text(encoding="utf-8"))
+    scenario_path = args.scenario.resolve()
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
     target_url = urlsplit(scenario["target"]["base_url"])
-    if target_url.scheme != "https" or target_url.hostname not in {"127.0.0.1", "localhost"}:
-        raise SystemExit("chaos target must be an HTTPS loopback URL")
-    target_host = target_url.hostname
-    target_port = target_url.port or 443
-    target_base_url = scenario["target"]["base_url"].rstrip("/") + "/health"
+    target_service = scenario["target"]["service"]
+    if (
+        target_url.scheme != "https"
+        or target_url.hostname != target_service
+        or target_service != "tls-target"
+        or target_url.port != 8443
+        or target_url.path not in ("", "/")
+        or target_url.query
+        or target_url.fragment
+    ):
+        raise SystemExit("chaos target must be the fixed tls-target service on the internal Compose network")
+    target_host, target_port = target_service, target_url.port
+    target_base_url = f"https://{target_host}:{target_port}/health"
     # Docker Compose project names are deliberately lowercase.
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dt%H%M%sz") + "-" + secrets.token_hex(5)
     challenge = secrets.token_urlsafe(32)
     fault_policy = scenario["anti_llm"]["randomized_fault_window"]
-    fault_after = secrets.randbelow(
-        fault_policy["max_seconds"] - fault_policy["min_seconds"] + 1
-    ) + fault_policy["min_seconds"]
+    fault_after = secrets.randbelow(fault_policy["max_seconds"] - fault_policy["min_seconds"] + 1) + fault_policy["min_seconds"]
     fault_duration = scenario["fault"]["schedule"]["fault_duration_seconds"]
-    stability_min = scenario["anti_llm"]["min_stable_seconds"]
-    stability = stability_min + secrets.randbelow(5)
-    base_vus = scenario["traffic"]["vus"]
-    vus = max(1, base_vus + secrets.choice((-1, 0, 1)))
+    stability = scenario["anti_llm"]["min_stable_seconds"] + secrets.randbelow(5)
+    vus = max(1, scenario["traffic"]["vus"] + secrets.choice((-1, 0, 1)))
     total = fault_after + fault_duration + stability + 8
+    repo_root = Path(__file__).resolve().parents[2]
     context = {
         "schema": "ola-chaos-run-context/v0",
         "run_id": run_id,
@@ -57,25 +63,30 @@ def main():
         "slo": scenario["traffic"]["slo"],
         "policy_source": "scenario_dsl_plus_runner_randomization"
     }
-    (runtime / "run_context.json").write_text(
-        json.dumps(context, sort_keys=True, indent=2) + "\n", encoding="utf-8"
-    )
+    (runtime / "run_context.json").write_text(json.dumps(context, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     cert_dir = runtime / "certs"
     cert_dir.mkdir(parents=True, exist_ok=True)
     env = {
         "OLA_SCENARIO_RUN_ID": run_id,
         "OLA_SCENARIO_CHALLENGE": challenge,
         "OLA_CERT_DIR": str(cert_dir),
+        "OLA_RUNTIME_DIR": str(runtime),
+        "OLA_REPO_ROOT": str(repo_root),
+        "OLA_SCENARIO_DIR": str(scenario_path.parent),
         "OLA_COMPOSE_PROJECT": "ola-ca-" + run_id.replace("-", "")[:20],
         "OLA_UID": str(os.getuid() if hasattr(os, "getuid") else 1000),
         "OLA_GID": str(os.getgid() if hasattr(os, "getgid") else 1000),
         "OLA_TLS_HOST": target_host,
+        "OLA_CONTROL_HOST": "control-sentinel",
         "TLS_PORT": str(target_port),
-        "CONTROL_PORT": "8080"
+        "CONTROL_PORT": "8080",
+        "OLA_FAULT_AFTER_SECONDS": str(fault_after),
+        "OLA_FAULT_DURATION_SECONDS": str(fault_duration),
+        "OLA_LOAD_DURATION_SECONDS": str(total),
+        "OLA_VUS": str(vus),
+        "OLA_REQUEST_TIMEOUT": scenario["traffic"]["request_timeout"]
     }
-    (runtime / "scenario.env").write_text(
-        "".join(f"{key}={value}\n" for key, value in env.items()), encoding="utf-8"
-    )
+    (runtime / "scenario.env").write_text("".join(f"{key}={value}\n" for key, value in env.items()), encoding="utf-8")
     for name in ("events.jsonl", "certificate-events.jsonl", "command-ledger.jsonl", "probe-samples.jsonl"):
         (runtime / name).write_text("", encoding="utf-8")
     print(json.dumps({
