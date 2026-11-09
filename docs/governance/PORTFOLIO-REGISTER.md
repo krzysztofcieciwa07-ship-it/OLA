@@ -58,6 +58,36 @@ The linked GitHub identity exposes 10 repositories owned by this user account an
 
 **Total on this connected account: 10 repositories and 205 branch refs.** The OLA count includes the governance branch created for PR #199.
 
+### OLA branch shape
+
+The 167 OLA branch refs are distributed as follows:
+
+| Prefix / group | Branches |
+|---|---:|
+| `fix/*` | 45 |
+| `feat/*` | 33 |
+| `security/*` | 21 |
+| Unprefixed names | 18 |
+| `integration/*` | 14 |
+| `docs/*` | 5 |
+| `hardening/*` | 4 |
+| `ops/*` | 4 |
+| `ui/*` | 3 |
+| `chore/*` | 3 |
+| `codex/*` | 2 |
+| `integrate/*` | 2 |
+| `governance/*` | 2 |
+| Other single-branch prefixes | 11 |
+
+Notable duplicate HEAD groups identified before this governance branch was created:
+- Nine `fix/agent-runtime-minimal-*` refs pointed to the same commit.
+- `feat/runtime-image-attestation-20261107`, `integration/ola-first-five-closure-20261106` and `integration/replit-bff-recovery-20261107` pointed to the same commit.
+- Other pairs included `fix/final-production-gate-20261006` / `fix/final-production-gate-stage-20261006` and `fix/agent-runtime-source-binding-20261105` / `verify/pr170-final-head-20261105`.
+
+These refs are cleanup candidates only after verifying their PR association and unique history. The active OLA ruleset currently prohibits branch deletion, so deletion cannot be performed safely until the rule is reviewed and replaced with the approved governance policy.
+
+Branch browser: [all OLA branches](https://github.com/krzysztofcieciwa07-ship-it/OLA/branches/all) · [open OLA pull requests](https://github.com/krzysztofcieciwa07-ship-it/OLA/pulls)
+
 Several product repositories have empty GitHub descriptions/topics. Repository metadata should be applied only after this classification and the canonical source decisions are accepted.
 
 ## 4. Second public login — `krzys167-crypto`
@@ -101,7 +131,9 @@ A public repository search surfaced 32 repositories under this separate login. T
 | `ola.dios.audit-gmail.com` | 1 | — | ADJACENT FORK — ownership/purpose to confirm |
 | `homebrew-core` | 1 | — | UPSTREAM FORK |
 
-**Total under this separate public login: 32 repositories and 150 branch refs.** Counts are from the branch API listing; the larger branch inventories are recorded by count and key branch patterns rather than copying every ref into this document.
+**Total under this separate public login: 32 repositories and 150 branch refs.** Together, the two public logins expose 42 repositories and 355 branch refs. These remain separate GitHub identities; common ownership is not established by this audit. Counts are from the branch API listing; the larger branch inventories are recorded by count and key branch patterns rather than copying every ref into this document.
+
+Branch browsers: [second-account OLA branches](https://github.com/krzys167-crypto/OLA/branches/all) · [Vantage v0.3 branches](https://github.com/krzys167-crypto/Vantage-v0.3/branches/all) · [Quantum branches](https://github.com/krzys167-crypto/quantum-ai-chatbot/branches/all)
 
 **OLA/Vantage-related findings**
 - `OLA` is a divergent source from the ship-it repository, not a mirror.
