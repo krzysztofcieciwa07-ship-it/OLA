@@ -23,6 +23,8 @@ def main() -> int:
     parser.add_argument("--workflow-identity", required=True)
     parser.add_argument("--image-name", required=True)
     parser.add_argument("--image-digest", required=True)
+    parser.add_argument("--run-id", required=True, type=int)
+    parser.add_argument("--run-attempt", required=True, type=int)
     parser.add_argument("--expected-trusted-root-sha256", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--gh-binary", default="gh")
@@ -40,6 +42,8 @@ def main() -> int:
             image_name=args.image_name,
             image_digest=args.image_digest,
             expected_trusted_root_sha256=args.expected_trusted_root_sha256,
+            run_id=args.run_id,
+            run_attempt=args.run_attempt,
             gh_binary=args.gh_binary,
         )
         args.output.write_bytes(payload)
