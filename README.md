@@ -146,3 +146,14 @@ Until all required evidence is present, describe production readiness as `UNKNOW
 ## Security
 
 Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities or preparing a release. Never commit API keys, Stripe secrets, signing keys, customer data, or production evidence containing sensitive information.
+
+
+## Development secrets and bundle runtime
+
+Development requires two distinct 32-byte Base64 encryption keys. Check their presence without displaying values:
+
+```bash
+python scripts/check_development_secrets.py
+```
+
+See [Development secrets and customer-bundle runtime](docs/development-secrets-and-bundle-runtime.md) for the loopback-only test runtime, the `PARTIAL` evidence boundary, and the public HTTPS / production restrictions.
