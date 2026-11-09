@@ -1,0 +1,132 @@
+import hashlib
+import json
+import pytest
+
+from app.revenue import stripe_secret_key
+
+
+def test_stripe_secret_key_accepts_test_mode_key(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_example")
+    assert stripe_secret_key() == "sk_test_example"
+
+
+@pytest.mark.parametrize("key", ["sk_live_example", "rk_live_example", ""])
+def test_stripe_secret_key_rejects_live_or_missing_key(monkeypatch, key):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", key)
+    with pytest.raises(RuntimeError):
+        stripe_secret_key()
+
+
+def test_stripe_secret_key_rejects_live_key_even_when_live_flag_is_set(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_example")
+    monkeypatch.setenv("STRIPE_EXPECT_LIVEMODE", "true")
+    with pytest.raises(RuntimeError):
+        stripe_secret_key()
+
+
+def test_create_checkout_sends_stable_stripe_idempotency_header(monkeypatch):
+    import urllib.request
+
+    from app.revenue import create_checkout
+
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_example")
+    monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
+    captured = {}
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'{"id":"cs_test_idempotent123","url":"https://checkout.stripe.test/session"}'
+
+    def fake_urlopen(request, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    result = create_checkout(
+        "audit task",
+        "http://localhost:8000/payment-success",
+        "http://localhost:8000/",
+        "tenant-test",
+        idempotency_key="ola-checkout-order-123",
+        order_id="order-123",
+    )
+
+    assert result["id"] == "cs_test_idempotent123"
+    assert captured["request"].get_header("Idempotency-key") == "ola-checkout-order-123"
+    from urllib.parse import parse_qs
+    form = parse_qs(captured["request"].data.decode())
+    assert form["client_reference_id"] == ["order-123"]
+    assert form["metadata[order_id]"] == ["order-123"]
+    assert captured["timeout"] == 30
+
+
+def test_payment_verified_requires_sandbox_mode_and_order_binding():
+    from app.revenue import payment_verified
+
+    session = {
+        "livemode": False,
+        "payment_status": "paid",
+        "status": "complete",
+        "metadata": {
+            "product": "OLA Execution Audit",
+            "offer": "ola-execution-audit",
+            "tenant_id": "tenant-test",
+            "task": "audit task",
+            "order_id": "order-test",
+        },
+    }
+    assert payment_verified(session) is True
+
+    live = dict(session, livemode=True)
+    assert payment_verified(live) is False
+
+    unbound = dict(session, metadata={**session["metadata"], "order_id": ""})
+    assert payment_verified(unbound) is False
+
+    malformed = dict(session, metadata=[])
+    assert payment_verified(malformed) is False
+
+
+def test_create_checkout_sends_only_order_references_and_task_hash(monkeypatch):
+    import urllib.request
+    from urllib.parse import parse_qs
+    from app.revenue import create_checkout
+
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_example")
+    monkeypatch.setenv("OLA_STRIPE_PRICE_ID", "price_test_ola")
+    task = "confidential customer architecture and security details"
+    captured = {}
+
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self): return b'{"id":"cs_test_privacy123","url":"https://checkout.stripe.test/session"}'
+
+    def fake_urlopen(request, timeout):
+        captured["form"] = parse_qs(request.data.decode())
+        return Response()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    create_checkout(
+        task, "http://localhost:8000/payment-success", "http://localhost:8000/",
+        "tenant-private", idempotency_key="ola-checkout-private-123", order_id="order-private-123",
+    )
+    form = captured["form"]
+    assert "metadata[task]" not in form
+    assert form["metadata[request_hash]"] == [hashlib.sha256(task.encode()).hexdigest()]
+    assert form["metadata[order_id]"] == ["order-private-123"]
+    assert task not in request_data(captured["form"])
+
+
+def request_data(form):
+    return json.dumps(form)

@@ -1,0 +1,65 @@
+# Local-only staging rehearsal. No public listener or production data.
+services:
+  ola:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        OLA_SOURCE_COMMIT: ${OLA_RUNTIME_COMMIT:?required}
+    image: "ola-staging:${OLA_RUNTIME_COMMIT:?required}"
+    environment:
+      OLA_EG_DB_PATH: /data/ola.db
+      OLA_LLM_MODE: deterministic
+      OLA_API_KEY_PEPPER: "${OLA_API_KEY_PEPPER:?required}"
+      OLA_REQUIRE_BUILD_INFO: "1"
+      OLA_BUILD_EXPECTED_SHA: "${OLA_RUNTIME_COMMIT:?required}"
+      # Deliberate spoof sentinel: readiness must use image build metadata instead.
+      OLA_RUNTIME_COMMIT: "0000000000000000000000000000000000000000"
+    ports:
+      - "127.0.0.1:18080:8000"
+    volumes:
+      - ola-staging-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  ola-paid-order-worker:
+    image: "ola-staging:${OLA_RUNTIME_COMMIT:?required}"
+    command: ["python", "scripts/run_paid_order_worker.py"]
+    environment:
+      OLA_EG_DB_PATH: /data/ola.db
+      OLA_LLM_MODE: deterministic
+      OLA_API_KEY_PEPPER: "${OLA_API_KEY_PEPPER:?required}"
+      OLA_REQUIRE_BUILD_INFO: "1"
+      OLA_BUILD_EXPECTED_SHA: "${OLA_RUNTIME_COMMIT:?required}"
+      OLA_RUNTIME_COMMIT: "0000000000000000000000000000000000000000"
+      OLA_EXECUTION_WORKER_POLL_SECONDS: "5"
+      OLA_EXECUTION_WORKER_STALE_SECONDS: "900"
+    volumes:
+      - ola-staging-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: "no"
+    depends_on:
+      ola:
+        condition: service_healthy
+
+volumes:
+  ola-staging-data:

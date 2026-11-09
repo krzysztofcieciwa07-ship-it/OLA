@@ -1,0 +1,46 @@
+name: OLA Local Staging Rehearsal
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    env:
+      OLA_RUNTIME_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      OLA_LLM_MODE: deterministic
+    steps:
+      - name: Checkout exact source without stored credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Create disposable local-only auth pepper (masked)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, secrets
+          value = secrets.token_hex(32)
+          print("::add-mask::" + value)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write("OLA_API_KEY_PEPPER=" + value + "\n")
+          PY
+
+      - name: Run real Docker Compose audit, tamper and restart
+        run: python scripts/staging_rehearsal.py
+
+      - name: Upload sanitized local-only evidence receipt
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-staging-rehearsal-${{ github.event.pull_request.head.sha || github.sha }}
+          path: staging-proof.json
+          if-no-files-found: error
+          retention-days: 14

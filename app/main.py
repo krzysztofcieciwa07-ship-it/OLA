@@ -1,13 +1,18 @@
 import hashlib
 import json
 import os
+import re
 import uuid
+import time
 from pathlib import Path
+from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException, Request
-from starlette.responses import FileResponse
-from sqlalchemy import select
-from .database import Base, engine, SessionLocal, install_append_only_triggers, append_evidence_atomic
-from .models import Tenant, ApiKey, EvidenceRecord, StripeEvent
+from starlette.responses import FileResponse, JSONResponse
+from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
+from .runtime_provenance import runtime_source_commit
+from .database import Base, engine, SessionLocal, append_evidence_atomic, prepare_runtime_schema, verify_postgres_schema
+from .models import Tenant, ApiKey, EvidenceRecord, CheckoutOrder, CheckoutOrderControl, CheckoutExecutionJob
 from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
@@ -16,22 +21,19 @@ from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
 from .business_runtime import run_invoice_task
 from .nina import NinaOrchestrator, NinaTask, REGISTERED_TOOLS
 from .nina_workflow import run_nina_workflow
-from .nina_workflow_gate import approve_workflow, WorkflowApprovalRejected
+from .nina_workflow_gate import approve_workflow, approve_nina_candidate, WorkflowApprovalRejected
 from .workflow_engine import WorkflowPlanError
-from .igor import IgorVerifier
-from .replay import build_replay, verify_replay
-from .human_gate import HumanGate, ReviewDecision
-from .nina_igor import NinaIgorChain
-from .decision_report import build_decision_report
 from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
+from .order_approval import approve_paid_order, PaidOrderApprovalRejected
+from .paid_order_execution import execute_paid_order_job, verify_worker_token, PaidOrderExecutionRejected
+from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
 
 app = FastAPI(title="OLA Execution Gate")
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
-Base.metadata.create_all(bind=engine)
-install_append_only_triggers()
+prepare_runtime_schema()
 
 
 def identity_from_key(raw_key):
@@ -64,8 +66,8 @@ def bearer_identity(authorization):
     return identity_from_key(token)
 
 
-def append_record(tenant_id, record_type, payload):
-    return append_evidence_atomic(tenant_id, record_type, payload)
+def append_record(tenant_id, record_type, payload, *, deduplicate=False):
+    return append_evidence_atomic(tenant_id, record_type, payload, deduplicate=deduplicate)
 
 
 def read_tenant_evidence(tenant_id):
@@ -146,6 +148,79 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/readyz")
+def core_readiness():
+    """Read-only local CORE readiness, never whole-system production acceptance.
+
+    /health is liveness only. /readyz requires source provenance, an active
+    authentication pepper, a responsive supported database and append-only
+    evidence triggers. No secrets or database paths enter the response.
+    """
+    failed = []
+    source = runtime_source_commit() or ""
+    if re.fullmatch(r"[a-fA-F0-9]{40}", source) is None:
+        failed.append("source_commit")
+
+    if os.getenv("OLA_REQUIRE_BUILD_INFO", "0") == "1":
+        build_path = Path(os.getenv("OLA_BUILD_INFO_PATH", "/app/ola-build-info.json"))
+        try:
+            file_mode = build_path.stat().st_mode
+            parent_mode = build_path.parent.stat().st_mode
+            if (file_mode & 0o222) or (parent_mode & 0o222):
+                failed.append("build_info_mutable")
+        except OSError:
+            failed.append("build_info_missing")
+
+    pepper = os.getenv("OLA_API_KEY_PEPPER", "")
+    if len(pepper.encode("utf-8")) < 32:
+        failed.append("api_key_pepper")
+
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql("SELECT 1").scalar_one()
+        if engine.dialect.name == "sqlite":
+            with engine.connect() as conn:
+                # A named trigger can be a no-op, so verify stored definitions.
+                definitions = dict(conn.exec_driver_sql(
+                    "SELECT name, sql FROM sqlite_master "
+                    "WHERE type='trigger' AND tbl_name='evidence_records'"
+                ).all())
+            expected = {
+                "evidence_no_update": (
+                    "create trigger evidence_no_update before update on evidence_records "
+                    "begin select raise(abort, 'evidence_records is append-only'); end"
+                ),
+                "evidence_no_delete": (
+                    "create trigger evidence_no_delete before delete on evidence_records "
+                    "begin select raise(abort, 'evidence_records is append-only'); end"
+                ),
+            }
+            if any(
+                re.sub(r"\s+", " ", definitions.get(name) or "").strip().lower().rstrip(";")
+                != definition
+                for name, definition in expected.items()
+            ):
+                failed.append("evidence_append_only")
+        elif engine.dialect.name == "postgresql":
+            verify_postgres_schema(engine)
+        else:
+            failed.append("database_dialect")
+    except Exception:
+        # Never surface exception details: they may disclose internal paths.
+        failed.append("evidence_store")
+
+    return JSONResponse(
+        status_code=503 if failed else 200,
+        content={
+            "core_status": "BLOCKED" if failed else "READY",
+            "system_acceptance": "NOT_VERIFIED",
+            "source_commit": source if "source_commit" not in failed else None,
+            "failed_checks": failed,
+            "scope": "local_core_only",
+        },
+    )
+
+
 @app.get("/")
 def home():
     web_path = Path(__file__).resolve().parent.parent / "web" / "index.html"
@@ -167,22 +242,252 @@ def chat_endpoint(body: dict, x_api_key: str | None = Header(default=None)):
 
 
 @app.post("/checkout")
-def create_checkout_session(body: dict, x_api_key: str | None = Header(default=None)):
-    tenant_id = tenant_from_key(x_api_key)
+def create_checkout_session(
+    body: dict,
+    x_api_key: str | None = Header(default=None),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    tenant_id, requester_id = identity_from_key(x_api_key)
     task = body.get("task")
     if not isinstance(task, str) or not task.strip():
         raise HTTPException(status_code=400, detail="task is required")
-    success_url = body.get("success_url") or "http://localhost:8000/payment-success"
-    cancel_url = body.get("cancel_url") or "http://localhost:8000/"
-    try:
-        session = create_checkout(task.strip(), success_url, cancel_url, tenant_id)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail="checkout unavailable") from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail="checkout unavailable") from exc
-    append_record(tenant_id, "revenue.checkout_created", {"session_id": session.get("id"), "task": task.strip(), "amount": session.get("amount_total")})
-    return {"status": "READY_FOR_PAYMENT", "session_id": session.get("id"), "checkout_url": session.get("url")}
+    task = task.strip()
+    if not isinstance(idempotency_key, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", idempotency_key):
+        raise HTTPException(status_code=400, detail="a valid Idempotency-Key header is required")
 
+    public_base_url = os.getenv("OLA_PUBLIC_BASE_URL", "").rstrip("/")
+    try:
+        parsed_base_url = urlsplit(public_base_url)
+        parsed_port = parsed_base_url.port
+    except ValueError:
+        raise HTTPException(status_code=503, detail="a valid HTTPS OLA_PUBLIC_BASE_URL is required") from None
+    local_http = parsed_base_url.scheme == "http" and parsed_base_url.hostname in {"localhost", "127.0.0.1", "::1"}
+    if (
+        not public_base_url
+        or parsed_base_url.scheme not in {"https", "http"}
+        or not parsed_base_url.netloc
+        or parsed_base_url.username
+        or parsed_base_url.password
+        or parsed_base_url.path not in {"", "/"}
+        or parsed_base_url.query
+        or parsed_base_url.fragment
+        or (parsed_port is not None and not 1 <= parsed_port <= 65535)
+        or (parsed_base_url.scheme != "https" and not local_http)
+    ):
+        raise HTTPException(status_code=503, detail="a valid HTTPS OLA_PUBLIC_BASE_URL is required")
+    success_url = public_base_url + "/payment-success"
+    cancel_url = public_base_url + "/"
+
+    key_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+    request_hash = hashlib.sha256(task.encode("utf-8")).hexdigest()
+    order_id = None
+    reused_order = None
+    existing_payment_state = None
+    with SessionLocal() as db:
+        order = db.scalar(select(CheckoutOrder).where(
+            CheckoutOrder.tenant_id == tenant_id,
+            CheckoutOrder.idempotency_key_hash == key_hash,
+        ))
+        if order is None:
+            order = CheckoutOrder(
+                id=str(uuid.uuid4()),
+                tenant_id=tenant_id,
+                idempotency_key_hash=key_hash,
+                request_hash=request_hash,
+                task=task,
+                status="CREATING",
+            )
+            db.add(order)
+            try:
+                db.flush()
+                db.add(CheckoutOrderControl(
+                    id=str(uuid.uuid4()),
+                    order_id=order.id,
+                    tenant_id=tenant_id,
+                    requester_id=requester_id,
+                    status="CREATING",
+                ))
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                order = db.scalar(select(CheckoutOrder).where(
+                    CheckoutOrder.tenant_id == tenant_id,
+                    CheckoutOrder.idempotency_key_hash == key_hash,
+                ))
+                if order is None:
+                    raise HTTPException(status_code=503, detail="checkout order could not be reserved") from None
+        control = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == order.id,
+            CheckoutOrderControl.tenant_id == tenant_id,
+        ))
+        if control is None or not control.requester_id:
+            raise HTTPException(
+                status_code=409,
+                detail="legacy checkout order has no verified requester identity; manual reconciliation required",
+            )
+        if control.requester_id != requester_id:
+            raise HTTPException(status_code=403, detail="checkout order belongs to another API-key identity")
+        if order.request_hash != request_hash:
+            raise HTTPException(status_code=409, detail="Idempotency-Key was already used for a different task")
+        if not order.task:
+            # Existing reservations may be backfilled only by the original
+            # requester and only when the caller's request matches the stored hash.
+            order.task = task
+            db.commit()
+        if hashlib.sha256(order.task.encode("utf-8")).hexdigest() != order.request_hash:
+            raise HTTPException(status_code=409, detail="private checkout task does not match its request hash")
+        # Stripe may prune idempotency keys after its retention window. Never
+        # blindly retry a stale CREATING reservation and risk a second session.
+        if order.status == "CREATING" and int(time.time()) - order.created_at >= 23 * 60 * 60:
+            raise HTTPException(
+                status_code=409,
+                detail="checkout requires manual Stripe reconciliation; safe retry window expired",
+            )
+        if order.status == "CHECKOUT_CREATED" and order.stripe_session_id and order.checkout_url:
+            reused_order = {
+                "order_id": order.id,
+                "session_id": order.stripe_session_id,
+                "checkout_url": order.checkout_url,
+                "task": task,
+            }
+        elif order.status in {
+            "PAID_PENDING_REVIEW", "COMPLETED", "EXECUTED_REVIEW_REQUIRED",
+            "EXECUTED_BLOCKED", "FAILED", "INTERRUPTED", "BLOCKED",
+            "REPORT_APPROVED", "REPORT_DELIVERED",
+        }:
+            if not order.payment_result_json:
+                raise HTTPException(status_code=503, detail="durable payment result is unavailable")
+            control = db.scalar(select(CheckoutOrderControl).where(
+                CheckoutOrderControl.order_id == order.id,
+                CheckoutOrderControl.tenant_id == tenant_id,
+            ))
+            approved = bool(
+                order.status == "PAID_PENDING_REVIEW"
+                and control
+                and control.status == "APPROVED_FOR_EXECUTION"
+            )
+            execution_job = db.scalar(select(CheckoutExecutionJob).where(
+                CheckoutExecutionJob.order_id == order.id,
+                CheckoutExecutionJob.tenant_id == tenant_id,
+            ))
+            existing_payment_state = {
+                "status": "APPROVED_FOR_EXECUTION" if approved else order.status,
+                "order_id": order.id,
+                "session_id": order.stripe_session_id,
+                "payment": "CONFIRMED",
+                "execution": (
+                    "QUEUED" if approved else
+                    "NOT_STARTED" if order.status == "PAID_PENDING_REVIEW" else
+                    execution_job.status if execution_job else "UNKNOWN"
+                ),
+                "next_gate": (
+                    "EXECUTION_DISPATCH" if approved else
+                    "HUMAN_REVIEW" if order.status == "PAID_PENDING_REVIEW" else
+                    "CUSTOMER_REPORT_REVIEW" if order.status == "EXECUTED_REVIEW_REQUIRED" else
+                    "CUSTOMER_DELIVERY" if order.status == "REPORT_APPROVED" else
+                    "NONE" if order.status == "REPORT_DELIVERED" else
+                    "MANUAL_RECONCILIATION" if order.status in {"EXECUTED_BLOCKED", "FAILED", "INTERRUPTED", "BLOCKED"} else "NONE"
+                ),
+            }
+            if approved:
+                existing_payment_state["approval_record_hash"] = control.approval_record_hash
+            if execution_job is not None:
+                existing_payment_state["execution_job_id"] = execution_job.id
+                existing_payment_state["execution_job_status"] = execution_job.status
+                if execution_job.result_json:
+                    try:
+                        stored_execution = json.loads(execution_job.result_json)
+                    except (ValueError, TypeError):
+                        raise HTTPException(status_code=503, detail="durable execution status is invalid") from None
+                    existing_payment_state["report_review_status"] = (
+                        "PENDING_REVIEW" if stored_execution.get("status") == "EXECUTED_REVIEW_REQUIRED" else "NOT_REVIEWABLE"
+                    )
+                    existing_payment_state["report_sha256"] = stored_execution.get("decision_report_sha256")
+                    existing_payment_state["customer_delivery"] = "NOT_DELIVERED"
+            if order.payment_result_json:
+                try:
+                    existing_payment_state["payment_result"] = json.loads(order.payment_result_json)
+                except (ValueError, TypeError):
+                    raise HTTPException(status_code=503, detail="durable payment result is invalid") from None
+        elif order.status == "CREATING":
+            order_id = order.id
+            db.commit()
+        else:
+            raise HTTPException(status_code=409, detail="checkout order is already being processed or is not reusable")
+
+    if existing_payment_state is not None:
+        return existing_payment_state
+
+    if reused_order is not None:
+        append_record(tenant_id, "stripe.checkout_created", {
+            "ola_order_id": reused_order["order_id"],
+            "tenant_id": tenant_id,
+            "requester_id": requester_id,
+            "checkout_session_id": reused_order["session_id"],
+            "request_hash": request_hash,
+        }, deduplicate=True)
+        append_record(
+            tenant_id, "revenue.checkout_created", reused_order,
+            deduplicate=True,
+        )
+        return {
+            "status": "READY_FOR_PAYMENT",
+            "order_id": reused_order["order_id"],
+            "session_id": reused_order["session_id"],
+            "checkout_url": reused_order["checkout_url"],
+        }
+
+    provider_idempotency_key = f"ola-checkout-{order_id}"
+    try:
+        session = create_checkout(
+            task, success_url, cancel_url, tenant_id,
+            idempotency_key=provider_idempotency_key,
+            order_id=order_id,
+        )
+        session_id = session.get("id") if isinstance(session, dict) else None
+        checkout_url = session.get("url") if isinstance(session, dict) else None
+        if not isinstance(session_id, str) or not session_id.startswith("cs_test_") or not isinstance(checkout_url, str) or not checkout_url.startswith("https://"):
+            raise RuntimeError("Stripe returned an invalid Checkout Session")
+    except Exception as exc:
+        # Leave the durable order in CREATING. A retry with the same key
+        # reuses the same Stripe idempotency key and safely recovers the result.
+        raise HTTPException(status_code=502, detail="checkout unavailable; retry with the same Idempotency-Key") from exc
+
+    with SessionLocal() as db:
+        order = db.get(CheckoutOrder, order_id)
+        if order is None:
+            raise HTTPException(status_code=503, detail="checkout order state unavailable")
+        if order.stripe_session_id not in (None, session_id):
+            raise HTTPException(status_code=409, detail="checkout order is bound to a different Stripe session")
+        order.stripe_session_id = session_id
+        order.checkout_url = checkout_url
+        order.status = "CHECKOUT_CREATED"
+        control = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == order_id,
+            CheckoutOrderControl.tenant_id == tenant_id,
+        ))
+        if control is not None and control.status == "CREATING":
+            control.status = "CHECKOUT_CREATED"
+        db.commit()
+
+    append_record(tenant_id, "stripe.checkout_created", {
+        "ola_order_id": order_id,
+        "tenant_id": tenant_id,
+        "requester_id": requester_id,
+        "checkout_session_id": session_id,
+        "request_hash": request_hash,
+    }, deduplicate=True)
+    append_record(
+        tenant_id, "revenue.checkout_created",
+        {"order_id": order_id, "session_id": session_id, "request_hash": request_hash},
+        deduplicate=True,
+    )
+    return {
+        "status": "READY_FOR_PAYMENT",
+        "order_id": order_id,
+        "session_id": session_id,
+        "checkout_url": checkout_url,
+    }
 
 @app.get("/payment-success")
 def payment_success(session_id: str):
@@ -190,57 +495,136 @@ def payment_success(session_id: str):
         session = retrieve_checkout(session_id)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="payment lookup unavailable") from exc
-    tenant_id = session.get("metadata", {}).get("tenant_id")
-    if not tenant_id:
-        raise HTTPException(status_code=403, detail="payment session has no tenant provenance")
-    if not payment_verified(session):
-        append_record(tenant_id, "revenue.payment_blocked", {"session_id": session_id, "payment_status": session.get("payment_status"), "status": session.get("status")})
-        return {"status": "BLOCK", "reason": "payment not verified", "session_id": session_id}
-    task = session.get("metadata", {}).get("task")
-    if not task:
-        return {"status": "BLOCK", "reason": "paid session has no task", "session_id": session_id}
+    if not isinstance(session, dict) or session.get("id") != session_id:
+        raise HTTPException(status_code=502, detail="Stripe returned an invalid Checkout Session")
+    metadata = session.get("metadata")
+    if not isinstance(metadata, dict):
+        raise HTTPException(status_code=403, detail="payment session has no valid OLA metadata")
+    tenant_id = metadata.get("tenant_id")
+    order_id = metadata.get("order_id")
+    request_hash = metadata.get("request_hash")
+    if not isinstance(tenant_id, str) or not tenant_id or not isinstance(order_id, str) or not order_id:
+        raise HTTPException(status_code=403, detail="payment session has no OLA order provenance")
+    if not isinstance(request_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", request_hash):
+        # Compatibility for old sandbox sessions whose metadata still contains task text.
+        legacy_task = metadata.get("task")
+        request_hash = hashlib.sha256(legacy_task.strip().encode("utf-8")).hexdigest() if isinstance(legacy_task, str) and legacy_task.strip() else None
+    if not request_hash:
+        raise HTTPException(status_code=403, detail="payment session has no request hash")
 
-    # Different customers can buy the same audit task. Task text is not an
-    # order identity: only a webhook result for THIS Checkout Session may be
-    # returned to the caller. Legacy rows without checkout_session_id fail closed.
     with SessionLocal() as db:
-        candidates = db.scalars(
-            select(StripeEvent).where(
-                StripeEvent.status == "COMPLETED",
-                StripeEvent.task == task,
-            )
-        ).all()
-        matches = []
-        for candidate in candidates:
-            if not candidate.result_json:
-                continue
-            try:
-                recorded = json.loads(candidate.result_json)
-            except (ValueError, TypeError):
-                continue
-            if (isinstance(recorded, dict)
-                    and recorded.get("checkout_session_id") == session_id
-                    and recorded.get("status") == "COMPLETED"):
-                matches.append((candidate.run_id, recorded))
+        order = db.get(CheckoutOrder, order_id)
+        if (
+            order is None
+            or order.tenant_id != tenant_id
+            or order.stripe_session_id != session_id
+        ):
+            raise HTTPException(status_code=403, detail="payment session is not bound to this OLA order")
+        if order.request_hash != request_hash:
+            raise HTTPException(status_code=403, detail="payment session request hash does not match the OLA order")
+        if not isinstance(order.task, str) or not order.task:
+            legacy_task = metadata.get("task")
+            if isinstance(legacy_task, str) and legacy_task.strip() and hashlib.sha256(legacy_task.strip().encode("utf-8")).hexdigest() == order.request_hash:
+                order.task = legacy_task.strip()
+                db.commit()
+        if not isinstance(order.task, str) or hashlib.sha256(order.task.encode("utf-8")).hexdigest() != order.request_hash:
+            raise HTTPException(status_code=403, detail="private OLA order task is unavailable")
+        control = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == order_id,
+            CheckoutOrderControl.tenant_id == tenant_id,
+        ))
+        control_status = control.status if control is not None else "UNKNOWN"
 
-    if len(matches) > 1:
-        raise HTTPException(status_code=409, detail="conflicting Checkout Session executions")
-    if not matches:
-        return {
-            "status": "PAYMENT_CONFIRMED_EXECUTION_PENDING",
+        if not payment_verified(session):
+            blocked = True
+            order_status = order.status
+            recorded = None
+        else:
+            blocked = False
+            order_status = order.status
+            recorded = None
+            if order.status in {
+                "PAID_PENDING_REVIEW", "COMPLETED", "EXECUTED_REVIEW_REQUIRED",
+                "EXECUTED_BLOCKED", "FAILED", "INTERRUPTED", "BLOCKED",
+                "REPORT_APPROVED", "REPORT_DELIVERED",
+            }:
+                if not order.payment_result_json:
+                    raise HTTPException(status_code=503, detail="durable payment result is unavailable")
+                try:
+                    recorded = json.loads(order.payment_result_json)
+                except (ValueError, TypeError):
+                    raise HTTPException(status_code=503, detail="durable payment result is invalid") from None
+                if (
+                    not isinstance(recorded, dict)
+                    or recorded.get("checkout_session_id") != session_id
+                ):
+                    raise HTTPException(status_code=503, detail="durable payment result binding is invalid")
+
+    if blocked:
+        append_record(tenant_id, "revenue.payment_blocked", {
+            "order_id": order_id,
             "session_id": session_id,
-            "task": task,
-            "execution": "STRIPE_WEBHOOK",
+            "payment_status": session.get("payment_status"),
+            "status": session.get("status"),
+        }, deduplicate=True)
+        # Public success redirect is deliberately a status-only response.
+        return {"status": "PAYMENT_NOT_CONFIRMED", "execution": "NOT_STARTED"}
+
+    if order_status == "PAID_PENDING_REVIEW":
+        approved = control_status == "APPROVED_FOR_EXECUTION"
+        return {
+            "status": "APPROVED_FOR_EXECUTION" if approved else "PAID_PENDING_REVIEW",
+            "payment": "CONFIRMED",
+            "execution": "QUEUED" if approved else "NOT_STARTED",
+            "customer_delivery": "NOT_DELIVERED",
+            "next_gate": "EXECUTION_DISPATCH" if approved else "HUMAN_REVIEW",
         }
 
-    return {
-        "status": "COMPLETED",
-        "session_id": session_id,
-        "task": task,
-        "execution": "STRIPE_WEBHOOK",
-        "run_id": matches[0][0],
-        "result": matches[0][1],
-    }
+    if order_status in {"REPORT_APPROVED", "REPORT_DELIVERED"}:
+        return {
+            "status": order_status,
+            "payment": "CONFIRMED",
+            "execution": "COMPLETED",
+            "customer_delivery": "DELIVERED" if order_status == "REPORT_DELIVERED" else "NOT_DELIVERED",
+            "next_gate": "NONE" if order_status == "REPORT_DELIVERED" else "CUSTOMER_DELIVERY",
+        }
+
+    if order_status == "COMPLETED":
+        # Legacy completed orders must not disclose their stored task, report,
+        # run identifier, evidence identifiers or payment metadata here.
+        return {
+            "status": "COMPLETED",
+            "payment": "CONFIRMED",
+            "execution": "COMPLETED",
+            "customer_delivery": "NOT_DELIVERED",
+            "next_gate": "CUSTOMER_REPORT_REVIEW",
+        }
+
+    if order_status in {
+        "EXECUTED_REVIEW_REQUIRED", "EXECUTED_BLOCKED", "FAILED", "INTERRUPTED", "BLOCKED",
+    }:
+        return {
+            "status": order_status,
+            "payment": "CONFIRMED",
+            "execution": (
+                "COMPLETED" if order_status in {"EXECUTED_REVIEW_REQUIRED", "EXECUTED_BLOCKED"}
+                else "FAILED" if order_status == "FAILED"
+                else "INTERRUPTED" if order_status == "INTERRUPTED"
+                else "BLOCKED"
+            ),
+            "customer_delivery": "NOT_DELIVERED",
+            "next_gate": "CUSTOMER_REPORT_REVIEW" if order_status == "EXECUTED_REVIEW_REQUIRED" else "MANUAL_RECONCILIATION",
+        }
+
+    if order_status in {"CHECKOUT_CREATED", "PAYMENT_PROCESSING"}:
+        return {
+            "status": "PAYMENT_VERIFICATION_PENDING",
+            "execution": "NOT_STARTED",
+            "customer_delivery": "NOT_DELIVERED",
+            "next_gate": "STRIPE_WEBHOOK",
+        }
+
+    raise HTTPException(status_code=409, detail="OLA order is not in a payable state")
 
 
 @app.post("/evidence")
@@ -368,7 +752,7 @@ def refresh_nina_workflow_report(run_id: str,
     from .igor_workflow import verify_dag_records
 
     tenant_id, _ = bearer_identity(authorization)
-    expected_commit = os.getenv("OLA_RUNTIME_COMMIT")
+    expected_commit = runtime_source_commit()
     if not expected_commit:
         raise HTTPException(status_code=409, detail="runtime source commit unknown")
     evidence = read_tenant_evidence(tenant_id)
@@ -415,186 +799,12 @@ def create_nina_run(body: dict, x_api_key: str | None = Header(default=None)):
     requested_tools = body.get("requested_tools", ["safe_expression"])
     if not isinstance(requested_tools, list):
         raise HTTPException(status_code=400, detail="requested_tools must be a list")
+    from .nina_execution import run_nina_task
+    try:
+        return run_nina_task(tenant_id, requester_id, task_text, requested_tools)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    nina_task = NinaTask.create(tenant_id, task_text, requested_tools)
-    nina = NinaOrchestrator()
-    plan = nina.plan(nina_task)
-    if plan.status != "ALLOW":
-        return {
-            "task_id": nina_task.task_id,
-            "nina": {"status": plan.status, "reason": plan.reason},
-            "igor": {"status": "UNKNOWN", "reason": "execution did not start"},
-            "provenance": {"status": "NOT_CREATED"},
-            "replay": [],
-            "replay_verification": {"status": "UNKNOWN", "reason": "execution did not start"},
-            "human_gate": {"status": "BLOCK", "reason": "NINA blocked execution"},
-            "status": "BLOCK",
-        }
-
-    runtime = nina.execute(nina_task)
-    run_id = runtime["runtime"]["run_id"]
-    execution = runtime["runtime"].get("execution", [])
-    runtime_commit = os.getenv("OLA_RUNTIME_COMMIT")
-    provider = execution[0].get("provider") if execution else None
-    model = execution[0].get("model") if execution else None
-    invocation_type = execution[0].get("invocation_type") if execution else None
-    response_ids = [item.get("response_id") for item in execution if item.get("response_id")]
-    append_record(
-        tenant_id,
-        "provenance.runtime",
-        {
-            "run_id": run_id,
-            "commit": runtime_commit or "UNKNOWN",
-            "task": task_text,
-            "result": runtime["runtime"].get("final_result"),
-            "provider": provider,
-            "model": model,
-            "invocation_type": invocation_type,
-            "llm_invocations": len(execution),
-            "response_ids": response_ids,
-            "requester_id": requester_id,
-        },
-    )
-
-    with SessionLocal() as db:
-        rows = db.scalars(
-            select(EvidenceRecord)
-            .where(EvidenceRecord.tenant_id == tenant_id)
-            .order_by(EvidenceRecord.seq.asc())
-        ).all()
-
-    record_dicts = [
-        {
-            "id": row.id,
-            "tenant_id": row.tenant_id,
-            "seq": row.seq,
-            "prev_hash": row.prev_hash,
-            "record_hash": row.record_hash,
-            "record_type": row.record_type,
-            "payload_json": row.payload_json,
-        }
-        for row in rows
-    ]
-    run_record_dicts = []
-    for record in record_dicts:
-        try:
-            payload = json.loads(record["payload_json"])
-        except json.JSONDecodeError:
-            continue
-        if payload.get("run_id") == run_id:
-            run_record_dicts.append(record)
-
-    expected_provider = provider if invocation_type == "real_llm" else None
-    expected_model = model if invocation_type == "real_llm" else None
-    expected_result = execution[0].get("tool_output", "") if execution else ""
-    igor = IgorVerifier().verify_records(
-        record_dicts,
-        runtime_commit,
-        task_text,
-        expected_result,
-        expected_provider=expected_provider,
-        expected_model=expected_model,
-        expected_run_id=run_id,
-    )
-    replay = build_replay(record_dicts)
-    replay_verification = verify_replay(
-        record_dicts,
-        expected_run_id=run_id,
-        expected_tenant_id=tenant_id,
-        expected_record_count=len(record_dicts),
-        expected_tip_hash=record_dicts[-1]["record_hash"] if record_dicts else None,
-    )
-
-    review = ReviewDecision(
-        False,
-        "pending-human-approval",
-        "human approval required before promotion",
-    )
-    terminal = NinaIgorChain.finalize(runtime.get("status", "UNKNOWN"), igor.status, review)
-    nina_summary = {
-        "status": runtime.get("status", "UNKNOWN"),
-        "decision": plan.reason,
-        "provider": provider,
-        "model": model,
-        "invocation_type": invocation_type,
-        "llm_invocations": len(execution),
-    }
-    igor_summary = {"status": igor.status, "reason": igor.reason, "checks": igor.checks}
-    provenance = {
-        "status": "VERIFIED" if (
-            runtime.get("status") == "VERIFIED"
-            and runtime_commit
-            and provider
-            and model
-            and invocation_type
-            and (
-                invocation_type != "real_llm"
-                or len(response_ids) == len(execution)
-            )
-        ) else "BLOCK",
-        "commit": runtime_commit or "UNKNOWN",
-        "provider": provider,
-        "model": model,
-        "invocation_type": invocation_type,
-        "llm_invocations": len(execution),
-        "response_ids": response_ids,
-    }
-    report = build_decision_report(
-        task_id=nina_task.task_id,
-        run_id=run_id,
-        task=task_text,
-        nina=nina_summary,
-        igor=igor_summary,
-        replay={"status": replay_verification["status"], "events": replay, "verification": replay_verification},
-        human_gate=terminal,
-        evidence_ids=[record["id"] for record in run_record_dicts],
-        human_approved=review.approved,
-        human_actor=review.actor,
-        human_reason=review.reason,
-    )
-
-    replay_integrity_status = (
-        "VERIFIED"
-        if replay_verification["status"] == "VERIFIED"
-        else replay_verification["status"]
-    )
-    status_fields = {
-        "RUNTIME": nina_summary["status"],
-        "EVIDENCE": provenance["status"],
-        "REPLAY_INTEGRITY": replay_integrity_status,
-        "POLICY": report["policy"]["status"],
-        "HUMAN_GATE": "REVIEW",
-    }
-    execution_allowed_status = NinaIgorChain.derive_status(status_fields)
-    status_fields["EXECUTION_ALLOWED"] = execution_allowed_status
-    derived_status = execution_allowed_status
-    candidate_record = append_record(
-        tenant_id,
-        "decision.candidate",
-        {
-            "run_id": run_id,
-            "requester_id": requester_id,
-            "status_fields": status_fields,
-            "candidate_status": derived_status,
-        },
-    )
-    tip_hash = candidate_record["record_hash"]
-
-    return {
-        "task_id": nina_task.task_id,
-        "run_id": run_id,
-        "tip_hash": tip_hash,
-        "nina": nina_summary,
-        "igor": igor_summary,
-        "provenance": provenance,
-        "replay": replay,
-        "replay_verification": replay_verification,
-        "human_gate": terminal,
-        "policy": report["policy"],
-        "status_fields": status_fields,
-        "decision_report": report,
-        "status": derived_status,
-    }
 
 @app.post("/nina-run/{run_id}/approve")
 def approve_nina_run(
@@ -602,72 +812,78 @@ def approve_nina_run(
     body: dict,
     authorization: str | None = Header(default=None),
 ):
-    approver_tenant_id, approver_id = bearer_identity(authorization)
-    tip_hash = body.get("tip_hash")
-    if not isinstance(tip_hash, str) or not tip_hash:
-        raise HTTPException(status_code=400, detail="tip_hash is required")
+    tenant_id, approver_id = bearer_identity(authorization)
+    try:
+        return approve_nina_candidate(
+            tenant_id=tenant_id, approver_id=approver_id, run_id=run_id,
+            tip_hash=body.get("tip_hash"),
+            report_sha256=body.get("report_sha256"),
+            reason=body.get("reason"),
+        )
+    except WorkflowApprovalRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
-    with SessionLocal() as db:
-        rows = db.scalars(
-            select(EvidenceRecord)
-            .where(EvidenceRecord.tenant_id == approver_tenant_id)
-            .order_by(EvidenceRecord.seq.asc())
-        ).all()
 
-    if not rows:
-        raise HTTPException(status_code=404, detail="run evidence not found")
-    if rows[-1].record_hash != tip_hash:
-        raise HTTPException(status_code=409, detail="tip_hash is stale or does not match current chain tip")
+@app.post("/checkout-orders/{order_id}/approve")
+def approve_checkout_order(
+    order_id: str,
+    body: dict,
+    authorization: str | None = Header(default=None),
+):
+    tenant_id, approver_id = bearer_identity(authorization)
+    try:
+        return approve_paid_order(
+            tenant_id=tenant_id,
+            approver_id=approver_id,
+            order_id=order_id,
+            tip_hash=body.get("tip_hash"),
+            reason=body.get("reason"),
+        )
+    except PaidOrderApprovalRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
-    candidate = None
-    for row in rows:
-        if row.record_type != "decision.candidate":
-            continue
-        try:
-            payload = json.loads(row.payload_json)
-        except json.JSONDecodeError:
-            continue
-        if payload.get("run_id") == run_id:
-            candidate = payload
-            break
 
-    if candidate is None:
-        raise HTTPException(status_code=404, detail="decision candidate not found")
-    requester_id = candidate.get("requester_id")
-    if not requester_id:
-        raise HTTPException(status_code=409, detail="requester identity missing from decision candidate")
-    if approver_id == requester_id:
-        raise HTTPException(status_code=403, detail="approver must differ from requester")
+@app.post("/checkout-orders/{order_id}/review-report")
+def review_checkout_order_report(
+    order_id: str,
+    body: dict,
+    authorization: str | None = Header(default=None),
+):
+    tenant_id, reviewer_id = bearer_identity(authorization)
+    try:
+        return approve_paid_order_report(
+            tenant_id=tenant_id, reviewer_id=reviewer_id, order_id=order_id,
+            tip_hash=body.get("tip_hash"), report_sha256=body.get("report_sha256"),
+            reason=body.get("reason"),
+        )
+    except PaidReportReviewRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
-    candidate_fields = candidate.get("status_fields")
-    if not isinstance(candidate_fields, dict):
-        raise HTTPException(status_code=409, detail="decision candidate status fields are invalid")
-    approved_fields = dict(candidate_fields)
-    approved_fields["HUMAN_GATE"] = "VERIFIED"
-    if NinaIgorChain.derive_status(approved_fields) != "VERIFIED":
-        raise HTTPException(status_code=409, detail="candidate is not eligible for human approval")
 
-    record = append_record(
-        approver_tenant_id,
-        "human.approval",
-        {
-            "run_id": run_id,
-            "tip_hash": tip_hash,
-            "requester_id": requester_id,
-            "approver_id": approver_id,
-            "reason": str(body.get("reason", "")),
-            "status": "VERIFIED",
-        },
-    )
-    return {
-        "status": "VERIFIED",
-        "run_id": run_id,
-        "tip_hash": record["record_hash"],
-        "approved_tip_hash": tip_hash,
-        "record_id": record["id"],
-        "record_type": "human.approval",
-        "approver_id": approver_id,
-    }
+@app.get("/checkout-orders/{order_id}/report")
+def retrieve_checkout_order_report(
+    order_id: str,
+    authorization: str | None = Header(default=None),
+):
+    tenant_id, requester_id = bearer_identity(authorization)
+    try:
+        return deliver_paid_order_report(
+            tenant_id=tenant_id, requester_id=requester_id, order_id=order_id,
+        )
+    except PaidReportReviewRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
+
+
+@app.post("/internal/checkout-execution/{job_id}/run")
+def run_paid_order_execution_job(
+    job_id: str,
+    x_ola_worker_token: str | None = Header(default=None),
+):
+    try:
+        verify_worker_token(x_ola_worker_token)
+        return execute_paid_order_job(job_id)
+    except PaidOrderExecutionRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
 
 @app.post("/stripe/webhook")
@@ -689,6 +905,28 @@ def create_business_invoice_run(body: dict, x_api_key: str | None = Header(defau
         return run_invoice_task(tenant_id, task)
     except (ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail="invalid invoice input") from exc
+
+
+@app.get("/evidence/tip")
+def get_evidence_tip(x_api_key: str | None = Header(default=None)):
+    """Return only the authenticated tenant's current chain tip for Human Gate."""
+    tenant_id = tenant_from_key(x_api_key)
+    with SessionLocal() as db:
+        latest = db.scalar(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == tenant_id)
+            .order_by(EvidenceRecord.seq.desc())
+            .limit(1)
+        )
+        count = db.scalar(
+            select(func.count(EvidenceRecord.id)).where(
+                EvidenceRecord.tenant_id == tenant_id
+            )
+        ) or 0
+        return {
+            "tip_hash": latest.record_hash if latest else "0" * 64,
+            "record_count": int(count),
+        }
 
 
 @app.get("/evidence/{record_id}")
