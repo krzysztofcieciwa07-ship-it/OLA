@@ -432,3 +432,72 @@ The public DSL field `private_assertion_policy=true` is not a hidden assertion i
 - #199: **DRAFT / 28 PASS, 2 SKIPPED / ZERO REVIEWS** — documentation branch only; do not merge or describe as fully green.
 
 No application code, payment, database record, service variable, deployment, branch protection or production setting was modified in this checkpoint. Only this audit documentation is being extended on the isolated governance branch.
+
+ 
+## 18. Current-main and stale-PR findings — 2026-11-09
+
+### Current main: /audit fails after the tenant already has evidence
+
+The current-main implementation at app/main.py (b93f25e3df9f90baf1f25259a26df951919b9e7a) has a reproducible sequence-boundary defect in run_controlled_audit():
+
+1. It appends five events by calling append_record() five times.
+2. Each call delegates to append_evidence_atomic(), which commits its own independent transaction.
+3. It then queries only the five new rows by evidence_ids and passes that subset to verify_chain().
+4. The verifier starts from seq=0 and the genesis hash. For a tenant with any pre-existing evidence, the first selected new row has a non-zero sequence and a predecessor hash that is not genesis, so the subset fails with sequence or predecessor mismatch even though the full tenant chain may be valid.
+
+This means a first audit on a fresh tenant can pass, but a subsequent audit (or the first audit after the tenant has any evidence) is expected to return status=FAILED. The current tests tests/test_product_e2e.py, tests/test_e2e.py and the runtime step in .github/workflows/e2e.yml all create a fresh tenant and run one audit; none seeds an earlier evidence record or invokes a second audit for that tenant.
+
+There is also a partial-write risk: because the five append calls commit individually, a failure during event 2–5 leaves a partial audit event sequence in the append-only tenant ledger. There is no run-level transaction or explicit incomplete-run recovery state in this function.
+
+**Required remediation (not performed):** verify the complete tenant chain after the appends, then select the audit's five event IDs for the report; add regression tests with an earlier public and privileged event plus two consecutive audits; make the audit group atomic where the DB supports it or explicitly model and recover incomplete audit runs. Do not weaken verify_chain() to accept arbitrary partial suffixes.
+
+### Current main: the generic hash-chain verifier does not enforce one tenant per chain
+
+Current app/hashchain.py binds each V2 hash to its own tenant_id, sequence, predecessor, record type and producer, but verify_chain() does not keep an expected_tenant_id and reject a later row from another tenant. A crafted ordered list whose records each have valid hashes and link to the prior record can therefore contain different tenant IDs and still pass the generic verifier.
+
+Normal database reads in the reviewed application generally filter by tenant before calling the verifier, which reduces direct exposure through those call sites. The generic verifier itself nevertheless lacks a tenant-boundary invariant; this is the specific regression target of PR #91. The correct fix is a minimal same-tenant guard inside the current V2/V1-compatible verifier, not replacement with the old implementation from PR #91.
+
+### Current main: IGOR can accept missing results and splice provenance fields
+
+In current app/igor.py:
+
+- A missing result can compare equal to an expected None because the code stringifies both sides (str(payload.get("result")) == str(expected_result)). A provenance/task-bearing event with no result can therefore satisfy the result check when the caller's expected result is None.
+- Provider, model and response IDs are collected across a set of provenance events. Provider/invocation type may be satisfied by one record, model by another, and response IDs by a third. These fields are not required to coexist in one coherent trusted provenance record.
+
+The verifier does reject non-trusted privileged events, so the fix must preserve current V2 producer/type trust checks while requiring a non-null expected result and a single coherent provenance object containing provider, model, invocation type and non-empty response IDs. This is the substantive intent of PR #92; its full branch must not be merged because it drops the existing trust boundary.
+
+### PRs #91, #92 and #93 — valuable intent, unsafe stale implementations
+
+All three PRs are based on old main SHA 1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3. Current main has moved 43 commits beyond that base. Direct comparisons against current main show:
+
+| PR | Head | Ahead of current main | Behind current main | Exact-head checks | Reviews |
+|---|---|---:|---:|---|---|
+| #91 | 543e4acc3a075e53ec999574b26a937e4b0eaba8 | 2 | 43 | 24 success, 2 skipped | 0 |
+| #92 | 51ff6b3fe7ad5370d65e08e0db99bff15a7de2cc | 2 | 43 | 24 success, 2 skipped | 0 |
+| #93 | d58199104e198cefab4ee5b95938deee98d366a6 | 3 | 43 | 24 success, 2 skipped | 0 |
+
+The two skipped contexts on each exact head are igor-independent and scorecard; they are not passes.
+
+**PR #91:** its proposed app/hashchain.py is an older V1-only verifier. It adds the tenant equality check but removes the current V2 metadata/type/producer binding, trusted_record(), domain-separated V2 hash verification and explicit legacy-read compatibility. Its tests use V1 compute_record_hash() fixtures, not V2 producer-bound evidence. Transplant only the tenant-ID invariant into the current V2 implementation and test both V2 and permitted legacy V1 records.
+
+**PR #92:** its IGOR implementation adds a non-null expected-result guard and requires provider/model/response IDs to form a coherent provenance candidate, but removes trusted_record() and the is_privileged_type() gate. Its tests also build only V1 records. Transplant the two validation improvements into the current trusted-V2 path; add tests proving that public/untrusted records, legacy records and cross-record provenance splicing still BLOCK.
+
+**PR #93:** the goal (narrow customer evidence namespace, reserved runtime fields, payload-size cap) is useful, but the candidate app/main.py is 43 commits behind current main and regresses multiple controls:
+- it replaces the current api_key_fingerprint() (peppered scrypt) with plain SHA-256 for API-key lookup;
+- it replaces atomic V2 evidence append with an old V1 append_record() implementation and omits the reserved __ola_evidence_v2__ metadata/producer protection;
+- its /payment-success lookup again matches a completed StripeEvent by task text only, not by the exact checkout_session_id, reversing current main's session-bound customer-result protection;
+- its added tests seed API keys using plain SHA-256, so they do not test the current scrypt-based authentication path and would need adaptation after a correct rebase.
+
+Do not merge any of these PR branches as-is. Rebase narrowly, preserve present-day identity hashing, V2 producer binding, exact Stripe-session matching and existing API contracts, then prove the new regression tests on the rebased full suite.
+
+### Updated disposition
+
+- /audit on current main: **FUNCTIONAL DEFECT** for tenants with prior evidence; no multi-run test.
+- verify_chain(): **TENANT-INVARIANT GAP** in generic verifier; preserve V2 when fixing.
+- IGOR: **FAIL-CLOSED GAP** for null result and coherent provenance; preserve trusted producer checks.
+- PR #91: **NO-GO AS-IS** — V1 downgrade.
+- PR #92: **NO-GO AS-IS** — drops V2 producer trust.
+- PR #93: **NO-GO AS-IS** — 43 commits behind; weakens API-key hashing, V2 writes and exact-session result binding.
+- All three PRs have zero reviews and two skipped contexts on their exact heads.
+
+No application code, main branch, database record, credential, deployment or repository setting was changed by this review.

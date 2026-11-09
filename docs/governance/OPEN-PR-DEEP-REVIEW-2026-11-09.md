@@ -406,3 +406,37 @@ The generated leaf SAN omits `tls-target` (it contains localhost, tls-under-test
 Head `c42a32237500a48b27828e0218e42b2642c883d3`, OPEN / DRAFT / UNMERGED. Thirty check runs returned 28 success and 2 skipped (`igor-independent`, `scorecard`); there are no submitted reviews. This remains a documentation-only proposal awaiting independent review, not an accepted baseline.
 
 **Status:** selective re-audit advanced; remediation remains incomplete. No application source, production deployment, secret, database row or repository setting was changed.
+
+
+## 15. Current-main and stale-PR findings
+
+### /audit is tested only on a fresh tenant
+
+The current run_controlled_audit() appends five records, then verifies only those five newly selected rows. The verifier requires sequence 0 and genesis predecessor, so the subset cannot verify after any earlier evidence has been written for that tenant. The existing E2E tests create a fresh tenant and submit one audit; there is no test with an existing record or two consecutive audits.
+
+Each of the five calls to append_evidence_atomic() commits separately. A failure partway through the list can leave a partial audit group in the append-only ledger. Fix by verifying the full tenant chain, testing repeat audits, and making the run's state/partial recovery explicit. This is an active current-main defect, not merely an issue on an old PR.
+
+### Tenant chain invariant and IGOR evidence coherence
+
+Current verify_chain() does not reject different tenant_id values in one otherwise hash-valid chain. PR #91 identifies the missing invariant but its whole-file patch regresses V2 producer/type checks and V1 legacy compatibility.
+
+Current IGOR compares str(payload.get("result")) to str(expected_result), so absent result and expected None can match. It also checks provider, model and response IDs across multiple provenance records, allowing fields to be spliced. PR #92 fixes these two details but drops trusted_record() and the privileged V2 producer gate. Port only the targeted validations into current main.
+
+### PR #93 public evidence boundary is stale and insecure to merge
+
+PR #93's current head d58199104e198cefab4ee5b95938deee98d366a6 is three commits ahead and 43 behind current main. It introduces a generic/user.* namespace, reserved payload keys and a 65,536-byte payload cap, but the candidate file is based on an old app:
+- plain SHA-256 API-key hashing replaces current peppered scrypt api_key_fingerprint();
+- V1 write code replaces V2 server-selected producer metadata and atomic appends;
+- /payment-success matches Stripe events by task rather than exact Checkout Session ID, losing the current cross-customer binding.
+- Its tests create API key rows with plain SHA-256, so they are not valid tests against the current authentication contract.
+
+The test intent is useful, but both implementation and fixtures must be rebased and adapted to current main.
+
+### PR disposition
+
+#91: NO-GO as-is (V1 downgrade); keep same-tenant guard only.
+#92: NO-GO as-is (removes trusted producer); keep null-result/coherent-provenance guards only.
+#93: NO-GO as-is (43 commits behind, API auth/evidence/payment regressions); port only namespace/payload constraints and tests.
+All three PRs are OPEN / DRAFT, have zero reviews and 24 successful plus 2 skipped exact-head checks. The skipped contexts are igor-independent and scorecard.
+
+No application code or live system was modified.
