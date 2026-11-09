@@ -82,6 +82,8 @@ PY
 FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS runtime
 
 ARG OLA_SOURCE_COMMIT=UNKNOWN
+ARG OLA_GITHUB_RUN_ID=0
+ARG OLA_GITHUB_RUN_ATTEMPT=0
 LABEL org.opencontainers.image.revision=${OLA_SOURCE_COMMIT}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -120,7 +122,7 @@ RUN ln -sf python3.13 /usr/local/bin/python3 \
     && if grep -q "not found" /tmp/python-ldd.txt; then cat /tmp/python-ldd.txt; exit 1; fi \
     && mkdir -p /data \
     && adduser -D --uid 10001 ola \
-    && OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" python -c 'import json,os,pathlib; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"]},sort_keys=True),encoding="utf-8")' \
+    && OLA_SOURCE_COMMIT="$OLA_SOURCE_COMMIT" OLA_GITHUB_RUN_ID="$OLA_GITHUB_RUN_ID" OLA_GITHUB_RUN_ATTEMPT="$OLA_GITHUB_RUN_ATTEMPT" python -c 'import json,os,pathlib; parse=lambda name: int(os.environ[name]) if os.environ.get(name,"0").isdigit() and int(os.environ.get(name,"0")) > 0 else 0; pathlib.Path("/app/ola-build-info.json").write_text(json.dumps({"schema":"ola-build-info/v1","source_commit":os.environ["OLA_SOURCE_COMMIT"],"github_run_id":parse("OLA_GITHUB_RUN_ID"),"github_run_attempt":parse("OLA_GITHUB_RUN_ATTEMPT")},sort_keys=True),encoding="utf-8")' \
     && chown -R root:root /app \
     && chmod -R a-w /app \
     && chown -R ola:ola /data \
