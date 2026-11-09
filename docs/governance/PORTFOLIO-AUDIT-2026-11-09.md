@@ -277,3 +277,38 @@ The main branch still points to `fe32bf8c9710c4c04308ad17f1876fa4f80c01a2`; the 
 - Re-run the real-model flow and final gate on a new exact commit. Do not mark runtime verified based solely on a successful installer, model download or deterministic test.
 
 No workflow, deployment, main-branch file, repository setting or secret was modified as part of this follow-up audit.
+
+
+## 13. Selective deep review of open PRs and live staging
+
+The detailed, row-by-row findings for the high-risk subset are recorded in [OPEN-PR-DEEP-REVIEW-2026-11-09.md](OPEN-PR-DEEP-REVIEW-2026-11-09.md). This is a selective deep review, not a claim that all 77 open PR diffs have been reviewed.
+
+### Material current-main findings
+
+- The generic verify_chain() helper does not require all records in its input to share one tenant ID. Current call sites commonly tenant-filter records, which constrains the normal path, but the generic invariant remains incomplete. PR #91 contains a focused fix and cross-tenant regression test.
+- IgorVerifier can match a missing result against expected_result=None through string conversion, and can evaluate provider/model/response IDs across different provenance records. Current NINA flow normally supplies a result string and one provenance record; the generic verifier contract still needs the stricter #92 checks.
+- The main evidence write route already blocks privileged type prefixes and caller-supplied reserved V2 metadata, so the primary public privileged-record forgery path is mitigated. Explicit payload-size and public record-type limits remain.
+- Stripe success is already bound to the exact Checkout Session in main and covered by a regression test. PR #97 is stale/superseded.
+- The old candidate approval paths in #94/#98 are superseded by the current /nina-workflow/{run_id}/approve path, which checks tenant-scoped DAG evidence, requester/approver separation, report digest and rechecks the chain tip under a write transaction.
+
+### PR #190 and #197 blockers
+
+- PR #190's OIDC paid-order approval has a confirmed defect: the OIDC identity is passed to preflight validation but omitted in the second locked revalidation. Valid OIDC_REQUIRED approvals therefore fail closed with HTTP 400 before approval evidence/outbox commit. Existing tests cover legacy approval and API-key denial, not a successful OIDC operator approval.
+- PR #197's CI run fails at readiness because the host-side probe cannot resolve Docker-internal service DNS. Compose starts three services while a later assertion expects two; the generated certificate SAN does not include the configured tls-target hostname. Its public DSL flag for private assertions does not implement a hidden private pack, and missing evidence files are recorded but do not independently fail score generation.
+
+### External staging controls rechecked
+
+- The Vercel project used by the #194 staging deployment has SSO protection enabled for all deployments. The exact deployment is a staging deployment built from the #194 head. The BFF key appears as a sensitive Preview-only variable; secret values were not decrypted.
+- The Railway staging service has a real public service hostname and a current latest deployment in SLEEPING state. Historical HTTP logs show one successful bootstrap response (201), later replays rejected (409), and /nina-run returning HTTP 200; this does not establish verified runtime output or customer delivery.
+- The Railway service configuration identifies source SHA 393cc56dcd8c1a749cf11d4306d1e247144139cb, while the latest deployment metadata identifies 030f7f1a4e18ba45da2cc9edbe530ffed92ee56. GitHub compare shows the deployed SHA is three commits behind the current branch head. The live revision must be reconciled before claiming the latest staging branch is running.
+- A previous Railway deployment failed its /readyz healthcheck despite process startup and a PostgreSQL schema verification message. A later deployment was created, and the latest deployment is currently sleeping.
+
+### Corrected inference: PostgreSQL Human Gate
+
+The old main implementation of approve_workflow() rejects non-SQLite databases. The current staging branch, however, contains a later begin_write_transaction() implementation that supports PostgreSQL using a tenant-scoped advisory transaction lock, and its approval module calls that abstraction. Therefore the earlier possibility that the active staging approval route necessarily returns 503 is not confirmed for the deployed staging branch. Preserve this PostgreSQL-aware implementation when rebasing; do not reintroduce the old SQLite-only guard.
+
+### Open-PR disposition
+
+PR #91/#92 require focused fixes ported onto the current main base. PR #93 is partially superseded and needs payload/type hardening. PR #94/#98 and #97 are superseded by current main behavior and should not be merged blindly. PR #95's PBKDF2 branch is superseded by the scrypt mainline and its SQLite reissue script is not appropriate for the current PostgreSQL staging service. PR #190 and #197 have explicit blockers. PR #198 remains a prototype, not a production-integrated checkpoint service.
+
+No feature PR, branch, main-branch file, deployment, secret or repository setting was changed by this selective review. The 77-row CSV remains the initial inventory; only the subset named in the deep-review document has been reviewed at code level.
