@@ -15,6 +15,64 @@ def read_jsonl(path):
     return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+EXPECTED_COMPOSE_SERVICES = {"tls-target", "control-sentinel", "chaos-runner"}
+
+
+def _metric_values(metrics, name):
+    metric = metrics.get(name, {})
+    if not isinstance(metric, dict):
+        return {}
+    nested = metric.get("values")
+    return nested if isinstance(nested, dict) else metric
+
+
+def extract_k6_metrics(summary):
+    """Read both current k6 summary exports and legacy nested-values exports."""
+    metrics = summary.get("metrics", {}) if isinstance(summary, dict) else {}
+    if not isinstance(metrics, dict):
+        metrics = {}
+    requests = _metric_values(metrics, "http_reqs").get("count", 0)
+    http_duration = _metric_values(metrics, "http_req_duration")
+    tls_handshake = _metric_values(metrics, "http_req_tls_handshaking")
+    return {
+        "requests": int(requests or 0),
+        "p95_ms": http_duration.get("p(95)"),
+        "p99_ms": http_duration.get("p(99)"),
+        "tls_handshake_p95_ms": tls_handshake.get("p(95)"),
+        "tls_handshake_p99_ms": tls_handshake.get("p(99)")
+    }
+
+
+def evaluate_container_health(containers):
+    """Require every expected long-lived Compose service exactly once and no restarts."""
+    if isinstance(containers, dict):
+        containers = [containers]
+    observed = []
+    restart_count = 0
+    for item in containers if isinstance(containers, list) else []:
+        if not isinstance(item, dict):
+            continue
+        restart_count += int(item.get("RestartCount", 0) or 0)
+        labels = item.get("Config", {}).get("Labels", {})
+        service = labels.get("com.docker.compose.service") if isinstance(labels, dict) else None
+        if service:
+            observed.append(str(service))
+    observed_set = set(observed)
+    missing = sorted(EXPECTED_COMPOSE_SERVICES - observed_set)
+    unexpected = sorted(observed_set - EXPECTED_COMPOSE_SERVICES)
+    duplicates = sorted(name for name in observed_set if observed.count(name) > 1)
+    exact_inventory = not missing and not unexpected and not duplicates and len(observed) == len(EXPECTED_COMPOSE_SERVICES)
+    return {
+        "passed": exact_inventory and restart_count == 0,
+        "container_count": len(observed),
+        "restart_count": restart_count,
+        "observed_services": sorted(observed),
+        "missing_services": missing,
+        "unexpected_services": unexpected,
+        "duplicate_services": duplicates
+    }
+
+
 def evaluate_slo(before, after, p95, p99, slo):
     baseline_availability = (
         sum(bool(row.get("target_ok")) for row in before) / len(before) if before else 0.0
@@ -154,33 +212,21 @@ def main():
     })
 
     inspect_path = runtime / "docker-inspect.json"
-    restart_count = None
-    container_count = 0
-    if inspect_path.is_file():
-        containers = read_json(inspect_path)
-        if isinstance(containers, dict):
-            containers = [containers]
-        container_count = len(containers)
-        restart_count = sum(int(item.get("RestartCount", 0)) for item in containers)
-    check("container_restart_count_zero", container_count == 2 and restart_count == 0, {
-        "restart_count": restart_count, "container_count": container_count
-    })
+    containers = read_json(inspect_path) if inspect_path.is_file() else []
+    container_health = evaluate_container_health(containers)
+    restart_count = container_health["restart_count"]
+    container_count = container_health["container_count"]
+    check("container_restart_count_zero", container_health["passed"], container_health)
 
     docker_events = read_jsonl(runtime / "docker-events.jsonl")
     check("docker_events_captured", len(docker_events) >= 2, {"event_count": len(docker_events)})
 
     summary_path = runtime / "k6-summary.json"
-    k6_requests = 0
-    p95 = p99 = None
-    if summary_path.is_file():
-        metrics = read_json(summary_path).get("metrics", {})
-        k6_requests = int(metrics.get("http_reqs", {}).get("values", {}).get("count", 0))
-        latency_values = metrics.get("http_req_duration", {}).get("values", {})
-        p95 = latency_values.get("p(95)")
-        p99 = latency_values.get("p(99)")
-    check("k6_load_observed", k6_requests > 0 and p95 is not None and p99 is not None, {
-        "requests": k6_requests, "p95_ms": p95, "p99_ms": p99
-    })
+    k6_metrics = extract_k6_metrics(read_json(summary_path)) if summary_path.is_file() else extract_k6_metrics({})
+    k6_requests = k6_metrics["requests"]
+    p95 = k6_metrics["p95_ms"]
+    p99 = k6_metrics["p99_ms"]
+    check("k6_load_observed", k6_requests > 0 and p95 is not None and p99 is not None, k6_metrics)
 
     slo_result = evaluate_slo(before, after, p95, p99, slo)
     check("slo_availability_met", slo_result["availability_ok"], slo_result)
@@ -199,6 +245,9 @@ def main():
             "recovery_availability": slo_result["recovery_availability"],
             "p95_ms": p95,
             "p99_ms": p99,
+            "tls_handshake_p95_ms": k6_metrics["tls_handshake_p95_ms"],
+            "tls_handshake_p99_ms": k6_metrics["tls_handshake_p99_ms"],
+            "k6_requests": k6_requests,
             "mttr_seconds": mttr,
             "stable_window_seconds": stable_seconds if stable else 0,
             "restart_count": restart_count,
