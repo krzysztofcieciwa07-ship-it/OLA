@@ -305,8 +305,9 @@ def test_request_body_limit_stops_stream_before_accumulating_oversized_payload()
 
         async def stream(self):
             yield b"a" * main.MAX_BODY_BYTES
-            self.read_after_limit = True
             yield b"b"
+            self.read_after_limit = True
+            yield b"c"
 
     request = ChunkedRequest()
     with pytest.raises(main.HTTPException) as error:

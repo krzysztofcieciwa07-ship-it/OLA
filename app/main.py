@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from .runtime_provenance import runtime_source_commit
@@ -163,57 +164,18 @@ def _reject_duplicate_json_keys(pairs):
     return result
 
 
-@app.post("/api/v1/secure-bridge/invoke")
-async def secure_agent_bridge_invoke(request: Request):
-    """Authenticate a signed agent request, reserve its nonce, then run one allowlisted action."""
-    raw_body = await request.body()
-    if len(raw_body) > MAX_BODY_BYTES:
-        raise HTTPException(status_code=413, detail="request body too large")
-    try:
-        principal, clock_skew = authenticate_signed_request(
-            key_id=request.headers.get("x-key-id"),
-            timestamp=request.headers.get("x-timestamp"),
-            nonce=request.headers.get("x-nonce"),
-            signature=request.headers.get("x-signature-ed25519"),
-            method=request.method, path=request.url.path, body=raw_body,
-        )
-    except SecureBridgeUnavailable:
-        raise HTTPException(status_code=503, detail="secure bridge unavailable") from None
-    except SecureBridgeUnauthorized:
-        raise HTTPException(status_code=401, detail="request authentication failed") from None
+async def _read_bounded_request_body(request: Request) -> bytes:
+    """Read request bytes incrementally and stop as soon as the bridge cap is exceeded."""
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="request body too large")
+        body.extend(chunk)
+    return bytes(body)
 
-    try:
-        secure_bridge.consume_nonce(
-            key_id=principal.key_id,
-            nonce=request.headers.get("x-nonce", ""),
-            retention_seconds=max(60, 2 * clock_skew + 60),
-        )
-    except SecureBridgeNonceReplay:
-        raise HTTPException(status_code=409, detail="request nonce already used") from None
-    except NonceStoreUnavailable:
-        raise HTTPException(status_code=503, detail="secure bridge replay protection unavailable") from None
 
-    try:
-        payload = json.loads(raw_body.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
-    except (UnicodeDecodeError, ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="request body must be valid unique-key JSON") from None
-
-    if (
-        not isinstance(payload, dict)
-        or set(payload) != {"action", "payload"}
-        or payload.get("action") != "agent.run"
-        or not isinstance(payload.get("payload"), dict)
-        or set(payload["payload"]) != {"task"}
-    ):
-        raise HTTPException(status_code=403, detail="requested action is not allowlisted")
-    if "agent:run" not in principal.scopes or principal.agent_id not in REGISTERED_AGENT_IDS:
-        raise HTTPException(status_code=403, detail="agent identity or scope is not authorized")
-
-    task = payload["payload"].get("task")
-    if not isinstance(task, str) or not task.strip() or len(task) > 4000:
-        raise HTTPException(status_code=400, detail="task must be a nonempty string of at most 4000 characters")
-    task = task.strip()
-
+def _execute_secure_bridge_task(principal, task: str, raw_body: bytes, timestamp: str):
+    """Run blocking database, evidence-chain and agent runtime operations off the event loop."""
     try:
         with SessionLocal() as db:
             tenant_exists = db.get(Tenant, principal.tenant_id) is not None
@@ -230,7 +192,7 @@ async def secure_agent_bridge_invoke(request: Request):
             "request_id": request_id, "key_id": principal.key_id,
             "agent_id": principal.agent_id, "action": "agent.run",
             "request_sha256": request_digest, "task_sha256": task_digest,
-            "timestamp": int(request.headers["x-timestamp"]),
+            "timestamp": int(timestamp),
         })
     except Exception:
         raise HTTPException(status_code=503, detail="secure bridge evidence unavailable") from None
@@ -280,6 +242,7 @@ async def secure_agent_bridge_invoke(request: Request):
             "evidence_count": execution.get("evidence_count"),
         })
     except Exception:
+        # The task may have run. Never encourage a blind retry with a new nonce.
         return JSONResponse(status_code=503, content={
             "status": "EXECUTION_RESULT_UNRECORDED",
             "request_id": request_id,
@@ -294,6 +257,68 @@ async def secure_agent_bridge_invoke(request: Request):
             "result_evidence_id": result_evidence["id"],
             "execution": execution,
         },
+    )
+
+
+@app.post("/api/v1/secure-bridge/invoke")
+async def secure_agent_bridge_invoke(request: Request):
+    """Authenticate a signed agent request, reserve its nonce, then run one allowlisted action."""
+    raw_body = await _read_bounded_request_body(request)
+    try:
+        principal, clock_skew = authenticate_signed_request(
+            key_id=request.headers.get("x-key-id"),
+            timestamp=request.headers.get("x-timestamp"),
+            nonce=request.headers.get("x-nonce"),
+            signature=request.headers.get("x-signature-ed25519"),
+            method=request.method, path=request.url.path, body=raw_body,
+        )
+    except SecureBridgeUnavailable:
+        raise HTTPException(status_code=503, detail="secure bridge unavailable") from None
+    except SecureBridgeUnauthorized:
+        raise HTTPException(status_code=401, detail="request authentication failed") from None
+
+    try:
+        await run_in_threadpool(
+            secure_bridge.consume_nonce,
+            key_id=principal.key_id,
+            nonce=request.headers.get("x-nonce", ""),
+            retention_seconds=max(60, 2 * clock_skew + 60),
+        )
+    except SecureBridgeNonceReplay:
+        raise HTTPException(status_code=409, detail="request nonce already used") from None
+    except NonceStoreUnavailable:
+        raise HTTPException(status_code=503, detail="secure bridge replay protection unavailable") from None
+
+    try:
+        payload = json.loads(
+            raw_body.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except (UnicodeDecodeError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="request body must be valid unique-key JSON") from None
+
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"action", "payload"}
+        or payload.get("action") != "agent.run"
+        or not isinstance(payload.get("payload"), dict)
+        or set(payload["payload"]) != {"task"}
+    ):
+        raise HTTPException(status_code=403, detail="requested action is not allowlisted")
+    if "agent:run" not in principal.scopes or principal.agent_id not in REGISTERED_AGENT_IDS:
+        raise HTTPException(status_code=403, detail="agent identity or scope is not authorized")
+
+    task = payload["payload"].get("task")
+    if not isinstance(task, str) or not task.strip() or len(task) > 4000:
+        raise HTTPException(status_code=400, detail="task must be a nonempty string of at most 4000 characters")
+    task = task.strip()
+
+    return await run_in_threadpool(
+        _execute_secure_bridge_task,
+        principal,
+        task,
+        raw_body,
+        request.headers["x-timestamp"],
     )
 
 
