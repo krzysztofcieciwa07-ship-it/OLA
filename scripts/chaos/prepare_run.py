@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an ephemeral challenge and private assertion policy for one lab run."""
+"""Create an ephemeral challenge and run-specific policy from the scenario DSL."""
 import argparse
 import hashlib
 import json
@@ -12,15 +12,23 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=Path("scenarios/certificate-apocalypse/runtime"))
+    parser.add_argument("--scenario", type=Path, default=Path("scenarios/certificate-apocalypse/scenario.json"))
     args = parser.parse_args()
     runtime = args.output.resolve()
     runtime.mkdir(parents=True, exist_ok=True)
+    scenario = json.loads(args.scenario.read_text(encoding="utf-8"))
     # Docker Compose project names are deliberately lowercase.
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dt%H%M%sz") + "-" + secrets.token_hex(5)
     challenge = secrets.token_urlsafe(32)
-    fault_after = secrets.randbelow(7) + 7
-    fault_duration = secrets.randbelow(6) + 9
-    stability = secrets.randbelow(5) + 8
+    fault_policy = scenario["anti_llm"]["randomized_fault_window"]
+    fault_after = secrets.randbelow(
+        fault_policy["max_seconds"] - fault_policy["min_seconds"] + 1
+    ) + fault_policy["min_seconds"]
+    fault_duration = scenario["fault"]["schedule"]["fault_duration_seconds"]
+    stability_min = scenario["anti_llm"]["min_stable_seconds"]
+    stability = stability_min + secrets.randbelow(5)
+    base_vus = scenario["traffic"]["vus"]
+    vus = max(1, base_vus + secrets.choice((-1, 0, 1)))
     total = fault_after + fault_duration + stability + 8
     context = {
         "schema": "ola-chaos-run-context/v0",
@@ -31,13 +39,13 @@ def main():
         "fault_after_seconds": fault_after,
         "fault_duration_seconds": fault_duration,
         "stability_seconds": stability,
-        "max_probe_gap_seconds": 2.5,
+        "max_probe_gap_seconds": scenario["anti_llm"]["max_probe_gap_seconds"],
         "probe_interval_seconds": 0.5,
         "load_duration_seconds": total,
-        "vus": secrets.randbelow(3) + 3,
-        "p95_limit_ms": 500.0,
-        "p99_limit_ms": 1000.0,
-        "policy_source": "runner_generated_private_policy"
+        "vus": vus,
+        "request_timeout": scenario["traffic"]["request_timeout"],
+        "slo": scenario["traffic"]["slo"],
+        "policy_source": "scenario_dsl_plus_runner_randomization"
     }
     (runtime / "run_context.json").write_text(
         json.dumps(context, sort_keys=True, indent=2) + "\n", encoding="utf-8"
@@ -65,6 +73,8 @@ def main():
         "fault_after_seconds": fault_after,
         "fault_duration_seconds": fault_duration,
         "stability_seconds": stability,
+        "vus": vus,
+        "request_timeout": context["request_timeout"],
         "load_duration_seconds": total
     }, sort_keys=True))
 

@@ -23,7 +23,7 @@
       "properties": {
         "runtime": { "const": "docker-compose" },
         "service": { "type": "string", "minLength": 1 },
-        "base_url": { "type": "string", "pattern": "^https://" },
+        "base_url": { "type": "string", "pattern": "^https://(127\\.0\\.0\\.1|localhost)(:[0-9]+)?$" },
         "resources": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
         "collateral_sentinels": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }
       }

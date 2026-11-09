@@ -8,6 +8,7 @@ from jsonschema import Draft202012Validator
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = json.loads((ROOT / "schemas/chaos-scenario-v0.schema.json").read_text())
 SCENARIO = json.loads((ROOT / "scenarios/certificate-apocalypse/scenario.json").read_text())
+FAULT_CATALOG = json.loads((ROOT / "schemas/chaos-fault-catalog-v0.json").read_text())
 SCORE_PATH = ROOT / "scripts/chaos/score.py"
 _spec = importlib.util.spec_from_file_location("ola_chaos_score", SCORE_PATH)
 _score_module = importlib.util.module_from_spec(_spec)
@@ -22,6 +23,19 @@ def test_certificate_apocalypse_matches_v0_schema():
     Draft202012Validator.check_schema(SCHEMA)
     errors = list(Draft202012Validator(SCHEMA).iter_errors(SCENARIO))
     assert errors == []
+
+
+def test_fault_catalog_marks_only_tls_expiry_as_implemented():
+    statuses = {item["id"]: item["status"] for item in FAULT_CATALOG["faults"]}
+    assert statuses["tls_cert_expired"] == "implemented"
+    assert all(status == "reserved" for key, status in statuses.items() if key != "tls_cert_expired")
+
+
+def test_public_target_is_rejected_by_schema():
+    invalid = json.loads(json.dumps(SCENARIO))
+    invalid["target"]["base_url"] = "https://example.com"
+    errors = list(Draft202012Validator(SCHEMA).iter_errors(invalid))
+    assert any(list(error.absolute_path) == ["target", "base_url"] for error in errors)
 
 
 def test_scoring_weights_are_normalized_and_thresholds_increase():

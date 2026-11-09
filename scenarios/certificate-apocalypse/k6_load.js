@@ -23,7 +23,7 @@ export default function () {
       'X-OLA-Scenario-Challenge': __ENV.CHALLENGE || '',
       'Connection': 'close',
     },
-    timeout: '3s',
+    timeout: __ENV.REQUEST_TIMEOUT || '3s',
     tags: { phase: phase },
   });
   const healthy = response.status === 200;

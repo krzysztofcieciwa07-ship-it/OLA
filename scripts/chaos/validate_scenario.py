@@ -11,7 +11,10 @@ def validate_document(scenario_path, schema_path):
     schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
     validator = Draft202012Validator(schema)
-    errors = sorted(validator.iter_errors(scenario), key=lambda item: list(item.absolute_path))
+    errors = sorted(
+        validator.iter_errors(scenario),
+        key=lambda item: "/".join(str(part) for part in item.absolute_path)
+    )
     if errors:
         return False, ["/".join(str(part) for part in error.absolute_path) + ": " + error.message for error in errors]
     weights = scenario["scoring"]["weights"]
