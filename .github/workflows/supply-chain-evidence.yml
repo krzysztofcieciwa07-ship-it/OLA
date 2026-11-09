@@ -435,6 +435,8 @@ jobs:
           set -euo pipefail
           docker buildx build --pull --load \
             --build-arg OLA_SOURCE_COMMIT="$GITHUB_SHA" \
+            --build-arg OLA_GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            --build-arg OLA_GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
             --tag "$IMAGE_NAME:$GITHUB_SHA" \
             --file Dockerfile .
           image_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_NAME:$GITHUB_SHA")"
@@ -591,6 +593,8 @@ jobs:
             --source-sha "$GITHUB_SHA" \
             --source-ref "$GITHUB_REF" \
             --workflow-identity "$workflow_identity" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --image-name "$OCI_IMAGE_NAME" \
             --image-digest "$OCI_IMAGE_DIGEST" \
             --expected-trusted-root-sha256 "$EXPECTED_TRUST_ROOT_SHA256" \
