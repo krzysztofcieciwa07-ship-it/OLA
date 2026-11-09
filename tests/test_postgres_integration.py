@@ -140,3 +140,26 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
             f'REVOKE UPDATE, TRUNCATE ON TABLE "{_schema}".evidence_records FROM "{runtime_role}"'
         )
     database.verify_postgres_schema(runtime_engine)
+
+
+
+def test_postgres_nonce_reservation_works_without_runtime_delete_privilege(postgres_db, monkeypatch):
+    database, _runtime_engine, _migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    from app import secure_bridge
+
+    # The application runtime role is deliberately not granted DELETE on the
+    # nonce table. Expired nonce cleanup belongs to the separate maintenance role.
+    monkeypatch.setattr(secure_bridge, "SessionLocal", database.SessionLocal)
+    nonce = "a" * 64
+
+    secure_bridge.consume_nonce(
+        key_id="bridge-runtime-role-test",
+        nonce=nonce,
+        retention_seconds=180,
+    )
+    with pytest.raises(secure_bridge.SecureBridgeNonceReplay):
+        secure_bridge.consume_nonce(
+            key_id="bridge-runtime-role-test",
+            nonce=nonce,
+            retention_seconds=180,
+        )
