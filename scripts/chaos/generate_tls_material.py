@@ -87,7 +87,7 @@ def main():
         "openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
         "-keyout", str(key_file), "-out", str(csr_file),
         "-subj", "/CN=localhost/OU=" + context["run_id"],
-        "-addext", "subjectAltName=DNS:localhost,DNS:tls-under-test,IP:127.0.0.1"
+        "-addext", "subjectAltName=DNS:localhost,DNS:tls-under-test,DNS:tls-target,IP:127.0.0.1"
     ])
     now = datetime.now(timezone.utc)
     if args.mode == "bad":
