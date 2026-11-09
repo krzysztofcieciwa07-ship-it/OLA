@@ -107,6 +107,8 @@ Skipped:
 
 A skipped verifier is not a pass. The main SHA is not green.
 
+**Root-cause clarification from the exact job logs:** the real Ollama full-flow job fails in `Set up Ollama` before the OLA application or agent flow starts: the installer download of `ollama-linux-amd64.tgz` returns HTTP 504, followed by a truncated gzip/tar error. The `classify` job then records `real_ollama_full_flow_failed` and fails closed because the Ollama job failed. These are two failed contexts but one evidenced upstream infrastructure failure plus its deliberate downstream fail-closed consequence; they are not evidence of two independent application-logic defects. The runtime chain remains **UNVERIFIED** for this SHA.
+
 ### Positive supply-chain observations
 
 - The 25 workflows in the connected OLA main tree contain explicit `permissions` blocks.
@@ -237,3 +239,41 @@ This report records read-only repository and code inspection. No repositories, b
 ## 11. Execution quality, chronology and forensic closure
 
 The repeatable task-level standard is defined in [EXECUTION-QUALITY-AND-FORENSIC-PROTOCOL.md](EXECUTION-QUALITY-AND-FORENSIC-PROTOCOL.md). It requires a task contract, UTC event chronology, exact revision/environment identity, preserved and hashed evidence, verification of actual results, critical self-review, failure-register updates and an honest closure state. The existence of the protocol is not evidence that all tools and repositories enforce it yet.
+
+
+## 12. Follow-up CI audit: exact PR head and current main
+
+### PR #199 head: `8b914b9960843a96aa6d59686fd5c2b67ac833e0`
+
+The governance branch head was rechecked against the GitHub API on 2026-11-09. At this snapshot:
+
+- PR #199 remains **OPEN / DRAFT / UNMERGED**; `mergeable=true`, `mergeable_state=unstable`.
+- The PR contains 8 files and is 24 commits ahead of `main`, 0 behind at the compared refs.
+- There are **0 submitted reviews** and no requested reviewers.
+- 30 check-run entries were completed: **25 success, 3 failure, 2 skipped**. This is a check-run count, not a statement that every workflow was green.
+- Successful checks include CodeQL, Trivy, Gitleaks, zizmor, build-linux, focused tests, E2E, stress, continuity, evidence-graph, provenance mutation and product/revenue gates.
+- Skipped contexts: `igor-independent` and `scorecard`. Neither counts as a pass.
+
+The three failed check contexts have this relationship:
+
+1. `NINA IGOR Ollama Full Flow`: `Set up Ollama` fails before building or starting OLA. The Ollama installer downloads `ollama-linux-amd64.tgz` and receives HTTP 504; subsequent gzip/tar commands report a truncated archive. The NINA → IGOR → provenance → replay assertions are **not executed**.
+2. `Real LLM Ollama Runtime Gate`: the same installer/download path fails with HTTP 504 before model inventory, OLA build, six-agent runtime or standalone verifier. The live LLM path is **not executed**.
+3. `OLA FINAL PRODUCTION GATE`: the gate reads the failed required NINA/IGOR run and fails closed in `Verify required evidence gates`. Release image build, export and attestations are skipped. The workflow does upload a manifest with `final_status=BLOCKED`; that is evidence of a block, not a release artifact or production deployment.
+
+The two Ollama jobs use `curl -fsSL https://ollama.com/install.sh | sh`. In the reviewed workflow source, the installer itself is not pinned to a fixed version or verified against a pre-declared SHA-256 digest, and the download path has no bounded retry/backoff for transient 5xx failures. This produces both supply-chain reproducibility risk and avoidable CI availability fragility. The current 504 is an observed external download failure; it does not establish that Ollama or OLA is generally unavailable.
+
+**Interpretation:** the governance branch has useful positive test/security signals, but its overall exact-SHA CI result is **FAIL / PARTIAL**, not green. The live Ollama runtime is **UNVERIFIED**, not failed by an observed application assertion. The production gate correctly withheld image build/attestation after the required runtime check failed. No production deployment occurred.
+
+### Main remains separate
+
+The main branch still points to `fe32bf8c9710c4c04308ad17f1876fa4f80c01a2`; the API reports `protected=false`. The latest check-run response contains 38 entries (including repeat contexts across runs): 35 success, 2 failure and 1 skipped. The two red contexts are the failed real Ollama full-flow job and its downstream fail-closed `classify` result described in Section 4. This is the current main state observed during this follow-up, not a PR-branch result.
+
+### Required corrective actions (not performed by this audit)
+
+- Replace moving installer execution with a pinned Ollama release artifact or immutable image digest; verify its SHA-256 against a trusted, version-controlled expected value before execution.
+- Add bounded retries with exponential backoff and jitter for transient 5xx/network failures; preserve the final response code and download diagnostics.
+- Avoid running duplicate Ollama installation paths where one controlled, reusable, version-pinned runtime fixture can safely provide evidence to both test suites.
+- Keep the final production gate fail-closed; improve its evidence output so a blocked upstream dependency is distinguished from a product assertion failure.
+- Re-run the real-model flow and final gate on a new exact commit. Do not mark runtime verified based solely on a successful installer, model download or deterministic test.
+
+No workflow, deployment, main-branch file, repository setting or secret was modified as part of this follow-up audit.
