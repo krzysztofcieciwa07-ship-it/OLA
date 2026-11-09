@@ -37,8 +37,8 @@ Default branch: `main`
 Reviewed main SHA: `fe32bf8c9710c4c04308ad17f1876fa4f80c01a2`
 
 Observed:
-- 166 branches.
-- 76 open pull requests, 64 of them Draft.
+- 167 branches.
+- 77 open pull requests, 65 of them Draft (including this governance Draft PR).
 - Several branch names point to identical commit SHAs; duplicate names must be reconciled against PR references and unique commits before any deletion.
 - An active repository ruleset named `SECURITY.md` exists. Its inspected rules prohibit branch deletion and non-fast-forward updates. It does not require pull-request approval or successful status checks.
 - The branch-protection endpoint could not be read using the current integration. Other classic branch-protection settings therefore remain `UNKNOWN`.
