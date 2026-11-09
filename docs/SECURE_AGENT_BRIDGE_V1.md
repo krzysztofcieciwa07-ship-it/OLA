@@ -138,7 +138,7 @@ export async function invokeOlaAgent(task: string) {
     createPrivateKey(privateKeyPem),
   ).toString("hex");
 
-  const response = await fetch(endpoint.replace(/\\/$/, "") + path, {
+  const response = await fetch(endpoint.replace(/\/$/, "") + path, {
     method,
     headers: {
       "content-type": "application/json",
