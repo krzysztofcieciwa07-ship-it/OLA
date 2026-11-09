@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 
 from app import main
 from app.database import SessionLocal
-from app.models import Tenant
+from app.models import ApiKey, Tenant
+from app.api_key_hashing import api_key_fingerprint
 from app.secure_bridge import build_signing_message
 
 
@@ -258,3 +259,32 @@ def test_nonce_store_unavailability_fails_closed_without_execution(monkeypatch):
 
     assert response.status_code == 503
     assert calls == []
+
+
+
+def test_tenant_api_cannot_forge_secure_bridge_internal_evidence():
+    tenant_id = _seed_tenant()
+    api_key = "secure-bridge-evidence-customer-key"
+    with SessionLocal() as db:
+        db.add(ApiKey(
+            id=str(uuid.uuid4()),
+            tenant_id=tenant_id,
+            key_hash=api_key_fingerprint(api_key),
+        ))
+        db.commit()
+
+    response = TestClient(main.app).post(
+        "/evidence",
+        headers={"X-API-Key": api_key},
+        json={
+            "record_type": "secure_bridge.request_authenticated",
+            "payload": {
+                "request_id": "forged-request",
+                "key_id": "forged-agent",
+                "agent_id": "agent-001",
+            },
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "reserved internal evidence type"
