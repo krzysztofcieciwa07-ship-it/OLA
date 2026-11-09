@@ -159,8 +159,15 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
     if len(context_digests) != len(ROLES):
         return fail("agent contexts are not unique")
 
-    if expected_task is not None and any(payload.get("task") != expected_task for payload in payloads):
-        return fail("task mismatch in execution evidence")
+    if expected_task is not None:
+        expected_task_digest = hashlib.sha256(expected_task.encode("utf-8")).hexdigest()
+        for payload in payloads:
+            # New evidence stores a commitment, not plaintext task content.
+            if payload.get("task_digest") is not None:
+                if payload.get("task_digest") != expected_task_digest:
+                    return fail("task digest mismatch in execution evidence")
+            elif payload.get("task") != expected_task:
+                return fail("task mismatch in legacy execution evidence")
 
     final_result = payloads[-1].get("final_result")
     if expected_result is not None and final_result != expected_result:
