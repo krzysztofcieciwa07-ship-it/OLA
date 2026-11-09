@@ -53,6 +53,11 @@ def _deployment_profile() -> str:
     the project editor and is absent from published Deployments. The explicit
     OLA profile must also be Development, and a deployment marker always wins.
     """
+    # A published Replit Deployment is production regardless of a stale or
+    # misconfigured local URL/profile value.
+    if os.environ.get("REPLIT_DEPLOYMENT", "").strip():
+        return "production"
+
     configured = os.environ.get("OLA_DEPLOYMENT_PROFILE", "").strip().lower()
     public_base = os.environ.get("OLA_PUBLIC_BASE_URL", "").strip()
     parsed = urlsplit(public_base)
