@@ -135,8 +135,8 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
             return fail(f"execution evidence incomplete for {agent}")
         if payload.get("commit") != expected_commit:
             return fail(f"runtime commit provenance mismatch for {agent}")
-        if payload.get("status") != "EXECUTED":
-            return fail(f"execution not complete for {agent}")
+        if payload.get("status") != "VERIFIED":
+            return fail(f"execution not verified for {agent}")
         for digest_key in ("context_digest", "task_digest", "input_digest", "model_output_digest"):
             digest_value = payload.get(digest_key)
             if (not isinstance(digest_value, str) or len(digest_value) != 64
