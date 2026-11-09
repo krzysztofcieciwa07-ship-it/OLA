@@ -102,11 +102,35 @@ A public repository search surfaced 32 repositories under this separate login. T
 
 Some forks may contain local changes or useful research. They remain upstream forks unless a distinct, original product contribution is demonstrated.
 
-## 5. Repository metadata proposals
+## 5. GitHub governance snapshot
+
+The following is the repository-level ruleset evidence visible through the current integration. A missing ruleset result does not by itself prove that no classic branch-protection rule exists; where the protection endpoint was unavailable, classic protection remains `UNKNOWN`.
+
+| Repository | Visible ruleset evidence | Branches observed | Assessment |
+|---|---|---:|---|
+| `ship-it/OLA` | Active `SECURITY.md` ruleset; inspected rules only prevent deletion and non-fast-forward updates. No approval count or required status checks. | 167 | **FAIL** against the target baseline. |
+| `ship-it/vantage` | No repository ruleset returned. | 27 | **UNKNOWN / FAIL** — no visible ruleset; classic protection not verified. |
+| `ship-it/quantum-ai-chatbot` | No repository ruleset returned. | 2 | **UNKNOWN / FAIL** — no visible ruleset; classic protection not verified. |
+| `ship-it/ola-evidence-gateway` | No repository ruleset returned. | 4 | **UNKNOWN / FAIL** — no visible ruleset; classic protection not verified. |
+| `ship-it/Vantage-v0.3` | Private empty repository; no branches observed. | 0 | No active implementation to protect. |
+| `krzys167-crypto/OLA` | No repository ruleset returned. | 88 | **UNKNOWN** — read-only connection; classic protection not verified. |
+| `krzys167-crypto/Vantage-v0.3` | Active ruleset named `ola di-os`. Pull-request approval count is 0 and required status-check list is empty. It includes code-owner review, but no `.github/CODEOWNERS` file was found on the inspected `main` ref. | 15 | **FAIL** against the target baseline despite the long ruleset. |
+| `krzys167-crypto/quantum-ai-chatbot` | No repository ruleset returned. | 7 | **UNKNOWN** — older read-only copy. |
+| `krzys167-crypto/ola-evidence-gateway` | No repository ruleset returned; `main` was marked protected by the branch listing. | 5 | **PARTIAL / UNKNOWN** — branch protection exists, full required rules not verified. |
+
+### Required interpretation
+
+- A ruleset name such as `SECURITY.md` or `ola di-os` is not proof of a secure merge policy.
+- A pull-request rule with `required_approving_review_count: 0` does not establish independent review.
+- A required-status-check rule with an empty check list does not block on any named CI context.
+- CODEOWNERS review without an independently assigned owner/reviewer does not establish separation of duties.
+- Branch API `protected=false` is not conclusive where classic branch-protection access is unavailable; retain `UNKNOWN` until the complete effective policy is verified.
+
+## 6. Repository metadata proposals
 
 Canonical public descriptions and topics are proposed in [REPOSITORY-METADATA.md](REPOSITORY-METADATA.md). Repository descriptions, homepage, topics, visibility, transfers and archiving have **not** been changed by this register.
 
-## 6. Canonicalisation decisions still required
+## 7. Canonicalisation decisions still required
 
 1. Confirm `ship-it/OLA` as the only canonical OLA write target after a reviewed migration of the unique commits from the second OLA.
 2. Obtain owner-authorised write access to `krzys167-crypto/Vantage-v0.3` or agree on a controlled transfer/mirror. Do not attempt to rewrite it from the read-only connection.
