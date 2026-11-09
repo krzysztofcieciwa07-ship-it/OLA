@@ -352,3 +352,69 @@ def test_agent_runtime_does_not_block_health_endpoint_event_loop(monkeypatch):
     assert health.status_code == 200
     assert elapsed < 0.15, f"health endpoint was blocked for {elapsed:.3f}s"
     assert invocation.status_code == 200
+
+
+
+def test_concurrent_duplicate_signed_requests_execute_at_most_once(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, headers = _signed_request(private_key)
+
+    async def send_concurrently():
+        transport = httpx.ASGITransport(app=main.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await asyncio.gather(
+                client.post(PATH, content=body, headers=headers),
+                client.post(PATH, content=body, headers=headers),
+            )
+
+    first, second = asyncio.run(send_concurrently())
+
+    assert sorted([first.status_code, second.status_code]) == [200, 409]
+    assert len(calls) == 1
+
+
+def test_signed_bridge_executes_real_six_agent_runtime_and_records_correlated_evidence(monkeypatch):
+    from app.agent_runtime import AGENT_ROLES
+
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "d" * 40)
+    monkeypatch.delenv("OLA_REQUIRE_BUILD_INFO", raising=False)
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OLA_LLM_MODE", "deterministic")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    body, _nonce, headers = _signed_request(private_key)
+
+    response = TestClient(main.app).post(PATH, content=body, headers=headers)
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "VERIFIED"
+    execution = result["execution"]
+    assert execution["status"] == "VERIFIED"
+    assert execution["evidence_count"] == len(AGENT_ROLES) == 6
+    assert execution["agents"] == AGENT_ROLES
+
+    records = main.read_tenant_evidence(tenant_id)
+    bridge_records = [
+        row for row in records
+        if row["record_type"].startswith("secure_bridge.")
+    ]
+    agent_records = [
+        row for row in records
+        if row["record_type"].startswith("agent.")
+    ]
+    assert [row["record_type"] for row in bridge_records] == [
+        "secure_bridge.request_authenticated",
+        "secure_bridge.execution_completed",
+    ]
+    assert len(agent_records) == 6
+    assert all(
+        json.loads(row["payload_json"])["run_id"] == execution["run_id"]
+        for row in agent_records
+    )
+    assert json.loads(bridge_records[-1]["payload_json"])["run_id"] == execution["run_id"]
