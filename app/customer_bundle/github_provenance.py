@@ -27,7 +27,7 @@ MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 MAX_TRUST_ROOT_BYTES = 2 * 1024 * 1024
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
-REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\Z")
+REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 RUN_INVOCATION_OID = ObjectIdentifier("1.3.6.1.4.1.57264.1.21")
 
 
