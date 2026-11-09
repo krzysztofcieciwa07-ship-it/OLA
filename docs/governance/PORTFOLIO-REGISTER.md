@@ -75,12 +75,14 @@ A public repository search surfaced 32 repositories under this separate login. T
 - `goalfloow` — unrelated project fork; contains a tracked `.env` with a public Supabase `anon` key. No `service_role` claim was confirmed.
 - `TIMEATLAS`
 - `vigilant-fiesta`
-- `agent-os`
-- `MoneyPrinterTurbo`
-- `congress-tracker`
+- `TIMEATLAS`
+- `vigilant-fiesta`
+- `goalfloow`
 
 **Upstream/reference forks — do not present as proprietary OLA products**
+- `agent-os`
 - `awesome-python`
+- `MoneyPrinterTurbo`
 - `uygulamali-kriptografi`
 - `CLI-Anything`
 - `ai`
@@ -93,6 +95,7 @@ A public repository search surfaced 32 repositories under this separate login. T
 - `RobynAwesome`
 - `MetaGPT`
 - `google-api-nodejs-client`
+- `congress-tracker`
 - `cli`
 - `docs`
 - `homebrew-cask`
