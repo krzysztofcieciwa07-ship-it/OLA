@@ -176,3 +176,58 @@ def test_generated_good_certificate_validates_compose_service_hostname(tmp_path)
         text=True
     )
     assert verification.returncode == 0, verification.stdout + verification.stderr
+
+
+def test_k6_summary_parser_reads_real_k6_export_shape():
+    summary = {
+        "metrics": {
+            "http_reqs": {"count": 588, "rate": 14.67},
+            "http_req_duration": {"avg": 0.69, "p(95)": 1.27, "p(99)": 1.77},
+            "http_req_tls_handshaking": {"p(95)": 3.96, "p(99)": 5.05}
+        }
+    }
+    result = _assert_module.extract_k6_metrics(summary)
+    assert result == {
+        "requests": 588,
+        "p95_ms": 1.27,
+        "p99_ms": 1.77,
+        "tls_handshake_p95_ms": 3.96,
+        "tls_handshake_p99_ms": 5.05
+    }
+
+
+def test_k6_summary_parser_supports_legacy_nested_values_shape():
+    summary = {
+        "metrics": {
+            "http_reqs": {"values": {"count": 12}},
+            "http_req_duration": {"values": {"p(95)": 20, "p(99)": 40}},
+            "http_req_tls_handshaking": {"values": {"p(95)": 2, "p(99)": 3}}
+        }
+    }
+    result = _assert_module.extract_k6_metrics(summary)
+    assert result["requests"] == 12
+    assert result["p95_ms"] == 20
+    assert result["p99_ms"] == 40
+
+
+def test_container_restart_assertion_matches_actual_compose_services():
+    containers = [
+        {"RestartCount": 0, "Config": {"Labels": {"com.docker.compose.service": name}}}
+        for name in ("tls-target", "control-sentinel", "chaos-runner")
+    ]
+    result = _assert_module.evaluate_container_health(containers)
+    assert result["passed"] is True
+    assert result["container_count"] == 3
+    assert result["restart_count"] == 0
+
+
+def test_container_restart_assertion_fails_for_missing_service_or_restart():
+    containers = [
+        {"RestartCount": 1, "Config": {"Labels": {"com.docker.compose.service": "tls-target"}}},
+        {"RestartCount": 0, "Config": {"Labels": {"com.docker.compose.service": "control-sentinel"}}}
+    ]
+    result = _assert_module.evaluate_container_health(containers)
+    assert result["passed"] is False
+    assert result["missing_services"] == ["chaos-runner"]
+    assert result["restart_count"] == 1
+
