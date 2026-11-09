@@ -41,3 +41,31 @@ The Development IGOR attestation provider is explicitly labelled `DEVELOPMENT_FI
 An arbitrary HTTPS origin is classified as production by the Human Identity deployment-profile guard, even when an environment label says Development. The only HTTPS exception is the exact Replit workspace hostname injected as `REPLIT_DEV_DOMAIN`, while running in the editor and with no `REPLIT_DEPLOYMENT` marker. A `*.replit.app` published app, a custom domain, a mismatched `*.replit.dev` host, or a Replit Deployment never receives the Development signers. This is intentional: test-only keys and fixture attestations must not become a fallback for published services.
 
 Production customer-bundle issuance still requires separately operated OLA and IGOR signing services, an independently managed trust store, independently verified source/image provenance, a trusted timestamp authority, and approved encrypted object storage. Presence of the two Development encryption secrets does not satisfy those controls and does not enable Stripe LIVE or production delivery.
+
+
+## Exact GitHub Actions run binding for OCI provenance
+
+Production-eligible OCI provenance is bound to the exact workflow execution that built the image:
+
+- The oci-slsa-attestations job passes GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT as Docker build arguments.
+- The image writes both positive integers into the root-owned, read-only /app/ola-build-info.json, alongside the exact source commit. Runtime verification reads these values from that file; it does not accept environment-variable fallbacks.
+- CI starts the digest-addressed image and checks that the metadata inside the running container matches the current workflow run and attempt before producing the provenance package.
+- The provenance payload records run_id and run_attempt. After gh attestation verify authenticates the exact packaged Sigstore bundle against the pinned trusted root, OLA parses the Fulcio leaf certificate and requires extension 1.3.6.1.4.1.57264.1.21 (Run Invocation URI) to equal https://github.com/<owner>/<repo>/actions/runs/<run_id>/attempts/<run_attempt>.
+- The offline verifier's out-of-band trust store must pin the same run_id and run_attempt inside its provenance object. Missing, malformed, substituted, or mismatched run identity is rejected.
+
+Example of the additional required trust-policy fields (the existing repository, workflow, image, and trusted-root pins remain required):
+
+~~~json
+{
+  "provenance": {
+    "repository": "owner/repository",
+    "repository_id": "123456",
+    "workflow_identity": "https://github.com/owner/repository/.github/workflows/supply-chain-evidence.yml@refs/heads/main",
+    "trusted_root_sha256": "<64-hex-approved-root-pin>",
+    "run_id": 40968975127,
+    "run_attempt": 1
+  }
+}
+~~~
+
+The run ID and attempt are not a replacement for signature verification. They are checked only after the GitHub CLI has verified the same bundle bytes, issuer, workflow identity, and trusted root. A green pull-request CI run still does not constitute an independently approved production release.
