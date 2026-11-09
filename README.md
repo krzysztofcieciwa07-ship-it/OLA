@@ -4,6 +4,30 @@ OLA is a Python/FastAPI application for controlled agent execution, tenant-scope
 
 This repository is the canonical OLA runtime source. A successful test or CI workflow proves only the checks that actually ran; it does not, by itself, establish production readiness or a live customer transaction.
 
+## Features
+
+- **Controlled agent execution** — registered agents run through explicit execution and risk controls.
+- **NINA orchestration** — bounded task planning and execution through registered capabilities.
+- **IGOR verification** — independent checks over runtime results and evidence records.
+- **Tenant isolation** — API-key-based tenant identity and tenant-scoped evidence access.
+- **Evidence integrity** — append-only SQLite records with per-tenant sequence numbers and a SHA-256 hash chain.
+- **Replay and decision reports** — reconstruction and verification of recorded execution events.
+- **Human Gate** — second-identity review paths bound to the evidence-chain tip; approval is not deployment authorization.
+- **Business workflows** — controlled invoice processing and Stripe Checkout/webhook handling.
+- **Operational verification** — Docker health checks, automated tests, and GitHub Actions security, runtime, and provenance gates.
+
+## Technology stack
+
+- **Language:** Python 3.11+ (the Docker image currently uses Python 3.13).
+- **API:** FastAPI, served by Uvicorn.
+- **Persistence:** SQLAlchemy with SQLite for the current application database.
+- **Runtime packaging:** Docker on Debian 13 slim, running as an unprivileged user.
+- **Testing:** pytest and HTTPX.
+- **Payments:** Stripe Checkout and signed webhook integration.
+- **CI/CD and assurance:** GitHub Actions, CodeQL, runtime tests, and provenance/evidence workflows.
+
+The repository does not currently declare PostgreSQL, Supabase, NumPy, or OpenTelemetry as runtime dependencies. Do not infer those technologies from the broader product roadmap.
+
 ## Repository scope
 
 The current source tree contains:
