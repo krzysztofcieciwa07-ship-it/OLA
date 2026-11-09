@@ -58,6 +58,12 @@ The linked GitHub identity exposes 10 repositories owned by this user account an
 
 **Total on this connected account: 10 repositories and 205 branch refs.** The OLA count includes the governance branch created for PR #199.
 
+## 3.1 Live PR and branch hygiene snapshot
+
+The 2026-11-09 API snapshot shows 167 branches and 77 open PRs (65 Draft, 12 ready). Forty-two open PRs have not been updated for more than 14 days; seven have not been updated for more than 30 days. Use age only to prioritise review, not as an automatic reason to close. Triage each PR into **MERGE CANDIDATE**, **SUPERSEDED**, **BLOCKED**, or **CLOSE WITH REASON**.
+
+For the governance PR itself, commit `56185487aca8879197b2a71897e0082f799fce56` had 29 latest check contexts at snapshot: 27 succeeded and 2 were skipped. The skipped contexts are not passes. No PR review had been submitted. This is not a merge approval.
+
 ### OLA branch shape
 
 The 167 OLA branch refs are distributed as follows:
@@ -79,12 +85,23 @@ The 167 OLA branch refs are distributed as follows:
 | `governance/*` | 2 |
 | Other single-branch prefixes | 11 |
 
-Notable duplicate HEAD groups identified before this governance branch was created:
-- Nine `fix/agent-runtime-minimal-*` refs pointed to the same commit.
-- `feat/runtime-image-attestation-20261107`, `integration/ola-first-five-closure-20261106` and `integration/replit-bff-recovery-20261107` pointed to the same commit.
-- Other pairs included `fix/final-production-gate-20261006` / `fix/final-production-gate-stage-20261006` and `fix/agent-runtime-source-binding-20261105` / `verify/pr170-final-head-20261105`.
+Live branch and pull-request audit (2026-11-09):
+- Branch API returned **167** branch refs across two pages.
+- GitHub returned **77 open pull requests**: **65 Draft** and **12 ready for review**.
+- **42** open PRs had not been updated in more than 14 days; **7** had not been updated in more than 30 days. These are triage candidates, not automatic close candidates.
+- Current open-PR distribution includes new work (#199, #198, #197, #195–#189) and older work that needs a disposition decision. Every PR must be classified as merge candidate, superseded, blocked, or close-with-reason; age alone is not a closure rule.
 
-These refs are cleanup candidates only after verifying their PR association and unique history. The active OLA ruleset currently prohibits branch deletion, so deletion cannot be performed safely until the rule is reviewed and replaced with the approved governance policy.
+**Duplicate branch HEAD groups observed in the live branch list**
+
+| Shared HEAD SHA | Branches | Open-PR association | Decision |
+|---|---|---|---|
+| `6dff9c43ccd5a6892a50d1f59363d232b07ceafb` | `feat/ola-staging-bff-bootstrap-clean-20261108`; `integration/jev-decision-fabric-20261106` | No open PR directly uses either branch as its head. | Candidate for dependency/history review. |
+| `8e56b33df9a3e2806f3709fca90b07e4e595d28f` | `feat/runtime-image-attestation-20261107`; `integration/ola-first-five-closure-20261106`; `integration/replit-bff-recovery-20261107` | `integration/ola-first-five-closure-20261106` is the head of open PR **#189**. | **KEEP** until PR #189 is resolved and all consumers are checked. |
+| `c87cb3c8a798fece4ee18f73ecc648e397b23c24` | `fix/agent-runtime-minimal-2`, `-3`, `-4`, `-5`, `-7`, `-8`, `-9`, `-10`, `-11` | No open PR directly uses these branch names as its head. | High-priority candidate group for dependency/history review; preserve until checked. |
+| `3f39ff8c1b705b501d86fcfa9572604596906e65` | `fix/agent-runtime-source-binding-20261105`; `verify/pr170-final-head-20261105` | No open PR directly uses either branch as its head. | Candidate for dependency/history review. |
+| `9990e9f990cee87bc0d00c5c99566d4e436238f0` | `fix/final-production-gate-20261006`; `fix/final-production-gate-stage-20261006` | No open PR directly uses either branch as its head. | Candidate for dependency/history review. |
+
+Identical HEADs prove only that the refs currently point to the same commit. They do **not** prove the names are disposable: another PR may use a branch as a base, workflow or deployment may reference it, or branch history may need to remain for traceability. Before any deletion, inspect every open and closed PR's head/base refs, commit ancestry, workflow references and deployment configuration. The active OLA ruleset currently prohibits branch deletion, so deletion is not currently available under the observed policy.
 
 Branch browser: [all OLA branches](https://github.com/krzysztofcieciwa07-ship-it/OLA/branches/all) · [open OLA pull requests](https://github.com/krzysztofcieciwa07-ship-it/OLA/pulls)
 
