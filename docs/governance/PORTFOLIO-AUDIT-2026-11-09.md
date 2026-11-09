@@ -312,3 +312,33 @@ The old main implementation of approve_workflow() rejects non-SQLite databases. 
 PR #91/#92 require focused fixes ported onto the current main base. PR #93 is partially superseded and needs payload/type hardening. PR #94/#98 and #97 are superseded by current main behavior and should not be merged blindly. PR #95's PBKDF2 branch is superseded by the scrypt mainline and its SQLite reissue script is not appropriate for the current PostgreSQL staging service. PR #190 and #197 have explicit blockers. PR #198 remains a prototype, not a production-integrated checkpoint service.
 
 No feature PR, branch, main-branch file, deployment, secret or repository setting was changed by this selective review. The 77-row CSV remains the initial inventory; only the subset named in the deep-review document has been reviewed at code level.
+
+
+## 14. PR #189 core payment and execution path — deeper review
+
+PR #189 (`integration/ola-first-five-closure-20261106`, head `8e56b33df9a3e2806f3709fca90b07e4e595d28f`) is a 59-file integration with 122 commits ahead of current main and 2 behind. It must not be merged directly without reconciling its old base with current main.
+
+### Verified positive evidence
+
+- Exact-head CI: 41 check-run entries, 38 success, 1 cancelled, 2 skipped (`igor-independent`, `scorecard`).
+- The dedicated real-PostgreSQL workflow completed **8 tests successfully**. It validates concurrent append sequencing, tenant advisory locking, append-only triggers and the limited runtime role.
+- The Stripe webhook checks signed sandbox events, retrieves the authoritative Checkout Session, binds the session to the exact order/tenant/request hash and uses conditional state transitions.
+- Approval, evidence append and the outbox job are committed in one database transaction. The worker is designed for one attempt and marks ambiguous/stale work interrupted instead of replaying automatically.
+- Report review uses a specific `report_reviewer` API-key role and a separate authenticated review/delivery path.
+
+### Remaining high-risk issues
+
+1. **Legacy approval is not a role-bound human gate.** The ordinary `/checkout-orders/{order_id}/approve` path checks that the API key ID differs from the requester but does not require an `execution_approver` role or bind the key to an authenticated human. The `ApiKey` model defaults to `role="tenant"`; the positive approval test uses that default role and succeeds. This proves two-key separation, not independent human SoD. PR #190's OIDC identity path is the intended higher-assurance correction, but the second locked validation currently omits the OIDC identity fields and fails closed.
+2. **No Railway worker service is configured.** The Railway staging environment contains one API service and no cron/worker service. The API's worker HTTP adapter requires `OLA_EXECUTION_WORKER_TOKEN`, which is absent from the connected service-variable-name inventory. The repository's local Compose file has a separate worker container, but that is not deployed in Railway. Without a manually operated external worker or a separate configured service, approved jobs can remain in `QUEUED`.
+3. **The paid-order worker does not prove a real LLM call.** It requests the fixed `safe_expression` capability, not `llm_agent`. In `agent_runtime.py`, the default mode is `deterministic`; absent a provider key, the runtime falls back to `local_deterministic_model`. The connected Railway variable inventory has no OpenAI key, Ollama endpoint/model, provider or mode override. The paid-order test with “real NINA and IGOR runtime” in its name explicitly sets deterministic mode and asserts `real_llm_invoked=false`. The product documentation correctly says this is a controlled deterministic NINA/IGOR run, not proof of an external LLM call. Do not position this paid path as a real-LLM runtime audit unless the offer is changed to require a provider-bound LLM invocation and its response IDs.
+4. **PostgreSQL test coverage is incomplete for the paid workflow.** The current PostgreSQL CI only runs the database-support and PostgreSQL integration test files. It does not cover the full webhook, paid-order approval, execution worker concurrency, report review or delivery flow against PostgreSQL. The 8 passing tests do not close those gaps.
+
+### Railway source and runtime evidence — corrected interpretation
+
+The service config is labelled `RAILPACK`, but the actual deployment build log explicitly loads the repository Dockerfile, executes its stages, and runs the step writing `/app/ola-build-info.json` with source SHA `393cc56dcd8c1a749cf11d4306d1e247144139cb`. The same deployment logs `OLA_POSTGRES_SCHEMA=VERIFIED` and `GET /readyz 200 OK` at 02:16 UTC on 2026-11-09. The earlier hypothesis that Railpack ignored the Dockerfile/build-info step is therefore withdrawn.
+
+There is still a conflicting source record: Railway service configuration and the build-info step both report SHA `393cc56dcd8c1a749cf11d4306d1e247144139cb`, while the deployment metadata read separately reported `030f7f1a4e18ba45da2cc9edbe530ffed92ee56`. Treat this as an unresolved provenance discrepancy; do not claim either source solely from one record. The latest deployment is currently `SLEEPING` because `sleepApplication=true`, after its readiness check succeeded. No sustained availability window or live paid-order fulfillment was observed.
+
+### Disposition
+
+PR #189 is **NOT READY FOR MERGE**. It has positive PostgreSQL and payment-control foundations, but needs a current-main reconciliation, a role-bound Human Gate, a deployed worker, real-PostgreSQL paid-flow tests, and a precise commercial boundary for deterministic versus real-LLM execution. The exact source/deployment SHA discrepancy must be reconciled before production provenance claims.
