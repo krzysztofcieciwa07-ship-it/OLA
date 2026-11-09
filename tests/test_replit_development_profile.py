@@ -89,3 +89,32 @@ def test_replit_development_runtime_rejects_domain_spoofing(tmp_path):
         profile="development",
         environment=environment,
     ) is None
+
+
+def test_replit_deployment_marker_forces_production_even_for_loopback_origin(monkeypatch):
+    from app.human_identity.routes import _deployment_profile
+    from app.customer_bundle.dev_runtime import (
+        development_customer_bundle_runtime_from_environment,
+    )
+
+    monkeypatch.setenv("OLA_DEPLOYMENT_PROFILE", "development")
+    monkeypatch.setenv("OLA_PUBLIC_BASE_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("REPLIT_DEV_DOMAIN", "workspace-123.server.replit.dev")
+    monkeypatch.setenv("REPLIT_DEPLOYMENT", "1")
+
+    environment = {
+        "OLA_DEPLOYMENT_PROFILE": "development",
+        "OLA_PUBLIC_BASE_URL": "http://127.0.0.1:8000",
+        "REPLIT_DEV_DOMAIN": "workspace-123.server.replit.dev",
+        "REPLIT_DEPLOYMENT": "1",
+        "OLA_HUMAN_SESSION_ENCRYPTION_KEY": Fernet.generate_key().decode("ascii"),
+        "OLA_CUSTOMER_BUNDLE_STORAGE_KEY": base64.urlsafe_b64encode(
+            b"dev-storage-key-32-bytes-exact!!"
+        ).decode("ascii"),
+    }
+
+    assert _deployment_profile() == "production"
+    assert development_customer_bundle_runtime_from_environment(
+        profile="development",
+        environment=environment,
+    ) is None
