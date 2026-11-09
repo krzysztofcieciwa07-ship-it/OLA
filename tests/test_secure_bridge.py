@@ -418,3 +418,26 @@ def test_signed_bridge_executes_real_six_agent_runtime_and_records_correlated_ev
         for row in agent_records
     )
     assert json.loads(bridge_records[-1]["payload_json"])["run_id"] == execution["run_id"]
+
+
+
+def test_sqlite_nonce_insert_prunes_expired_rows_for_local_runtime():
+    from app import secure_bridge
+    from app.models import SecureBridgeNonce
+
+    key_id = "sqlite-nonce-retention-test"
+    secure_bridge.consume_nonce(
+        key_id=key_id, nonce="d" * 64, retention_seconds=60, now=1000,
+    )
+    secure_bridge.consume_nonce(
+        key_id=key_id, nonce="e" * 64, retention_seconds=60, now=1950,
+    )
+
+    with secure_bridge.SessionLocal() as db:
+        rows = db.query(SecureBridgeNonce).filter(
+            SecureBridgeNonce.key_id == key_id
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].nonce_hash == __import__("hashlib").sha256(
+        ("e" * 64).encode("ascii")
+    ).hexdigest()
