@@ -210,7 +210,6 @@ def consume_nonce(
 
     db = SessionLocal()
     try:
-        db.execute(delete(SecureBridgeNonce).where(SecureBridgeNonce.expires_at <= current_time))
         db.add(SecureBridgeNonce(
             key_id=key_id,
             nonce_hash=nonce_hash,
@@ -226,3 +225,21 @@ def consume_nonce(
         raise NonceStoreUnavailable() from exc
     finally:
         db.close()
+
+
+
+def prune_expired_nonces(target_engine, *, now: int | None = None) -> int:
+    """Delete expired replay records using a separate maintenance/migration principal.
+
+    The online API runtime intentionally has INSERT-only access to the nonce
+    table; it cannot erase replay history. Run this helper from a scheduled
+    maintenance process with the database migration/maintenance credentials.
+    """
+    if target_engine.dialect.name != "postgresql":
+        raise RuntimeError("nonce maintenance requires PostgreSQL")
+    current_time = int(time.time()) if now is None else int(now)
+    with target_engine.begin() as conn:
+        result = conn.execute(
+            delete(SecureBridgeNonce).where(SecureBridgeNonce.expires_at <= current_time)
+        )
+    return max(0, int(result.rowcount or 0))

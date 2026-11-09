@@ -26,6 +26,7 @@ The current source tree contains:
 - PostgreSQL can be selected with `OLA_DATABASE_URL` (preferred) or `DATABASE_URL`. PostgreSQL URLs are normalized to SQLAlchemy's `postgresql+psycopg` dialect; Psycopg 3 is pinned in `requirements.txt`.
 - Evidence writes use SQLite `BEGIN IMMEDIATE` or PostgreSQL transaction-scoped, tenant-keyed advisory locks. Both preserve per-tenant sequence numbers and previous-record hashes.
 - PostgreSQL schema DDL is an explicit migration step (`scripts/migrate_postgres.py`) using `OLA_DATABASE_MIGRATION_URL`. API and worker startup verify the migrated schema and append-only triggers but do not create PostgreSQL tables with runtime credentials.
+- Secure bridge nonce reservations are INSERT-only for the API runtime; expired replay records are pruned by the separate maintenance command `scripts/prune_secure_bridge_nonces.py` using migration credentials.
 - PostgreSQL support has a dedicated real-server integration test and GitHub Actions workflow. It is not production-certified until that workflow has passed on the exact candidate SHA and operational backup, TLS, privileges, pooling, and failover checks are verified.
 - `pyproject.toml` metadata names the distribution `ola-evidence-graph` and declares FastAPI; `requirements.txt` supplies the pinned runtime/test dependencies used by the Docker build.
 

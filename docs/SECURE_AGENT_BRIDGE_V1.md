@@ -78,6 +78,14 @@ Replay protection applies to the exact nonce. This v1 endpoint does not promise 
 
 The migration role must run `python scripts/migrate_postgres.py` after this schema change. The API runtime verifies the nonce table, its unique constraint and the `ola_secure_bridge_nonce_v1` migration marker; it never performs PostgreSQL DDL at startup.
 
+The PostgreSQL API runtime principal requires **INSERT only** on `secure_bridge_nonces`. It must not have `SELECT`, `UPDATE`, `DELETE` or `TRUNCATE` on that table. Replay reservation is one atomic insert protected by the database unique constraint; it does not need to read or delete nonce rows. The privilege is checked at runtime readiness.
+
+Expired nonce cleanup runs separately with `OLA_DATABASE_MIGRATION_URL` using `python scripts/prune_secure_bridge_nonces.py`. Schedule it (for example, daily). Do not grant nonce deletion to the online API role merely to enable cleanup; missed cleanup causes storage growth, not replay acceptance.
+
+## Data handling
+
+The current `run_agent_task` implementation persists the task text in tenant-scoped `agent.*` evidence records and returns it in the execution response. Depending on runtime configuration, task content may also be sent to the configured LLM provider. The evidence chain is append-only. Clients must not submit passwords, API keys, private signing material or sensitive personal data until a separate data-minimization, retention and redaction policy is implemented.
+
 ## Explicit v1 limits
 
 - Only `agent.run` is enabled; arbitrary MCP/tool names are not accepted.

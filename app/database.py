@@ -236,14 +236,28 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
                        has_table_privilege(current_user, 'evidence_records', 'DELETE'),
                        has_table_privilege(current_user, 'evidence_records', 'TRUNCATE')
             """)).one()
+            nonce_privileges = conn.execute(text("""
+                SELECT has_table_privilege(current_user, 'secure_bridge_nonces', 'INSERT'),
+                       has_table_privilege(current_user, 'secure_bridge_nonces', 'SELECT'),
+                       has_table_privilege(current_user, 'secure_bridge_nonces', 'UPDATE'),
+                       has_table_privilege(current_user, 'secure_bridge_nonces', 'DELETE'),
+                       has_table_privilege(current_user, 'secure_bridge_nonces', 'TRUNCATE')
+            """)).one()
         else:
-            evidence_privileges = (False, False)
+            evidence_privileges = (False, False, False)
+            nonce_privileges = (True, False, False, False, False)
     if applied is None:
         raise RuntimeError("PostgreSQL schema migration version is missing")
     if bridge_migration is None:
         raise RuntimeError("PostgreSQL secure bridge nonce migration is missing")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
+    if enforce_runtime_privileges and (
+        not nonce_privileges[0] or any(nonce_privileges[1:])
+    ):
+        raise RuntimeError(
+            "PostgreSQL runtime role must have INSERT only on secure_bridge_nonces"
+        )
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
     expected = {"evidence_no_update": "BEFORE UPDATE", "evidence_no_delete": "BEFORE DELETE"}
     for name, action in expected.items():
