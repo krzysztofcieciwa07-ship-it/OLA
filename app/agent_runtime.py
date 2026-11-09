@@ -4,6 +4,7 @@ import json
 import operator
 import os
 import uuid
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 
@@ -34,7 +35,15 @@ def _digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+MAX_AGENT_TASK_CHARS = 4096
+MAX_EXPRESSION_NODES = 64
+MAX_EXPRESSION_DEPTH = 24
+MAX_LITERAL_ABS = 10**12
+
+
 def _safe_expression(task):
+    if not isinstance(task, str) or len(task) > MAX_AGENT_TASK_CHARS:
+        return "execution blocked: task exceeds safe input limit"
     lowered = task.lower()
     if "calculate" in lowered:
         expression = task[lowered.index("calculate") + len("calculate"):].strip()
@@ -43,19 +52,28 @@ def _safe_expression(task):
     expression = expression.replace("?", "").split(" and ")[0].strip()
     try:
         tree = ast.parse(expression, mode="eval")
-    except SyntaxError:
+    except (SyntaxError, ValueError, MemoryError):
         return "task accepted: no executable arithmetic expression supplied"
+    if len(list(ast.walk(tree))) > MAX_EXPRESSION_NODES:
+        return "task accepted: expression exceeds safe complexity limit"
 
-    def evaluate(node):
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+    def evaluate(node, depth=0):
+        if depth > MAX_EXPRESSION_DEPTH:
+            raise ValueError("expression nesting limit exceeded")
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            if abs(node.value) > MAX_LITERAL_ABS:
+                raise ValueError("numeric literal exceeds safe range")
             return node.value
         if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BINOPS:
-            return _SAFE_BINOPS[type(node.op)](evaluate(node.left), evaluate(node.right))
+            return _SAFE_BINOPS[type(node.op)](evaluate(node.left, depth + 1), evaluate(node.right, depth + 1))
         raise ValueError("unsafe expression")
 
     try:
-        return str(evaluate(tree.body))
-    except ValueError:
+        value = evaluate(tree.body)
+        if isinstance(value, (int, float)) and abs(value) > MAX_LITERAL_ABS:
+            return "task accepted: result exceeds safe numeric range"
+        return str(value)
+    except (ValueError, ArithmeticError, RecursionError, OverflowError):
         return "task accepted: expression outside safe execution policy"
 
 
@@ -98,7 +116,11 @@ def _mcp_tool_call(name, arguments):
 def _invoke_llm(agent, task, context):
     """Invoke the configured real LLM provider; fail closed when required but unavailable."""
     provider = os.getenv("OLA_LLM_PROVIDER", "openai").strip().lower()
-    mode = os.getenv("OLA_LLM_MODE", "deterministic")
+    mode = os.getenv("OLA_LLM_MODE", "deterministic").strip().lower()
+    if mode == "deterministic":
+        return None
+    if mode != "required":
+        raise RuntimeError("OLA_LLM_MODE must be deterministic or required")
     prompt = canonical_json({"agent": agent, "task": task, "context": context})
     system_message = (
         "You are one agent in OLA di-OS. Return concise JSON-compatible reasoning output. "
@@ -112,8 +134,17 @@ def _invoke_llm(agent, task, context):
             if mode == "required":
                 raise RuntimeError("OLA_LLM_MODE=required but OPENAI_API_KEY is missing")
             return None
-        model = os.getenv("OLA_LLM_MODEL", "gpt-5.6-luna")
-        endpoint = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1") + "/responses"
+        model = os.getenv("OLA_LLM_MODEL", "").strip()
+        if not model:
+            raise RuntimeError("OLA_LLM_MODEL must be explicitly configured when LLM mode is required")
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        parsed_url = urlsplit(base_url)
+        allowed_hosts = {host.strip().lower() for host in os.getenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com").split(",") if host.strip()}
+        if (parsed_url.scheme != "https" or not parsed_url.hostname
+                or parsed_url.hostname.lower() not in allowed_hosts
+                or parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment):
+            raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint")
+        endpoint = base_url + "/responses"
         payload = {
             "model": model,
             "input": [
@@ -125,7 +156,7 @@ def _invoke_llm(agent, task, context):
             endpoint,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
-            timeout=float(os.getenv("OLA_LLM_TIMEOUT", "30")),
+            timeout=min(15.0, max(1.0, float(os.getenv("OLA_LLM_TIMEOUT", "15")))),
         )
         response.raise_for_status()
         body = response.json()
@@ -209,7 +240,7 @@ def _invoke_llm(agent, task, context):
             f"{base_url}/api/chat",
             headers={"Content-Type": "application/json"},
             json=payload,
-            timeout=float(os.getenv("OLA_LLM_TIMEOUT", "60")),
+            timeout=min(15.0, max(1.0, float(os.getenv("OLA_LLM_TIMEOUT", "15")))),
         )
         response.raise_for_status()
         body = response.json()
@@ -282,6 +313,7 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
         "invocation_type": model["invocation_type"],
         "prompt_digest": model["prompt_digest"],
         "response_id": model.get("response_id"),
+        "model_output_digest": _digest(model.get("output", "")),
     })
     return result
 
@@ -307,8 +339,8 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "run_id": run_id,
         "agent": agent,
         "agent_instance_id": agent_instance_id,
-        "task": task,
-        "previous_output": previous_output,
+        "task_digest": _digest(task),
+        "previous_output_digest": _digest(canonical_json(previous_output)),
         "upstream_agents": [item["agent"] for item in execution],
     }
     output = {
@@ -317,8 +349,8 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "execution_boundary": "independent",
         "commit": _runtime_source_commit() or "UNKNOWN",
         "context_digest": _digest(canonical_json(context)),
-        "task": task,
-        "input_digest": _digest(json.dumps(previous_output, sort_keys=True)),
+        "task_digest": _digest(task),
+        "input_digest": _digest(canonical_json(previous_output)),
         **_execute_agent(agent, tenant_id, task, previous_output, execution),
         "status": "VERIFIED",
         "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
@@ -328,6 +360,10 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
 
 
 def run_agent_task(tenant_id, task):
+    if not isinstance(task, str) or not task.strip() or len(task) > MAX_AGENT_TASK_CHARS:
+        return {"run_id": None, "task": None, "final_result": None, "status": "BLOCK",
+                "reason": "task must be a non-empty string no longer than 4096 characters",
+                "agents": AGENT_ROLES, "evidence_count": 0, "evidence_ids": [], "execution": []}
     source_commit = _runtime_source_commit()
     if source_commit is None:
         return {
