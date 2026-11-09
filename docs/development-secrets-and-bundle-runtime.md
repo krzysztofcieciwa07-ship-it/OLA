@@ -24,8 +24,11 @@ The command prints only the variable names and `PRESENT` / `MISSING`. It never p
 The API automatically creates the test-only customer-bundle runtime only when all of these are true:
 
 - `OLA_DEPLOYMENT_PROFILE=development`;
-- `OLA_PUBLIC_BASE_URL` is an HTTP loopback origin such as `http://127.0.0.1:8000`;
+- `OLA_PUBLIC_BASE_URL` is either an HTTP loopback origin such as `http://127.0.0.1:8000`, or exactly `https://${REPLIT_DEV_DOMAIN}` inside the Replit project editor;
+- for the Replit path, `REPLIT_DEV_DOMAIN` must be present, match the origin hostname exactly, and `REPLIT_DEPLOYMENT` must be unset;
 - both encryption secrets are present, valid, distinct 32-byte keys.
+
+Replit documents `REPLIT_DEV_DOMAIN` as available in the project editor and unavailable in Deployments. OLA requires an exact hostname match and still rejects a published deployment marker.
 
 The local signer seeds are derived from the Human Identity key with HKDF-SHA256 and separate purpose labels. This makes the test-only signatures stable across local API restarts. It does **not** create independent IGOR and OLA custody; the signers remain test-only and the production bundle builder rejects them for the production profile.
 
@@ -35,6 +38,6 @@ The Development IGOR attestation provider is explicitly labelled `DEVELOPMENT_FI
 
 ## Public HTTPS and production boundary
 
-A public HTTPS origin is classified as production by the Human Identity deployment-profile guard, even when an environment label says Development. The loopback Development signer runtime therefore stays disabled on a public Replit preview URL. This is intentional: test-only keys and fixture attestations must not become a fallback for an externally reachable service.
+An arbitrary HTTPS origin is classified as production by the Human Identity deployment-profile guard, even when an environment label says Development. The only HTTPS exception is the exact Replit workspace hostname injected as `REPLIT_DEV_DOMAIN`, while running in the editor and with no `REPLIT_DEPLOYMENT` marker. A `*.replit.app` published app, a custom domain, a mismatched `*.replit.dev` host, or a Replit Deployment never receives the Development signers. This is intentional: test-only keys and fixture attestations must not become a fallback for published services.
 
 Production customer-bundle issuance still requires separately operated OLA and IGOR signing services, an independently managed trust store, independently verified source/image provenance, a trusted timestamp authority, and approved encrypted object storage. Presence of the two Development encryption secrets does not satisfy those controls and does not enable Stripe LIVE or production delivery.
