@@ -16,7 +16,7 @@ Building evidence-driven AI execution and verification systems.
 ## Product repositories
 
 - **OLA** — evidence-driven AI execution runtime. [Repository](https://github.com/krzysztofcieciwa07-ship-it/OLA)
-- **Vantage v0.3** — incident-response range with fault injection, SLO measurement and evidence-based scoring. [Repository](https://github.com/krzys167-crypto/Vantage-v0.3)
+- **Vantage v0.3** — excluded from the owned-product showcase until ownership and administrative control of the separate `krzys167-crypto` account are verified.
 - **Quantum AI Chatbot** — separate mobile-first application with experimental OAuth connectors. [Repository](https://github.com/krzysztofcieciwa07-ship-it/quantum-ai-chatbot)
 
 ## Engineering principles
