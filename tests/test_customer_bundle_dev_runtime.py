@@ -12,7 +12,7 @@ def _development_environment(tmp_path):
         "OLA_PUBLIC_BASE_URL": "http://127.0.0.1:8000",
         "OLA_HUMAN_SESSION_ENCRYPTION_KEY": Fernet.generate_key().decode("ascii"),
         "OLA_CUSTOMER_BUNDLE_STORAGE_KEY": base64.urlsafe_b64encode(
-            b"development-storage-key-32-bytes!"
+            b"dev-storage-key-32-bytes-exact!!"
         ).decode("ascii"),
         "OLA_CUSTOMER_BUNDLE_STORAGE_PATH": str(tmp_path / "private-bundles"),
     }
