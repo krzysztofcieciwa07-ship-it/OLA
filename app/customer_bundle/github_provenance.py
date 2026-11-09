@@ -17,6 +17,9 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
+from cryptography import x509
+from cryptography.x509.oid import ObjectIdentifier
+
 SCHEMA = "ola-github-oci-provenance/v1"
 PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
@@ -24,10 +27,117 @@ MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 MAX_TRUST_ROOT_BYTES = 2 * 1024 * 1024
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
+REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\Z")
+RUN_INVOCATION_OID = ObjectIdentifier("1.3.6.1.4.1.57264.1.21")
 
 
 class GitHubOCIProvenanceRejected(ValueError):
     """Raised when OCI provenance is missing, malformed, or fails policy."""
+
+
+def _der_utf8_string(data: bytes) -> str:
+    """Decode exactly one canonical DER UTF8String from a Fulcio extension."""
+    if not isinstance(data, bytes) or len(data) < 2 or data[0] != 0x0C:
+        raise ValueError("RUN_INVOCATION_EXTENSION_NOT_DER_UTF8STRING")
+    length = data[1]
+    position = 2
+    if length & 0x80:
+        count = length & 0x7F
+        if not 1 <= count <= 4 or len(data) < position + count:
+            raise ValueError("RUN_INVOCATION_DER_LENGTH_INVALID")
+        encoded_length = data[position:position + count]
+        if encoded_length[0] == 0:
+            raise ValueError("RUN_INVOCATION_DER_LENGTH_NONCANONICAL")
+        length = int.from_bytes(encoded_length, "big")
+        if length < 128:
+            raise ValueError("RUN_INVOCATION_DER_LENGTH_NONCANONICAL")
+        position += count
+    if length == 0 or position + length != len(data):
+        raise ValueError("RUN_INVOCATION_DER_LENGTH_MISMATCH")
+    try:
+        return data[position:].decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("RUN_INVOCATION_UTF8_INVALID") from exc
+
+
+def _bundle_documents(bundle_bytes: bytes) -> list[dict]:
+    try:
+        decoded = bundle_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("SIGSTORE_BUNDLE_UTF8_INVALID") from exc
+    try:
+        document = json.loads(decoded)
+        if not isinstance(document, dict):
+            raise ValueError("SIGSTORE_BUNDLE_OBJECT_REQUIRED")
+        return [document]
+    except json.JSONDecodeError:
+        documents = []
+        for line in decoded.splitlines():
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            if not isinstance(item, dict):
+                raise ValueError("SIGSTORE_BUNDLE_JSONL_OBJECT_REQUIRED")
+            documents.append(item)
+        if not documents:
+            raise ValueError("SIGSTORE_BUNDLE_EMPTY")
+        return documents
+
+
+def _certificate_der(document: dict) -> bytes:
+    material = document.get("verificationMaterial")
+    if not isinstance(material, dict):
+        raise ValueError("SIGSTORE_VERIFICATION_MATERIAL_MISSING")
+    direct = material.get("certificate")
+    direct_raw = direct.get("rawBytes") if isinstance(direct, dict) else None
+    chain = material.get("x509CertificateChain")
+    chain_raw = None
+    if chain is not None:
+        certificates = chain.get("certificates") if isinstance(chain, dict) else None
+        if not isinstance(certificates, list) or not certificates or not isinstance(certificates[0], dict):
+            raise ValueError("SIGSTORE_X509_CHAIN_INVALID")
+        chain_raw = certificates[0].get("rawBytes")
+    if direct_raw is not None and chain_raw is not None and direct_raw != chain_raw:
+        raise ValueError("SIGSTORE_LEAF_CERTIFICATE_AMBIGUOUS")
+    encoded = direct_raw if direct_raw is not None else chain_raw
+    if not isinstance(encoded, str) or not encoded:
+        raise ValueError("SIGSTORE_SIGNING_CERTIFICATE_MISSING")
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("SIGSTORE_SIGNING_CERTIFICATE_BASE64_INVALID") from exc
+
+
+def verify_fulcio_run_invocation(
+    bundle_bytes: bytes,
+    *,
+    repository: str,
+    run_id: int,
+    run_attempt: int,
+) -> bool:
+    """Bind a Sigstore-verified bundle to one exact GitHub Actions run attempt.
+
+    Call only after the GitHub CLI has cryptographically verified this same
+    bundle and blob against the pinned Sigstore root, issuer and workflow.
+    This helper parses the already-authenticated Fulcio leaf certificate.
+    """
+    if not isinstance(repository, str) or not REPOSITORY_PATTERN.fullmatch(repository):
+        return False
+    if type(run_id) is not int or run_id < 1 or type(run_attempt) is not int or run_attempt < 1:
+        return False
+    try:
+        documents = _bundle_documents(bundle_bytes)
+        expected = f"https://github.com/{repository}/actions/runs/{run_id}/attempts/{run_attempt}"
+        for document in documents:
+            certificate = x509.load_der_x509_certificate(_certificate_der(document))
+            extension = certificate.extensions.get_extension_for_oid(RUN_INVOCATION_OID)
+            if not isinstance(extension.value, x509.UnrecognizedExtension):
+                return False
+            if _der_utf8_string(extension.value.value) != expected:
+                return False
+        return bool(documents)
+    except (ValueError, x509.ExtensionNotFound, json.JSONDecodeError):
+        return False
 
 
 def _decode_material(value: object, *, label: str, limit: int) -> bytes:
@@ -111,6 +221,8 @@ def verify_github_oci_provenance(
     expected_source_ref: str = "refs/heads/main",
     expected_image_name: str | None = None,
     expected_trusted_root_sha256: str,
+    expected_run_id: int,
+    expected_run_attempt: int,
     gh_binary: str = "gh",
     timeout_seconds: int = 90,
 ) -> bool:
@@ -125,6 +237,8 @@ def verify_github_oci_provenance(
     if not isinstance(expected_source_sha, str) or not HEX_40.fullmatch(expected_source_sha):
         return False
     if not isinstance(expected_image_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_image_digest):
+        return False
+    if type(expected_run_id) is not int or expected_run_id < 1 or type(expected_run_attempt) is not int or expected_run_attempt < 1:
         return False
     if not all(isinstance(value, str) and value for value in (
         expected_repository, expected_repository_id, expected_workflow_identity,
@@ -148,6 +262,10 @@ def verify_github_oci_provenance(
         or payload.get("workflow_identity") != expected_workflow_identity
         or payload.get("image_name") != image_name
         or payload.get("image_digest") != expected_image_digest
+        or type(payload.get("run_id")) is not int
+        or payload.get("run_id") != expected_run_id
+        or type(payload.get("run_attempt")) is not int
+        or payload.get("run_attempt") != expected_run_attempt
         or not isinstance(expected_trusted_root_sha256, str)
         or not HEX_64.fullmatch(expected_trusted_root_sha256)
         or payload.get("trusted_root_sha256") != expected_trusted_root_sha256
@@ -235,7 +353,16 @@ def verify_github_oci_provenance(
                 image_digest=expected_image_digest,
             )
         ]
-        return len(matching) == 1
+        if len(matching) != 1:
+            return False
+        # The CLI above verifies the very same bytes written to bundle_path.
+        # Only then inspect Fulcio's signed Run Invocation URI extension.
+        return verify_fulcio_run_invocation(
+            bundle,
+            repository=expected_repository,
+            run_id=expected_run_id,
+            run_attempt=expected_run_attempt,
+        )
 
 
 def create_github_oci_provenance_payload(
@@ -250,11 +377,15 @@ def create_github_oci_provenance_payload(
     image_name: str,
     image_digest: str,
     expected_trusted_root_sha256: str,
+    run_id: int,
+    run_attempt: int,
     gh_binary: str = "gh",
 ) -> bytes:
     """Package actual build outputs only against an out-of-band trust-root pin."""
     if not isinstance(expected_trusted_root_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_trusted_root_sha256):
         raise GitHubOCIProvenanceRejected("TRUSTED_ROOT_PIN_MISSING_OR_INVALID")
+    if type(run_id) is not int or run_id < 1 or type(run_attempt) is not int or run_attempt < 1:
+        raise GitHubOCIProvenanceRejected("RUN_INVOCATION_IDENTITY_MISSING_OR_INVALID")
     try:
         bundle = bundle_path.read_bytes()
         trusted_root = trusted_root_path.read_bytes()
@@ -272,6 +403,8 @@ def create_github_oci_provenance_payload(
         "workflow_identity": workflow_identity,
         "image_name": image_name,
         "image_digest": image_digest,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
         "attestation_bundle_b64": base64.b64encode(bundle).decode("ascii"),
         "trusted_root_b64": base64.b64encode(trusted_root).decode("ascii"),
         "bundle_sha256": hashlib.sha256(bundle).hexdigest(),
@@ -286,6 +419,8 @@ def create_github_oci_provenance_payload(
         expected_source_ref=source_ref,
         expected_image_name=image_name,
         expected_trusted_root_sha256=expected_trusted_root_sha256,
+        expected_run_id=run_id,
+        expected_run_attempt=run_attempt,
         gh_binary=gh_binary,
     ):
         raise GitHubOCIProvenanceRejected("GITHUB_OCI_SLSA_VERIFICATION_FAILED")
@@ -300,6 +435,8 @@ def github_oci_provenance_verifier(
     expected_source_ref: str = "refs/heads/main",
     expected_image_name: str | None = None,
     expected_trusted_root_sha256: str,
+    expected_run_id: int,
+    expected_run_attempt: int,
     gh_binary: str = "gh",
 ) -> Callable[[bytes, str, str], bool]:
     """Return the callback required by verify_customer_bundle()."""
@@ -312,6 +449,8 @@ def github_oci_provenance_verifier(
             expected_source_ref=expected_source_ref,
             expected_image_name=expected_image_name,
             expected_trusted_root_sha256=expected_trusted_root_sha256,
+            expected_run_id=expected_run_id,
+            expected_run_attempt=expected_run_attempt,
             gh_binary=gh_binary,
         )
     return verify
@@ -382,7 +521,7 @@ def github_oci_provenance_runtime_from_env() -> tuple[GitHubOCIProvenanceProvide
     source SHA is accepted. Private GHCR access requires a read-only Docker
     credential helper or DOCKER_CONFIG mounted into this process.
     """
-    from app.runtime_provenance import runtime_source_commit
+    from app.runtime_provenance import runtime_build_invocation, runtime_source_commit
 
     required = {
         "OLA_GITHUB_PROVENANCE_FILE": os.environ.get("OLA_GITHUB_PROVENANCE_FILE"),
@@ -396,6 +535,10 @@ def github_oci_provenance_runtime_from_env() -> tuple[GitHubOCIProvenanceProvide
     if missing:
         raise GitHubOCIProvenanceRejected("PROVENANCE_RUNTIME_CONFIG_MISSING:" + ",".join(missing))
     repository = required["OLA_GITHUB_REPOSITORY"]
+    invocation = runtime_build_invocation()
+    if invocation is None:
+        raise GitHubOCIProvenanceRejected("RUNTIME_BUILD_RUN_INVOCATION_MISSING")
+    run_id, run_attempt = invocation
     source_ref = os.environ.get("OLA_GITHUB_SOURCE_REF", "refs/heads/main")
     image_name = os.environ.get("OLA_GITHUB_IMAGE_NAME") or f"ghcr.io/{repository.lower()}"
     gh_binary = os.environ.get("OLA_GH_BINARY", "gh")
@@ -406,6 +549,8 @@ def github_oci_provenance_runtime_from_env() -> tuple[GitHubOCIProvenanceProvide
         expected_source_ref=source_ref,
         expected_image_name=image_name,
         expected_trusted_root_sha256=required["OLA_SIGSTORE_TRUST_ROOT_SHA256"],
+        expected_run_id=run_id,
+        expected_run_attempt=run_attempt,
         gh_binary=gh_binary,
     )
     source_sha = runtime_source_commit(require_build_info=True) or ""
