@@ -128,6 +128,7 @@ def development_customer_bundle_runtime_from_environment(
     if (
         profile != "development"
         or env.get("OLA_DEPLOYMENT_PROFILE", "").strip().lower() != "development"
+        or env.get("REPLIT_DEPLOYMENT", "").strip()
         or not _development_origin_is_loopback(env)
     ):
         return None
