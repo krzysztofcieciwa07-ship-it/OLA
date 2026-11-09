@@ -85,6 +85,7 @@ The migration role must run `python scripts/migrate_postgres.py` after this sche
 - Trusted and revoked keys are supplied by deployment configuration.
 - The endpoint does not authorize HIGH-risk actions or replace Human Gate approval.
 - This change does not add endpoint-specific rate limiting; enforce a conservative limit at the API gateway/edge before enabling public traffic.
+- Request bodies are capped at 64 KiB during incremental stream reads. Synchronous nonce storage, evidence writes and agent execution are dispatched to the worker thread pool so long-running LLM work does not block the ASGI event loop.
 - No production rollout is implied by this code or its tests.
 
 ## Node.js agent client example
