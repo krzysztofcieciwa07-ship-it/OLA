@@ -1,0 +1,79 @@
+{
+  "schema": "ola-chaos-fault-catalog/v0",
+  "version": "0.1.0",
+  "faults": [
+    {
+      "id": "tls_cert_expired",
+      "status": "implemented",
+      "strategy": "atomic_certificate_pointer_swap",
+      "description": "Serve an expired leaf certificate while strict clients continue to probe.",
+      "parameters": {
+        "leaf_validity": "expired",
+        "expected_client_error": "SSLCertVerificationError",
+        "reload_without_restart": true
+      },
+      "required_assertions": [
+        "baseline_tls_handshake",
+        "expired_certificate_rejected",
+        "certificate_chain_ok_after_fix",
+        "hostname_validation_ok",
+        "health_stable_window"
+      ]
+    },
+    {
+      "id": "invalid_truststore",
+      "status": "reserved",
+      "strategy": "trust_bundle_pointer_swap",
+      "description": "Remove or replace one trusted CA in a disposable client trust bundle.",
+      "parameters": {
+        "trust_bundle": "path",
+        "expected_client_error": "SSLCertVerificationError",
+        "restore_original": true
+      }
+    },
+    {
+      "id": "time_skew",
+      "status": "reserved",
+      "strategy": "isolated_clock_offset",
+      "description": "Inject bounded clock offset in a disposable test process or time namespace.",
+      "parameters": {
+        "offset_seconds": "integer",
+        "max_offset_seconds": 300,
+        "restore_clock": true
+      }
+    },
+    {
+      "id": "dns_poison",
+      "status": "reserved",
+      "strategy": "isolated_dns_response_override",
+      "description": "Return a controlled wrong answer only inside a dedicated test network.",
+      "parameters": {
+        "record_type": "A|AAAA|CNAME",
+        "wrong_answer": "test-network-only",
+        "ttl_seconds": "integer"
+      }
+    },
+    {
+      "id": "kafka_lag",
+      "status": "reserved",
+      "strategy": "bounded_consumer_pause",
+      "description": "Pause a dedicated consumer and measure lag growth and catch-up.",
+      "parameters": {
+        "consumer_group": "string",
+        "pause_seconds": "integer",
+        "max_lag_records": "integer"
+      }
+    },
+    {
+      "id": "cpu_throttle",
+      "status": "reserved",
+      "strategy": "container_cpu_quota",
+      "description": "Apply a bounded CPU quota to an isolated disposable service.",
+      "parameters": {
+        "cpu_quota": "string",
+        "duration_seconds": "integer",
+        "restore_quota": true
+      }
+    }
+  ]
+}

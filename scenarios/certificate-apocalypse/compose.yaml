@@ -1,0 +1,52 @@
+name: ${OLA_COMPOSE_PROJECT:-ola-certificate-apocalypse}
+
+services:
+  tls-target:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ola-chaos-tls:${OLA_SCENARIO_RUN_ID:-local}
+    command: ["tls"]
+    environment:
+      OLA_SERVER_MODE: tls
+      OLA_SCENARIO_RUN_ID: ${OLA_SCENARIO_RUN_ID:?run context missing}
+      OLA_SCENARIO_CHALLENGE: ${OLA_SCENARIO_CHALLENGE:?run challenge missing}
+      TLS_CERT_FILE: /run/certs/current/server.crt
+      TLS_KEY_FILE: /run/certs/current/server.key
+    volumes:
+      - ${OLA_CERT_DIR:?certificate directory required}:/run/certs:ro
+    ports:
+      - "127.0.0.1:${TLS_PORT:-8443}:8443"
+    user: "${OLA_UID:-1000}:${OLA_GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    networks: ["chaos"]
+
+  control-sentinel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ola-chaos-tls:${OLA_SCENARIO_RUN_ID:-local}
+    command: ["control"]
+    environment:
+      OLA_SERVER_MODE: control
+      OLA_SCENARIO_RUN_ID: ${OLA_SCENARIO_RUN_ID:?run context missing}
+      OLA_SCENARIO_CHALLENGE: ${OLA_SCENARIO_CHALLENGE:?run challenge missing}
+    ports:
+      - "127.0.0.1:${CONTROL_PORT:-8080}:8080"
+    user: "${OLA_UID:-1000}:${OLA_GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    networks: ["chaos"]
+
+networks:
+  chaos:
+    internal: true

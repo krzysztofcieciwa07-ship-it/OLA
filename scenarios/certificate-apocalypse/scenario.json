@@ -1,0 +1,61 @@
+{
+  "apiVersion": "ola.di-os/chaos/v0",
+  "kind": "Scenario",
+  "metadata": {
+    "id": "certificate-apocalypse",
+    "version": "0.1.0",
+    "description": "Expired TLS leaf certificate, strict client rejection, and measured recovery."
+  },
+  "target": {
+    "runtime": "docker-compose",
+    "service": "tls-target",
+    "base_url": "https://127.0.0.1:8443",
+    "resources": ["tls-target/https:8443"],
+    "collateral_sentinels": ["control-sentinel/http:8080"]
+  },
+  "fault": {
+    "id": "tls_cert_expired",
+    "strategy": "atomic_certificate_pointer_swap",
+    "params": {
+      "leaf_validity": "expired",
+      "expected_client_error": "SSLCertVerificationError",
+      "reload_without_restart": true
+    },
+    "schedule": { "fault_after_seconds": 9, "fault_duration_seconds": 11 }
+  },
+  "traffic": {
+    "engine": "k6",
+    "script": "scenarios/certificate-apocalypse/k6_load.js",
+    "vus": 4,
+    "tls_verification": "required",
+    "request_timeout": "3s",
+    "slo": { "availability_min": 0.99, "p95_max_ms": 500, "p99_max_ms": 1000 }
+  },
+  "assertions": [
+    "baseline_tls_handshake", "expired_certificate_rejected",
+    "certificate_chain_ok_after_fix", "hostname_validation_ok",
+    "health_stable_window", "control_sentinel_unaffected",
+    "container_restart_count_zero", "run_challenge_bound",
+    "slo_availability_met", "slo_latency_met"
+  ],
+  "scoring": {
+    "weights": { "availability": 0.35, "latency": 0.20, "time_to_recover": 0.30, "blast_radius": 0.15 },
+    "thresholds": { "pass": 0.70, "merit": 0.85, "elite": 0.95 },
+    "penalties": { "per_restart": 0.10, "downtime_over_60_seconds": 0.10 }
+  },
+  "evidence": {
+    "sources": [
+      "probe_jsonl", "k6_summary", "docker_logs", "docker_inspect",
+      "docker_events", "certificate_events", "command_ledger", "file_sha256"
+    ],
+    "manifest_signature": "Ed25519"
+  },
+  "anti_llm": {
+    "per_run_nonce": true,
+    "randomized_fault_window": { "min_seconds": 7, "max_seconds": 13 },
+    "private_assertion_policy": true,
+    "min_stable_seconds": 8,
+    "max_probe_gap_seconds": 2.5,
+    "challenge_header_required": true
+  }
+}

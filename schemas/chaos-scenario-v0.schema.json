@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ola.di-os/schemas/chaos-scenario-v0.schema.json",
+  "title": "OLA Chaos Scenario v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "target", "fault", "traffic", "assertions", "scoring", "evidence", "anti_llm"],
+  "properties": {
+    "apiVersion": { "const": "ola.di-os/chaos/v0" },
+    "kind": { "const": "Scenario" },
+    "metadata": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "description"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,62}$" },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "description": { "type": "string", "minLength": 12 }
+      }
+    },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runtime", "service", "base_url", "resources", "collateral_sentinels"],
+      "properties": {
+        "runtime": { "const": "docker-compose" },
+        "service": { "type": "string", "minLength": 1 },
+        "base_url": { "type": "string", "pattern": "^https://" },
+        "resources": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+        "collateral_sentinels": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "fault": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "strategy", "params", "schedule"],
+      "properties": {
+        "id": { "const": "tls_cert_expired" },
+        "strategy": { "const": "atomic_certificate_pointer_swap" },
+        "params": {
+          "type": "object", "additionalProperties": false,
+          "required": ["leaf_validity", "expected_client_error", "reload_without_restart"],
+          "properties": {
+            "leaf_validity": { "const": "expired" },
+            "expected_client_error": { "const": "SSLCertVerificationError" },
+            "reload_without_restart": { "const": true }
+          }
+        },
+        "schedule": {
+          "type": "object", "additionalProperties": false,
+          "required": ["fault_after_seconds", "fault_duration_seconds"],
+          "properties": {
+            "fault_after_seconds": { "type": "integer", "minimum": 3, "maximum": 60 },
+            "fault_duration_seconds": { "type": "integer", "minimum": 5, "maximum": 60 }
+          }
+        }
+      }
+    },
+    "traffic": {
+      "type": "object", "additionalProperties": false,
+      "required": ["engine", "script", "vus", "tls_verification", "request_timeout", "slo"],
+      "properties": {
+        "engine": { "const": "k6" },
+        "script": { "const": "scenarios/certificate-apocalypse/k6_load.js" },
+        "vus": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "tls_verification": { "const": "required" },
+        "request_timeout": { "type": "string", "pattern": "^[1-9][0-9]*s$" },
+        "slo": {
+          "type": "object", "additionalProperties": false,
+          "required": ["availability_min", "p95_max_ms", "p99_max_ms"],
+          "properties": {
+            "availability_min": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "p95_max_ms": { "type": "number", "exclusiveMinimum": 0 },
+            "p99_max_ms": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        }
+      }
+    },
+    "assertions": {
+      "type": "array", "minItems": 8, "uniqueItems": true,
+      "items": { "enum": [
+        "baseline_tls_handshake", "expired_certificate_rejected",
+        "certificate_chain_ok_after_fix", "hostname_validation_ok",
+        "health_stable_window", "control_sentinel_unaffected",
+        "container_restart_count_zero", "run_challenge_bound",
+        "slo_availability_met", "slo_latency_met"
+      ] }
+    },
+    "scoring": {
+      "type": "object", "additionalProperties": false,
+      "required": ["weights", "thresholds", "penalties"],
+      "properties": {
+        "weights": {
+          "type": "object", "additionalProperties": false,
+          "required": ["availability", "latency", "time_to_recover", "blast_radius"],
+          "properties": {
+            "availability": { "type": "number", "minimum": 0, "maximum": 1 },
+            "latency": { "type": "number", "minimum": 0, "maximum": 1 },
+            "time_to_recover": { "type": "number", "minimum": 0, "maximum": 1 },
+            "blast_radius": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "thresholds": {
+          "type": "object", "additionalProperties": false,
+          "required": ["pass", "merit", "elite"],
+          "properties": {
+            "pass": { "type": "number", "minimum": 0, "maximum": 1 },
+            "merit": { "type": "number", "minimum": 0, "maximum": 1 },
+            "elite": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "penalties": {
+          "type": "object", "additionalProperties": false,
+          "required": ["per_restart", "downtime_over_60_seconds"],
+          "properties": {
+            "per_restart": { "type": "number", "minimum": 0, "maximum": 1 },
+            "downtime_over_60_seconds": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sources", "manifest_signature"],
+      "properties": {
+        "sources": {
+          "type": "array", "minItems": 5, "uniqueItems": true,
+          "items": { "enum": ["probe_jsonl", "k6_summary", "docker_logs", "docker_inspect", "docker_events", "certificate_events", "command_ledger", "file_sha256"] }
+        },
+        "manifest_signature": { "const": "Ed25519" }
+      }
+    },
+    "anti_llm": {
+      "type": "object", "additionalProperties": false,
+      "required": ["per_run_nonce", "randomized_fault_window", "private_assertion_policy", "min_stable_seconds", "max_probe_gap_seconds", "challenge_header_required"],
+      "properties": {
+        "per_run_nonce": { "const": true },
+        "randomized_fault_window": {
+          "type": "object", "additionalProperties": false,
+          "required": ["min_seconds", "max_seconds"],
+          "properties": {
+            "min_seconds": { "type": "integer", "minimum": 3 },
+            "max_seconds": { "type": "integer", "minimum": 4 }
+          }
+        },
+        "private_assertion_policy": { "const": true },
+        "min_stable_seconds": { "type": "integer", "minimum": 5 },
+        "max_probe_gap_seconds": { "type": "number", "minimum": 0.5, "maximum": 5 },
+        "challenge_header_required": { "const": true }
+      }
+    }
+  }
+}
