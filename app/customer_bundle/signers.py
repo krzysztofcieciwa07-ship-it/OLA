@@ -47,6 +47,21 @@ class TestOnlyEd25519Signer:
             _ed25519_signer=Ed25519PrivateKey.generate(),
         )
 
+    @classmethod
+    def from_seed(
+        cls, *, key_id: str, custody_id: str, seed: bytes,
+    ) -> "TestOnlyEd25519Signer":
+        """Create a deterministic test-only signer from one 32-byte derived seed."""
+        if not key_id or not custody_id:
+            raise BundleSignerRejected("test signer key and custody IDs are required")
+        if not isinstance(seed, bytes) or len(seed) != 32:
+            raise BundleSignerRejected("test signer seed must be exactly 32 bytes")
+        return cls(
+            key_id=key_id,
+            custody_id=custody_id,
+            _ed25519_signer=Ed25519PrivateKey.from_private_bytes(seed),
+        )
+
     @property
     def public_key_bytes(self) -> bytes:
         return self._ed25519_signer.public_key().public_bytes(
