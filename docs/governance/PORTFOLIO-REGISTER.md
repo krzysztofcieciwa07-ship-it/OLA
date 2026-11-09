@@ -43,18 +43,20 @@ The newer `ship-it` copy has four commits not present in the older account's mai
 
 The linked GitHub identity exposes 10 repositories owned by this user account and no organisation memberships:
 
-| Repository | Visibility | Default branch | Fork relationship | Proposed classification |
-|---|---|---|---|---|
-| `OLA` | public | `main` | original | CORE |
-| `vantage` | public | `main` | original | EXPERIMENTAL |
-| `Vantage-v0.3` | private | `main` | original, empty | ARCHIVE CANDIDATE |
-| `quantum-ai-chatbot` | public | `main` | fork of `krzys167-crypto/quantum-ai-chatbot` | EXPERIMENTAL |
-| `ola-evidence-gateway` | public | `main` | fork of `krzys167-crypto/ola-evidence-gateway` | SPEC |
-| `MetaGPT` | public | `main` | fork of `FoundationAgents/MetaGPT` | UPSTREAM FORK |
-| `cli` | public | `trunk` | fork of `cli/cli` | UPSTREAM FORK |
-| `ai` | public | `main` | fork of `vercel/ai` | UPSTREAM FORK |
-| `uygulamali-kriptografi` | public | `master` | fork of `hnfgns/uygulamali-kriptografi` | UPSTREAM FORK |
-| `swarmclaw` | public | `main` | fork of `octo-patch/swarmclaw` | UPSTREAM FORK |
+| Repository | Visibility | Default branch | Branches | Fork relationship | Proposed classification |
+|---|---|---|---:|---|---|
+| `OLA` | public | `main` | 167 | original | CORE |
+| `vantage` | public | `main` | 27 | original | EXPERIMENTAL |
+| `Vantage-v0.3` | private | `main` | 0 | original, empty | ARCHIVE CANDIDATE |
+| `quantum-ai-chatbot` | public | `main` | 2 | fork of `krzys167-crypto/quantum-ai-chatbot` | EXPERIMENTAL |
+| `ola-evidence-gateway` | public | `main` | 4 | fork of `krzys167-crypto/ola-evidence-gateway` | SPEC |
+| `MetaGPT` | public | `main` | 1 | fork of `FoundationAgents/MetaGPT` | UPSTREAM FORK |
+| `cli` | public | `trunk` | 1 | fork of `cli/cli` | UPSTREAM FORK |
+| `ai` | public | `main` | 1 | fork of `vercel/ai` | UPSTREAM FORK |
+| `uygulamali-kriptografi` | public | `master` | 1 | fork of `hnfgns/uygulamali-kriptografi` | UPSTREAM FORK |
+| `swarmclaw` | public | `main` | 1 | fork of `octo-patch/swarmclaw` | UPSTREAM FORK |
+
+**Total on this connected account: 10 repositories and 205 branch refs.** The OLA count includes the governance branch created for PR #199.
 
 Several product repositories have empty GitHub descriptions/topics. Repository metadata should be applied only after this classification and the canonical source decisions are accepted.
 
@@ -62,45 +64,55 @@ Several product repositories have empty GitHub descriptions/topics. Repository m
 
 A public repository search surfaced 32 repositories under this separate login. The current GitHub integration has read-only permission there. The list below is an inventory of public repository names, not proof of common ownership.
 
-**OLA/Vantage-related repositories or adjacent forks**
-- `OLA` — divergent OLA source.
-- `Vantage-v0.3` — developed incident-response range.
-- `vantage` — small fork of `ship-it/vantage`.
-- `quantum-ai-chatbot` — older Quantum source.
-- `ola-evidence-gateway` — README-only specification.
-- `Ola-ai-plugins` — README-only specification.
-- `ola.dios.audit-gmail.com` — small fork; purpose and ownership require confirmation.
+**Complete repository and branch-count inventory**
 
-**Independent or currently unclassified repositories**
-- `TIMEATLAS`
-- `vigilant-fiesta`
+| Repository | Branches | Observed branch names when count is greater than 1 | Classification |
+|---|---:|---|---|
+| `agent-os` | 1 | — | UPSTREAM FORK |
+| `awesome-python` | 2 | `Ola-agent-firewall`, `master` | UPSTREAM FORK |
+| `MoneyPrinterTurbo` | 1 | — | UPSTREAM FORK |
+| `uygulamali-kriptografi` | 1 | — | UPSTREAM FORK |
+| `quantum-ai-chatbot` | 7 | `main`, `fix/f09-server-side-approval`, `fix/oauth-state-token-hardening`, `port/combined-on-d74d883`, `port/extras-on-d74d883`, `port/pr1-on-d74d883`, `port/pr2-on-d74d883` | LEGACY SOURCE |
+| `ola-evidence-gateway` | 5 | `main`, `automation/evidence-v0.1`, two Codespaces branches, one revert branch | SPEC |
+| `CLI-Anything` | 1 | — | UPSTREAM FORK |
+| `ai` | 2 | `main`, `krzys167-crypto-patch-1` | UPSTREAM FORK |
+| `swarmclaw` | 1 | — | UPSTREAM FORK |
+| `goalfloow` | 1 | — | UPSTREAM FORK; tracked `.env` to review |
+| `dotfiles` | 1 | — | UPSTREAM FORK |
+| `brew` | 1 | — | UPSTREAM FORK |
+| `Vantage-v0.3` | 15 | 13 `claude/*` branches, `main`, `revert-21-main`; default branch is `claude/powershell-install-script-h86qlw` | CORE CANDIDATE |
+| `arrow` | 1 | — | UPSTREAM FORK |
+| `community` | 2 | `main`, `krzys167-crypto-patch-1` | UPSTREAM FORK |
+| `django-ai-plugins` | 1 | — | UPSTREAM FORK |
+| `congress-tracker` | 1 | — | UPSTREAM FORK |
+| `avalanche-react` | 1 | — | UPSTREAM FORK |
+| `RobynAwesome` | 1 | — | UPSTREAM FORK |
+| `MetaGPT` | 1 | — | UPSTREAM FORK |
+| `Ola-ai-plugins` | 5 | `main`, `automation/evidence-v0.1`, three Vercel branches | SPEC |
+| `vantage` | 2 | `main`, `patch-1` | UPSTREAM FORK of ship-it prototype |
+| `OLA` | 88 | 88 refs including `main`, `cfr18-forensic`, multiple `feat/*`, `fix/*`, `security/*`, `integration/*`, and `ui/*` | DIVERGENT SOURCE |
+| `google-api-nodejs-client` | 1 | — | UPSTREAM FORK |
+| `cli` | 1 | — | UPSTREAM FORK |
+| `docs` | 1 | — | UPSTREAM FORK |
+| `TIMEATLAS` | 1 | — | UNKNOWN |
+| `house-documents` | 1 | — | UPSTREAM FORK |
+| `homebrew-cask` | 1 | — | UPSTREAM FORK |
+| `vigilant-fiesta` | 1 | — | UNKNOWN |
+| `ola.dios.audit-gmail.com` | 1 | — | ADJACENT FORK — ownership/purpose to confirm |
+| `homebrew-core` | 1 | — | UPSTREAM FORK |
 
-**Upstream/reference forks — do not present as proprietary OLA products**
-- `agent-os`
-- `awesome-python`
-- `MoneyPrinterTurbo`
-- `uygulamali-kriptografi`
-- `CLI-Anything`
-- `ai`
-- `swarmclaw`
-- `goalfloow` — contains a tracked `.env` with a public Supabase `anon` key; no `service_role` claim was confirmed.
-- `dotfiles`
-- `brew`
-- `arrow`
-- `community`
-- `django-ai-plugins`
-- `congress-tracker`
-- `avalanche-react`
-- `RobynAwesome`
-- `MetaGPT`
-- `google-api-nodejs-client`
-- `cli`
-- `docs`
-- `house-documents`
-- `homebrew-cask`
-- `homebrew-core`
+**Total under this separate public login: 32 repositories and 150 branch refs.** Counts are from the branch API listing; the larger branch inventories are recorded by count and key branch patterns rather than copying every ref into this document.
 
-Some forks may contain local changes or useful research. They remain upstream forks unless a distinct, original product contribution is demonstrated.
+**OLA/Vantage-related findings**
+- `OLA` is a divergent source from the ship-it repository, not a mirror.
+- `Vantage-v0.3` is the developed incident-response range. Its default branch is not `main`.
+- `vantage` is a one-commit-behind fork of the ship-it prototype, not a second independent Vantage product.
+- `quantum-ai-chatbot` is the older source and includes a tracked `.env` in its main history. The inspected token was a Supabase `anon` key, not `service_role`.
+- `ola-evidence-gateway` and `Ola-ai-plugins` contain README-level specifications rather than working services.
+- `ola.dios.audit-gmail.com` is a small fork whose purpose and product ownership still require confirmation.
+- `goalfloow` is an unrelated upstream fork; the inspected `.env` contains a public Supabase `anon` key. No `service_role` claim was confirmed.
+
+
 
 ## 5. GitHub governance snapshot
 
