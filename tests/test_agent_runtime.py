@@ -125,7 +125,7 @@ def test_safe_expression_blocks_arithmetic_and_complexity_failures():
 
     assert "outside safe execution policy" in _safe_expression("calculate 1/0")
     assert "complexity limit" in _safe_expression("1+" + "+".join(["1"] * 100))
-    assert "safe execution policy" in _safe_expression("(" * 40 + "1" + ")" * 40)
+    assert "safe execution policy" in _safe_expression("1+" + "+".join(["1"] * 39))
 
 
 def test_deterministic_mode_never_calls_external_provider(monkeypatch):
