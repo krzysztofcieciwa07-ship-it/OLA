@@ -38,11 +38,14 @@ from .human_identity.routes import (
 from .human_identity.membership import HumanMembershipRejected, require_human_operator
 from .human_identity.policy import HumanIdentityPolicyRejected, require_human_identity_mode
 from .customer_bundle.routes import router as customer_bundle_router
+from .customer_bundle.dev_runtime import development_customer_bundle_runtime_from_environment
 
 app = FastAPI(title="OLA Execution Gate")
 # Explicit runtime injection only. No env-flag or filesystem fallback may
 # silently activate production signing, timestamping or customer storage.
-app.state.customer_bundle_runtime = None
+app.state.customer_bundle_runtime = development_customer_bundle_runtime_from_environment(
+    profile=_deployment_profile(),
+)
 # Optional provider-neutral recipient authentication adapter; OIDC is the default.
 app.state.customer_bundle_recipient_auth_provider = None
 _public_base_url = os.environ.get("OLA_PUBLIC_BASE_URL", "")
