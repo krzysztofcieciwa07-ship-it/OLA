@@ -499,7 +499,7 @@ jobs:
           container_image_id="$(docker inspect --format '{{.Image}}' "$container_name")"
           container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "$container_name")"
           test "$container_image_id" = "$EXPECTED_IMAGE_ID"
-          container_invocation="$(docker exec "$container_name" python -c 'import json; d=json.load(open("/app/ola-build-info.json", encoding="utf-8")); print(f"{d.get(\"github_run_id\", 0)}:{d.get(\"github_run_attempt\", 0)}")')"
+          container_invocation="$(docker exec "$container_name" python -c 'import json; d=json.load(open("/app/ola-build-info.json", encoding="utf-8")); print("{}:{}".format(d.get("github_run_id", 0), d.get("github_run_attempt", 0)))')"
           test "$container_invocation" = "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT"
 
           healthy=false
