@@ -50,7 +50,7 @@ with an internal-node encoding.
 ```python
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from app.evidence_merkle import (
-    create_tenant_checkpoint,
+    create_checkpoint,
     load_tenant_evidence_records,
     build_inclusion_proof,
     verify_checkpoint_signature,
@@ -59,13 +59,13 @@ from app.evidence_merkle import (
 
 # Example only: production signing keys belong in a KMS/HSM or approved secret store.
 private_key = Ed25519PrivateKey.generate()
-checkpoint = create_tenant_checkpoint(
-    authorized_tenant_id,
+# Keep the same read snapshot for checkpoint creation and proof generation.
+records = load_tenant_evidence_records(authorized_tenant_id)
+checkpoint = create_checkpoint(
+    records,
     signing_key=private_key,
     signer_key_id="ola-evidence-checkpoint-2026-01",
 )
-
-records = load_tenant_evidence_records(authorized_tenant_id)
 proof = build_inclusion_proof(records, leaf_index=3, checkpoint=checkpoint)
 
 signature_status = verify_checkpoint_signature(

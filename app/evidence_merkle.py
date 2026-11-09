@@ -252,7 +252,12 @@ def verify_checkpoint_signature(
         count = manifest.get("record_count")
         if type(count) is not int or count < 1:
             return invalid
-        if manifest.get("chain_start_seq") != 0 or manifest.get("chain_end_seq") != count - 1:
+        chain_start_seq = manifest.get("chain_start_seq")
+        chain_end_seq = manifest.get("chain_end_seq")
+        # bool is a subclass of int in Python; reject it explicitly in signed schemas.
+        if type(chain_start_seq) is not int or chain_start_seq != 0:
+            return invalid
+        if type(chain_end_seq) is not int or chain_end_seq != count - 1:
             return invalid
         if manifest.get("chain_start_prev_hash") != GENESIS_HASH:
             return invalid
