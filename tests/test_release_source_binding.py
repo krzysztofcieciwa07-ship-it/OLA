@@ -4,6 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "${{ github.event.pull_request.head.sha || github.sha }}"
+RELEASE_SOURCE = "${{ github.sha }}"
 
 
 class ReleaseSourceBindingTest(unittest.TestCase):
@@ -14,14 +15,21 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         ):
             with self.subTest(workflow=filename):
                 lines = (ROOT / filename).read_text(encoding="utf-8").splitlines()
+                current_job = None
                 count = 0
                 for index, line in enumerate(lines):
+                    if line.startswith("  ") and not line.startswith("    ") and line.endswith(":"):
+                        current_job = line.strip()[:-1]
                     if "uses: actions/checkout@" not in line:
                         continue
                     count += 1
                     block = "\n".join(lines[index + 1:index + 9])
-                    self.assertIn("ref: " + SOURCE, block)
                     self.assertIn("persist-credentials: false", block)
+                    if filename.endswith("supply-chain-evidence.yml") and current_job == "oci-slsa-attestations":
+                        self.assertIn("ref: " + RELEASE_SOURCE, block)
+                        self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', "\n".join(lines[index:index + 20]))
+                    else:
+                        self.assertIn("ref: " + SOURCE, block)
                 self.assertGreater(count, 0)
 
     def test_scan_producers_check_actual_git_head(self):
@@ -36,12 +44,108 @@ class ReleaseSourceBindingTest(unittest.TestCase):
                 self.assertIn('if [ "$checked_out" != "$EXPECTED_SOURCE_SHA" ]; then', content)
                 self.assertIn('exit 1', content)
 
+    def test_release_attestations_are_gated_and_feature_dispatch_is_rehearsal_only(self):
+        content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
+        self.assertIn("needs: [security-image, provenance-adapter-tests]", content)
+        self.assertIn("expected_trusted_root_sha256:", content)
+        self.assertIn("EXPECTED_TRUST_ROOT_SHA256: ${{ inputs.expected_trusted_root_sha256 || vars.OLA_SIGSTORE_TRUST_ROOT_SHA256 }}", content)
+        self.assertIn("--expected-trusted-root-sha256 \"$EXPECTED_TRUST_ROOT_SHA256\"", content)
+        self.assertIn("Require configured trust-root pin for main releases", content)
+        self.assertIn("Upload Sigstore root discovery materials (unverified)", content)
+        self.assertIn("ola-sigstore-root-discovery-${{ github.sha }}", content)
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", content)
+        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/oidc-human-gate-customer-bundle-20261107'", content)
+        self.assertIn("attestations: write", content)
+        self.assertIn("id-token: write", content)
+        self.assertIn("Trivy scan exact image before publication", content)
+        self.assertIn("Push exact scanned OCI image", content)
+        self.assertEqual(content.count("ignore-unfixed: false"), 3)
+        self.assertNotIn("ignore-unfixed: true", content)
+        self.assertIn("Verify registry digest against running container imageID", content)
+        self.assertIn("docker pull \"$IMAGE_NAME@$OCI_DIGEST\"", content)
+        self.assertIn("docker inspect --format '{{.Image}}' \"$container_name\"", content)
+        self.assertIn('test "$container_image_id" = "$EXPECTED_IMAGE_ID"', content)
+        self.assertIn('runtime-image-proof.json', content)
+        self.assertLess(content.index("Trivy scan exact image before publication"), content.index("Push exact scanned OCI image"))
+        self.assertLess(content.index("Push exact scanned OCI image"), content.index("Verify registry digest against running container imageID"))
+        self.assertLess(content.index("Verify registry digest against running container imageID"), content.index("Generate OCI SLSA provenance attestation"))
+
+
+    def test_trivy_scans_both_runtime_and_test_requirement_manifests(self):
+        content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
+        start = content.index("      - name: Trivy filesystem and config report")
+        end = content.index("      - name: Upload Trivy filesystem SARIF", start)
+        fs_scan = content[start:end]
+        self.assertIn("TRIVY_FILE_PATTERNS: 'pip:requirements-.*\\.txt'", fs_scan)
+        self.assertIn("severity: CRITICAL,HIGH,MEDIUM,LOW", fs_scan)
+        self.assertIn('exit-code: "0"', fs_scan)
+        self.assertIn("ignore-unfixed: false", fs_scan)
+        self.assertIn("severity: CRITICAL,HIGH", content)
+        self.assertIn('exit-code: "1"', content)
+        self.assertIn("ignore-unfixed: false", content)
+    
+
+    def test_full_suite_has_a_separate_exact_pr_head_workflow(self):
+        content = (ROOT / ".github/workflows/exact-head-validation.yml").read_text(encoding="utf-8")
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha }}", content)
+        self.assertIn("EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}", content)
+        self.assertIn('actual="$(git rev-parse HEAD)"', content)
+        self.assertIn('if [ "$actual" != "$EXPECTED_SOURCE_SHA" ]; then', content)
+        self.assertIn("requirements-test.txt", content)
+        self.assertIn("OLA_LLM_MODE=deterministic python -m pytest -q", content)
+        self.assertIn("EXACT_SOURCE_SHA_VERIFIED", content)
+
+    def test_product_gate_builds_and_tests_exact_pr_head(self):
+        content = (ROOT / ".github/workflows/ola-product-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}", content)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", content)
+        self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"', content)
+        self.assertIn('OLA_SOURCE_COMMIT="$EXPECTED_SOURCE_SHA"', content)
+        self.assertIn('OLA_RUNTIME_COMMIT="$EXPECTED_SOURCE_SHA"', content)
+        self.assertNotIn("GITHUB_SHA", content)
+
+    def test_gitleaks_scans_the_complete_pr_commit_graph_without_baselines(self):
+        content = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
+        self.assertIn("fetch-depth: 0", content)
+        self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}", content)
+        self.assertIn("PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}", content)
+        self.assertIn('git rev-list --count "$GITLEAKS_LOG_OPTS"', content)
+        self.assertIn('GITLEAKS_LOG_OPTS="${PR_BASE_SHA}..${PR_HEAD_SHA}"', content)
+        self.assertIn('--log-opts=$GITLEAKS_LOG_OPTS', content)
+        self.assertIn("ghcr.io/gitleaks/gitleaks:v8.24.3@sha256:e1b35e12a8c6fa8901f060459cfb6b2fc4c484d3afbe3b029733a3bbfab07055", content)
+        self.assertNotIn("gitleaks/gitleaks-action@", content)
+        self.assertNotIn("--first-parent", content)
+        self.assertNotIn("--no-merges", content)
+        self.assertNotIn("--baseline-path", content)
+
+    def test_runtime_image_excludes_python_package_manager_and_test_tooling(self):
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        runtime = (ROOT / "requirements-runtime.txt").read_text(encoding="utf-8")
+        testing = (ROOT / "requirements-test.txt").read_text(encoding="utf-8")
+        compatibility = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+        self.assertIn("FROM alpine:3.24@sha256:", dockerfile)
+        self.assertIn("/sbin", dockerfile)
+        self.assertIn("FROM python:3.13-alpine@sha256:", dockerfile)
+        self.assertIn("COPY requirements-runtime.txt ./", dockerfile)
+        self.assertIn("COPY --from=python-deps /opt/python-runtime/lib/", dockerfile)
+        self.assertIn('"site-packages"', dockerfile)
+        self.assertIn('"ensurepip"', dockerfile)
+        self.assertNotIn("COPY tests ./tests", dockerfile)
+        self.assertIn("COPY app ./app", dockerfile)
+        self.assertIn("COPY scripts ./scripts", dockerfile)
+        self.assertIn("COPY web ./web", dockerfile)
+        self.assertIn("libbz2", dockerfile)
+        self.assertIn("requirements-test.txt", compatibility)
+        self.assertIn("-r requirements-runtime.txt", testing)
+        for package in ("pytest==", "setuptools==", "wheel=="):
+            self.assertNotIn(package, runtime)
+            self.assertIn(package, testing)
+
     def test_release_manifest_never_calls_green_ci_production_verified(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn('status="ATTESTED_PENDING_HUMAN"', content)
         self.assertNotIn('status="VERIFIED"', content)
         self.assertIn('python -m unittest discover -s tests -p "test_release_source_binding.py"', content)
-
 
     def test_runtime_image_source_is_embedded_and_not_environment_asserted(self):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
@@ -49,6 +153,10 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         release = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         runtime = (ROOT / "app/runtime_provenance.py").read_text(encoding="utf-8")
         self.assertIn("org.opencontainers.image.revision", dockerfile)
+        self.assertIn("ARG OLA_GITHUB_RUN_ID=0", dockerfile)
+        self.assertIn("ARG OLA_GITHUB_RUN_ATTEMPT=0", dockerfile)
+        self.assertIn('"github_run_id"', dockerfile)
+        self.assertIn('"github_run_attempt"', dockerfile)
         self.assertIn("chown -R root:root /app", dockerfile)
         self.assertIn("chmod -R a-w /app", dockerfile)
         self.assertIn("ola-build-info.json", dockerfile)
@@ -73,14 +181,28 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertNotIn('assert record_hash==api_key_fingerprint(', proof)
         self.assertIn('assert d["human_gate"]=="PENDING"', igor)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_pull_request_manifest_never_claims_attestation(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main' && success()", content)
         self.assertIn('source_attestation="NOT_PERFORMED"', content)
         self.assertIn('image_attestation="NOT_PERFORMED"', content)
         self.assertIn('status="PREMERGE_CI_PASSED"', content)
+
+
+    def test_oci_attestation_binds_exact_run_id_and_attempt_from_same_workflow_run(self):
+        workflow = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
+        build = workflow[workflow.index("      - name: Build exact local OCI image"):]
+        build = build[:build.index("      - name: Trivy scan exact image before publication")]
+        self.assertIn('--build-arg OLA_GITHUB_RUN_ID="$GITHUB_RUN_ID"', build)
+        self.assertIn('--build-arg OLA_GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT"', build)
+
+        packaging = workflow[workflow.index("python scripts/package_github_oci_provenance.py"):]
+        packaging = packaging[:packaging.index("      - name: Upload verified OCI provenance evidence")]
+        self.assertIn('--run-id "$GITHUB_RUN_ID"', packaging)
+        self.assertIn('--run-attempt "$GITHUB_RUN_ATTEMPT"', packaging)
+        self.assertIn('expected_run_id=run_id', (ROOT / "app/customer_bundle/github_provenance.py").read_text(encoding="utf-8"))
+        self.assertIn('expected_run_attempt=run_attempt', (ROOT / "app/customer_bundle/github_provenance.py").read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()

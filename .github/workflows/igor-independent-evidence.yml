@@ -106,8 +106,10 @@ jobs:
 
       - name: Build exact-source runtime for independent replay
         run: |
+          set -euo pipefail
           python -m pip install -r requirements.txt
-          docker build --tag "ola-igor:${SOURCE_COMMIT}" .
+          docker build --build-arg OLA_SOURCE_COMMIT="${SOURCE_COMMIT}" --tag "ola-igor:${SOURCE_COMMIT}" .
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "ola-igor:${SOURCE_COMMIT}")" = "${SOURCE_COMMIT}"
 
       - name: Start runtime
         run: |

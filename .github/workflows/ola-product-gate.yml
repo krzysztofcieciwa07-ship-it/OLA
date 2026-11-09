@@ -9,7 +9,7 @@ permissions:
 
 env:
   # CI fixture only; NEVER use as a production secret.
-  OLA_API_KEY_PEPPER: ${{ github.sha }}
+  OLA_API_KEY_PEPPER: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   product-gate:
@@ -21,10 +21,12 @@ jobs:
       OPENAI_AVAILABLE: ${{ secrets.OPENAI_API_KEY != '' }}
       OLA_LLM_MODE: deterministic
       OLA_LLM_MODEL: gpt-5.6-luna
+      EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           fetch-depth: 0
       - name: Detect OpenAI credential
@@ -47,22 +49,26 @@ jobs:
           python -m pip install -r requirements.txt
           OLA_LLM_MODE=deterministic python -m pytest -q
       - name: Build exact-source runtime
-        run: docker build --tag "ola-product:${GITHUB_SHA}" .
+        run: |
+          set -euo pipefail
+          docker build --build-arg OLA_SOURCE_COMMIT="$EXPECTED_SOURCE_SHA" --tag "ola-product:$EXPECTED_SOURCE_SHA" .
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "ola-product:$EXPECTED_SOURCE_SHA")" = "$EXPECTED_SOURCE_SHA"
       - name: Start runtime
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OLA_LLM_MODE: ${{ env.OPENAI_AVAILABLE == 'true' && 'required' || 'deterministic' }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
           docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" --name ola-product --publish 8000:8000 \
             -e OPENAI_API_KEY="$OPENAI_API_KEY" \
             -e OLA_LLM_MODE="$OLA_LLM_MODE" \
             -e OLA_LLM_MODEL="$OLA_LLM_MODEL" \
-            -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" \
-            "ola-product:${GITHUB_SHA}"
+            -e OLA_RUNTIME_COMMIT="$EXPECTED_SOURCE_SHA" \
+            "ola-product:$EXPECTED_SOURCE_SHA"
           for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8000/health >/dev/null && break; sleep 1; done
           curl --fail --silent http://127.0.0.1:8000/health >/dev/null
+          docker exec ola-product python -c 'import json; d=json.load(open("/app/ola-build-info.json")); assert d["source_commit"] == "'"$EXPECTED_SOURCE_SHA"'", d'
       - name: Verify product surface
         run: |
           set -euo pipefail
@@ -97,7 +103,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" ola-product python - <<'PY'
+          docker exec -i -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" -e OLA_RUNTIME_COMMIT="$EXPECTED_SOURCE_SHA" ola-product python - <<'PY'
           from app.api_key_hashing import api_key_fingerprint
           import hashlib,json,sqlite3,urllib.request,uuid
           tid=str(uuid.uuid4()); key="nina-chain-key"; db=sqlite3.connect("/data/ola.db")
@@ -122,16 +128,20 @@ jobs:
         run: |
           docker inspect ola-product > docker-inspect.json 2>&1 || true
           docker logs ola-product > docker-runtime.log 2>&1 || true
-          sha256sum docker-inspect.json docker-runtime.log > product-file-hashes.txt || true
+          docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "ola-product:$EXPECTED_SOURCE_SHA" > runtime-image-revision.txt 2>/dev/null || true
+          docker exec ola-product python -c 'import json; print(json.load(open("/app/ola-build-info.json"))["source_commit"])' > runtime-build-source-commit.txt 2>/dev/null || true
+          sha256sum docker-inspect.json docker-runtime.log runtime-image-revision.txt runtime-build-source-commit.txt > product-file-hashes.txt || true
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ola-product-gate-${{ github.sha }}
+          name: ola-product-gate-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             docker-inspect.json
             docker-runtime.log
             product-file-hashes.txt
+            runtime-image-revision.txt
+            runtime-build-source-commit.txt
       - name: Stop runtime
         if: always()
         run: docker stop ola-product || true

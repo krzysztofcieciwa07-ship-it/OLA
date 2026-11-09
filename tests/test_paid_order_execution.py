@@ -70,6 +70,12 @@ def test_worker_runs_paid_order_once_and_replays_completed_response(monkeypatch)
             "revenue.execution_started", "revenue.execution_completed"
         }]
         assert len(worker_events) == 2
+        start_payload = json.loads(next(row.payload_json for row in worker_events if row.record_type == "revenue.execution_started"))
+        completion_payload = json.loads(next(row.payload_json for row in worker_events if row.record_type == "revenue.execution_completed"))
+        assert start_payload["source_commit"] == response.json()["source_commit"]
+        assert completion_payload["source_commit"] == response.json()["source_commit"]
+        assert start_payload["image_digest"] == response.json()["image_digest"]
+        assert completion_payload["image_digest"] == response.json()["image_digest"]
         assert all(trusted_record({
             "record_type": row.record_type,
             "payload_json": row.payload_json,

@@ -114,6 +114,45 @@ def create_postgres_append_only_triggers(connection):
     BEFORE DELETE ON evidence_records
     FOR EACH ROW EXECUTE FUNCTION ola_reject_evidence_mutation()
     """)
+    connection.exec_driver_sql("""
+    CREATE OR REPLACE FUNCTION ola_guard_tenant_identity_policy()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $ola$
+    BEGIN
+        IF TG_OP = 'UPDATE'
+           AND OLD.human_gate_mode = 'OIDC_REQUIRED'
+           AND NEW.human_gate_mode <> 'OIDC_REQUIRED' THEN
+            RAISE EXCEPTION 'tenant Human Gate identity policy cannot be downgraded'
+                USING ERRCODE = '55000';
+        END IF;
+        IF TG_OP = 'DELETE' AND OLD.human_gate_mode = 'OIDC_REQUIRED' THEN
+            RAISE EXCEPTION 'tenant Human Gate identity policy cannot be deleted'
+                USING ERRCODE = '55000';
+        END IF;
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        END IF;
+        RETURN NEW;
+    END;
+    $ola$;
+    """)
+    connection.exec_driver_sql(
+        "DROP TRIGGER IF EXISTS tenant_identity_policy_no_downgrade ON tenant_identity_policies"
+    )
+    connection.exec_driver_sql(
+        "DROP TRIGGER IF EXISTS tenant_identity_policy_no_delete ON tenant_identity_policies"
+    )
+    connection.exec_driver_sql("""
+    CREATE TRIGGER tenant_identity_policy_no_downgrade
+    BEFORE UPDATE OF human_gate_mode ON tenant_identity_policies
+    FOR EACH ROW EXECUTE FUNCTION ola_guard_tenant_identity_policy()
+    """)
+    connection.exec_driver_sql("""
+    CREATE TRIGGER tenant_identity_policy_no_delete
+    BEFORE DELETE ON tenant_identity_policies
+    FOR EACH ROW EXECUTE FUNCTION ola_guard_tenant_identity_policy()
+    """)
 
 
 def install_append_only_triggers(bind=None):
@@ -131,6 +170,19 @@ def install_append_only_triggers(bind=None):
             BEFORE DELETE ON evidence_records
             BEGIN SELECT RAISE(ABORT, 'evidence_records is append-only'); END;
             """)
+            conn.exec_driver_sql("""
+            CREATE TRIGGER IF NOT EXISTS tenant_identity_policy_no_downgrade
+            BEFORE UPDATE OF human_gate_mode ON tenant_identity_policies
+            WHEN OLD.human_gate_mode = 'OIDC_REQUIRED'
+              AND NEW.human_gate_mode <> 'OIDC_REQUIRED'
+            BEGIN SELECT RAISE(ABORT, 'tenant Human Gate identity policy cannot be downgraded'); END;
+            """)
+            conn.exec_driver_sql("""
+            CREATE TRIGGER IF NOT EXISTS tenant_identity_policy_no_delete
+            BEFORE DELETE ON tenant_identity_policies
+            WHEN OLD.human_gate_mode = 'OIDC_REQUIRED'
+            BEGIN SELECT RAISE(ABORT, 'tenant Human Gate identity policy cannot be deleted'); END;
+            """)
         return
     if target.dialect.name == "postgresql":
         verify_postgres_schema(target)
@@ -142,7 +194,36 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     """Fail closed unless the migrated schema and immutable evidence controls are present."""
     required_columns = {
         "tenants": {"id", "name"},
-        "api_keys": {"id", "tenant_id", "key_hash", "role"},
+        "tenant_identity_policies": {
+            "tenant_id", "human_gate_mode", "changed_at", "changed_by_ref", "reason",
+        },
+        "human_sessions": {
+            "id", "tenant_id", "principal_ref", "session_hash",
+            "session_data_encrypted", "auth_time", "mfa_verified",
+            "created_at", "updated_at", "expires_at", "revoked_at",
+        },
+        "tenant_identity_providers": {
+            "tenant_id", "issuer", "discovery_url", "client_id",
+            "client_secret_ref", "redirect_uri", "id_token_algorithm",
+            "mfa_acr_values_json", "mfa_amr_values_json", "enabled",
+            "created_at", "updated_at",
+        },
+        "human_principals": {
+            "id", "tenant_id", "issuer", "subject", "status",
+            "person_ref", "person_key_source", "person_bound_at",
+            "created_at", "last_authenticated_at",
+        },
+        "human_membership_roles": {
+            "id", "tenant_id", "principal_id", "role", "status",
+            "created_by_ref", "created_at", "revoked_at",
+        },
+        "human_role_change_requests": {
+            "id", "tenant_id", "requester_principal_id", "requester_person_ref",
+            "target_principal_id", "target_person_ref", "requested_role", "operation",
+            "reason", "status", "approver_principal_id", "approver_person_ref",
+            "requested_at", "approved_at", "request_evidence_id", "approval_evidence_id",
+        },
+        "api_keys": {"id", "tenant_id", "key_hash", "role", "owner_person_ref"},
         "evidence_records": {
             "id", "tenant_id", "seq", "record_type", "payload_json",
             "prev_hash", "record_hash",
@@ -154,9 +235,14 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "payment_result_json",
         },
         "checkout_order_controls": {
-            "id", "order_id", "tenant_id", "requester_id", "status",
-            "payment_evidence_id", "approver_id", "approval_reason", "approved_tip_hash",
-            "approval_record_hash", "created_at", "approved_at",
+            "id", "order_id", "tenant_id", "requester_id", "requester_person_ref", "status",
+            "payment_evidence_id", "approver_id", "approver_principal_id", "approver_person_ref",
+            "approval_reason", "approved_tip_hash", "approval_record_hash", "created_at", "approved_at",
+        },
+        "human_checkout_report_reviews": {
+            "id", "order_id", "tenant_id", "reviewer_principal_id", "reviewer_person_ref",
+            "status", "report_sha256", "reviewed_tip_hash", "reason",
+            "approval_evidence_id", "reviewed_at",
         },
         "checkout_execution_jobs": {
             "id", "tenant_id", "order_id", "approval_record_hash", "task", "status",
@@ -167,6 +253,25 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "id", "order_id", "tenant_id", "reviewer_id", "status", "report_sha256",
             "reviewed_tip_hash", "reason", "approval_evidence_id", "reviewed_at",
             "delivery_evidence_id", "delivered_at",
+        },
+        "customer_evidence_bundles": {
+            "id", "tenant_id", "order_id", "version", "status", "profile",
+            "manifest_sha256", "report_sha256", "igor_key_id", "ola_key_id",
+            "storage_object_ref", "approved_at", "approved_tip_hash", "signed_at",
+            "signing_tip_hash", "created_at", "expires_at", "revoked_at", "status_reason",
+        },
+        "customer_bundle_recipient_grants": {
+            "id", "tenant_id", "order_id", "recipient_principal_id", "recipient_person_ref",
+            "requester_principal_id", "requester_person_ref", "approver_principal_id",
+            "approver_person_ref", "status", "reason", "requested_at", "approved_at",
+            "expires_at", "revoked_at", "request_evidence_id", "approval_evidence_id",
+            "revocation_evidence_id",
+        },
+        "customer_bundle_delivery_attempts": {
+            "id", "tenant_id", "order_id", "bundle_id", "grant_id",
+            "recipient_principal_id", "recipient_person_ref", "attempt_no", "status",
+            "reason", "created_at", "started_at", "completed_at", "failed_at",
+            "acknowledged_at", "acknowledgement_evidence_id",
         },
         "ola_schema_migrations": {"version", "description", "applied_at"},
     }
@@ -193,6 +298,10 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         },
         "checkout_order_controls": {("order_id",)},
         "checkout_execution_jobs": {("order_id",)},
+        "human_principals": {("tenant_id", "issuer", "subject")},
+        "human_membership_roles": {("tenant_id", "principal_id", "role")},
+        "customer_evidence_bundles": {("tenant_id", "order_id", "version"), ("storage_object_ref",)},
+        "customer_bundle_delivery_attempts": {("bundle_id", "recipient_person_ref", "attempt_no")},
     }
     for table_name, expected in expected_unique_constraints.items():
         actual = {
@@ -209,9 +318,22 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             raise RuntimeError(f"PostgreSQL table {table_name} is missing required unique constraints/indexes")
 
     with bind.connect() as conn:
-        applied = conn.execute(text(
-            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
-        ), {"version": "ola_paid_order_report_review_v3"}).first()
+        applied_versions = {
+            row[0] for row in conn.execute(text(
+                "SELECT version FROM ola_schema_migrations WHERE version IN "
+                "(:report_review, :human_identity_policy, :human_sessions, :human_oidc, :human_membership, :human_gate_actors, :human_policy_latch, :customer_bundle_delivery, :customer_bundle_delivery_ack)"
+            ), {
+                "report_review": "ola_paid_order_report_review_v3",
+                "human_identity_policy": "ola_human_identity_policy_v1",
+                "human_sessions": "ola_human_sessions_v1",
+                "human_oidc": "ola_human_oidc_v1",
+                "human_membership": "ola_human_membership_sod_v1",
+                "human_gate_actors": "ola_human_gate_actors_v1",
+                "human_policy_latch": "ola_human_identity_policy_latch_v1",
+                "customer_bundle_delivery": "ola_customer_bundle_delivery_v1",
+                "customer_bundle_delivery_ack": "ola_customer_bundle_delivery_ack_v1",
+            }).all()
+        }
         trigger_rows = conn.execute(text("""
             SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -223,18 +345,50 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
               AND n.nspname = current_schema()
               AND NOT t.tgisinternal
         """)).all()
+        policy_trigger_rows = conn.execute(text("""
+            SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
+                   pg_get_functiondef(p.oid)
+            FROM pg_trigger AS t
+            JOIN pg_class AS c ON c.oid = t.tgrelid
+            JOIN pg_proc AS p ON p.oid = t.tgfoid
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE c.relname = 'tenant_identity_policies'
+              AND n.nspname = current_schema()
+              AND NOT t.tgisinternal
+        """)).all()
         if enforce_runtime_privileges:
             evidence_privileges = conn.execute(text("""
                 SELECT has_table_privilege(current_user, 'evidence_records', 'UPDATE'),
                        has_table_privilege(current_user, 'evidence_records', 'DELETE'),
                        has_table_privilege(current_user, 'evidence_records', 'TRUNCATE')
             """)).one()
+            policy_privileges = conn.execute(text("""
+                SELECT has_table_privilege(current_user, 'tenant_identity_policies', 'DELETE'),
+                       has_table_privilege(current_user, 'tenant_identity_policies', 'TRUNCATE')
+            """)).one()
         else:
-            evidence_privileges = (False, False)
-    if applied is None:
-        raise RuntimeError("PostgreSQL schema migration version is missing")
+            evidence_privileges = (False, False, False)
+            policy_privileges = (False, False)
+    missing_versions = {
+        "ola_paid_order_report_review_v3",
+        "ola_human_identity_policy_v1",
+        "ola_human_sessions_v1",
+        "ola_human_oidc_v1",
+        "ola_human_membership_sod_v1",
+        "ola_human_gate_actors_v1",
+        "ola_human_identity_policy_latch_v1",
+        "ola_customer_bundle_delivery_v1",
+        "ola_customer_bundle_delivery_ack_v1",
+    } - applied_versions
+    if missing_versions:
+        raise RuntimeError(
+            "PostgreSQL schema migration versions are missing: "
+            + ", ".join(sorted(missing_versions))
+        )
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
+    if enforce_runtime_privileges and any(policy_privileges):
+        raise RuntimeError("PostgreSQL runtime role must not have DELETE or TRUNCATE on tenant_identity_policies")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
     expected = {"evidence_no_update": "BEFORE UPDATE", "evidence_no_delete": "BEFORE DELETE"}
     for name, action in expected.items():
@@ -249,17 +403,62 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         ):
             raise RuntimeError("PostgreSQL evidence append-only trigger definition is invalid")
 
+    policy_definitions = {
+        row[0]: (row[1], row[2], row[3]) for row in policy_trigger_rows
+    }
+    policy_expected = {
+        "tenant_identity_policy_no_downgrade": "BEFORE UPDATE",
+        "tenant_identity_policy_no_delete": "BEFORE DELETE",
+    }
+    for name, action in policy_expected.items():
+        trigger_def, function_name, function_def = policy_definitions.get(
+            name, ("", "", "")
+        )
+        normalized_trigger = re.sub(r"\s+", " ", trigger_def).upper()
+        normalized_function = re.sub(r"\s+", " ", function_def).upper()
+        if (
+            action not in normalized_trigger
+            or function_name != "ola_guard_tenant_identity_policy"
+            or "OLD.HUMAN_GATE_MODE = 'OIDC_REQUIRED'" not in normalized_function
+            or "TENANT HUMAN GATE IDENTITY POLICY CANNOT BE" not in normalized_function
+            or "USING ERRCODE = '55000'" not in normalized_function
+        ):
+            raise RuntimeError(
+                "PostgreSQL tenant Human Gate identity policy trigger definition is invalid"
+            )
+
 
 def _migrate_sqlite_private_order_tasks(bind):
     """Move legacy task copies from StripeEvent into the private OLA order row."""
     inspector = inspect(bind)
     order_columns = {column["name"] for column in inspector.get_columns("checkout_orders")}
     api_key_columns = {column["name"] for column in inspector.get_columns("api_keys")}
+    principal_columns = {column["name"] for column in inspector.get_columns("human_principals")}
+    control_columns = {column["name"] for column in inspector.get_columns("checkout_order_controls")}
+    attempt_columns = {column["name"] for column in inspector.get_columns("customer_bundle_delivery_attempts")}
     with bind.begin() as conn:
         if "task" not in order_columns:
             conn.exec_driver_sql("ALTER TABLE checkout_orders ADD COLUMN task TEXT")
         if "role" not in api_key_columns:
             conn.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'tenant'")
+        if "owner_person_ref" not in api_key_columns:
+            conn.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN owner_person_ref VARCHAR(64)")
+        if "person_ref" not in principal_columns:
+            conn.exec_driver_sql("ALTER TABLE human_principals ADD COLUMN person_ref VARCHAR(64)")
+        if "person_key_source" not in principal_columns:
+            conn.exec_driver_sql("ALTER TABLE human_principals ADD COLUMN person_key_source VARCHAR(32)")
+        if "person_bound_at" not in principal_columns:
+            conn.exec_driver_sql("ALTER TABLE human_principals ADD COLUMN person_bound_at INTEGER")
+        if "requester_person_ref" not in control_columns:
+            conn.exec_driver_sql("ALTER TABLE checkout_order_controls ADD COLUMN requester_person_ref VARCHAR(64)")
+        if "approver_principal_id" not in control_columns:
+            conn.exec_driver_sql("ALTER TABLE checkout_order_controls ADD COLUMN approver_principal_id VARCHAR(36)")
+        if "approver_person_ref" not in control_columns:
+            conn.exec_driver_sql("ALTER TABLE checkout_order_controls ADD COLUMN approver_person_ref VARCHAR(64)")
+        if "acknowledged_at" not in attempt_columns:
+            conn.exec_driver_sql("ALTER TABLE customer_bundle_delivery_attempts ADD COLUMN acknowledged_at INTEGER")
+        if "acknowledgement_evidence_id" not in attempt_columns:
+            conn.exec_driver_sql("ALTER TABLE customer_bundle_delivery_attempts ADD COLUMN acknowledgement_evidence_id VARCHAR(36)")
         conn.exec_driver_sql("""
             UPDATE checkout_orders
             SET task = (
@@ -338,6 +537,79 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_paid_order_report_review_v3",
             "description": "Add order-bound independent report review and authenticated customer delivery records",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_identity_policy_v1",
+            "description": "Add persistent one-way tenant Human Gate identity policy",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_sessions_v1",
+            "description": "Add encrypted server-side human operator sessions",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_oidc_v1",
+            "description": "Add tenant OIDC provider configuration and mutable human principal mappings",
+        })
+        conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS owner_person_ref VARCHAR(64)"))
+        conn.execute(text("ALTER TABLE human_principals ADD COLUMN IF NOT EXISTS person_ref VARCHAR(64)"))
+        conn.execute(text("ALTER TABLE human_principals ADD COLUMN IF NOT EXISTS person_key_source VARCHAR(32)"))
+        conn.execute(text("ALTER TABLE human_principals ADD COLUMN IF NOT EXISTS person_bound_at INTEGER"))
+        conn.execute(text("ALTER TABLE checkout_order_controls ADD COLUMN IF NOT EXISTS requester_person_ref VARCHAR(64)"))
+        conn.execute(text("ALTER TABLE checkout_order_controls ADD COLUMN IF NOT EXISTS approver_principal_id VARCHAR(36)"))
+        conn.execute(text("ALTER TABLE checkout_order_controls ADD COLUMN IF NOT EXISTS approver_person_ref VARCHAR(64)"))
+        conn.execute(text("ALTER TABLE customer_bundle_delivery_attempts ADD COLUMN IF NOT EXISTS acknowledged_at INTEGER"))
+        conn.execute(text("ALTER TABLE customer_bundle_delivery_attempts ADD COLUMN IF NOT EXISTS acknowledgement_evidence_id VARCHAR(36)"))
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_membership_sod_v1",
+            "description": "Add HR-backed person mapping, role membership and dual-control requests",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_gate_actors_v1",
+            "description": "Bind paid order requester, approver and report reviewer to HR-backed human principals",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_identity_policy_latch_v1",
+            "description": "Enforce one-way OIDC_REQUIRED transitions at the database layer",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_customer_bundle_delivery_v1",
+            "description": "Add immutable bundle metadata, dual-controlled recipient grants and per-transfer attempts",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_customer_bundle_delivery_ack_v1",
+            "description": "Add separate explicit recipient acknowledgement after a completed bundle transfer",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 

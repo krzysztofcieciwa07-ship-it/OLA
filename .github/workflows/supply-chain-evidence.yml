@@ -4,10 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, integration/ola-first-five-closure-20261106]
   schedule:
     - cron: "37 3 * * 6"
   workflow_dispatch:
+    inputs:
+      expected_trusted_root_sha256:
+        description: "Out-of-band SHA-256 of the approved Sigstore trusted root. Leave blank only for root discovery; that run is not marked verified."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -53,6 +58,30 @@ jobs:
           name: ola-scorecard-${{ github.event.pull_request.head.sha || github.sha }}
           path: scorecard-results.sarif
 
+  provenance-adapter-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact PR source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert immutable test source
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+      - name: Install pinned Python dependencies
+        run: python -m pip install --no-cache-dir -r requirements.txt
+      - name: Run independent OCI/SLSA verifier regression tests
+        run: python -m pytest -q tests/test_github_oci_provenance.py tests/test_customer_bundle_cli.py
+      - name: Compile verifier and CLI modules
+        run: python -m compileall -q app/customer_bundle/github_provenance.py scripts/package_github_oci_provenance.py scripts/verify_customer_bundle.py
+
   zizmor:
     runs-on: ubuntu-latest
     permissions:
@@ -87,37 +116,131 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout full history
+      - name: Checkout complete repository history at exact PR source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Assert scan checkout matches immutable source SHA
-        shell: bash
+      - name: Scan complete commit range with pinned Gitleaks
         env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          PUSH_BEFORE: ${{ github.event.before || '' }}
           EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.24.3@sha256:e1b35e12a8c6fa8901f060459cfb6b2fc4c484d3afbe3b029733a3bbfab07055
+        shell: bash
         run: |
           set -euo pipefail
-          checked_out="$(git rev-parse HEAD)"
-          if [ "$checked_out" != "$EXPECTED_SOURCE_SHA" ]; then
-            echo "::error::Supply-chain scanned $checked_out instead of $EXPECTED_SOURCE_SHA"
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$EXPECTED_SOURCE_SHA"
+
+          if [ -n "$PR_BASE_SHA" ] && [ -n "$PR_HEAD_SHA" ]; then
+            test "$PR_HEAD_SHA" = "$EXPECTED_SOURCE_SHA"
+            git cat-file -e "${PR_BASE_SHA}^{commit}"
+            GITLEAKS_LOG_OPTS="${PR_BASE_SHA}..${PR_HEAD_SHA}"
+            SCANNED_COMMITS="$(git rev-list --count "$GITLEAKS_LOG_OPTS")"
+            SCAN_SCOPE="pull_request_base_to_head"
+          elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            git cat-file -e "${PUSH_BEFORE}^{commit}"
+            GITLEAKS_LOG_OPTS="${PUSH_BEFORE}..${EXPECTED_SOURCE_SHA}"
+            SCANNED_COMMITS="$(git rev-list --count "$GITLEAKS_LOG_OPTS")"
+            SCAN_SCOPE="push_before_to_head"
+          else
+            GITLEAKS_LOG_OPTS=""
+            SCANNED_COMMITS="$(git rev-list --count "$EXPECTED_SOURCE_SHA")"
+            SCAN_SCOPE="complete_repository_history"
+          fi
+
+          if [ "$SCANNED_COMMITS" -lt 1 ]; then
+            echo "::error::Gitleaks scan range contains no commits"
             exit 1
           fi
-      - name: Secret scan
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+
+          mkdir -p "$RUNNER_TEMP/gitleaks-output"
+          {
+            echo "### Gitleaks full-history scan"
+            echo "- Scope: $SCAN_SCOPE"
+            echo "- HEAD: $EXPECTED_SOURCE_SHA"
+            echo "- Commit count in selected range: $SCANNED_COMMITS"
+            if [ -n "$GITLEAKS_LOG_OPTS" ]; then
+              echo "- Git log range: $GITLEAKS_LOG_OPTS"
+            else
+              echo "- Git log range: entire repository history"
+            fi
+            echo "- Scanner image: $GITLEAKS_IMAGE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          docker pull "$GITLEAKS_IMAGE"
+          set --
+          if [ -n "$GITLEAKS_LOG_OPTS" ]; then
+            set -- "--log-opts=$GITLEAKS_LOG_OPTS"
+          fi
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/repo:ro" \
+            --volume "$RUNNER_TEMP/gitleaks-output:/out" \
+            --workdir /repo \
+            "$GITLEAKS_IMAGE" \
+            detect --source=/repo "$@" \
+              --redact --verbose --exit-code=2 \
+              --report-format=sarif \
+              --report-path=/out/gitleaks-results.sarif \
+              --log-level=debug
+      - name: Negative-control test — Gitleaks must detect an out-of-allowlist secret
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GITLEAKS_ENABLE_COMMENTS: "false"
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "true"
+          GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.24.3@sha256:e1b35e12a8c6fa8901f060459cfb6b2fc4c484d3afbe3b029733a3bbfab07055
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_dir="$(mktemp -d "$RUNNER_TEMP/gitleaks-negative-control.XXXXXX")"
+          config_dir="$RUNNER_TEMP/gitleaks-negative-control-config"
+          mkdir -p "$config_dir" "$RUNNER_TEMP/gitleaks-output"
+          cp .gitleaks.toml "$config_dir/gitleaks.toml"
+          cleanup() { rm -rf "$fixture_dir" "$config_dir"; }
+          trap cleanup EXIT
+
+          # Synthetic AWS-style key exists only in runner temp, never in the checkout or Git history.
+          synthetic_key="AKIA$(openssl rand -hex 8 | tr '[:lower:]' '[:upper:]')"
+          printf 'AWS_ACCESS_KEY_ID=%s\n' "$synthetic_key" > "$fixture_dir/untrusted-fixture.txt"
+          unset synthetic_key
+
+          set +e
+          docker run --rm \
+            --volume "$fixture_dir:/fixture:ro" \
+            --volume "$config_dir:/config:ro" \
+            --volume "$RUNNER_TEMP/gitleaks-output:/out" \
+            "$GITLEAKS_IMAGE" \
+            detect --no-git --source=/fixture --config=/config/gitleaks.toml \
+              --redact --verbose --exit-code=2 \
+              --report-format=sarif \
+              --report-path=/out/gitleaks-negative-control.sarif
+          scan_status=$?
+          set -e
+
+          if [ "$scan_status" -ne 2 ]; then
+            echo "::error::Negative control expected Gitleaks exit code 2 for a detected secret; got $scan_status"
+            exit 1
+          fi
+          if ! jq -e '[.runs[].results[]?] | length > 0' "$RUNNER_TEMP/gitleaks-output/gitleaks-negative-control.sarif" >/dev/null; then
+            echo "::error::Gitleaks returned the expected exit code but SARIF contains no findings"
+            exit 1
+          fi
+          echo "GITLEAKS_NEGATIVE_CONTROL=DETECTED"
+          echo "- Negative control: synthetic out-of-allowlist AWS-style key detected (exit 2; SARIF finding present)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload complete-history Gitleaks SARIF
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gitleaks-full-history-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/gitleaks-output/gitleaks-results.sarif
+          if-no-files-found: warn
 
   security-image:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
-      attestations: write
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,20 +260,85 @@ jobs:
           fi
 
       - name: Build immutable local image
+        id: build-image
         env:
           IMAGE: ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
-        run: docker build --pull --tag "$IMAGE" --file Dockerfile .
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          docker build --pull --build-arg OLA_SOURCE_COMMIT="$EXPECTED_SOURCE_SHA" --tag "$IMAGE" --file Dockerfile .
+          image_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")"
+          test "$image_source" = "$EXPECTED_SOURCE_SHA"
+
+      - name: Inventory Python metadata and import paths in built image
+        env:
+          IMAGE: ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh "$IMAGE" -c '
+            echo "=== Python import paths ==="
+            python -c "import sys; print(chr(10).join(sys.path))"
+            echo "=== Runtime package resolution ==="
+            python -c "import importlib,importlib.util,importlib.metadata as m; names=(\"msgpack\",\"setuptools\",\"urllib3\"); [print(n, \"distribution=\", next((d.version for d in m.distributions() if (d.metadata.get(\"Name\") or \"\").lower()==n), \"NOT_FOUND\"), \"module=\", (lambda x: (getattr(x,\"__version__\",\"NO_VERSION\"),getattr(x,\"__file__\",\"NO_FILE\")))(importlib.import_module(n)) if importlib.util.find_spec(n) else \"NOT_INSTALLED\") for n in names]"
+            echo "=== All Python package metadata records ==="
+            find / -type f \( -name METADATA -o -name PKG-INFO -o -name vendor.txt \) -print 2>/dev/null | sort | while IFS= read -r f; do
+              case "$f" in
+                *site-packages*|*dist-packages*|*python3.13*|*vendor*|*PKG-INFO*)
+                  printf "%s " "$f"
+                  awk "/^(Name|Version):/{printf \"%s \", \$0} END{print \"\"}" "$f" 2>/dev/null || true
+                  ;;
+              esac
+            done
+            echo "=== Relevant package and vendoring paths ==="
+            find / -type d \( -name site-packages -o -name dist-packages -o -name _vendor -o -name vendor \) -print 2>/dev/null | sort
+          '
+
+
+      - name: Run built image and verify health
+        env:
+          IMAGE: ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_name="ola-pr-runtime-${GITHUB_RUN_ID}"
+          cleanup() { docker rm -f "$container_name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          expected_image_id="$(docker image inspect --format '{{.Id}}' "$IMAGE")"
+          docker run --detach --name "$container_name" \
+            --publish 127.0.0.1:18080:8000 \
+            --env OLA_API_KEY_PEPPER="$EXPECTED_SOURCE_SHA" \
+            --env OLA_RUNTIME_COMMIT="$EXPECTED_SOURCE_SHA" \
+            "$IMAGE" >/dev/null
+          actual_image_id="$(docker inspect --format '{{.Image}}' "$container_name")"
+          test "$actual_image_id" = "$expected_image_id"
+          healthy=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/health >/dev/null; then
+              healthy=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$healthy" != true ]; then
+            docker logs "$container_name"
+            exit 1
+          fi
+          printf 'RUNTIME_SMOKE=HEALTHY\nIMAGE_ID=%s\n' "$actual_image_id" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Trivy filesystem and config report
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_FILE_PATTERNS: 'pip:requirements-.*\.txt'
         with:
           scan-type: fs
           scan-ref: .
           format: sarif
           output: trivy-fs-results.sarif
-          severity: CRITICAL,HIGH,MEDIUM
+          severity: CRITICAL,HIGH,MEDIUM,LOW
           exit-code: "0"
-          ignore-unfixed: true
+          ignore-unfixed: false
 
       - name: Upload Trivy filesystem SARIF
         if: always()
@@ -161,69 +349,24 @@ jobs:
       - name: Trivy container report and blocking gate
         env:
           IMAGE: ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
+          TRIVY_DEBUG: "true"
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
           format: table
           severity: CRITICAL,HIGH
           exit-code: "1"
-          ignore-unfixed: true
+          ignore-unfixed: false
           skip-setup-trivy: true
 
       - name: Generate SPDX SBOM
+        if: always() && steps.build-image.outcome == 'success'
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           image: ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
           format: spdx-json
           output-file: sbom.spdx.json
           artifact-name: ola-sbom-${{ github.event.pull_request.head.sha || github.sha }}.spdx.json
-
-      - name: Save immutable image subject
-        run: docker save --output ola-image.tar ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Generate SLSA provenance attestation
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
-        with:
-          subject-path: ola-image.tar
-
-      - name: Generate SBOM attestation
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        with:
-          subject-path: ola-image.tar
-          sbom-path: sbom.spdx.json
-
-      - name: Independently verify artifact attestation
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh attestation verify ola-image.tar -R "$GITHUB_REPOSITORY" --format json > attestation-verification.json
-          python - <<'PY'
-          import json
-          import sys
-
-          data=json.load(open("attestation-verification.json",encoding="utf-8"))
-          results=[]
-          for item in data:
-              vr=item.get("verificationResult", {})
-              statement=vr.get("statement", {})
-              results.append({
-                  "statement_type": statement.get("_type"),
-                  "predicate_type": statement.get("predicateType"),
-                  "subject": statement.get("subject"),
-              })
-
-          print(json.dumps({"verification":results},sort_keys=True))
-          if not results:
-              sys.exit("No verified attestation statement returned")
-          if not any(x.get("statement_type")=="https://in-toto.io/Statement/v1" for x in results):
-              sys.exit("IN_TOTO_STATEMENT_MISSING")
-          if not any(x.get("predicate_type")=="https://slsa.dev/provenance/v1" for x in results):
-              sys.exit("SLSA_PROVENANCE_MISSING")
-          PY
-          echo "SIGSTORE=VERIFIED"
-          echo "IN_TOTO=VERIFIED"
-          echo "SLSA_PROVENANCE=VERIFIED"
 
       - name: Upload supply-chain evidence
         if: always()
@@ -233,6 +376,261 @@ jobs:
           path: |
             trivy-fs-results.sarif
             sbom.spdx.json
-            ola-image.tar
-            attestation-verification.json
           retention-days: 30
+
+
+  oci-slsa-attestations:
+    needs: [security-image, provenance-adapter-tests]
+    env:
+      EXPECTED_TRUST_ROOT_SHA256: ${{ inputs.expected_trusted_root_sha256 || vars.OLA_SIGSTORE_TRUST_ROOT_SHA256 }}
+    # A trusted main release creates production-eligible evidence. Manual
+    # dispatch on a feature branch is a non-production rehearsal only.
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/oidc-human-gate-customer-bundle-20261107')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Assert immutable source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            test "$GITHUB_REF" = "refs/heads/feat/oidc-human-gate-customer-bundle-20261107"
+          else
+            test "$GITHUB_REF" = "refs/heads/main"
+          fi
+
+      - name: Prepare immutable OCI image name
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository_lc="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          image_name="ghcr.io/$repository_lc"
+          echo "name=$image_name" >> "$GITHUB_OUTPUT"
+          echo "IMAGE_NAME=$image_name" >> "$GITHUB_ENV"
+
+      - name: Login to GitHub Container Registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build exact local OCI image
+        id: build-image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx build --pull --load \
+            --build-arg OLA_SOURCE_COMMIT="$GITHUB_SHA" \
+            --build-arg OLA_GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            --build-arg OLA_GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+            --tag "$IMAGE_NAME:$GITHUB_SHA" \
+            --file Dockerfile .
+          image_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_NAME:$GITHUB_SHA")"
+          test "$image_source" = "$GITHUB_SHA"
+          image_id="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME:$GITHUB_SHA")"
+          echo "image_id=$image_id" >> "$GITHUB_OUTPUT"
+
+      - name: Trivy scan exact image before publication
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: false
+
+      - name: Generate SPDX SBOM for exact image
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: ola-release-sbom-${{ github.sha }}.spdx.json
+
+      - name: Push exact scanned OCI image
+        id: push
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE_NAME:$GITHUB_SHA"
+          repo_digest="$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$IMAGE_NAME:$GITHUB_SHA")"
+          case "$repo_digest" in "$IMAGE_NAME@sha256:"*) ;; *) echo "::error::OCI registry digest missing"; exit 1;; esac
+          digest="${repo_digest##*@}"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "image_digest=$digest" >> "$GITHUB_OUTPUT"
+          printf 'OCI_IMAGE=%s@%s\n' "$IMAGE_NAME" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify registry digest against running container imageID
+        id: runtime-image
+        shell: bash
+        env:
+          EXPECTED_IMAGE_ID: ${{ steps.build-image.outputs.image_id }}
+          OCI_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE_NAME@$OCI_DIGEST"
+          pulled_image_id="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME@$OCI_DIGEST")"
+          test "$pulled_image_id" = "$EXPECTED_IMAGE_ID"
+
+          container_name="ola-oci-runtime-proof-$GITHUB_RUN_ID"
+          cleanup() { docker rm -f "$container_name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run --detach --name "$container_name" \
+            --publish 127.0.0.1:18080:8000 \
+            --env OLA_API_KEY_PEPPER="$GITHUB_SHA" \
+            --env OLA_RUNTIME_COMMIT="$GITHUB_SHA" \
+            "$IMAGE_NAME@$OCI_DIGEST" >/dev/null
+
+          container_id="$(docker inspect --format '{{.Id}}' "$container_name")"
+          container_image_id="$(docker inspect --format '{{.Image}}' "$container_name")"
+          container_started_at="$(docker inspect --format '{{.State.StartedAt}}' "$container_name")"
+          test "$container_image_id" = "$EXPECTED_IMAGE_ID"
+          container_invocation="$(docker exec "$container_name" python -c 'import json; d=json.load(open("/app/ola-build-info.json", encoding="utf-8")); print("{}:{}".format(d.get("github_run_id", 0), d.get("github_run_attempt", 0)))')"
+          test "$container_invocation" = "$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT"
+
+          healthy=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/health >/dev/null; then
+              healthy=true
+              break
+            fi
+            sleep 2
+          done
+          test "$healthy" = true
+
+          SOURCE_SHA="$GITHUB_SHA" IMAGE_NAME="$IMAGE_NAME" OCI_DIGEST="$OCI_DIGEST" \
+            IMAGE_ID="$container_image_id" CONTAINER_ID="$container_id" \
+            STARTED_AT="$container_started_at" RUN_ID="$GITHUB_RUN_ID" \
+            RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" python - <<'PY'
+          import json, os
+          proof = {
+              "schema": "ola-runtime-image-proof/v1",
+              "source_sha": os.environ["SOURCE_SHA"],
+              "image_name": os.environ["IMAGE_NAME"],
+              "image_digest": os.environ["OCI_DIGEST"],
+              "image_id": os.environ["IMAGE_ID"],
+              "container_id": os.environ["CONTAINER_ID"],
+              "container_started_at": os.environ["STARTED_AT"],
+              "workflow_run_id": int(os.environ["RUN_ID"]),
+              "workflow_run_attempt": int(os.environ["RUN_ATTEMPT"]),
+              "health": "healthy",
+          }
+          with open("runtime-image-proof.json", "w", encoding="utf-8") as handle:
+              json.dump(proof, handle, sort_keys=True, separators=(",", ":"))
+              handle.write("\n")
+          PY
+          printf 'RUNTIME_IMAGE_PROOF=VERIFIED\n' >> "$GITHUB_STEP_SUMMARY"
+          printf 'OCI_DIGEST=%s\nIMAGE_ID=%s\n' "$OCI_DIGEST" "$container_image_id" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate OCI SLSA provenance attestation
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Generate OCI SBOM attestation
+        id: sbom-attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: sbom.spdx.json
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Export Sigstore trusted root
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh attestation trusted-root > trusted_root.jsonl
+          test -s trusted_root.jsonl
+
+      - name: Require configured trust-root pin for main releases
+        if: github.event_name == 'push' && env.EXPECTED_TRUST_ROOT_SHA256 == ''
+        shell: bash
+        run: |
+          echo "::error::OLA_SIGSTORE_TRUST_ROOT_SHA256 is required for main-branch attestation"
+          exit 1
+
+      - name: Record Sigstore trust-root discovery pin (not yet approved)
+        if: github.event_name == 'workflow_dispatch' && env.EXPECTED_TRUST_ROOT_SHA256 == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum trusted_root.jsonl | awk '{print $1}' > trusted_root.sha256
+          printf 'ROOT_PIN_STATUS=PENDING_EXTERNAL_APPROVAL\n' >> "$GITHUB_STEP_SUMMARY"
+          printf 'TRUSTED_ROOT_SHA256=%s\n' "$(cat trusted_root.sha256)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify and package exact OCI provenance bundle with external root pin
+        if: env.EXPECTED_TRUST_ROOT_SHA256 != ''
+        shell: bash
+        env:
+          OCI_IMAGE_NAME: ${{ steps.image.outputs.name }}
+          OCI_IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          test -s "$PROVENANCE_BUNDLE"
+          [[ "$EXPECTED_TRUST_ROOT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          workflow_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/supply-chain-evidence.yml@$GITHUB_REF"
+          python scripts/package_github_oci_provenance.py \
+            --bundle "$PROVENANCE_BUNDLE" \
+            --trusted-root trusted_root.jsonl \
+            --repository "$GITHUB_REPOSITORY" \
+            --repository-id "$GITHUB_REPOSITORY_ID" \
+            --source-sha "$GITHUB_SHA" \
+            --source-ref "$GITHUB_REF" \
+            --workflow-identity "$workflow_identity" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --image-name "$OCI_IMAGE_NAME" \
+            --image-digest "$OCI_IMAGE_DIGEST" \
+            --expected-trusted-root-sha256 "$EXPECTED_TRUST_ROOT_SHA256" \
+            --output source-runtime.json
+
+      - name: Upload verified OCI provenance evidence
+        if: env.EXPECTED_TRUST_ROOT_SHA256 != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-oci-slsa-evidence-${{ github.sha }}
+          path: |
+            source-runtime.json
+            runtime-image-proof.json
+            sbom.spdx.json
+            trusted_root.jsonl
+            ${{ steps.provenance.outputs.bundle-path }}
+            ${{ steps.sbom-attestation.outputs.bundle-path }}
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Upload Sigstore root discovery materials (unverified)
+        if: github.event_name == 'workflow_dispatch' && env.EXPECTED_TRUST_ROOT_SHA256 == ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-sigstore-root-discovery-${{ github.sha }}
+          path: |
+            trusted_root.jsonl
+            trusted_root.sha256
+            runtime-image-proof.json
+            sbom.spdx.json
+            ${{ steps.provenance.outputs.bundle-path }}
+            ${{ steps.sbom-attestation.outputs.bundle-path }}
+          retention-days: 30
+          if-no-files-found: error

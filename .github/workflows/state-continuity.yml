@@ -18,16 +18,19 @@ jobs:
         with:
           persist-credentials: false
       - name: Build runtime image
-        run: docker build -t ola-state-continuity .
+        run: |
+          set -euo pipefail
+          docker build --build-arg OLA_SOURCE_COMMIT="${GITHUB_SHA}" -t ola-state-continuity .
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' ola-state-continuity)" = "${GITHUB_SHA}"
       - name: Start runtime with persistent volume
         shell: bash
         run: |
           set -euo pipefail
           docker volume create ola-state-data
           docker run -d --name ola-state --mount source=ola-state-data,target=/data -e OLA_RUNTIME_COMMIT="$GITHUB_SHA" -p 8000:8000 ola-state-continuity
-          for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:8000/health >/dev/null; then exit 0; fi; sleep 2; done
-          docker logs ola-state
-          exit 1
+          for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:8000/health >/dev/null; then break; fi; sleep 2; done
+          curl -fsS http://127.0.0.1:8000/health >/dev/null
+          docker exec -e EXPECTED_SOURCE_SHA="$GITHUB_SHA" ola-state python -c 'import json,os; d=json.load(open("/app/ola-build-info.json")); assert d["source_commit"] == os.environ["EXPECTED_SOURCE_SHA"], d'
       - name: First real application execution and checkpoint
         shell: bash
         run: |
@@ -53,6 +56,7 @@ jobs:
           docker rm -f ola-state
           docker run -d --name ola-state --mount source=ola-state-data,target=/data -e OLA_RUNTIME_COMMIT="$GITHUB_SHA" -p 8000:8000 ola-state-continuity
           for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:8000/health >/dev/null; then break; fi; sleep 2; done
+          docker exec -e EXPECTED_SOURCE_SHA="$GITHUB_SHA" ola-state python -c 'import json,os; d=json.load(open("/app/ola-build-info.json")); assert d["source_commit"] == os.environ["EXPECTED_SOURCE_SHA"], d'
           docker exec ola-state env PYTHONPATH=/app python scripts/state_continuity_runtime.py --tenant "$OLA_TEST_TENANT" --inspect > restored-checkpoint.json
           python - <<'PY'
           import json

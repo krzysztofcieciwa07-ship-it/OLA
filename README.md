@@ -27,7 +27,7 @@ The current source tree contains:
 - Evidence writes use SQLite `BEGIN IMMEDIATE` or PostgreSQL transaction-scoped, tenant-keyed advisory locks. Both preserve per-tenant sequence numbers and previous-record hashes.
 - PostgreSQL schema DDL is an explicit migration step (`scripts/migrate_postgres.py`) using `OLA_DATABASE_MIGRATION_URL`. API and worker startup verify the migrated schema and append-only triggers but do not create PostgreSQL tables with runtime credentials.
 - PostgreSQL support has a dedicated real-server integration test and GitHub Actions workflow. It is not production-certified until that workflow has passed on the exact candidate SHA and operational backup, TLS, privileges, pooling, and failover checks are verified.
-- `pyproject.toml` metadata names the distribution `ola-evidence-graph` and declares FastAPI; `requirements.txt` supplies the pinned runtime/test dependencies used by the Docker build.
+- `pyproject.toml` metadata names the distribution `ola-evidence-graph` and declares FastAPI. `requirements-runtime.txt` is the pinned production dependency set used by Docker; `requirements-test.txt` adds test/build tooling. `requirements.txt` remains a backward-compatible test/development entry point.
 
 ## Main application surfaces
 
@@ -68,7 +68,7 @@ source .venv/bin/activate
 # .venv\Scripts\Activate.ps1
 
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-test.txt
 ```
 
 Run the application:
@@ -96,7 +96,7 @@ docker build -t ola:local .
 docker run --rm -p 8000:8000 -v ola-data:/data ola:local
 ```
 
-The Dockerfile sets `OLA_EG_DB_PATH=/data/ola.db` and runs as an unprivileged `ola` user. Configure Stripe environment variables only in a local secret store or deployment secret manager; never commit credentials.
+The Dockerfile uses a clean Alpine runtime stage, copies only the Python interpreter/standard library and `requirements-runtime.txt` packages, excludes `pip`, `pytest`, test files and build tooling, sets `OLA_EG_DB_PATH=/data/ola.db`, and runs as an unprivileged `ola` user. Configure Stripe environment variables only in a local secret store or deployment secret manager; never commit credentials.
 
 ## Stripe configuration
 
@@ -146,3 +146,14 @@ Until all required evidence is present, describe production readiness as `UNKNOW
 ## Security
 
 Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities or preparing a release. Never commit API keys, Stripe secrets, signing keys, customer data, or production evidence containing sensitive information.
+
+
+## Development secrets and bundle runtime
+
+Development requires two distinct 32-byte Base64 encryption keys. Check their presence without displaying values:
+
+```bash
+python scripts/check_development_secrets.py
+```
+
+See [Development secrets and customer-bundle runtime](docs/development-secrets-and-bundle-runtime.md) for the loopback-only test runtime, the `PARTIAL` evidence boundary, and the public HTTPS / production restrictions.
