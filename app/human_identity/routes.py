@@ -46,16 +46,36 @@ _TENANT_PATH_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 def _deployment_profile() -> str:
-    """Derive a fail-closed deployment profile from the configured public origin.
+    """Derive a fail-closed deployment profile from the configured origin.
 
-    A public HTTPS origin is production regardless of a weaker environment
-    label. Non-production profiles are accepted only for loopback HTTP. This
-    prevents a missing or mis-set OLA_DEPLOYMENT_PROFILE from reopening the
-    legacy API-key Human Gate on a public deployment.
+    Public HTTPS is production by default. The only HTTPS exception is the
+    exact Replit workspace Development host: REPLIT_DEV_DOMAIN is provided by
+    the project editor and is absent from published Deployments. The explicit
+    OLA profile must also be Development, and a deployment marker always wins.
     """
-    configured = os.environ.get("OLA_DEPLOYMENT_PROFILE")
+    configured = os.environ.get("OLA_DEPLOYMENT_PROFILE", "").strip().lower()
     public_base = os.environ.get("OLA_PUBLIC_BASE_URL", "").strip()
     parsed = urlsplit(public_base)
+
+    replit_dev_domain = os.environ.get("REPLIT_DEV_DOMAIN", "").strip().lower().rstrip(".")
+    is_replit_workspace_development = (
+        parsed.scheme == "https"
+        and bool(parsed.netloc)
+        and parsed.hostname is not None
+        and parsed.hostname.lower().rstrip(".") == replit_dev_domain
+        and parsed.hostname.lower().endswith(".replit.dev")
+        and parsed.hostname.lower() != "replit.dev"
+        and parsed.port in (None, 443)
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.path in ("", "/")
+        and not parsed.query
+        and not parsed.fragment
+        and configured == "development"
+        and not os.environ.get("REPLIT_DEPLOYMENT", "").strip()
+    )
+    if is_replit_workspace_development:
+        return "development"
 
     if parsed.scheme == "https" and parsed.netloc:
         return "production"
@@ -67,7 +87,7 @@ def _deployment_profile() -> str:
     ):
         if not configured:
             return "sandbox"
-        return configured.strip().lower()
+        return configured
 
     return "invalid"
 
