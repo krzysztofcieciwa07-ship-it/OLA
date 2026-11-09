@@ -1,60 +1,149 @@
-# OLA repository security baseline
+# OLA Repository Security Baseline
 
-Status: proposed baseline; not a production security certification.
+**Snapshot date:** 2026-11-09  
+**Status:** HARDENING IN PROGRESS — NOT CERTIFIED  
+**Scope:** Repository governance and engineering controls for OLA. This document is not a security certification, legal opinion, NIS2 applicability determination, or proof of production readiness.
 
-## Verified starting point (2026-11-05)
+## 1. Assurance target and legal boundary
 
-- Repository: `krzysztofcieciwa07-ship-it/OLA`.
-- Default branch: `main`.
-- An active repository ruleset named `SECURITY.md` was observed, but its rules only prohibit branch deletion and non-fast-forward updates.
-- The connected GitHub App installation selects all repositories on the connected account. Narrowing this scope must be performed in GitHub installation settings by the account owner.
-- Branch-protection API access was not available through the connected integration; required reviews and status checks remain unverified.
+The engineering baseline is being mapped to the **CCB CyberFundamentals Framework, CyFun 2025, Essential assurance level** as a deliberately high target for a system intended to support high-trust environments.
 
-## Required `main` protection
+This target does **not** mean that OLA, its developer, this repository, or any customer deployment is CyFun-certified. Certification or conformity assessment applies to a defined organisation and scope and must be independently assessed through the applicable accredited route.
 
-1. Require a pull request before merging.
-2. Require at least one approval from someone other than the PR author.
-3. Require CODEOWNERS review for covered changes.
-4. Dismiss stale approvals when new commits are pushed.
-5. Require approval of the most recent reviewable push where supported.
-6. Require stable CI checks on the exact head SHA, including tests, static analysis, secret scanning, dependency review and provenance gates where available.
-7. Require branches to be up to date where practical.
-8. Block force pushes and branch deletion.
-9. Avoid routine bypass actors; document and audit emergency bypass separately.
+NIS2 applicability must be assessed for the actual operator, entity type, services and size. Do not describe every public administration as automatically subject to NIS2. The CCB's public-sector FAQ distinguishes local administrations from federal and federated public administrations and identifies specific scope and designation conditions.
 
-A CODEOWNERS file alone does not enforce review. The ruleset must explicitly require code-owner review. A single-owner CODEOWNERS entry is not independent review; add a trusted independent reviewer before treating this gate as satisfied.
+Reference framework:
+- CCB, [CyFun 2025 announcement](https://ccb.belgium.be/news/cyfunr-2025-here).
+- CCB, [Government cybersecurity and CyFun assurance levels](https://ccb.belgium.be/government).
+- CCB, [NIS2 FAQ — public sector](https://ccb.belgium.be/sites/default/files/2025-02/NIS2%20FAQ%20Website%20v2.0.1%20EN.pdf).
+- GitHub, [available rules for repository rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets).
+- GitHub, [secure use of GitHub Actions](https://docs.github.com/en/actions/reference/security/secure-use).
 
-## Automation permissions
+## 2. Evidence semantics
 
-- Default workflow token permissions to `contents: read`.
-- Grant write permissions only to the job and step that need them.
-- Pin third-party Actions to immutable full commit SHAs.
-- Use `persist-credentials: false` on checkout unless authenticated Git operations are required.
-- Prefer OIDC and short-lived credentials; never commit production credentials.
-- Scheduled agents may inventory, test, report and open draft PRs. They must not autonomously merge, deploy, rotate credentials, alter visibility, delete data or change access controls.
+Every control is recorded as one of:
 
-## Required automated checks
+- `PASS` — verified against the exact account, repository, branch, commit, workflow run or deployment scope.
+- `FAIL` — verified and not satisfied.
+- `UNKNOWN` — evidence is unavailable, incomplete, stale or not independently checked.
+- `NOT_APPLICABLE` — scope decision documented with its rationale and owner.
 
-- Secret scanning and push protection.
-- CodeQL or equivalent static analysis.
-- Dependency vulnerability review and lockfile checks.
-- Workflow/action pinning and least-privilege review.
-- Unit/integration tests and exact-SHA provenance.
-- Artifact digest and attestation verification for release outputs.
-- Independent IGOR verification; a skipped verifier is not a pass.
+A workflow file existing is not a passing check. A skipped check is not a pass. A check on a different SHA is not evidence for the SHA under review. A locally reproducible test is not a production deployment proof.
 
-Do not add duplicate workflows until existing checks have been mapped for triggers, permissions, coverage and failure modes.
+## 3. Verified repository snapshot — 2026-11-09
 
-## Multi-profile repository hygiene
+Repository: `krzysztofcieciwa07-ship-it/OLA`  
+Default branch: `main`  
+Reviewed main SHA: `fe32bf8c9710c4c04308ad17f1876fa4f80c01a2`
 
-For every profile and repository, record owner, visibility, default branch, fork/source relationship, last activity, language, license, security policy, CODEOWNERS, rulesets, Actions permissions, secret-scanning status, dependency alerts, open PRs/issues and canonical purpose.
+Observed:
+- 166 branches.
+- 76 open pull requests, 64 of them Draft.
+- Several branch names point to identical commit SHAs; duplicate names must be reconciled against PR references and unique commits before any deletion.
+- An active repository ruleset named `SECURITY.md` exists. Its inspected rules prohibit branch deletion and non-fast-forward updates. It does not require pull-request approval or successful status checks.
+- The branch-protection endpoint could not be read using the current integration. Other classic branch-protection settings therefore remain `UNKNOWN`.
+- The current main SHA had 37 check-run records. The latest result per distinct check name contained 30 successes, 2 failures and 1 skipped result. This is not an all-green baseline.
+- Secret scanning, push protection, Dependabot alert state, repository Actions permissions, environment protection and account MFA state were not fully verifiable through the available integration.
 
-Classify repositories as `CORE`, `ACTIVE`, `ARCHIVE_CANDIDATE`, `UPSTREAM_FORK`, `EXPERIMENTAL` or `UNKNOWN`. Do not delete, transfer, privatize or archive based only on matching repository names. Compare immutable commit SHAs, Git object history, fork relationships and contents first.
+Do not apply a required-check ruleset using stale check names or a stale SHA. The existing `scripts/apply_main_ruleset.py` contains a static check-context list tied to a previously observed SHA. It must be reconciled with current check names, optional/conditional jobs, failure handling and exact-SHA behaviour before it is used.
 
-## Evidence and acceptance
+## 4. Required account and identity controls
 
-Every remediation must identify repository, exact source SHA, changed paths, checks run, check results and reviewer. Record unavailable controls as `UNKNOWN`, never `VERIFIED`. Successful CI proves only the checks it actually executed; it does not establish production readiness.
+Before describing this portfolio as suitable for government or other high-trust procurement:
 
-## Current limitations
+1. Require phishing-resistant MFA for every human maintainer where supported; prefer passkeys or hardware security keys. Protect recovery methods separately.
+2. Do not share accounts or recovery credentials.
+3. Maintain at least two separately accountable administrators/recovery paths for the product organisation, with least privilege and auditable ownership. A second person must be a real, trusted reviewer — never a placeholder account.
+4. Use an organisation for product-owned repositories when legal ownership and a second administrator are established. Keep unrelated upstream forks outside the product's canonical project surface.
+5. Review GitHub App installations, repository-selection scope, OAuth grants, fine-grained PATs, deploy keys, webhooks and collaborator access. Narrow integrations to the smallest repository set and permissions required.
+6. Keep account-level audit and security-log retention appropriate to the deployment's risk and contractual requirements.
 
-This file is a remediation baseline, not proof that account-wide settings have changed. The connected integration cannot currently verify all branch-protection settings or private-repository security controls. Account-level hardening and independent reviewer configuration remain pending owner action.
+Account settings that cannot be read by the connected integration remain `UNKNOWN` until the owner verifies them directly.
+
+## 5. Required protection for `main`
+
+The target policy for each canonical product repository is:
+
+- Require pull requests; prohibit direct pushes to release branches.
+- Require at least one approval from a person other than the PR author and the most recent pusher.
+- Dismiss stale approvals when the diff changes.
+- Require all review threads to be resolved.
+- Require CODEOWNERS review for critical paths after genuine independent owners have been assigned.
+- Require successful, stable, exact-SHA CI checks from the intended GitHub App.
+- Block force pushes and branch deletion.
+- Require signed commits where the signing identity and recovery process are operationally supported.
+- Configure no routine bypass actors. Any emergency bypass must be separately approved, time-bounded, logged and reviewed.
+- Use merge queue or strict up-to-date policy where the chosen workflow supports it.
+
+**Activation blocker:** the independent reviewer identity and the exact stable required-check set are not yet established by the current evidence. Do not set a fictitious reviewer, require a stale list of checks, or apply a ruleset that makes the branch appear protected while omitting actual failures.
+
+GitHub documents that review counts, code-owner review and required status checks are separate rules. A CODEOWNERS file alone does not enforce any of them.
+
+## 6. CI/CD and automation controls
+
+- Default workflow permissions to read-only. Grant write permissions only to the individual job that needs them.
+- Pin third-party Actions to full-length commit SHAs or use a verified workflow dependency lockfile. Review the source of every third-party action.
+- Use `persist-credentials: false` on checkout unless the job genuinely requires authenticated Git operations.
+- Never expose deployment secrets to untrusted fork pull requests or untrusted pull-request code.
+- Prefer workload identity/OIDC and short-lived credentials over long-lived static credentials.
+- Separate build, test, release and deployment identities. Production deployment requires an explicit protected-environment approval.
+- Avoid duplicate workflows. Map current triggers, permissions, outputs, check names, skip conditions and failure semantics before adding or replacing CI.
+- No workflow may promote `UNKNOWN`, `SKIPPED`, `PARTIAL` or unverified fallback execution to `PASS` or `VERIFIED`.
+
+## 7. Software supply-chain controls
+
+For each release candidate:
+- Lock application dependencies and review vulnerability alerts.
+- Produce an SBOM for the source/dependency set and the release artifact.
+- Run secret scanning, static analysis, dependency review and workflow linting.
+- Bind build provenance to the exact source commit and immutable artifact digest.
+- Verify attestations independently before release promotion.
+- Sign release artifacts where supported; keep signing keys outside the repository and record key custody/rotation procedures.
+- Preserve the source SHA, workflow run IDs, check conclusions, artifact digests, attestations and approval record.
+
+A signed build attestation proves a defined build relationship; it does not prove the application is secure or that a deployment is compliant.
+
+## 8. Secrets and data handling
+
+- Commit only documented placeholders in `.env.example`; never commit real `.env` files, private keys, signing material, tokens, customer data or production evidence.
+- Enable secret scanning and push protection where available; keep a second independent scanner in CI for repository content and history.
+- Scan current refs and full Git history before public release. Do not print detected secret values in logs or reports.
+- Treat every confirmed exposure as an incident: identify provider and privilege, revoke/rotate, inspect use, preserve evidence, and verify that the old credential no longer works.
+- Classify evidence artifacts as potentially sensitive. Hashing does not provide confidentiality.
+
+## 9. Repository lifecycle and change control
+
+Every repository must have:
+- one canonical owner and purpose;
+- explicit product classification (`CORE`, `ACTIVE`, `EXPERIMENTAL`, `UPSTREAM_FORK`, `SPEC`, `ARCHIVE_CANDIDATE` or `UNKNOWN`);
+- a truthful description, homepage and topics;
+- a supported default branch;
+- a security policy and vulnerability-reporting route;
+- an owner/reviewer map;
+- a current ruleset and CI-control record;
+- an inventory of forks, branches, open PRs and release references.
+
+No repository, branch, tag, issue, PR or history may be deleted or transferred solely because its name appears duplicated. Compare immutable SHAs, Git ancestry, unique commits, open PRs, release assets and external dependencies first.
+
+## 10. Acceptance gate for a high-trust release
+
+A release cannot be called `VERIFIED` until all applicable items below are evidenced for the exact release candidate:
+
+1. account identity, MFA and administrator access reviewed;
+2. canonical repository, protected branch and independent review established;
+3. exact-SHA required checks passed; no unexplained failures or skipped mandatory checks;
+4. secret and dependency scans completed with findings triaged;
+5. build provenance and artifact digest independently verified;
+6. runtime deployment and health observed in the target environment;
+7. tenant/access-isolation and security tests passed;
+8. evidence integrity, provenance and replay checks passed;
+9. recovery, rollback and incident procedures tested;
+10. human release authorisation recorded.
+
+The absence of any required proof leaves the gate `BLOCKED` or `UNKNOWN`, not `VERIFIED`.
+
+## 11. Current decision
+
+**Current status: HARDENING IN PROGRESS / NOT CERTIFIED / PRODUCTION SECURITY POSTURE UNKNOWN.**
+
+The first remediation tranche is repository and account governance. Feature work must not outrank resolution of canonical ownership, account access scope, independent review, exact-SHA check inventory and main-branch enforcement.
