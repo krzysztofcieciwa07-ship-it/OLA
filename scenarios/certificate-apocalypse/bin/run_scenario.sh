@@ -51,7 +51,19 @@ for _ in $(seq 1 40); do
   fi
   sleep 1
 done
-[[ "$READY" == "1" ]] || { echo "TLS target did not become ready" >&2; exit 1; }
+if [[ "$READY" != "1" ]]; then
+  echo "TLS target did not become ready; last strict probe and sanitized container diagnostics follow" >&2
+  python3 "$ROOT/scripts/chaos/probe_tls.py" --expect any || true
+  "${COMPOSE[@]}" ps -a >&2 || true
+  "${COMPOSE[@]}" logs --no-color >&2 || true
+  IDS="$("${COMPOSE[@]}" ps -a -q 2>/dev/null)"
+  if [[ -n "$IDS" ]]; then
+    while IFS= read -r id; do
+      docker inspect --format 'name={{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}} restart_count={{.RestartCount}}' "$id" >&2 || true
+    done <<< "$IDS"
+  fi
+  exit 1
+fi
 
 TOTAL_SECONDS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["load_duration_seconds"])' "$RUNTIME/run_context.json")"
 FAULT_AFTER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["fault_after_seconds"])' "$RUNTIME/run_context.json")"
