@@ -342,3 +342,18 @@ There is still a conflicting source record: Railway service configuration and th
 ### Disposition
 
 PR #189 is **NOT READY FOR MERGE**. It has positive PostgreSQL and payment-control foundations, but needs a current-main reconciliation, a role-bound Human Gate, a deployed worker, real-PostgreSQL paid-flow tests, and a precise commercial boundary for deterministic versus real-LLM execution. The exact source/deployment SHA discrepancy must be reconciled before production provenance claims.
+
+
+## 15. Additional review: Merkle trust defaults and Railway bootstrap credential state
+
+### PR #198 — cryptographic validity is not signer identity
+
+The v0.1 Merkle implementation and tests were re-read. It rejects mixed tenants and invalid chains, domain-separates leaf/node hashes, signs a canonical manifest with Ed25519 and exposes a separate trusted-fingerprint decision. The implementation intentionally defaults to reporting \`signature_valid\` separately from \`signer_trusted\`; proof verification requires the caller to opt into \`require_trusted_signer=True\` with an independently pinned fingerprint.
+
+There is no public API consumer in this PR, so no current route bypass was confirmed. The production acceptance boundary must make trusted signer verification mandatory. Otherwise an envelope that supplies its own public key can be mathematically valid without proving OLA/customer identity. The module also lacks production KMS/HSM custody, key enrollment/revocation, TSA timestamping, durable checkpoint persistence/scheduling and externally anchored checkpoint chaining; the docs disclose these limits. The signed \`created_at\` is a signer assertion, not independent timestamp proof.
+
+### Railway bootstrap variable — corrected scope
+
+The Railway staging variable-name inventory contains \`OLA_STAGING_BOOTSTRAP_SECRET\`, but OAuth integration withholds its value and it is not listed as sealed. Current non-empty/valid status is therefore **UNKNOWN**. Historical logs prove the bootstrap endpoint returned HTTP 201 once and HTTP 409 on subsequent calls. The route's database existence guard prevents a second issuance while the bootstrap tenant exists; the HTTP 409 does not prove the secret was rotated or deleted.
+
+The Vercel Preview bootstrap metadata previously observed as disabled applies to the Vercel deployment surface, not necessarily the Railway service variable. The route's own code does not remove the environment variable. Owner-controlled post-bootstrap rotation/removal in Railway remains an outstanding hygiene action; no secret value was read or modified.

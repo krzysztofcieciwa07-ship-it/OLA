@@ -297,3 +297,51 @@ The latest Railway deployment is **SLEEPING** (the service has \`sleepApplicatio
 6. Reconcile the conflicting Railway deployment SHA evidence and verify an exact-SHA readiness/runtime window.
 
 No feature branch, PR status, production/staging configuration, deployment, credential, or secret was changed as part of this review.
+
+
+## 11. PR #198 — signer trust, timestamps and operational boundaries
+
+The detailed implementation and tests were inspected after the initial prototype assessment.
+
+### Positive controls confirmed in source
+
+- The module rejects mixed-tenant record sequences and requires the complete chain from sequence 0 / GENESIS.
+- Merkle leaves use domain separation (\`0x00\`) and internal nodes use \`0x01\`; odd-width levels use a documented duplicate-last rule.
+- The manifest binds tenant, sequence range, chain tip, record count, algorithm/specification, signer key ID, public-key fingerprint and creation time.
+- The manifest signature is Ed25519 over canonical JSON. Signature validity is evaluated separately from signer trust; a signer is only trusted when its public-key SHA-256 matches a separately supplied pinned fingerprint.
+- Proof validation checks manifest binding, tenant, tree size, leaf index/sequence, exact proof depth and sibling ordering.
+- Tests include mixed-tenant input, cross-tenant proof replay, altered payload/hash, missing sibling, wrong index, odd/even tree sizes, manifest tampering and explicit trusted-fingerprint pinning.
+- The workflow is path-scoped and pins checkout/setup-python actions to immutable commits.
+
+### Important trust-boundary requirement
+
+\`verify_checkpoint_signature()\` and \`verify_inclusion_proof()\` default to cryptographic signature validity without requiring a trusted signer. This is intentional: the implementation distinguishes a mathematically valid self-signed checkpoint from an authenticated checkpoint. The docs explicitly instruct production consumers to pass an independently pinned signer fingerprint and \`require_trusted_signer=True\`.
+
+There is no production API/caller in this PR, so this is not currently an exposed endpoint bypass. However, **any future acceptance or customer-delivery path must fail closed unless trusted signer verification is mandatory**. A valid signature from a key supplied inside the same envelope is not proof of OLA/customer identity.
+
+### Forensic and operational gaps are documented, not implemented
+
+- No KMS/HSM-backed signer, authorization policy, key rotation/revocation registry or independent signer enrollment.
+- No trusted timestamp authority or external time anchoring. \`created_at\` is part of the signed manifest, but absent TSA anchoring it proves what the signer asserted, not an independently trusted wall-clock time.
+- No durable checkpoint store, automatic scheduler, API endpoint, retention policy, external checkpoint chaining or streaming/segmented checkpoint design.
+- The current full-chain checkpoint is O(n) in memory and hashing; large chains need a new design rather than silently truncating.
+- The loader accepts a \`tenant_id\` parameter and explicitly delegates authorization to its caller. Future endpoints must derive the tenant from authenticated server context, never from a request-supplied tenant selector.
+- A Merkle root is an integrity commitment, not encryption, anonymization, proof of truth, or zero-knowledge proof.
+
+**Disposition:** PROTOTYPE / PARTIAL is accurate. The algorithmic checks are materially stronger than the generic current-main verifier, but it is not yet a production evidence-attestation service. Do not make customer/legal forensic claims without trusted key custody, enforced signer pinning, independent timestamping and durable checkpoint anchoring.
+
+## 12. Railway bootstrap-secret reconciliation
+
+The Railway staging service's variable-name inventory currently includes \`OLA_STAGING_BOOTSTRAP_SECRET\`; the values are redacted and the variable is not in the sealed-name list. Therefore the current integration cannot establish whether the value is non-empty or still valid. Historical HTTP logs show one \`POST /_internal/staging/bootstrap-bff-key\` response of HTTP 201 and later HTTP 409 responses.
+
+The route itself requires:
+- \`RAILWAY_ENVIRONMENT_NAME=staging\`;
+- a bootstrap secret of at least 48 characters;
+- constant-time comparison with \`X-Staging-Bootstrap-Token\`;
+- absence of the deterministic BFF tenant/service key record before inserting the tenant and API key.
+
+The HTTP 409 on replay is consistent with the database one-time guard. It does **not** prove the bootstrap secret was rotated or removed. The source comment says the token is removed after provisioning, but the route does not erase its own environment variable; that must be performed by deployment configuration after successful bootstrap.
+
+The separate Vercel Preview bootstrap trigger/metadata previously observed as disabled is a different configuration surface. Do not infer that this also removed the Railway variable.
+
+**Disposition:** Historical one-time issuance is observed; current token state is UNKNOWN. Confirm removal/rotation of \`OLA_STAGING_BOOTSTRAP_SECRET\` in Railway through the owner-controlled deployment settings, without displaying its value. Retain only the BFF service key as a sensitive Preview secret. No variable value was read or changed by this audit.
