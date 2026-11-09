@@ -184,3 +184,53 @@ def test_agent_failure_writes_terminal_run_evidence(monkeypatch):
     assert "execution.run.error" in types
     assert "execution.run.end" in types
     assert not any("safe synthetic task" in row.payload_json for row in rows)
+
+
+def test_required_llm_mode_rejects_unapproved_openai_base_url(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OLA_LLM_MODEL", "explicit-test-model")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://attacker.example/v1")
+
+    with pytest.raises(RuntimeError, match="approved HTTPS"):
+        _invoke_llm("codeact", "calculate 1+1", {})
+
+
+def test_required_llm_mode_requires_explicit_model(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("OLA_LLM_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+
+    with pytest.raises(RuntimeError, match="OLA_LLM_MODEL must be explicitly configured"):
+        _invoke_llm("codeact", "calculate 1+1", {})
+
+
+def test_successful_agent_run_has_start_end_and_committed_task_only(monkeypatch):
+    from sqlalchemy import select
+    from app.models import EvidenceRecord
+    import json
+
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", TEST_SOURCE_COMMIT)
+    tenant_id = _seed_tenant("agent-key-lifecycle")
+    task = "synthetic private task text"
+    result = run_agent_task(tenant_id, task)
+
+    assert result["status"] == "VERIFIED"
+    assert all(len(item["model_output_digest"]) == 64 for item in result["execution"])
+    with SessionLocal() as db:
+        rows = db.scalars(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq)).all()
+    payloads = [json.loads(row.payload_json) for row in rows]
+    assert payloads[0]["task_digest"]
+    assert payloads[-1]["status"] == "VERIFIED"
+    assert any(row.record_type == "execution.run.start" for row in rows)
+    assert any(row.record_type == "execution.run.end" for row in rows)
+    assert not any(task in row.payload_json for row in rows)
