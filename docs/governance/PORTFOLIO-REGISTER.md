@@ -62,7 +62,7 @@ Several product repositories have empty GitHub descriptions/topics. Repository m
 
 A public repository search surfaced 32 repositories under this separate login. The current GitHub integration has read-only permission there. The list below is an inventory of public repository names, not proof of common ownership.
 
-**Directly related to OLA/Vantage**
+**OLA/Vantage-related repositories or adjacent forks**
 - `OLA` — divergent OLA source.
 - `Vantage-v0.3` — developed incident-response range.
 - `vantage` — small fork of `ship-it/vantage`.
@@ -71,13 +71,9 @@ A public repository search surfaced 32 repositories under this separate login. T
 - `Ola-ai-plugins` — README-only specification.
 - `ola.dios.audit-gmail.com` — small fork; purpose and ownership require confirmation.
 
-**Potential experiments / projects requiring owner decision**
-- `goalfloow` — unrelated project fork; contains a tracked `.env` with a public Supabase `anon` key. No `service_role` claim was confirmed.
+**Independent or currently unclassified repositories**
 - `TIMEATLAS`
 - `vigilant-fiesta`
-- `TIMEATLAS`
-- `vigilant-fiesta`
-- `goalfloow`
 
 **Upstream/reference forks — do not present as proprietary OLA products**
 - `agent-os`
@@ -86,24 +82,25 @@ A public repository search surfaced 32 repositories under this separate login. T
 - `uygulamali-kriptografi`
 - `CLI-Anything`
 - `ai`
+- `swarmclaw`
+- `goalfloow` — contains a tracked `.env` with a public Supabase `anon` key; no `service_role` claim was confirmed.
 - `dotfiles`
 - `brew`
 - `arrow`
 - `community`
 - `django-ai-plugins`
+- `congress-tracker`
 - `avalanche-react`
 - `RobynAwesome`
 - `MetaGPT`
 - `google-api-nodejs-client`
-- `congress-tracker`
 - `cli`
 - `docs`
+- `house-documents`
 - `homebrew-cask`
 - `homebrew-core`
-- `swarmclaw`
-- `house-documents)
 
-Some of these forks may contain local changes or useful research. They remain upstream forks unless a distinct, original product contribution is demonstrated.
+Some forks may contain local changes or useful research. They remain upstream forks unless a distinct, original product contribution is demonstrated.
 
 ## 5. Repository metadata proposals
 
