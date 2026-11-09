@@ -34,13 +34,21 @@ The inspected application source defines these HTTP routes:
 | Method | Route | Purpose |
 |---|---|---|
 | GET | `/` | Serves the static web entry page. |
-| GET | `/health` | Basic process health response. |
+| GET | `/health` | Basic process health response used by the container health check. |
 | POST | `/chat` | Tenant-authenticated chat surface. |
 | POST | `/checkout` | Creates a Stripe Checkout Session when configured. |
 | GET | `/payment-success` | Retrieves and checks a Checkout Session and its matching webhook execution. |
+| POST | `/stripe/webhook` | Verifies the Stripe signature and processes the checkout event. |
 | POST | `/evidence` | Appends tenant-submitted evidence, while rejecting reserved internal evidence types. |
+| GET | `/evidence/{record_id}` | Reads one evidence record within the authenticated tenant boundary. |
 | POST | `/audit` | Runs the currently supported controlled fault-and-recovery audit scenario. |
-| POST | `/agent-run` | Requests an agent execution through the execution safety controls. |
+| POST | `/agent-run` | Requests a registered agent execution through the execution safety controls. |
+| POST | `/nina-run` | Runs the bounded NINA orchestration path and returns IGOR, provenance, replay, policy, and Human Gate results. |
+| POST | `/nina-run/{run_id}/approve` | Records a second-identity approval bound to the current evidence-chain tip. |
+| POST | `/nina-workflow` | Starts the opt-in bounded parallel workflow path; disabled unless explicitly enabled by configuration. |
+| GET | `/nina-workflow/{run_id}/report` | Refreshes a read-only, tenant-scoped IGOR report bound to the runtime commit and evidence tip. |
+| POST | `/nina-workflow/{run_id}/approve` | Records explicit second-identity workflow review; does not authorize deployment or PR merge. |
+| POST | `/business-invoice-run` | Runs the controlled invoice-processing workflow for tenant-submitted invoice JSON. |
 
 Check `app/main.py` for the complete route contract and current request/response details.
 
