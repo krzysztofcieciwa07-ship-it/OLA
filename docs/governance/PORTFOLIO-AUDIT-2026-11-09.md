@@ -232,3 +232,8 @@ No live deployment, OAuth abuse, token exposure or secret compromise was demonst
 ## 10. Audit execution boundary
 
 This report records read-only repository and code inspection. No repositories, branches, files on `main`, credentials, visibility, collaborators or external deployments were deleted or changed as part of the audit. The governance remediation documents remain in Draft PR #199 and are not merged.
+
+
+## 11. Execution quality, chronology and forensic closure
+
+The repeatable task-level standard is defined in [EXECUTION-QUALITY-AND-FORENSIC-PROTOCOL.md](EXECUTION-QUALITY-AND-FORENSIC-PROTOCOL.md). It requires a task contract, UTC event chronology, exact revision/environment identity, preserved and hashed evidence, verification of actual results, critical self-review, failure-register updates and an honest closure state. The existence of the protocol is not evidence that all tools and repositories enforce it yet.
