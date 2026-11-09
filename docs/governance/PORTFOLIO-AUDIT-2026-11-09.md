@@ -157,6 +157,15 @@ Required remediation before customer OAuth use:
 - verify tenant boundaries and connector revocation end-to-end;
 - pin workflow actions to SHAs and add secret/dependency/code scanning.
 
+## 5.1 Vantage prototype workflow supply chain
+
+The connected-account `krzysztofcieciwa07-ship-it/vantage` has three workflows. The reviewed workflow action references include:
+- `actions/checkout@v4`, `actions/setup-python@v5`, `actions/upload-artifact@v4`;
+- `sigstore/cosign-installer@main` in `verify.yml` and `provenance-independent.yml`;
+- `sigstore/cosign-installer@v3.7.0` in `cfr18.yml`.
+
+These version tags/branches are mutable references, not immutable full commit SHAs. The workflows define explicit permission blocks, and `provenance-independent.yml` runs on `workflow_run` completion with read-only `actions: read`, `contents: read` permissions and verifies the artifact's Cosign identity, issuer, commit and file digests. The verification design has useful checks, but its action supply chain still needs immutable pinning. The README correctly classifies the code as a prototype; its deterministic E2E and replay are not proof of live LLM availability or production operation.
+
 ## 6. Vantage v0.3: HIGH-RISK hosted assurance and host isolation findings
 
 Reviewed paths include:
