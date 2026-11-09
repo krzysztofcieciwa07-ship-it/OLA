@@ -1,6 +1,12 @@
 import base64
 import json
 import subprocess
+from datetime import datetime, timedelta, timezone
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID, ObjectIdentifier
 
 from app.customer_bundle.github_provenance import (
     OIDC_ISSUER,
@@ -21,6 +27,29 @@ WORKFLOW_IDENTITY = (
     "https://github.com/krzysztofcieciwa07-ship-it/OLA/"
     ".github/workflows/supply-chain-evidence.yml@refs/heads/main"
 )
+RUN_ID = 40968975127
+RUN_ATTEMPT = 1
+RUN_INVOCATION_OID = ObjectIdentifier("1.3.6.1.4.1.57264.1.21")
+
+
+def _fulcio_certificate():
+    invocation = f"https://github.com/{REPOSITORY}/actions/runs/{RUN_ID}/attempts/{RUN_ATTEMPT}"
+    encoded = invocation.encode("utf-8")
+    der_value = bytes([0x0c, len(encoded)]) + encoded
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "synthetic-fulcio-test")])
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(timezone.utc) - timedelta(minutes=1))
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(minutes=5))
+        .add_extension(x509.UnrecognizedExtension(RUN_INVOCATION_OID, der_value), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    return base64.b64encode(certificate.public_bytes(serialization.Encoding.DER)).decode("ascii")
 
 
 def _materials():
@@ -51,7 +80,11 @@ def _materials():
             "statement": statement,
         },
     }]
-    return json.dumps(result), json.dumps({"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json"}), json.dumps({"trustedRoot": "test"})
+    bundle = {
+        "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "verificationMaterial": {"certificate": {"rawBytes": _fulcio_certificate()}},
+    }
+    return json.dumps(result), json.dumps(bundle), json.dumps({"trustedRoot": "test"})
 
 
 def _payload():
@@ -66,6 +99,8 @@ def _payload():
         "workflow_identity": WORKFLOW_IDENTITY,
         "image_name": IMAGE_NAME,
         "image_digest": IMAGE_DIGEST,
+        "run_id": RUN_ID,
+        "run_attempt": RUN_ATTEMPT,
         "attestation_bundle_b64": base64.b64encode(bundle.encode()).decode(),
         "trusted_root_b64": base64.b64encode(trusted_root_bytes).decode(),
         "trusted_root_sha256": __import__("hashlib").sha256(trusted_root_bytes).hexdigest(),
@@ -87,6 +122,8 @@ def _verify(monkeypatch, payload=None, **overrides):
         "expected_source_ref": SOURCE_REF,
         "expected_image_name": IMAGE_NAME,
         "expected_trusted_root_sha256": __import__("hashlib").sha256((_materials()[2] + "\n").encode()).hexdigest(),
+        "expected_run_id": RUN_ID,
+        "expected_run_attempt": RUN_ATTEMPT,
     }
     arguments.update(overrides)
     return verify_github_oci_provenance(
@@ -247,6 +284,7 @@ def test_runtime_factory_requires_deployment_digest_and_pinned_trust_root(monkey
     )
 
     monkeypatch.setattr("app.runtime_provenance.runtime_source_commit", lambda **_kwargs: SOURCE_SHA)
+    monkeypatch.setattr("app.runtime_provenance.runtime_build_invocation", lambda **_kwargs: (RUN_ID, RUN_ATTEMPT))
     for key in (
         "OLA_GITHUB_PROVENANCE_FILE",
         "OLA_OCI_IMAGE_DIGEST",
@@ -323,6 +361,8 @@ def test_customer_bundle_cli_requires_out_of_band_sigstore_root_pin():
         "image_name": IMAGE_NAME,
     }
     assert _provenance_verifier(base) is None
+    base["run_id"] = RUN_ID
+    base["run_attempt"] = RUN_ATTEMPT
     base["trusted_root_sha256"] = "c" * 64
     assert callable(_provenance_verifier(base))
 
@@ -359,6 +399,8 @@ def test_provenance_packager_requires_out_of_band_trusted_root_pin(tmp_path, mon
         image_name=IMAGE_NAME,
         image_digest=IMAGE_DIGEST,
         expected_trusted_root_sha256=expected_pin,
+        run_id=RUN_ID,
+        run_attempt=RUN_ATTEMPT,
     )
     assert json.loads(packed)["trusted_root_sha256"] == expected_pin
     assert observed == [expected_pin]
