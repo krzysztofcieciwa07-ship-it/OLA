@@ -7,6 +7,7 @@ import os
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 def main():
@@ -17,6 +18,12 @@ def main():
     runtime = args.output.resolve()
     runtime.mkdir(parents=True, exist_ok=True)
     scenario = json.loads(args.scenario.read_text(encoding="utf-8"))
+    target_url = urlsplit(scenario["target"]["base_url"])
+    if target_url.scheme != "https" or target_url.hostname not in {"127.0.0.1", "localhost"}:
+        raise SystemExit("chaos target must be an HTTPS loopback URL")
+    target_host = target_url.hostname
+    target_port = target_url.port or 443
+    target_base_url = scenario["target"]["base_url"].rstrip("/") + "/health"
     # Docker Compose project names are deliberately lowercase.
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dt%H%M%sz") + "-" + secrets.token_hex(5)
     challenge = secrets.token_urlsafe(32)
@@ -44,6 +51,9 @@ def main():
         "load_duration_seconds": total,
         "vus": vus,
         "request_timeout": scenario["traffic"]["request_timeout"],
+        "base_url": target_base_url,
+        "target_host": target_host,
+        "target_port": target_port,
         "slo": scenario["traffic"]["slo"],
         "policy_source": "scenario_dsl_plus_runner_randomization"
     }
@@ -59,7 +69,8 @@ def main():
         "OLA_COMPOSE_PROJECT": "ola-ca-" + run_id.replace("-", "")[:20],
         "OLA_UID": str(os.getuid() if hasattr(os, "getuid") else 1000),
         "OLA_GID": str(os.getgid() if hasattr(os, "getgid") else 1000),
-        "TLS_PORT": "8443",
+        "OLA_TLS_HOST": target_host,
+        "TLS_PORT": str(target_port),
         "CONTROL_PORT": "8080"
     }
     (runtime / "scenario.env").write_text(
