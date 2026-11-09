@@ -8,7 +8,7 @@ COMPOSE_FILE="$SCENARIO/compose.yaml"
 
 rm -rf "$RUNTIME"
 mkdir -p "$RUNTIME"
-python3 "$ROOT/scripts/chaos/prepare_run.py" --output "$RUNTIME" >/dev/null
+python3 "$ROOT/scripts/chaos/prepare_run.py" --output "$RUNTIME" --scenario "$SCENARIO/scenario.json" >/dev/null
 set -a
 # shellcheck disable=SC1090
 source "$RUNTIME/scenario.env"
@@ -57,6 +57,7 @@ TOTAL_SECONDS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))
 FAULT_AFTER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["fault_after_seconds"])' "$RUNTIME/run_context.json")"
 FAULT_DURATION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["fault_duration_seconds"])' "$RUNTIME/run_context.json")"
 VUS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["vus"])' "$RUNTIME/run_context.json")"
+REQUEST_TIMEOUT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_timeout"])' "$RUNTIME/run_context.json")"
 
 python3 "$ROOT/scripts/chaos/probe_tls.py" --watch --duration "$TOTAL_SECONDS" --interval 0.5 --output "$RUNTIME/probe-samples.jsonl" >/dev/null &
 PROBE_PID=$!
@@ -69,6 +70,7 @@ SSL_CERT_FILE="$OLA_CERT_DIR/ca.crt" k6 run \
   --env "FAULT_AFTER_SECONDS=$FAULT_AFTER" \
   --env "FAULT_DURATION_SECONDS=$FAULT_DURATION" \
   --env "LOAD_DURATION_SECONDS=$TOTAL_SECONDS" \
+  --env "REQUEST_TIMEOUT=$REQUEST_TIMEOUT" \
   --vus "$VUS" --duration "${TOTAL_SECONDS}s" \
   "$SCENARIO/k6_load.js" >"$RUNTIME/k6.log" 2>&1 &
 K6_PID=$!
