@@ -16,14 +16,29 @@ set +a
 COMPOSE=(docker compose --project-name "$OLA_COMPOSE_PROJECT" --env-file "$RUNTIME/scenario.env" -f "$COMPOSE_FILE")
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 PROBE_PID=""
+K6_PID=""
 EVENTS_PID=""
 PROBE_STATUS=0
 K6_STATUS=0
 ASSERT_STATUS=0
 SCORE_STATUS=0
 
+# Service DNS names are resolvable only inside the isolated Compose network.
+# Run all probes and load generation in containers attached to that network.
+probe_in_network() {
+  "${COMPOSE[@]}" exec -T chaos-runner python /workspace/scripts/chaos/probe_tls.py "$@"
+}
+
 cleanup() {
   set +e
+  if [[ -n "$PROBE_PID" ]]; then
+    kill "$PROBE_PID" >/dev/null 2>&1
+    wait "$PROBE_PID" 2>/dev/null
+  fi
+  if [[ -n "$K6_PID" ]]; then
+    kill "$K6_PID" >/dev/null 2>&1
+    wait "$K6_PID" 2>/dev/null
+  fi
   if [[ -n "$EVENTS_PID" ]]; then kill "$EVENTS_PID" >/dev/null 2>&1; fi
   "${COMPOSE[@]}" logs --no-color >"$RUNTIME/docker-compose.log" 2>&1
   IDS="$("${COMPOSE[@]}" ps -q 2>/dev/null)"
@@ -45,15 +60,15 @@ EVENTS_PID=$!
 
 READY=0
 for _ in $(seq 1 40); do
-  if python3 "$ROOT/scripts/chaos/probe_tls.py" --expect success >/dev/null 2>&1; then
+  if probe_in_network --expect success >/dev/null 2>&1; then
     READY=1
     break
   fi
   sleep 1
 done
 if [[ "$READY" != "1" ]]; then
-  echo "TLS target did not become ready; last strict probe and sanitized container diagnostics follow" >&2
-  python3 "$ROOT/scripts/chaos/probe_tls.py" --expect any || true
+  echo "TLS target did not become ready inside the isolated Compose network; diagnostics follow" >&2
+  probe_in_network --expect any || true
   "${COMPOSE[@]}" ps -a >&2 || true
   "${COMPOSE[@]}" logs --no-color >&2 || true
   IDS="$("${COMPOSE[@]}" ps -a -q 2>/dev/null)"
@@ -72,11 +87,15 @@ VUS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["vus"])' 
 REQUEST_TIMEOUT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_timeout"])' "$RUNTIME/run_context.json")"
 BASE_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["base_url"])' "$RUNTIME/run_context.json")"
 
-python3 "$ROOT/scripts/chaos/probe_tls.py" --watch --duration "$TOTAL_SECONDS" --interval 0.5 --output "$RUNTIME/probe-samples.jsonl" >/dev/null &
+# The probe runner and k6 runner share the same private Compose network as the
+# targets. This preserves service-name DNS and avoids publishing any host port.
+"${COMPOSE[@]}" exec -T chaos-runner python /workspace/scripts/chaos/probe_tls.py \
+  --watch --duration "$TOTAL_SECONDS" --interval 0.5 \
+  --output /evidence/probe-samples.jsonl >"$RUNTIME/probe-watch.log" 2>&1 &
 PROBE_PID=$!
 
-SSL_CERT_FILE="$OLA_CERT_DIR/ca.crt" k6 run \
-  --summary-export "$RUNTIME/k6-summary.json" \
+"${COMPOSE[@]}" --profile tools run --rm --no-deps k6-runner run \
+  --summary-export /evidence/k6-summary.json \
   --env "BASE_URL=$BASE_URL" \
   --env "RUN_ID=$OLA_SCENARIO_RUN_ID" \
   --env "CHALLENGE=$OLA_SCENARIO_CHALLENGE" \
@@ -85,7 +104,7 @@ SSL_CERT_FILE="$OLA_CERT_DIR/ca.crt" k6 run \
   --env "LOAD_DURATION_SECONDS=$TOTAL_SECONDS" \
   --env "REQUEST_TIMEOUT=$REQUEST_TIMEOUT" \
   --vus "$VUS" --duration "${TOTAL_SECONDS}s" \
-  "$SCENARIO/k6_load.js" >"$RUNTIME/k6.log" 2>&1 &
+  /scenario/k6_load.js >"$RUNTIME/k6.log" 2>&1 &
 K6_PID=$!
 
 sleep "$FAULT_AFTER"
@@ -100,8 +119,10 @@ python3 "$ROOT/scripts/chaos/record_event.py" fault_removed --runtime "$RUNTIME"
 set +e
 wait "$PROBE_PID"
 PROBE_STATUS=$?
+PROBE_PID=""
 wait "$K6_PID"
 K6_STATUS=$?
+K6_PID=""
 set -e
 python3 "$ROOT/scripts/chaos/record_event.py" scenario_observation_finished --runtime "$RUNTIME" --detail "probe_status=$PROBE_STATUS k6_status=$K6_STATUS"
 
