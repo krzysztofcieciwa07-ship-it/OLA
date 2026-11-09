@@ -9,7 +9,7 @@
 | Product / role | Repository | Observed content | Current decision |
 |---|---|---|---|
 | OLA runtime | [krzysztofcieciwa07-ship-it/OLA](https://github.com/krzysztofcieciwa07-ship-it/OLA) | Python/FastAPI runtime, NINA orchestration, IGOR verification, tenant-scoped SQLite evidence, replay, Human Gate model, Stripe paths, tests and CI workflows. | **CORE — temporary canonical source** pending reconciliation with the other OLA repository. |
-| OLA divergent source | [krzys167-crypto/OLA](https://github.com/krzys167-crypto/OLA) | 260-file tree including `ola_pipeline/`, CFR scenarios, sales material, tools and additional tests. | **SOURCE TO RECONCILE**. Not a second canonical product. Current integration has read-only access. |
+| OLA divergent fork | [krzys167-crypto/OLA](https://github.com/krzys167-crypto/OLA) | 260-file tree including `ola_pipeline/`, CFR scenarios, sales material, tools and additional tests. GitHub API confirms `fork=true`, parent/source `krzysztofcieciwa07-ship-it/OLA`. | **FORK OF CORE — HISTORY TO RECONCILE**. It is not an independent canonical repo, but its divergent commits may contain unique work. Current integration has read-only access. |
 | Vantage incident range | [krzys167-crypto/Vantage-v0.3](https://github.com/krzys167-crypto/Vantage-v0.3) | Approximately 180 tracked files in the current default branch; DSL v0, Docker/k3d, Certificate Apocalypse, Clock Drift, Split-Brain DNS, Retry Storm, grader, signed scoring and debrief workflows. | **CORE CANDIDATE — OWNERSHIP/ADMIN CONTROL UNVERIFIED**. Default branch is currently named `claude/powershell-install-script-h86qlw`, not `main`. Do not present as a company-owned asset until authority is verified. |
 | Vantage prototype | [krzysztofcieciwa07-ship-it/vantage](https://github.com/krzysztofcieciwa07-ship-it/vantage) | Small Python risk-gate/LLM-routing prototype with a separate CFR-18 exercise. Its README explicitly classifies it as a prototype. | **EXPERIMENTAL**. Do not present as the same implementation as Vantage v0.3. |
 | Quantum app | [krzysztofcieciwa07-ship-it/quantum-ai-chatbot](https://github.com/krzysztofcieciwa07-ship-it/quantum-ai-chatbot) | Mobile-first React/Vite app, Supabase, chat history, server-side API routes, Google/Microsoft connector code and security policy tests. | **EXPERIMENTAL / ADJACENT PRODUCT**. Separate from OLA core; connector security review remains open. |
@@ -21,7 +21,7 @@
 
 ### OLA
 
-The two OLA repositories share merge base `a59f8c12f8120a13cfe2627dfa9946d61a9116b8`, but are substantially divergent:
+GitHub repository metadata identifies `krzys167-crypto/OLA` as a fork of `krzysztofcieciwa07-ship-it/OLA` (parent/source confirmed by API). The two histories share merge base `a59f8c12f8120a13cfe2627dfa9946d61a9116b8`, but are substantially divergent:
 
 - `krzysztofcieciwa07-ship-it/OLA` main: `fe32bf8c9710c4c04308ad17f1876fa4f80c01a2`.
 - `krzys167-crypto/OLA` main: `d2dd11c8dd964d4c846bcab4e74b2d02b77a9f4a`.
@@ -190,6 +190,8 @@ The following is the repository-level ruleset evidence visible through the curre
 ## 6. Repository metadata proposals
 
 Canonical public descriptions and topics are proposed in [REPOSITORY-METADATA.md](REPOSITORY-METADATA.md). Repository descriptions, homepage, topics, visibility, transfers and archiving have **not** been changed by this register.
+
+A full evidence-based security and hygiene review is in [PORTFOLIO-AUDIT-2026-11-09.md](PORTFOLIO-AUDIT-2026-11-09.md). It includes critical Quantum/Vantage findings and controls that remain UNKNOWN.
 
 ## 7. Canonicalisation decisions still required
 
