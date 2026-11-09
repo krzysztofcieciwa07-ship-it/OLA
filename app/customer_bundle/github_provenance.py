@@ -20,7 +20,7 @@ from typing import Callable
 from cryptography import x509
 from cryptography.x509.oid import ObjectIdentifier
 
-SCHEMA = "ola-github-oci-provenance/v1"
+SCHEMA = "ola-github-oci-provenance/v2"
 PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 MAX_BUNDLE_BYTES = 8 * 1024 * 1024
