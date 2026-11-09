@@ -1,10 +1,13 @@
 """Contract tests for the Ed25519 authenticated agent invocation boundary."""
 
+import asyncio
 import base64
 import json
 import secrets
 import time
 import uuid
+
+import httpx
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -288,3 +291,62 @@ def test_tenant_api_cannot_forge_secure_bridge_internal_evidence():
 
     assert response.status_code == 403
     assert response.json()["detail"] == "reserved internal evidence type"
+
+
+
+def test_request_body_limit_stops_stream_before_accumulating_oversized_payload():
+    reader = getattr(main, "_read_bounded_request_body", None)
+    assert callable(reader), "secure bridge must stream and bound request-body reads"
+
+    class ChunkedRequest:
+        def __init__(self):
+            self.read_after_limit = False
+
+        async def stream(self):
+            yield b"a" * main.MAX_BODY_BYTES
+            self.read_after_limit = True
+            yield b"b"
+
+    request = ChunkedRequest()
+    with pytest.raises(main.HTTPException) as error:
+        asyncio.run(reader(request))
+
+    assert error.value.status_code == 413
+    assert request.read_after_limit is False
+
+
+def test_agent_runtime_does_not_block_health_endpoint_event_loop(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+
+    def slow_agent_run(_tenant_id, _task):
+        time.sleep(0.30)
+        return {
+            "status": "VERIFIED",
+            "run_id": "run-secure-bridge-nonblocking-test",
+            "evidence_ids": ["evidence-1"],
+            "evidence_count": 1,
+        }
+
+    monkeypatch.setattr(main, "run_agent_task", slow_agent_run)
+    body, _nonce, headers = _signed_request(private_key)
+
+    async def exercise_concurrent_requests():
+        transport = httpx.ASGITransport(app=main.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            started = time.perf_counter()
+            invoke = asyncio.create_task(
+                client.post(PATH, content=body, headers=headers)
+            )
+            await asyncio.sleep(0.01)
+            health = await client.get("/health")
+            health_elapsed = time.perf_counter() - started
+            invoke_response = await invoke
+        return health, health_elapsed, invoke_response
+
+    health, elapsed, invocation = asyncio.run(exercise_concurrent_requests())
+
+    assert health.status_code == 200
+    assert elapsed < 0.15, f"health endpoint was blocked for {elapsed:.3f}s"
+    assert invocation.status_code == 200
