@@ -153,6 +153,10 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         release = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         runtime = (ROOT / "app/runtime_provenance.py").read_text(encoding="utf-8")
         self.assertIn("org.opencontainers.image.revision", dockerfile)
+        self.assertIn("ARG OLA_GITHUB_RUN_ID=0", dockerfile)
+        self.assertIn("ARG OLA_GITHUB_RUN_ATTEMPT=0", dockerfile)
+        self.assertIn('"github_run_id"', dockerfile)
+        self.assertIn('"github_run_attempt"', dockerfile)
         self.assertIn("chown -R root:root /app", dockerfile)
         self.assertIn("chmod -R a-w /app", dockerfile)
         self.assertIn("ola-build-info.json", dockerfile)
@@ -183,6 +187,21 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('source_attestation="NOT_PERFORMED"', content)
         self.assertIn('image_attestation="NOT_PERFORMED"', content)
         self.assertIn('status="PREMERGE_CI_PASSED"', content)
+
+
+    def test_oci_attestation_binds_exact_run_id_and_attempt_from_same_workflow_run(self):
+        workflow = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
+        build = workflow[workflow.index("      - name: Build exact local OCI image"):]
+        build = build[:build.index("      - name: Trivy scan exact image before publication")]
+        self.assertIn('--build-arg OLA_GITHUB_RUN_ID="$GITHUB_RUN_ID"', build)
+        self.assertIn('--build-arg OLA_GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT"', build)
+
+        packaging = workflow[workflow.index("python scripts/package_github_oci_provenance.py"):]
+        packaging = packaging[:packaging.index("      - name: Upload verified OCI provenance evidence")]
+        self.assertIn('--run-id "$GITHUB_RUN_ID"', packaging)
+        self.assertIn('--run-attempt "$GITHUB_RUN_ATTEMPT"', packaging)
+        self.assertIn('expected_run_id=run_id', (ROOT / "app/customer_bundle/github_provenance.py").read_text(encoding="utf-8"))
+        self.assertIn('expected_run_attempt=run_attempt', (ROOT / "app/customer_bundle/github_provenance.py").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
