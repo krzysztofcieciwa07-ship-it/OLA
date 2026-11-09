@@ -380,3 +380,55 @@ The document was briefly reachable from public main for approximately 5 minutes 
 **Preventive control adopted for subsequent writes:** use Git objects + exact parent SHA + fast-forward \`update_ref(expected_sha, force=false)\`; then independently re-read both target branch and main. Every mutation must verify changed paths, parent commit and final ref. A successful file API response alone is not proof that the intended branch was changed.
 
 **Status:** file removed from main by a normal revert, main tree content restored to the original baseline; commit history transparently preserves both the accidental add and its correction. This incident is a task-level execution failure and is included in the self-review; it must not be represented as a clean audit with no side effects.
+
+
+## 17. Re-audit checkpoint — 2026-11-09 09:23 UTC
+
+This checkpoint refreshes key facts against the current refs and provider state. It supersedes older point-in-time status values above where the same resource is rechecked.
+
+### Repository refs and review evidence
+
+- Current `main` is `b93f25e3df9f90baf1f25259a26df951919b9e7a`. Its tree SHA exactly matches the pre-incident baseline tree at `fe32bf8c9710c4c04308ad17f1876fa4f80c01a2`; GitHub compare reports two commits ahead, zero behind, and zero changed files. The accidental governance-document exposure and fast-forward revert remain in history; the tree is restored, but the incident is not erased.
+- PR #199 remains OPEN / DRAFT / UNMERGED at head `c42a32237500a48b27828e0218e42b2642c883d3`. Its latest observed check-run set is 30 entries: 28 success and 2 skipped (`igor-independent`, `scorecard`). It has zero submitted reviews. Skipped checks are not passes; no independent-review condition is met.
+- PR #189 remains OPEN / DRAFT at head `8e56b33df9a3e2806f3709fca90b07e4e595d28f`, 59 files, +7,148 / -557. Comparing this head with current `main` yields **122 commits ahead and 4 behind**. The PR is not a safe direct-merge candidate, notwithstanding GitHub's `mergeable_state=clean` result. Its 16 review submissions are all from one distinct human login, `krzys167-crypto`; independent accountability is unverified. Exact-head checks remain 38 success, 1 cancelled and 2 skipped.
+- PR #190 remains OPEN / DRAFT at head `fbe2a19dc6c0a2a948f0a311cd7f91b798b97e07`; 26 checks passed and 3 were skipped. Its 38 review submissions come from one human login plus a security bot; there is no verified independent human reviewer.
+
+### PR #190 — two OIDC approval/dispatch defects
+
+The OIDC route in `app/main.py` obtains an active Human Identity operator, requires tenant equality, the `execution_approver` role, CSRF validation and a fresh authentication age, then calls `approve_paid_order()` with `approver_principal_id` and `approver_person_ref`.
+
+The corresponding locked transaction in `app/order_approval.py` does **not** pass those two OIDC fields to its second `_validate_paid_order()` call. The preflight receives them, but the locked validation receives only `approver_id` and `tip_hash`. In the OIDC route, `approver_id` is intentionally absent; the second validation therefore falls into the legacy API-key branch and returns HTTP 400 (`legacy API approver identity is required`) before the approval evidence and outbox row are committed. This is a reproducible fail-closed functional defect, not an authorization bypass.
+
+A second, downstream gap remains in `app/paid_order_execution.py`: `_execution_context()` checks `approver_id` against `control.approver_id`, but does not verify `approver_principal_id` or `approver_person_ref` against the corresponding Human Gate fields on the approval record/control row. OIDC approval fields therefore are not independently re-bound by the worker before dispatch. Correcting the locked call alone is insufficient; the worker must enforce the OIDC principal/person reference and requester/approver separation as part of its evidence checks.
+
+The tests in `tests/test_paid_order_approval.py` exercise legacy API-key approvals and a deterministic end-to-end payment flow. `tests/test_human_gate_paid_order_routes.py` tests denial of API-key approval/review for OIDC_REQUIRED tenants and disables legacy JSON report retrieval, but contains no positive authenticated OIDC approval test. A new end-to-end test must prove a valid fresh OIDC operator can approve, that the same person cannot be requester/approver/reviewer, that locked revalidation preserves identity, and that the worker validates the recorded principal before execution.
+
+### PR #189 — commercial and human-gate boundary
+
+The legacy API approval path proves separation of two API-key IDs, not separation of two accountable humans. The successful test creates the approver API key without an explicit role (the model default is `tenant`) and the path accepts it; no `execution_approver` role or HR-backed person reference is required in this legacy branch. The newer OIDC_REQUIRED path is the intended higher-assurance alternative, but PR #190 has the defects above.
+
+The worker calls NINA with the fixed `safe_expression` capability. The full paid-flow test explicitly asserts `invocation_type=local_deterministic_model` and `real_llm_invoked=false`, yet the execution status is `EXECUTED_REVIEW_REQUIRED` when the NINA/IGOR/provenance/replay checks pass. The worker's `checks_ok` predicate does not require a real LLM invocation. This is consistent with a **deterministic execution audit**; it is not evidence of a real external-LLM runtime audit. Any commercial offer that promises the latter needs a separate hard gate for provider, model, real invocation type and response IDs, and must fail closed on deterministic fallback.
+
+### Railway staging — latest provider recheck
+
+- Project `OLA FastAPI Staging`, environment `staging`, contains exactly one service: `ola-fastapi-api`. No separate worker service or cron is configured in this environment; the service's cron schedule is null.
+- The live service configuration points to repo `krzysztofcieciwa07-ship-it/OLA`, branch `feat/ola-staging-bootstrap-20261108`, source SHA `393cc56dcd8c1a749cf11d4306d1e247144139cb`. The latest Railway deployment `4488f634-8212-4872-a287-d8074e8fe3e0` reports SUCCESS but its deployment metadata identifies SHA `030f7f1a4e18ba45da2cc9edbe530ffed92ee56`. GitHub compare confirms the configured source is three commits ahead of the deployed image. A successful deployment state does not reconcile this source/image mismatch.
+- The deploy config has `sleepApplication=true`; the current status response reports no pending work, but no continuous replica/availability window was proven. Runtime logs show `OLA_POSTGRES_SCHEMA=VERIFIED`, startup and subsequent `GET /readyz 200` responses. The HTTP log also records a `/readyz` 499 with repeated `connection refused` upstream attempts at 09:12:47 UTC immediately after a container start, followed by 200 responses. This is transient cold-start/readiness evidence, not a sustained SLO pass.
+- The complete service variable-name inventory includes `OLA_STAGING_BOOTSTRAP_SECRET`; values are redacted and no secret was decrypted. It is not listed as sealed, so its current non-empty/valid state is **UNKNOWN**. The inventory does **not** include `OLA_EXECUTION_WORKER_TOKEN`, `OLA_LLM_PROVIDER`, `OLA_LLM_MODE`, `OLLAMA_BASE_URL` or `OLLAMA_MODEL`.
+- Given one API service, no scheduled worker and no worker-token variable, the connected Railway environment provides no evidence of an automated paid-order outbox consumer. Approved jobs may remain `QUEUED` until a separately authenticated worker is deployed/operated. No customer execution was initiated by this audit.
+
+### PR #197 — Certificate Apocalypse further deterministic failures
+
+The certificate generator sets SAN to `DNS:localhost,DNS:tls-under-test,IP:127.0.0.1`; the scenario's target hostname is `tls-target`. Even after the host/Docker DNS topology is fixed, strict hostname verification will reject the certificate for `tls-target` unless that SAN is added. The Compose file starts three containers (`tls-target`, `control-sentinel`, `chaos-runner`), while the assertion code currently requires exactly two. These are separate deterministic blockers behind the already-observed host-side DNS failure.
+
+The public DSL field `private_assertion_policy=true` is not a hidden assertion implementation: the assertion code and contract tests are in the public PR branch. The score generator records missing evidence filenames in the manifest but does not independently fail solely because the manifest is incomplete. The workflow also lacks a failure bundle when readiness aborts before the report directory exists. Do not advertise private grading, anti-LLM protection or complete evidence capture from this implementation.
+
+### Updated disposition
+
+- #189: **NOT READY FOR MERGE** — divergent base, no verified independent review, API-key-only legacy SoD, no Railway worker, deterministic runtime not a real-LLM proof, and incomplete full paid-flow PostgreSQL coverage.
+- #190: **BLOCKED** — locked OIDC revalidation omits principal/person reference; worker does not re-bind those fields; no positive OIDC approval test.
+- #197: **FAIL / NOT RUNNABLE** — host-side DNS failure plus container-count and certificate-SAN blockers; no hidden private pack.
+- #195 / staging: **STAGING SOURCE MISMATCH / WORKER NOT EVIDENCED** — successful deployment metadata does not match current configured source; one API service, no worker token; bootstrap secret state unknown.
+- #199: **DRAFT / 28 PASS, 2 SKIPPED / ZERO REVIEWS** — documentation branch only; do not merge or describe as fully green.
+
+No application code, payment, database record, service variable, deployment, branch protection or production setting was modified in this checkpoint. Only this audit documentation is being extended on the isolated governance branch.

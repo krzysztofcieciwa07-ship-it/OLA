@@ -372,3 +372,37 @@ The file was briefly available from the public main branch between the two commi
 - A task is not closed until branch/ref state and the changed-file list have been independently re-read.
 
 **Impact status:** corrected; tree content on main is restored to the original baseline. History retains the add/revert pair. **Process status:** failure recorded; recurrence control adopted for this audit session. This correction does not replace a broader repository-write safety test.
+
+
+## 14. Re-audit checkpoint — 2026-11-09 09:23 UTC
+
+This recheck supersedes point-in-time provider and ref statuses where noted.
+
+### PR #190 — OIDC locked revalidation and worker binding
+
+The route obtains an OIDC Human Identity actor and passes `approver_principal_id` plus `approver_person_ref` to `approve_paid_order()`. In `app/order_approval.py`, preflight passes both fields to `_validate_paid_order()`, but the second call under the tenant write transaction passes only `approver_id` and `tip_hash`. Since OIDC mode intentionally has no API-key approver ID, the locked call takes the legacy branch and fails with HTTP 400 before commit. This is the exact failing branch, not speculation.
+
+Even after fixing that call, `app/paid_order_execution.py` currently validates the API-key `approver_id` but does not re-bind `approver_principal_id` and `approver_person_ref` to the persisted Human Gate/control data. The worker needs a matching OIDC evidence validation and regression test.
+
+Current tests contain API-key approval happy paths and OIDC_REQUIRED API-key denial tests. They do not demonstrate a successful OIDC approval and dispatch. Report review code has a separate OIDC path that checks active principal, active `report_reviewer` membership and person-reference separation, but a full customer-delivery path for OIDC_REQUIRED is still not implemented; legacy JSON report retrieval returns 409 until a signed bundle exists.
+
+### PR #189 — human accountability and runtime truth
+
+- Current-main compare now shows 122 commits ahead and **4 behind**. Its base SHA is historical; do not merge directly.
+- The API-key approval test succeeds with an approver key using the model's default `tenant` role. It proves different key IDs, not independently accountable people or an `execution_approver` role.
+- The full paid-order test asserts `local_deterministic_model` and `real_llm_invoked=false`, while the job reaches `EXECUTED_REVIEW_REQUIRED`. The worker does not include `real_llm_invoked` in its independent-check predicate. This is acceptable only when the paid offer is explicitly scoped to deterministic execution; it is not proof of external LLM execution.
+- The durable one-attempt worker and fail-closed stale-job reconciliation are positive controls. They do not substitute for deploying a worker consumer.
+
+### Railway staging refresh
+
+At this poll the staging project contains one API service, no worker or cron service, and no configured `OLA_EXECUTION_WORKER_TOKEN`. The configured source SHA is `393cc56dcd8c1a749cf11d4306d1e247144139cb`; the latest SUCCESS deployment metadata identifies `030f7f1a4e18ba45da2cc9edbe530ffed92ee56` (three commits behind). The latest deploy has `sleepApplication=true`; readiness logs include both a transient HTTP 499/connection-refused startup window and subsequent 200 responses. No continuous availability window was measured. `OLA_STAGING_BOOTSTRAP_SECRET` remains in the variable-name inventory; its value is redacted and current validity is UNKNOWN.
+
+### PR #197 SAN and hidden assertion blockers
+
+The generated leaf SAN omits `tls-target` (it contains localhost, tls-under-test and 127.0.0.1), so strict hostname validation remains broken after network resolution is repaired. Three Compose containers are expected but the assertion checks for two. The public `private_assertion_policy=true` flag has no private assertion pack behind it. Manifest missing-file reporting is not itself a hard failure gate.
+
+### Current PR #199 state
+
+Head `c42a32237500a48b27828e0218e42b2642c883d3`, OPEN / DRAFT / UNMERGED. Thirty check runs returned 28 success and 2 skipped (`igor-independent`, `scorecard`); there are no submitted reviews. This remains a documentation-only proposal awaiting independent review, not an accepted baseline.
+
+**Status:** selective re-audit advanced; remediation remains incomplete. No application source, production deployment, secret, database row or repository setting was changed.
