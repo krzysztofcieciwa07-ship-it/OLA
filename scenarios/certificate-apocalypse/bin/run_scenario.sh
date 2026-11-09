@@ -58,13 +58,14 @@ FAULT_AFTER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["
 FAULT_DURATION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["fault_duration_seconds"])' "$RUNTIME/run_context.json")"
 VUS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["vus"])' "$RUNTIME/run_context.json")"
 REQUEST_TIMEOUT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_timeout"])' "$RUNTIME/run_context.json")"
+BASE_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["base_url"])' "$RUNTIME/run_context.json")"
 
 python3 "$ROOT/scripts/chaos/probe_tls.py" --watch --duration "$TOTAL_SECONDS" --interval 0.5 --output "$RUNTIME/probe-samples.jsonl" >/dev/null &
 PROBE_PID=$!
 
 SSL_CERT_FILE="$OLA_CERT_DIR/ca.crt" k6 run \
   --summary-export "$RUNTIME/k6-summary.json" \
-  --env "BASE_URL=https://127.0.0.1:8443/health" \
+  --env "BASE_URL=$BASE_URL" \
   --env "RUN_ID=$OLA_SCENARIO_RUN_ID" \
   --env "CHALLENGE=$OLA_SCENARIO_CHALLENGE" \
   --env "FAULT_AFTER_SECONDS=$FAULT_AFTER" \
