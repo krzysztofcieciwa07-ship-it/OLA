@@ -114,10 +114,14 @@ def _timestamp_verifier(config: dict | None, trust_store_dir: Path):
 def _provenance_verifier(config: dict | None):
     if not isinstance(config, dict):
         return None
-    required = (
+    required_strings = (
         "repository", "repository_id", "workflow_identity", "trusted_root_sha256",
     )
-    if any(not isinstance(config.get(key), str) or not config[key] for key in required):
+    if any(not isinstance(config.get(key), str) or not config[key] for key in required_strings):
+        return None
+    run_id = config.get("run_id")
+    run_attempt = config.get("run_attempt")
+    if type(run_id) is not int or run_id < 1 or type(run_attempt) is not int or run_attempt < 1:
         return None
     source_ref = config.get("source_ref", "refs/heads/main")
     image_name = config.get("image_name")
@@ -138,6 +142,8 @@ def _provenance_verifier(config: dict | None):
         expected_source_ref=source_ref,
         expected_image_name=image_name,
         expected_trusted_root_sha256=config["trusted_root_sha256"],
+        expected_run_id=run_id,
+        expected_run_attempt=run_attempt,
         gh_binary=gh_binary,
     )
 
