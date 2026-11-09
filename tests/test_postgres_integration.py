@@ -4,7 +4,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
@@ -46,6 +46,11 @@ def postgres_db(monkeypatch):
             )
             conn.exec_driver_sql(
                 f'GRANT SELECT ON TABLE "{schema}".ola_schema_migrations TO "{runtime_role}"'
+            )
+            # The online nonce writer only inserts. No read or destructive
+            # permissions are required for the replay boundary.
+            conn.exec_driver_sql(
+                f'REVOKE SELECT, UPDATE, DELETE, TRUNCATE ON TABLE "{schema}".secure_bridge_nonces FROM "{runtime_role}"'
             )
 
         runtime_engine = create_engine(
@@ -140,3 +145,69 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
             f'REVOKE UPDATE, TRUNCATE ON TABLE "{_schema}".evidence_records FROM "{runtime_role}"'
         )
     database.verify_postgres_schema(runtime_engine)
+
+
+
+def test_postgres_nonce_reservation_works_without_runtime_delete_privilege(postgres_db, monkeypatch):
+    database, runtime_engine, _migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    from app import secure_bridge
+
+    # The runtime role has INSERT-only access to nonce state.
+    monkeypatch.setattr(secure_bridge, "SessionLocal", database.SessionLocal)
+    nonce = "a" * 64
+
+    secure_bridge.consume_nonce(
+        key_id="bridge-runtime-role-test",
+        nonce=nonce,
+        retention_seconds=180,
+    )
+    with pytest.raises(secure_bridge.SecureBridgeNonceReplay):
+        secure_bridge.consume_nonce(
+            key_id="bridge-runtime-role-test",
+            nonce=nonce,
+            retention_seconds=180,
+        )
+    database.verify_postgres_schema(runtime_engine)
+
+
+def test_postgres_runtime_rejects_delete_privilege_on_nonce_ledger(postgres_db):
+    database, runtime_engine, _migration_engine, admin_engine, runtime_role, schema = postgres_db
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'GRANT DELETE ON TABLE "{schema}".secure_bridge_nonces TO "{runtime_role}"'
+        )
+    with pytest.raises(RuntimeError, match="INSERT only on secure_bridge_nonces"):
+        database.verify_postgres_schema(runtime_engine)
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'REVOKE DELETE ON TABLE "{schema}".secure_bridge_nonces FROM "{runtime_role}"'
+        )
+    database.verify_postgres_schema(runtime_engine)
+
+
+def test_expired_nonce_pruning_uses_maintenance_engine_only(postgres_db, monkeypatch):
+    database, _runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    from app import secure_bridge
+    from app.models import SecureBridgeNonce
+
+    monkeypatch.setattr(secure_bridge, "SessionLocal", database.SessionLocal)
+    secure_bridge.consume_nonce(
+        key_id="bridge-maintenance-test",
+        nonce="b" * 64,
+        retention_seconds=60,
+        now=1000,
+    )
+    secure_bridge.consume_nonce(
+        key_id="bridge-maintenance-test",
+        nonce="c" * 64,
+        retention_seconds=60,
+        now=1950,
+    )
+
+    assert secure_bridge.prune_expired_nonces(migration_engine, now=2000) == 1
+    with migration_engine.connect() as conn:
+        remaining = conn.execute(
+            select(func.count()).select_from(SecureBridgeNonce)
+        ).scalar_one()
+    assert remaining == 1

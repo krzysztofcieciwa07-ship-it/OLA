@@ -120,3 +120,16 @@ class CheckoutReportReview(Base):
     reviewed_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
     delivery_evidence_id = Column(String(36), nullable=True)
     delivered_at = Column(Integer, nullable=True)
+
+
+class SecureBridgeNonce(Base):
+    """One-way, key-scoped nonce reservation for signed agent requests."""
+    __tablename__ = "secure_bridge_nonces"
+    id = Column(String(36), primary_key=True, default=uid)
+    key_id = Column(String(128), nullable=False, index=True)
+    nonce_hash = Column(String(64), nullable=False)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    expires_at = Column(Integer, nullable=False, index=True)
+    __table_args__ = (
+        UniqueConstraint("key_id", "nonce_hash", name="uq_secure_bridge_key_nonce"),
+    )
