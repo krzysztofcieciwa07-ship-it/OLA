@@ -165,11 +165,21 @@ def test_exact_fulcio_run_invocation_uri_is_required_after_sigstore_verification
 
 
 def test_fulcio_certificate_from_another_run_is_rejected(monkeypatch):
-    assert _verify(monkeypatch, expected_run_id=RUN_ID + 1) is False
+    raw, _ = _payload(
+        run_id=RUN_ID + 1,
+        run_attempt=RUN_ATTEMPT,
+        bundle_bytes=_bundle(RUN_ID, RUN_ATTEMPT),
+    )
+    assert _verify(monkeypatch, payload=raw, expected_run_id=RUN_ID + 1) is False
 
 
 def test_fulcio_certificate_from_another_attempt_is_rejected(monkeypatch):
-    assert _verify(monkeypatch, expected_run_attempt=RUN_ATTEMPT + 1) is False
+    raw, _ = _payload(
+        run_id=RUN_ID,
+        run_attempt=RUN_ATTEMPT + 1,
+        bundle_bytes=_bundle(RUN_ID, RUN_ATTEMPT),
+    )
+    assert _verify(monkeypatch, payload=raw, expected_run_attempt=RUN_ATTEMPT + 1) is False
 
 
 def test_payload_run_identity_cannot_disagree_with_signed_fulcio_certificate(monkeypatch):
