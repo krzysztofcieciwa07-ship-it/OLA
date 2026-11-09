@@ -20,9 +20,13 @@ The text below is intended for GitHub's repository settings after canonicalisati
 
 Set only to an official OLA product or documentation domain after the domain's ownership and source-to-deployment relationship are verified. Do not point it at an unrelated preview.
 
-### Vantage v0.3 — `krzys167-crypto/Vantage-v0.3`
+### Vantage v0.3 — observed technical source; ownership/control unverified
 
-**Description**
+Repository: `krzys167-crypto/Vantage-v0.3`.
+
+The repository contains the most developed observed Vantage v0.3 implementation, but the connected integration has read-only access and common legal ownership or administrative control has not been established. Do not apply product metadata, transfer it, or present it as an owned company asset until authority is verified.
+
+**Proposed description (not applied)**
 
 > Reproducible SRE/DevOps incident-response range for fault injection, SLO measurement, evidence-based scoring and verified recovery drills with Docker and k3d.
 
