@@ -186,3 +186,29 @@ def test_empty_tenant_chain_cannot_be_checkpointed():
             signing_key=make_key(),
             signer_key_id="test-empty-chain",
         )
+
+
+def _resign_with_test_key(checkpoint, key):
+    import base64
+    import hashlib
+    from app.hashchain import canonical_json
+
+    signed_bytes = canonical_json(checkpoint["manifest"]).encode("utf-8")
+    checkpoint["manifest_sha256"] = hashlib.sha256(signed_bytes).hexdigest()
+    checkpoint["signature"]["value_b64"] = base64.b64encode(
+        key.sign(signed_bytes)
+    ).decode("ascii")
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [("chain_start_seq", False), ("chain_end_seq", True)],
+)
+def test_signed_manifest_sequence_fields_must_be_exact_integers(field, invalid_value):
+    records = make_chain(2)
+    key = make_key()
+    checkpoint = checkpoint_for(records, key)
+    checkpoint["manifest"][field] = invalid_value
+    _resign_with_test_key(checkpoint, key)
+
+    assert verify_checkpoint_signature(checkpoint)["signature_valid"] is False
