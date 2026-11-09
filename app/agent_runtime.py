@@ -380,26 +380,49 @@ def run_agent_task(tenant_id, task):
     run_id = str(uuid.uuid4())
     evidence_ids = []
     execution = []
-    previous_output = {"task": task}
-    for agent in AGENT_ROLES:
-        evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
-        evidence_ids.append(evidence_id)
-        execution.append(output)
-        previous_output = output
-    verification = verify_agent_run(tenant_id, run_id)
+    previous_output = {"task_digest": _digest(task)}
+    append_evidence_atomic(tenant_id, "execution.run.start", {
+        "run_id": run_id, "task_digest": _digest(task), "source_commit": source_commit,
+    })
+    try:
+        for agent in AGENT_ROLES:
+            evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
+            evidence_ids.append(evidence_id)
+            execution.append(output)
+            previous_output = output
+        verification = verify_agent_run(tenant_id, run_id)
+        final_status = verification["status"]
+        final_reason = verification.get("reason")
+    except Exception as exc:
+        # Record only the exception class; messages can contain prompts, secrets or PII.
+        append_evidence_atomic(tenant_id, "execution.run.error", {
+            "run_id": run_id, "error_type": type(exc).__name__,
+            "completed_agent_count": len(evidence_ids),
+        })
+        final_status = "FAILED"
+        final_reason = f"agent execution failed: {type(exc).__name__}"
+        append_evidence_atomic(tenant_id, "execution.run.end", {
+            "run_id": run_id, "status": final_status,
+            "completed_agent_count": len(evidence_ids),
+        })
+        return {
+            "run_id": run_id, "task": None, "final_result": None,
+            "status": final_status, "reason": final_reason,
+            "agents": AGENT_ROLES, "evidence_count": len(evidence_ids),
+            "evidence_ids": evidence_ids, "execution": execution,
+        }
+
     final_result = execution[-1].get("final_result") if execution else None
-    result = {
-        "run_id": run_id,
-        "task": task,
-        "final_result": final_result,
-        "status": verification["status"],
-        "reason": verification.get("reason"),
-        "agents": AGENT_ROLES,
-        "evidence_count": len(evidence_ids),
-        "evidence_ids": evidence_ids,
-        "execution": execution,
+    append_evidence_atomic(tenant_id, "execution.run.end", {
+        "run_id": run_id, "status": final_status,
+        "completed_agent_count": len(evidence_ids),
+    })
+    return {
+        "run_id": run_id, "task": task, "final_result": final_result,
+        "status": final_status, "reason": final_reason,
+        "agents": AGENT_ROLES, "evidence_count": len(evidence_ids),
+        "evidence_ids": evidence_ids, "execution": execution,
     }
-    return result
 
 
 def run_multi_agent_task(tenant_id, task, agents):
