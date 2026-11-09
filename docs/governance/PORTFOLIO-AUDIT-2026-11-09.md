@@ -357,3 +357,26 @@ There is no public API consumer in this PR, so no current route bypass was confi
 The Railway staging variable-name inventory contains \`OLA_STAGING_BOOTSTRAP_SECRET\`, but OAuth integration withholds its value and it is not listed as sealed. Current non-empty/valid status is therefore **UNKNOWN**. Historical logs prove the bootstrap endpoint returned HTTP 201 once and HTTP 409 on subsequent calls. The route's database existence guard prevents a second issuance while the bootstrap tenant exists; the HTTP 409 does not prove the secret was rotated or deleted.
 
 The Vercel Preview bootstrap metadata previously observed as disabled applies to the Vercel deployment surface, not necessarily the Railway service variable. The route's own code does not remove the environment variable. Owner-controlled post-bootstrap rotation/removal in Railway remains an outstanding hygiene action; no secret value was read or modified.
+
+
+## 16. Forensic incident record — unintended main update and revert
+
+A governance-document update intended for \`governance/cyfun-2025-portfolio-hardening-20261109\` created commit \`3034b57ae579bb99a7a6d25f30ac2e2005348da6\` at 08:14:00 UTC with parent equal to the then-main SHA \`fe32bf8c9710c4c04308ad17f1876fa4f80c01a2\`. The GitHub file-update wrapper did not preserve the requested target branch. This advanced public \`main\` and added exactly one file: \`docs/governance/OPEN-PR-DEEP-REVIEW-2026-11-09.md\`. No application source, secret, customer record, deployment, environment variable or runtime configuration was changed by that commit.
+
+The ref drift was detected by comparing PR #199 against \`main\` and then independently reading \`branches/main\` and commit 3034. A corrective fast-forward revert was created at 08:19:50 UTC: \`b93f25e3df9f90baf1f25259a26df951919b9e7a\`, parent \`3034b57...\`. It removes only the accidentally added document. The ref update used \`expected_sha=3034b57...\` and \`force=false\`; no history rewrite occurred.
+
+Post-correction evidence:
+- Current main ref: \`b93f25e...\`.
+- Revert tree SHA: \`2cbfd61545ddcbb4d224ee5c96d12135dabfb215\`.
+- Original baseline \`fe32bf8...\` has the same tree SHA.
+- GitHub compare baseline → revert: 2 commits ahead, 0 behind, no file changes.
+- The document returns NOT_FOUND on main and is verified on the governance branch.
+- PR #199 is back to \`mergeable=true / clean\` at the last poll; it remains Draft/open/unmerged.
+
+The document was briefly reachable from public main for approximately 5 minutes 50 seconds. It contained audit findings already visible in the public governance branch and no secret values or customer records. The incident is retained in the event chronology; no claim of zero exposure is made.
+
+**Root cause:** reliance on the file-update wrapper's requested branch field without asserting the actual commit parent/ref after the write.
+
+**Preventive control adopted for subsequent writes:** use Git objects + exact parent SHA + fast-forward \`update_ref(expected_sha, force=false)\`; then independently re-read both target branch and main. Every mutation must verify changed paths, parent commit and final ref. A successful file API response alone is not proof that the intended branch was changed.
+
+**Status:** file removed from main by a normal revert, main tree content restored to the original baseline; commit history transparently preserves both the accidental add and its correction. This incident is a task-level execution failure and is included in the self-review; it must not be represented as a clean audit with no side effects.

@@ -345,3 +345,30 @@ The HTTP 409 on replay is consistent with the database one-time guard. It does *
 The separate Vercel Preview bootstrap trigger/metadata previously observed as disabled is a different configuration surface. Do not infer that this also removed the Railway variable.
 
 **Disposition:** Historical one-time issuance is observed; current token state is UNKNOWN. Confirm removal/rotation of \`OLA_STAGING_BOOTSTRAP_SECRET\` in Railway through the owner-controlled deployment settings, without displaying its value. Retain only the BFF service key as a sensitive Preview secret. No variable value was read or changed by this audit.
+
+
+## 13. Audit execution incident — accidental main ref update and clean revert
+
+At 2026-11-09 08:14:00 UTC, one GitHub file-update operation intended for the governance branch created commit \`3034b57ae579bb99a7a6d25f30ac2e2005348da6\` with parent \`fe32bf8c9710c4c04308ad17f1876fa4f80c01a2\`. The connected update wrapper did not preserve the requested branch parameter for that write. The commit added only \`docs/governance/OPEN-PR-DEEP-REVIEW-2026-11-09.md\` and advanced the public \`main\` ref. This was an unintended repository mutation and a process/tooling failure.
+
+Detection: a compare of PR #199's head against \`main\` resolved \`main\` to \`3034b57...\`, and a direct branch lookup confirmed the ref had moved. The commit's file list showed exactly one added governance document; no application code, configuration, secret, deployment or runtime was modified.
+
+Correction: at 2026-11-09 08:19:50 UTC, commit \`b93f25e3df9f90baf1f25259a26df951919b9e7a\` was created as a normal child of \`3034b57...\`, deleting only the accidentally added file. The \`main\` ref was advanced using a fast-forward update with expected head \`3034b57...\`; no force-push or history rewrite was used.
+
+Post-correction verification:
+- \`main\` now points to \`b93f25e...\`.
+- The revert commit's tree SHA is exactly \`2cbfd61545ddcbb4d224ee5c96d12135dabfb215\`, the same tree SHA as original baseline \`fe32bf8...\`.
+- GitHub compare \`fe32bf8... \u0000 b93f25e...\` reports 2 commits ahead, 0 behind and **no file differences**.
+- The deep-review document returns NOT_FOUND from \`main\` and is present on the governance branch at blob \`e3bcddb68ea829f215962923a0e40e6f1eca1ed3\`.
+- PR #199 is again reported \`mergeable=true / mergeable_state=clean\` at the last poll, and remains Draft/open/unmerged.
+
+The file was briefly available from the public main branch between the two commits. It contained repository findings but no secret values or customer records. This transient public exposure is recorded rather than suppressed.
+
+### Root cause and recurrence prevention
+
+- The file-content wrapper's \`branch\` parameter was not trusted as sufficient evidence that the target ref was correct.
+- Future governance writes must use a two-phase method: create blob/tree/commit with the exact currently observed branch-head SHA as parent, then move the ref using \`expected_sha\` and \`force=false\`.
+- After every write, fetch the intended branch head and the default branch separately; assert the commit parent and confirm no unintended change to main before reporting success.
+- A task is not closed until branch/ref state and the changed-file list have been independently re-read.
+
+**Impact status:** corrected; tree content on main is restored to the original baseline. History retains the add/revert pair. **Process status:** failure recorded; recurrence control adopted for this audit session. This correction does not replace a broader repository-write safety test.
