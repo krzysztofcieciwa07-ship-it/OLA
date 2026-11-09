@@ -70,6 +70,8 @@ Signature failures do not mutate agent state. A supplied key ID is not proof of 
 
 The evidence chain receives an authenticated-request record before execution and a result record afterward. If execution may have occurred but the result evidence write fails, the endpoint returns `EXECUTION_RESULT_UNRECORDED` and instructs the caller to reconcile rather than retry blindly.
 
+All `secure_bridge.*` record types are reserved as privileged evidence. A tenant using the public `POST /evidence` endpoint cannot forge bridge authentication, execution or failure records.
+
 Replay protection applies to the exact nonce. This v1 endpoint does not promise exactly-once semantics if a client deliberately submits the same task again with a *new* nonce. Clients must use a stable higher-level job ID and reconcile uncertain outcomes before resubmitting. A durable business idempotency ledger is a separate follow-up.
 
 ## PostgreSQL deployment
@@ -84,3 +86,79 @@ The migration role must run `python scripts/migrate_postgres.py` after this sche
 - The endpoint does not authorize HIGH-risk actions or replace Human Gate approval.
 - This change does not add endpoint-specific rate limiting; enforce a conservative limit at the API gateway/edge before enabling public traffic.
 - No production rollout is implied by this code or its tests.
+
+## Node.js agent client example
+
+The client signs the exact bytes it sends. Keep the PKCS#8 PEM private key in a secret manager or process environment; never put it in a browser bundle or send it to OLA.
+
+```ts
+import {
+  createHash,
+  createPrivateKey,
+  randomBytes,
+  sign as ed25519Sign,
+} from "node:crypto";
+
+const endpoint = process.env.OLA_SECURE_BRIDGE_URL!;
+const keyId = process.env.OLA_AGENT_KEY_ID!;
+const audience = process.env.OLA_SECURE_BRIDGE_AUDIENCE!;
+const privateKeyPem = process.env.OLA_AGENT_PRIVATE_KEY_PEM!;
+
+export async function invokeOlaAgent(task: string) {
+  if (!endpoint || !keyId || !audience || !privateKeyPem) {
+    throw new Error("secure bridge client configuration is incomplete");
+  }
+  if (!task.trim() || task.length > 4000) {
+    throw new Error("task must contain 1–4000 characters");
+  }
+
+  const method = "POST";
+  const path = "/api/v1/secure-bridge/invoke";
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = randomBytes(32).toString("hex");
+  const body = Buffer.from(JSON.stringify({
+    action: "agent.run",
+    payload: { task },
+  }), "utf8");
+  const bodyDigest = createHash("sha256").update(body).digest("hex");
+  const signingMessage = [
+    "OLA-SECURE-BRIDGE-V1",
+    keyId,
+    timestamp,
+    nonce,
+    method,
+    path,
+    audience,
+    bodyDigest,
+  ].join("\n");
+
+  const signature = ed25519Sign(
+    null,
+    Buffer.from(signingMessage, "utf8"),
+    createPrivateKey(privateKeyPem),
+  ).toString("hex");
+
+  const response = await fetch(endpoint.replace(/\\/$/, "") + path, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      "x-key-id": keyId,
+      "x-timestamp": timestamp,
+      "x-nonce": nonce,
+      "x-signature-ed25519": signature,
+    },
+    body,
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  const result = await response.json();
+  if (!response.ok) {
+    const error = new Error(`OLA secure bridge returned HTTP ${response.status}`);
+    Object.assign(error, { status: response.status, result });
+    throw error;
+  }
+  return result;
+}
+```
+
+Do not automatically retry a timed-out request with a new nonce. First reconcile the `request_id` or run evidence with OLA; v1 replay protection rejects a repeated nonce but is not exactly-once business idempotency.
