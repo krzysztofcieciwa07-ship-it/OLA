@@ -47,9 +47,7 @@ def _development_origin_is_loopback(environment: dict[str, str]) -> bool:
     try:
         parsed = urlsplit(raw)
         hostname = parsed.hostname
-        # A development signer is never activated behind public HTTPS or a
-        # non-loopback origin, even if OLA_DEPLOYMENT_PROFILE says development.
-        return (
+        local_loopback = (
             parsed.scheme == "http"
             and bool(parsed.netloc)
             and hostname in _LOOPBACK_HOSTS
@@ -58,6 +56,23 @@ def _development_origin_is_loopback(environment: dict[str, str]) -> bool:
             and not parsed.query
             and not parsed.fragment
         )
+        replit_domain = environment.get("REPLIT_DEV_DOMAIN", "").strip().lower().rstrip(".")
+        trusted_replit_workspace = (
+            parsed.scheme == "https"
+            and bool(parsed.netloc)
+            and hostname is not None
+            and hostname.lower().rstrip(".") == replit_domain
+            and hostname.lower().endswith(".replit.dev")
+            and hostname.lower() != "replit.dev"
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path in ("", "/")
+            and not parsed.query
+            and not parsed.fragment
+            and not environment.get("REPLIT_DEPLOYMENT", "").strip()
+        )
+        return bool(local_loopback or trusted_replit_workspace)
     except ValueError:
         return False
 
