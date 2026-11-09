@@ -55,7 +55,7 @@ def test_registered_low_risk_agent_is_allowed_and_decision_is_chained(monkeypatc
     assert all(item["invocation_type"] == "local_deterministic_model"
                for item in response.json()["execution"])
     rows = _evidence(tenant_id)
-    assert len(rows) == 7  # gate decision followed by six existing agent records
+    assert len(rows) == 9  # gate decision, run lifecycle, and six agent records
     assert rows[0][0] == "execution.safety_gate"
     assert rows[0][1]["decision"] == "ALLOW"
     assert rows[0][1]["agent_id"] == "agent-001"
