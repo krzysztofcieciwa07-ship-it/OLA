@@ -43,6 +43,7 @@ The inspected application source defines these HTTP routes:
 | POST | `/evidence` | Appends tenant-submitted evidence, while rejecting reserved internal evidence types. |
 | POST | `/audit` | Runs the currently supported controlled fault-and-recovery audit scenario. |
 | POST | `/agent-run` | Requests an agent execution through the execution safety controls. |
+| POST | `/api/v1/secure-bridge/invoke` | Ed25519-authenticated, nonce-protected agent invocation; v1 allows only `agent.run`. |
 
 Check `app/main.py` for the complete route contract and current request/response details.
 
@@ -146,3 +147,8 @@ Until all required evidence is present, describe production readiness as `UNKNOW
 ## Security
 
 Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities or preparing a release. Never commit API keys, Stripe secrets, signing keys, customer data, or production evidence containing sensitive information.
+
+
+## Secure Agent Bridge
+
+See [docs/SECURE_AGENT_BRIDGE_V1.md](docs/SECURE_AGENT_BRIDGE_V1.md) for the Ed25519 request format, trusted-key configuration, replay protection, revocation and migration requirements.

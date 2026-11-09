@@ -147,6 +147,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "id", "tenant_id", "seq", "record_type", "payload_json",
             "prev_hash", "record_hash",
         },
+        "secure_bridge_nonces": {
+            "id", "key_id", "nonce_hash", "created_at", "expires_at",
+        },
         "stripe_events": {"id", "event_id", "status", "run_id", "task", "result_json"},
         "checkout_orders": {
             "id", "tenant_id", "idempotency_key_hash", "request_hash", "task", "status",
@@ -185,6 +188,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     expected_unique_constraints = {
         "api_keys": {("key_hash",)},
         "evidence_records": {("tenant_id", "seq")},
+        "secure_bridge_nonces": {("key_id", "nonce_hash")},
         "stripe_events": {("event_id",)},
         "checkout_orders": {
             ("tenant_id", "idempotency_key_hash"),
@@ -212,6 +216,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_paid_order_report_review_v3"}).first()
+        bridge_migration = conn.execute(text(
+            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
+        ), {"version": "ola_secure_bridge_nonce_v1"}).first()
         trigger_rows = conn.execute(text("""
             SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -233,6 +240,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             evidence_privileges = (False, False)
     if applied is None:
         raise RuntimeError("PostgreSQL schema migration version is missing")
+    if bridge_migration is None:
+        raise RuntimeError("PostgreSQL secure bridge nonce migration is missing")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
@@ -292,8 +301,9 @@ def migrate_postgres_schema(target_engine):
     """Apply the additive ORM baseline and append-only triggers with a migration role."""
     if target_engine.dialect.name != "postgresql":
         raise RuntimeError("PostgreSQL migration URL is required")
-    # Register all ORM tables before create_all.
+    # Register all ORM tables before create_all, including secure-bridge nonces.
     from . import models  # noqa: F401
+    from . import secure_bridge  # noqa: F401
 
     with target_engine.begin() as conn:
         conn.execute(text("""
@@ -338,6 +348,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_paid_order_report_review_v3",
             "description": "Add order-bound independent report review and authenticated customer delivery records",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_secure_bridge_nonce_v1",
+            "description": "Persist key-scoped Ed25519 request nonces to reject replay atomically",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
