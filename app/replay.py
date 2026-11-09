@@ -50,6 +50,10 @@ def verify_replay(records, expected_run_id, expected_tenant_id,
         required = {"tenant_id", "seq", "prev_hash", "record_hash", "record_type", "payload_json"}
         if not required.issubset(record):
             return {"status": "BLOCK", "reason": "evidence record is incomplete", "event_count": len(records)}
+        if type(record.get("seq")) is not int or record["seq"] < 0:
+            return {"status": "BLOCK", "reason": "invalid sequence", "event_count": len(records)}
+        if not isinstance(record.get("prev_hash"), str) or not isinstance(record.get("record_hash"), str):
+            return {"status": "BLOCK", "reason": "invalid hash field", "event_count": len(records)}
         if record.get("tenant_id") != expected_tenant_id:
             return {"status": "BLOCK", "reason": "tenant provenance mismatch", "event_count": len(records)}
         if not isinstance(record.get("record_type"), str) or not record["record_type"]:
