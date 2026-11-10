@@ -140,11 +140,11 @@ def test_runtime_binds_structured_provider_provenance_to_worker_request():
     assert hasattr(agent_runtime, "run_isolated_agent_instance")
 
     output = AgentModelOutput(
-        status="complete",
+        status="needs_tool",
         summary="The task is ready for bounded execution.",
         reasoning="The provider returned a strict structured proposal.",
-        tool_name=None,
-        tool_arguments_json="",
+        tool_name="tool.safe_expression",
+        tool_arguments_json='{"expression":"17 * 23"}',
         evidence_refs=[],
     )
     provider_result = ProviderResult(
