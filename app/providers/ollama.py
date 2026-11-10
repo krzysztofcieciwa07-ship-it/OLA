@@ -61,7 +61,7 @@ class OllamaAdapter:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         self.timeout_seconds = timeout_seconds
-        self.client = client or httpx.Client(timeout=timeout_seconds)
+        self.client = client or httpx.Client(timeout=timeout_seconds, trust_env=False)
 
     def generate(self, *, prompt: str, schema: dict, schema_name: str = "ola_agent_output_v1") -> dict:
         if not isinstance(prompt, str) or not prompt or len(prompt.encode("utf-8")) > 32768:
@@ -127,7 +127,7 @@ class OllamaAdapter:
             }
         except ProviderError:
             raise
-        except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+        except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError) as exc:
             raise ProviderError("ollama_request_failed", "Ollama request failed closed") from exc
 
     def close(self) -> None:
