@@ -106,13 +106,16 @@ class OpenAIAdapter:
             except json.JSONDecodeError:
                 raise ProviderError("invalid_model_json", "OpenAI response was not valid JSON") from None
             raw_digest = hashlib.sha256(response.content).hexdigest()
+            provider_response_id = body.get("id")
+            if not isinstance(provider_response_id, str) or not provider_response_id:
+                raise ProviderError("provider_response_id_missing", "OpenAI response ID is required for provenance")
             return {
                 "data": output,
                 "model": self.model,
                 "model_digest": None,
-                "request_id": str(body.get("id") or f"openai:{raw_digest}"),
+                "request_id": provider_response_id,
                 "request_id_source": "provider",
-                "provider_response_id": body.get("id") if isinstance(body.get("id"), str) else None,
+                "provider_response_id": provider_response_id,
                 "raw_response_digest": raw_digest,
                 "latency_ms": max(0, int((time.monotonic() - started) * 1000)),
             }
