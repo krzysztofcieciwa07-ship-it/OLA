@@ -1,3 +1,4 @@
+import json
 import uuid
 
 
@@ -357,8 +358,9 @@ def test_isolated_agent_task_writes_full_lifecycle_without_plaintext(monkeypatch
     assert payloads[0]["task_digest"] == __import__("hashlib").sha256(
         b"calculate 17 * 23"
     ).hexdigest()
-    assert "task" not in json.dumps(payloads)
-    assert "prompt" not in json.dumps(payloads).lower()
+    serialized_payloads = json.dumps(payloads)
+    assert "calculate 17 * 23" not in serialized_payloads
+    assert "17 * 23" not in serialized_payloads
     assert payloads[1]["fallback_used"] is False
     assert payloads[1]["model_output_role"] == "advisory_only"
     assert payloads[1]["model_output_digest"] == payloads[3]["model_output_digest"]
