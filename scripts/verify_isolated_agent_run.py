@@ -185,6 +185,8 @@ def verify_isolated_run(
     model = provider.get("model")
     if provider_name not in ("ollama", "openai") or not isinstance(model, str) or not model:
         return fail("provider_identity_missing")
+    if start.get("provider") != provider_name:
+        return fail("run_start_provider_mismatch")
     if expected_provider is not None and provider_name != expected_provider:
         return fail("unexpected_provider")
     if expected_model is not None and model != expected_model:
