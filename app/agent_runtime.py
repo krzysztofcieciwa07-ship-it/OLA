@@ -1191,6 +1191,67 @@ def run_isolated_agent_task(
         "model_output_digest": worker_result.model_output_digest if worker_result else model_output_digest,
         "output_digest": worker_result.output_digest if worker_result else None,
     }
+    if execution.container_id:
+        try:
+            append_event("agent.start", {
+                "agent_id": instance.agent_id,
+                "agent_instance_id": instance_id,
+                "specialist_role": instance.specialist_role,
+                "execution_profile": instance.execution_profile,
+                "container_id": execution.container_id,
+                "image_digest": execution.image_digest or executor.image_digest,
+                "worker_pubkey": worker_result.worker_public_key if worker_result else None,
+                "worker_nonce": worker_result.worker_nonce if worker_result else None,
+                "supervisor_started_at": execution.supervisor_started_at,
+                "docker_observer_status": "NOT_CONFIGURED",
+            })
+        except Exception:
+            return finish("FINALIZATION_PENDING", reason="evidence_agent_start_append_failed",
+                          execution=execution, worker_count=1,
+                          container_id=execution.container_id,
+                          model_output_digest=model_output_digest)
+
+    try:
+        append_event("capability.end", {
+            "agent_id": instance.agent_id,
+            "agent_instance_id": instance_id,
+            "capability": capability,
+            "args_digest": capability_input_digest,
+            "derived_from": model_output_digest,
+            "output_digest": worker_payload["output_digest"],
+            "worker_nonce": worker_payload["worker_nonce"],
+            "status": execution.status,
+        })
+    except Exception:
+        return finish("FINALIZATION_PENDING", reason="evidence_capability_end_append_failed",
+                      execution=execution, worker_count=1 if execution.container_id else 0,
+                      container_id=execution.container_id,
+                      output_digest=worker_payload["output_digest"],
+                      model_output_digest=model_output_digest)
+
+    if execution.container_id:
+        try:
+            append_event("agent.end", {
+                "agent_id": instance.agent_id,
+                "agent_instance_id": instance_id,
+                "container_id": execution.container_id,
+                "image_digest": execution.image_digest or executor.image_digest,
+                "worker_pubkey": worker_result.worker_public_key if worker_result else None,
+                "worker_sig": worker_result.worker_signature if worker_result else None,
+                "worker_nonce": worker_result.worker_nonce if worker_result else None,
+                "exit_code": execution.exit_code,
+                "output_digest": worker_payload["output_digest"],
+                "supervisor_finished_at": execution.supervisor_finished_at,
+                "docker_observer_status": "NOT_CONFIGURED",
+                "status": execution.status,
+            })
+        except Exception:
+            return finish("FINALIZATION_PENDING", reason="evidence_agent_end_append_failed",
+                          execution=execution, worker_count=1,
+                          container_id=execution.container_id,
+                          output_digest=worker_payload["output_digest"],
+                          model_output_digest=model_output_digest)
+
     try:
         append_event("agent.worker.end", worker_payload)
     except Exception:
