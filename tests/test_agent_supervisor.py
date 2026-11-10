@@ -27,11 +27,11 @@ def _request_and_agent():
         "react",
         capabilities=("tool.safe_expression",),
     )
-    request = AgentWorkerRequest.model_validate({
+    request = AgentWorkerRequest.model_validate_json(json.dumps({
         "schema_version": 1,
-        "run_id": "run-supervisor-001",
+        "run_id": "00000000-0000-4000-8000-000000000011",
         "agent_id": agent.agent_id,
-        "agent_instance_id": "instance-supervisor-001",
+        "agent_instance_id": "00000000-0000-4000-8000-000000000012",
         "specialist_role": agent.specialist_role,
         "execution_profile": agent.execution_profile,
         "capability": "tool.safe_expression",
@@ -40,7 +40,7 @@ def _request_and_agent():
         "capability_input": {"expression": "17 * 23"},
         "model_output": {"proposal": "Evaluate the arithmetic expression."},
         "source_commit": "a" * 40,
-    })
+    }))
     return agent, request
 
 
@@ -49,17 +49,25 @@ def _docker_inspect():
         "Id": CONTAINER_ID,
         "Image": IMAGE_DIGEST,
         "State": {"Status": "exited", "ExitCode": 0},
-        "Config": {"User": "65532:65532"},
+        "Config": {"User": "65532:65532", "Entrypoint": ["python", "-m", "app.agent_worker"], "Cmd": None, "Volumes": {}, "Env": []},
         "HostConfig": {
             "NetworkMode": "none",
             "ReadonlyRootfs": True,
-            "PidsLimit": 32,
+            "PidsLimit": 16,
             "Memory": 512 * 1024 * 1024,
+            "MemorySwap": 512 * 1024 * 1024,
+            "Tmpfs": {"/tmp": "rw,noexec,nosuid,nodev,size=16m"},
             "NanoCpus": 1_000_000_000,
             "CapDrop": ["ALL"],
+            "CapAdd": [],
             "SecurityOpt": ["no-new-privileges:true"],
             "Binds": [],
             "Mounts": [],
+            "Devices": [],
+            "DeviceRequests": [],
+            "PortBindings": {},
+            "PidMode": "",
+            "IpcMode": "private",
             "Privileged": False,
         },
         "Mounts": [],
