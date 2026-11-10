@@ -3,7 +3,7 @@
 **Date:** 2026-11-10  
 **Base revision:** `0049098994836ad7998b1226f79190f0cc2e1056`  
 **Target:** Local OLA di-OS runtime on the ZBook  
-**Status:** Design submitted for user review; implementation has not started.
+**Status:** User-approved design; specialist-agent catalogue clarified on 2026-11-10. Implementation has not started.
 
 ## 1. Goal and claim boundary
 
@@ -131,3 +131,48 @@ A single successful smoke run does not establish a 60-minute stability window, 3
 ## 10. Explicit exclusions
 
 This milestone does not implement 391 concurrent agents, a public multi-tenant service, automatic production remediation, a new billing flow, or a claim that the ZBook has been configured. Those require separate designs and evidence. No Railway deployment or production secret change is part of this work.
+
+
+## 11. Full OLA specialist-agent catalogue
+
+The six worker roles in Sections 2–3 are **execution patterns**, not the complete list of OLA specialist agents. OLA must support specialist agents as registered configurations that use the common execution fabric, evidence lifecycle, NINA policy, and IGOR verification.
+
+The initial specialist catalogue preserves the previously defined OLA roles:
+
+| Specialist | Responsibility | Initial execution profiles | Security boundary |
+|---|---|---|---|
+| **Hermes** | General operator; carries out approved user tasks and coordinates tool use. | `react`, `mcp_tool_use` | No authority outside the requester's granted capabilities; external side effects require Human Gate. |
+| **Builder** | Builds and modifies code and application components. | `codeact`, `mcp_tool_use` | Repository/workspace-scoped changes; no production deployment or secret mutation without approval. |
+| **Scout** | Finds information, sources, and relevant internal/external evidence. | `agentic_rag`, `mcp_tool_use` | Read-only retrieval; external access only through explicit domain allowlists. |
+| **Guardian** | Reviews security, policy, compliance, and unsafe execution paths. | `self_reflection`, `agentic_rag` | Read-only reviewer; cannot approve its own changes or replace IGOR. |
+| **Archivist** | Maintains project chronicle, memory, and structured knowledge. | `agentic_rag`, `mcp_tool_use` | Writes only through the designated memory/chronicle API; cannot edit or delete evidence-ledger history. |
+| **Researcher** | Performs structured research, synthesis, and source-backed analysis. | `agentic_rag`, `react`, `mcp_tool_use` | Source provenance required; unsupported claims remain UNKNOWN. |
+| **Tester** | Designs and runs bounded tests and validation scenarios. | `codeact`, `mcp_tool_use` | Test commands and fixtures are allowlisted; no production data mutation. |
+| **DevOps** | Diagnoses runtime, deployment, infrastructure, and reliability issues. | `react`, `mcp_tool_use` | Read-only by default; production changes require Human Gate and a separately scoped credential. |
+| **Sales** | Researches prospects, prepares account intelligence, and drafts sales materials. | `agentic_rag`, `react`, `mcp_tool_use` | May prepare drafts; sending messages, changing CRM state, or making commercial commitments requires approval. |
+| **Finance** | Analyzes revenue, costs, billing evidence, and financial reporting. | `agentic_rag`, `react`, `mcp_tool_use` | Read-only financial analysis by default; no money movement, refunds, payment changes, or financial commitments. |
+
+Two additional platform roles are part of the original OLA design but are **control-plane services**, not ordinary task workers:
+
+- **Orchestrator / NINA:** decomposes work, schedules specialist agents, validates dependencies, enforces tenant and capability policy, and collects outcomes. It cannot self-certify completion or bypass IGOR/Human Gate.
+- **Broker:** chooses among explicitly configured model providers according to policy (privacy, capability, latency, cost, and quality constraints). It cannot add providers, expand network allowlists, or override the run's required provider. For the ZBook acceptance run, Ollama remains mandatory.
+
+The registry must represent the specialist identity separately from the execution pattern. A versioned `AgentSpec` should bind at least `agent_id`, `specialist_role`, `execution_profile`, `capability_allowlist`, `memory_namespace`, `provider_policy`, `resource_limits`, `approval_policy`, and `status`. A role is not available merely because a row exists: its required capabilities, policy tests, and evidence/verifier contract must pass before its status can become `AVAILABLE`.
+
+## 12. Agent instances, 391 target, and rollout
+
+The 391 target means **391 uniquely identified, scheduled agent instances/executions with verifiable work and cooperation evidence**. It does not mean 391 different specialist types or 391 model processes permanently resident on the ZBook.
+
+The existing `app/agent_registry.py` currently creates IDs such as `agent-001` and assigns the same generated string as the `role`. The existing `tests/test_391_agent_runtime.py` checks uniqueness of those generated role strings, while `run_multi_agent_task` reports `execution_mode=digest_only_simulation` and `cooperation_verified=false`. This is registry scaffolding and a labelled simulation, not proof of 391 real cooperating agents. The registry must be corrected so that IDs are unique while specialist roles come from the finite catalogue and may repeat.
+
+The rollout is staged:
+
+1. **Foundation:** prove six isolated execution profiles, real local Ollama calls, supervisor-owned evidence, and independent IGOR verification.
+2. **Specialists:** register the ten task-specialist roles above with explicit permissions, memory namespaces, provider policies, and tests. Enable each role only after its capabilities and evidence path pass.
+3. **Control plane:** connect Orchestrator/NINA and Broker to the specialist registry, bounded scheduler, policy gate, and human approval path.
+4. **Teams:** prove real handoffs, dependency edges, partial failure handling, retries, and recovery across specialist roles.
+5. **391-instance proof:** schedule 391 unique instance identities over the finite specialist catalogue, using bounded concurrency and queueing appropriate to measured ZBook resources. Each counted instance must have a real execution identity and its own evidence; a digest-only row, role label, UUID, or synthetic edge is insufficient.
+
+A 391-instance acceptance run must prove 391 unique agent IDs, 391 distinct execution/process identities, actual task execution, real provider provenance where LLM reasoning is claimed, capability outcomes, communication/dependency edges, complete lifecycle evidence, a valid hash chain, and independent IGOR verification. IGOR must reject duplicate IDs, duplicate process identities, missing runs, fabricated edges, incomplete lifecycle, tampering, and results without the required capability evidence.
+
+The initial six-worker milestone does not mark all ten specialists AVAILABLE and does not claim the 391 target is complete. It creates the execution substrate on which the specialist catalogue and 391-instance rollout can be built without duplicating runtimes or weakening policy.
