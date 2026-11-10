@@ -143,7 +143,7 @@ def test_supervisor_rejects_mutable_or_missing_worker_image_before_docker():
 
     for image in (None, "ola-agent-worker:latest", "sha256:not-a-digest"):
         supervisor = supervisor_module.AgentSupervisor(
-        registry=[agent],
+            registry=[agent],
             image_digest=image,
             runner=runner,
         )
