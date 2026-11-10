@@ -55,6 +55,7 @@ def test_ollama_uses_json_schema_and_records_model_digest():
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
+        expected_model_digest=MODEL_DIGEST,
         base_url="http://127.0.0.1:11434",
         client=client,
     )
@@ -85,6 +86,7 @@ def test_provider_policy_rejects_disallowed_provider_before_network_call():
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
+        expected_model_digest=MODEL_DIGEST,
         base_url="http://127.0.0.1:11434",
         client=client,
     )
@@ -105,6 +107,7 @@ def test_provider_failure_does_not_fall_back_to_another_provider():
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
+        expected_model_digest=MODEL_DIGEST,
         base_url="http://127.0.0.1:11434",
         client=client,
     )
@@ -130,6 +133,7 @@ def test_ollama_model_must_be_allowlisted_and_present_with_digest():
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
+        expected_model_digest=MODEL_DIGEST,
         base_url="http://127.0.0.1:11434",
         client=client,
     )
@@ -143,6 +147,7 @@ def test_ollama_remote_endpoint_requires_explicit_host_allowlist():
         OllamaAdapter(
             model=MODEL,
             allowed_models=(MODEL,),
+            expected_model_digest=MODEL_DIGEST,
             base_url="http://192.0.2.10:11434",
         )
     assert error.value.code == "endpoint_not_allowlisted"
@@ -188,6 +193,8 @@ def test_openai_uses_strict_json_schema_and_does_not_leak_api_key():
     assert result.provider == "openai"
     assert result.model_digest is None
     assert result.request_id == "chatcmpl-test-001"
+    assert result.request_id_source == "provider"
+    assert result.provider_response_id == "chatcmpl-test-001"
     assert api_key not in serialized
     assert len(calls) == 1
 
@@ -222,6 +229,7 @@ def test_gateway_rejects_invalid_schema_and_unapproved_tool_request():
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
+        expected_model_digest=MODEL_DIGEST,
         base_url="http://127.0.0.1:11434",
         client=client,
     )
@@ -242,6 +250,7 @@ def test_source_provenance_policy_requires_evidence_references():
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
+        expected_model_digest=MODEL_DIGEST,
         base_url="http://127.0.0.1:11434",
         client=client,
     )
@@ -261,6 +270,7 @@ def test_gateway_rejects_extra_model_fields_and_unapproved_tool_payloads():
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
+        expected_model_digest=MODEL_DIGEST,
         base_url="http://127.0.0.1:11434",
         client=client,
     )
@@ -273,6 +283,7 @@ def test_gateway_rejects_extra_model_fields_and_unapproved_tool_payloads():
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
+        expected_model_digest=MODEL_DIGEST,
         base_url="http://127.0.0.1:11434",
         client=client,
     )
@@ -314,6 +325,7 @@ def test_provider_gateway_does_not_replace_an_explicit_empty_policy_map():
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
+        expected_model_digest=MODEL_DIGEST,
         base_url="http://127.0.0.1:11434",
         client=client,
     )
