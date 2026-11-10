@@ -25,7 +25,10 @@ def test_six_agents_produce_verified_invoice_result_and_external_verifier_passes
         db.commit()
 
     result = run_invoice_task(tenant_id, TASK)
-    assert result["status"] == "VERIFIED", result
+    assert result["status"] == "RECORDED", result
+    assert result["execution_boundary"] == "in_process"
+    assert "tenant_evidence_hash_chain_integrity" in result["verification_scope"]
+    assert "real_llm_invocation" in result["not_established"]
     assert len(result["execution"]) == 6
     assert result["final_result"]["gross"] == 1210.0
     assert result["final_result"]["transfer_amount"] == 1210.0
@@ -45,6 +48,9 @@ def test_six_agents_produce_verified_invoice_result_and_external_verifier_passes
     assert proof["status"] == "VERIFIED"
     assert proof["gross"] == 1210.0
     assert proof["evidence_count"] == 6
-    assert proof["independent_instance_count"] == 6
-    assert proof["independent_context_count"] == 6
+    assert proof["agent_instance_count"] == 6
+    assert proof["unique_context_count"] == 6
+    assert proof["execution_boundary"] == "in_process"
+    assert proof["verifier_boundary"] == "separate_process"
+    assert "isolated_or_independent_agent_processes" in proof["not_established"]
     assert proof["transfer_status"] == "READY_NOT_SENT"

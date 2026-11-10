@@ -88,12 +88,12 @@ def main():
             fail("run_id mismatch")
         if payload.get("task") != "INVOICE_JSON:" + canonical(invoice):
             fail("task mismatch")
-        if payload.get("status") != "VERIFIED":
-            fail("agent status is not VERIFIED")
+        if payload.get("status") != "RECORDED":
+            fail("agent evidence is not producer-recorded")
         if payload.get("capability") != CAPABILITIES[agent]:
             fail(f"capability mismatch for {agent}")
-        if payload.get("execution_boundary") != "independent":
-            fail("execution boundary is not independent")
+        if payload.get("execution_boundary") != "in_process":
+            fail("unexpected agent execution boundary")
         invocation = {
             "provider": payload.get("provider"),
             "model": payload.get("model"),
@@ -134,11 +134,26 @@ def main():
         "vat": expected_vat,
         "gross": expected_gross,
         "evidence_count": 6,
-        "independent_instance_count": len(instances),
-        "independent_context_count": len(contexts),
+        "agent_instance_count": len(instances),
+        "unique_context_count": len(contexts),
+        "execution_boundary": "in_process",
+        "verifier_boundary": "separate_process",
+        "verification_scope": [
+            "tenant_evidence_hash_chain_integrity",
+            "record_producer_binding",
+            "invoice_arithmetic_recomputed",
+            "controlled_policy_match",
+            "final_business_result_match",
+            "unique_agent_instance_and_context_labels",
+        ],
+        "not_established": [
+            "isolated_or_independent_agent_processes",
+            "real_llm_invocation",
+            "live_payment_or_transfer_execution",
+        ],
         "payment_decision": final["payment_decision"],
         "transfer_status": final["transfer_status"],
-        "reason": "standalone verifier independently recomputed invoice arithmetic, policy, roles, capabilities, invocation metadata, identities, final result and hash-chain",
+        "reason": "separate-process verifier independently recomputed invoice arithmetic, policy, roles, capabilities, invocation metadata, result and hash chain; agent process isolation is not claimed",
     }, sort_keys=True))
 
 
