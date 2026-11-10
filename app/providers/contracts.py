@@ -35,7 +35,7 @@ class AgentModelOutput(BaseModel):
     summary: str = Field(min_length=1, max_length=2000)
     reasoning: str = Field(min_length=1, max_length=4000)
     tool_name: str | None
-    tool_arguments: dict[str, Any]
+    tool_arguments_json: str = Field(max_length=16384)
     evidence_refs: list[str] = Field(max_length=64)
 
     @model_validator(mode="after")
@@ -43,14 +43,18 @@ class AgentModelOutput(BaseModel):
         if self.status == "needs_tool":
             if not isinstance(self.tool_name, str) or not self.tool_name:
                 raise ValueError("needs_tool requires a tool_name")
-        elif self.tool_name is not None or self.tool_arguments:
+            try:
+                arguments = json.loads(self.tool_arguments_json)
+            except json.JSONDecodeError:
+                raise ValueError("tool_arguments_json must contain a JSON object") from None
+            if not isinstance(arguments, dict):
+                raise ValueError("tool_arguments_json must contain a JSON object")
+        elif self.tool_name is not None or self.tool_arguments_json != "":
             raise ValueError("tool calls are only valid when status is needs_tool")
         if len(set(self.evidence_refs)) != len(self.evidence_refs):
             raise ValueError("evidence_refs must be unique")
         if any(not ref or len(ref) > 256 for ref in self.evidence_refs):
             raise ValueError("evidence_refs must be non-empty bounded strings")
-        if len(canonical_json(self.tool_arguments).encode("utf-8")) > 16384:
-            raise ValueError("tool_arguments exceed the output contract limit")
         return self
 
 
