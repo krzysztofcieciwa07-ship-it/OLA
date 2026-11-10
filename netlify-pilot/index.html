@@ -4,50 +4,94 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
-  <meta name="color-scheme" content="dark light">
-  <title>OLA di-OS — Netlify Pilot</title>
+  <meta name="color-scheme" content="dark">
+  <title>OLA di-OS — NINA API Pilot</title>
   <link rel="stylesheet" href="/pilot.css">
   <script src="/pilot.js" defer></script>
 </head>
 <body>
   <main class="shell">
     <header class="topbar">
-      <a class="brand" href="/" aria-label="OLA di-OS pilot"><span class="mark">O</span><span>OLA di-OS</span></a>
-      <span class="environment">TEST / NON-PRODUCTION</span>
+      <a class="brand" href="/" aria-label="OLA di-OS NINA API pilot"><span class="mark">O</span><span>OLA di-OS</span></a>
+      <span class="environment">STAGING / NON-PRODUCTION</span>
     </header>
 
     <section class="intro">
-      <p class="eyebrow">ODIZOLOWANE ŚRODOWISKO · NETLIFY</p>
-      <h1>Test hostingu.<br><span>Bez ryzyka dla rdzenia OLA.</span></h1>
-      <p class="lead">Ten pilot sprawdza wyłącznie dostarczanie statycznego frontendu, ochronę nagłówkami i dowód poprawnego kontekstu wdrożenia. Nie uruchamia agentów, API ani płatności.</p>
+      <p class="eyebrow">NINA API · IZOLowany POLIGON</p>
+      <h1>Testuj API NINA.<br><span>Bez dostępu do produkcji.</span></h1>
+      <p class="lead">Ten panel łączy się wyłącznie z API staging na Railway. Sprawdza liveness, readiness, autoryzację, wykonanie NINA, niezależną weryfikację IGOR, replay oraz blokadę Human Gate.</p>
     </section>
 
-    <section class="panel" aria-labelledby="status-title">
+    <section class="panel" aria-labelledby="infra-title">
       <div class="panel-heading">
         <div>
-          <p class="eyebrow">KONTROLA WDROŻENIA</p>
-          <h2 id="status-title">Weryfikacja środowiska</h2>
+          <p class="eyebrow">WARSTWA API</p>
+          <h2 id="infra-title">Stan środowiska staging</h2>
         </div>
-        <span id="overall" class="status pending" role="status" aria-live="polite">OCZEKUJE</span>
+        <span id="infra-overall" class="status pending" role="status" aria-live="polite">SPRAWDZANIE</span>
       </div>
-      <p id="summary" class="summary">Sprawdzam manifest, artefakt kompilacji i nagłówki HTTP.</p>
-      <div class="checks" id="checks">
-        <div class="check"><span>Statyczny manifest</span><strong data-check="manifest">OCZEKUJE</strong></div>
-        <div class="check"><span>Dowód kompilacji z dozwolonej gałęzi</span><strong data-check="build">OCZEKUJE</strong></div>
-        <div class="check"><span>Nagłówki bezpieczeństwa i noindex</span><strong data-check="headers">OCZEKUJE</strong></div>
+      <p class="summary" id="infra-summary">Weryfikuję odpowiedź API i podstawową gotowość rdzenia.</p>
+      <div class="checks">
+        <div class="check"><span>GET /health · liveness</span><strong id="health-check">OCZEKUJE</strong></div>
+        <div class="check"><span>GET /readyz · core readiness</span><strong id="ready-check">OCZEKUJE</strong></div>
+        <div class="check"><span>POST /nina-run bez klucza · 401</span><strong id="auth-check">OCZEKUJE</strong></div>
       </div>
       <div class="actions">
-        <button id="rerun" type="button">Uruchom kontrole ponownie</button>
-        <span id="duration" class="duration"></span>
+        <button id="refresh" type="button">Sprawdź ponownie</button>
+        <span id="infra-time" class="duration"></span>
       </div>
     </section>
 
-    <section class="scope-grid" aria-label="Zakres pilota">
-      <article><p class="eyebrow">WŁĄCZONE</p><h3>Static hosting</h3><p>CDN, HTML, CSS, JavaScript, pliki JSON i kontrola nagłówków odpowiedzi.</p></article>
-      <article><p class="eyebrow">WYŁĄCZONE</p><h3>OLA runtime</h3><p>FastAPI, Supabase, Stripe, GitHub Actions secrets, klucze API i dane klientów nie są podłączone.</p></article>
+    <section class="panel run-panel" aria-labelledby="run-title">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">TEST FUNKCJONALNY</p>
+          <h2 id="run-title">NINA → IGOR → Human Gate</h2>
+        </div>
+        <span class="status warn">ZAPIS DO TENANTA STAGING</span>
+      </div>
+      <p class="summary">Wykonanie testu zapisuje zdarzenia do łańcucha dowodów przypisanego do klucza API. Używaj wyłącznie klucza dedykowanego dla osobnego tenanta staging — nigdy klucza produkcyjnego ani klucza klienta.</p>
+
+      <form id="run-form" autocomplete="off">
+        <label for="api-key">Dedykowany staging API key</label>
+        <input id="api-key" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Wprowadź klucz staging w tej przeglądarce" required>
+        <label class="confirm-row">
+          <input id="staging-confirm" type="checkbox" required>
+          <span>Potwierdzam, że to klucz z osobnego tenanta staging, a nie produkcyjny klucz API.</span>
+        </label>
+        <div class="actions">
+          <button id="run-nina" type="submit" class="primary" disabled>Uruchom test NINA</button>
+          <button id="clear-key" type="button">Wyczyść klucz</button>
+          <span id="run-time" class="duration"></span>
+        </div>
+      </form>
+
+      <div class="result" id="run-result" role="status" aria-live="polite">
+        <p>Oczekuję na świadome uruchomienie testu z dedykowanym kluczem staging.</p>
+      </div>
+      <div class="checks result-checks">
+        <div class="check"><span>NINA runtime</span><strong id="nina-check">NIEURUCHOMIONE</strong></div>
+        <div class="check"><span>IGOR verification</span><strong id="igor-check">NIEURUCHOMIONE</strong></div>
+        <div class="check"><span>Provenance + replay</span><strong id="proof-check">NIEURUCHOMIONE</strong></div>
+        <div class="check"><span>Human Gate fail-closed</span><strong id="gate-check">NIEURUCHOMIONE</strong></div>
+        <div class="check"><span>Końcowa decyzja</span><strong id="final-check">NIEURUCHOMIONE</strong></div>
+      </div>
     </section>
 
-    <footer>OLA di-OS · Netlify pilot · bez dostępu do produkcji · brak danych klientów</footer>
+    <section class="scope-grid" aria-label="Zakres i ograniczenia">
+      <article>
+        <p class="eyebrow">DOZWOLONE</p>
+        <h3>Trzy trasy API</h3>
+        <p>/health, /readyz i /nina-run. Proxy jest ograniczone do hosta Railway staging. Nie ma wildcardu /api/*.</p>
+      </article>
+      <article>
+        <p class="eyebrow">ZABLOKOWANE</p>
+        <h3>Produkcja i sekrety</h3>
+        <p>Brak routingu produkcyjnego, Stripe, checkout, workflow, /chat, zmiennych środowiskowych i kluczy zapisanych w tej stronie.</p>
+      </article>
+    </section>
+
+    <footer>OLA di-OS · NINA API pilot · klucz tylko w pamięci bieżącego formularza · brak produkcyjnych danych i domen</footer>
   </main>
 </body>
 </html>
