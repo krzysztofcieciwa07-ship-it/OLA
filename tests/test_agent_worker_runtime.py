@@ -111,3 +111,36 @@ def test_worker_cli_rejects_oversized_stdin_before_json_parsing():
     payload = json.loads(stdout.getvalue())
     assert payload["status"] == "BLOCKED"
     assert payload["reason"] == "request_too_large"
+
+
+@pytest.mark.parametrize("expression", [
+    "__import__('os').system('id')",
+    "open('/etc/passwd').read()",
+    "2 ** 99",
+    "1 / 0",
+    "unknown_name + 1",
+])
+def test_worker_blocks_arbitrary_code_and_unsafe_arithmetic(expression):
+    protocol, runtime = _worker_modules()
+    request_data = _request_data()
+    request_data["capability_input"] = {"expression": expression}
+    request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(request_data))
+
+    result = runtime.run_agent_worker(request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "capability_input_invalid"
+    assert result.capability_result == {}
+
+
+def test_model_output_is_advisory_and_cannot_change_the_capability_result():
+    protocol, runtime = _worker_modules()
+    first_data = _request_data()
+    second_data = {**first_data, "model_output": {"proposal": "different untrusted text"}}
+    first = runtime.run_agent_worker(protocol.AgentWorkerRequest.model_validate_json(json.dumps(first_data)))
+    second = runtime.run_agent_worker(protocol.AgentWorkerRequest.model_validate_json(json.dumps(second_data)))
+
+    assert first.capability_result == second.capability_result == {"value": 391}
+    assert first.output_digest == second.output_digest
+    assert first.model_output_digest != second.model_output_digest
+    assert first.model_output_role == second.model_output_role == "advisory_only"
