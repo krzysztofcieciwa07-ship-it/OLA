@@ -40,6 +40,10 @@ def _load_registered_agents():
 
 
 AGENT_REGISTRY = _load_registered_agents()
+DEFAULT_AGENT_ID = next(
+    (agent.agent_id for agent in AGENT_REGISTRY.values() if "agent.run" in agent.capabilities),
+    None,
+)
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
 
@@ -676,7 +680,7 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
         raise HTTPException(status_code=400, detail="task is required")
 
     # The compatibility identity is a real manifest entry, not a generated ID range.
-    agent_id = body.get("agent_id", "agent-001")
+    agent_id = body.get("agent_id", DEFAULT_AGENT_ID)
     risk = body.get("risk", "LOW")
     agent_spec = AGENT_REGISTRY.get(agent_id) if isinstance(agent_id, str) else None
     allowed = False
