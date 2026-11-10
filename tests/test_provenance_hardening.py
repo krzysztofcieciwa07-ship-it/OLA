@@ -43,7 +43,9 @@ class _CapturingSupervisor:
         from app.agent_worker import run_agent_worker
 
         self.request = request
-        result = run_agent_worker(request).model_copy(update={"worker_pid": 1})
+        from unittest.mock import patch
+        with patch("app.agent_worker.os.getpid", return_value=1):
+            result = run_agent_worker(request)
         return AgentExecution(
             status="COMPLETED",
             container_id="f" * 64,
