@@ -173,31 +173,51 @@ def test_ollama_blocks_digest_drift_against_the_deployment_lock():
 
 
 def test_supervisor_blocks_rootful_docker_runtime_before_launch(tmp_path):
-    import json
     from subprocess import CompletedProcess
-    from tests.test_agent_supervisor import (
-        IMAGE_DIGEST,
-        _request_and_agent,
-        _runner_for_inspect,
-        _supervisor_module,
-    )
 
-    agent, request = _request_and_agent()
-    fallback_runner, _ = _runner_for_inspect(agent, request)
+    from app.agent_protocol import AgentWorkerRequest
+    from app.agent_registry import make_agent_instance_spec
+    from app.agent_supervisor import AgentSupervisor
+
+    image_digest = "sha256:" + "b" * 64
+    agent = make_agent_instance_spec(
+        "hermes-rootless-01",
+        "Hermes",
+        "react",
+        capabilities=("tool.safe_expression",),
+    )
+    request = AgentWorkerRequest(
+        schema_version=1,
+        run_id="00000000-0000-4000-8000-000000000031",
+        agent_id=agent.agent_id,
+        agent_instance_id="00000000-0000-4000-8000-000000000032",
+        specialist_role=agent.specialist_role,
+        execution_profile=agent.execution_profile,
+        capability="tool.safe_expression",
+        allowed_capabilities=("tool.safe_expression",),
+        task="Calculate 17 times 23.",
+        capability_input={"expression": "17 * 23"},
+        model_output={"proposal": "evaluate"},
+        source_commit="a" * 40,
+    )
+    calls = []
 
     def runner(args, **kwargs):
+        calls.append(args)
         if args[1:2] == ["info"]:
             return CompletedProcess(
                 args,
                 0,
-                stdout=json.dumps(["name=seccomp,profile=builtin"]),
+                stdout='["name=seccomp,profile=builtin"]',
                 stderr="",
             )
-        return fallback_runner(args, **kwargs)
+        if args[1:3] == ["image", "inspect"]:
+            return CompletedProcess(args, 0, stdout=image_digest, stderr="")
+        return CompletedProcess(args, 1, stdout="", stderr="unexpected command")
 
-    supervisor = _supervisor_module().AgentSupervisor(
+    supervisor = AgentSupervisor(
         registry=[agent],
-        image_digest=IMAGE_DIGEST,
+        image_digest=image_digest,
         expected_source_commit="a" * 40,
         runner=runner,
         temp_dir=str(tmp_path),
@@ -205,6 +225,7 @@ def test_supervisor_blocks_rootful_docker_runtime_before_launch(tmp_path):
 
     result = supervisor.execute(agent, request)
 
+    assert calls[0][1:2] == ["info"]
     assert result.status == "BLOCKED"
     assert result.reason == "container_runtime_not_rootless"
 
