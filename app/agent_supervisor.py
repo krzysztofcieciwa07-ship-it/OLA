@@ -61,6 +61,7 @@ class AgentSupervisor:
         pids_limit: int = 32,
         runner: Callable[..., Any] | None = None,
         temp_dir: str | None = None,
+        runtime_preflight: Callable[[], bool] | None = None,
     ):
         if registry is None:
             manifest_path = os.getenv("OLA_AGENT_MANIFEST_PATH")
@@ -82,6 +83,7 @@ class AgentSupervisor:
         self.pids_limit = pids_limit
         self.runner = runner or subprocess.run
         self.temp_dir = temp_dir
+        self.runtime_preflight = runtime_preflight
         if any(type(value) is not int or value <= 0 for value in (
             timeout_seconds, memory_mb, cpu_millis, pids_limit
         )):
@@ -99,6 +101,48 @@ class AgentSupervisor:
 
     def _call(self, args: list[str], **kwargs):
         return self.runner(args, **kwargs)
+
+    def _verify_rootless_runtime(self) -> bool:
+        """Require rootless Docker or Podman; a rootful daemon is host-root authority."""
+        if self.runtime_preflight is not None:
+            try:
+                return self.runtime_preflight() is True
+            except Exception:
+                return False
+
+        runtime_name = Path(self.docker_binary).name.lower()
+        try:
+            if "podman" in runtime_name:
+                result = self._call(
+                    [self.docker_binary, "info", "--format", "json"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    return False
+                info = json.loads(result.stdout)
+                host = info.get("host") or {}
+                security = host.get("security") or {}
+                return security.get("rootless") is True
+
+            result = self._call(
+                [self.docker_binary, "info", "--format", "{{json .SecurityOptions}}"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if result.returncode != 0:
+                return False
+            options = json.loads(result.stdout)
+            return (
+                isinstance(options, list)
+                and any("rootless" in str(option).lower() for option in options)
+            )
+        except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+            return False
 
     def _inspect_image(self) -> bool:
         if not isinstance(self.image_digest, str) or _IMAGE_DIGEST_PATTERN.fullmatch(self.image_digest) is None:
@@ -221,6 +265,8 @@ class AgentSupervisor:
         request_bytes = len(request.model_dump_json().encode("utf-8"))
         if request_bytes > min(MAX_REQUEST_BYTES, instance.resource_limits.max_input_bytes):
             return self._blocked("worker_request_too_large", self.image_digest)
+        if not self._verify_rootless_runtime():
+            return self._blocked("container_runtime_not_rootless", self.image_digest)
         if not self._inspect_image():
             return self._blocked("worker_image_digest_not_locally_verified", self.image_digest)
 
