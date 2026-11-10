@@ -132,6 +132,21 @@ test("missing Netlify context is rejected", async () => {
   assert.match(result.stderr, /intended to run only on Netlify/);
 });
 
+test("browser tester matches NINA's deployed policy and proof response contract", async () => {
+  const script = await readFile(path.join(repoRoot, "netlify-pilot", "pilot.js"), "utf8");
+  assert.match(script, /requested_tools:\s*\["shell"\]/);
+  assert.match(script, /policyBody\?\.nina\?\.status === "BLOCK"/);
+  assert.match(script, /policyBody\?\.provenance\?\.status === "NOT_CREATED"/);
+  assert.match(script, /policyBody\?\.replay\.length === 0/);
+  assert.match(script, /requested_tools:\s*\["safe_expression"\]/);
+  assert.match(script, /body\?\.replay\.length === 9/);
+  assert.match(script, /body\?\.decision_report\?\.human_review\?\.approved === false/);
+  assert.match(script, /body\?\.status === "REVIEW"/);
+  assert.match(script, /"X-API-Key": apiKey/);
+  assert.match(script, /ui\.key\.value = ""/);
+  assert.doesNotMatch(script, /localStorage|sessionStorage/);
+});
+
 test.after(async () => {
   await Promise.all(tempRoots.map((root) => rm(root, { recursive: true, force: true })));
 });
