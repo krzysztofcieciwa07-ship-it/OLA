@@ -790,6 +790,10 @@ def run_isolated_agent_instance(
         if provider_gateway is None or not isinstance(provider, str) or not provider:
             return AgentExecution(status="BLOCKED", reason="provider_not_configured")
         try:
+            if provider_gateway is None:
+                from .providers.factory import build_provider_gateway
+
+                provider_gateway = build_provider_gateway(provider)
             provider_result = provider_gateway.generate(
                 provider=provider,
                 policy=instance.provider_policy,
