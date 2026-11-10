@@ -4,6 +4,7 @@ import re
 import subprocess
 import tempfile
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Any
@@ -15,7 +16,12 @@ from .agent_protocol import (
     AgentWorkerResult,
     digest_json,
 )
-from .agent_registry import AgentInstanceSpec, build_agent_registry
+from .agent_registry import (
+    AgentInstanceSpec,
+    DEFAULT_AGENT_MANIFEST,
+    build_agent_registry,
+    load_agent_manifest,
+)
 
 
 _IMAGE_DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
@@ -39,6 +45,7 @@ class AgentSupervisor:
     def __init__(
         self,
         *,
+        registry: Sequence[AgentInstanceSpec] | None = None,
         image_digest: str | None = None,
         expected_source_commit: str | None = None,
         docker_binary: str = "docker",
@@ -49,6 +56,11 @@ class AgentSupervisor:
         runner: Callable[..., Any] | None = None,
         temp_dir: str | None = None,
     ):
+        if registry is None:
+            manifest_path = os.getenv("OLA_AGENT_MANIFEST_PATH")
+            registry = load_agent_manifest(manifest_path) if manifest_path else DEFAULT_AGENT_MANIFEST
+        validated_registry = build_agent_registry(registry)
+        self.registry = {agent.agent_id: agent for agent in validated_registry}
         self.image_digest = (
             image_digest if image_digest is not None
             else os.getenv("OLA_AGENT_WORKER_IMAGE_DIGEST")
@@ -180,6 +192,9 @@ class AgentSupervisor:
             request = AgentWorkerRequest.model_validate_json(request.model_dump_json())
         except Exception:
             return self._blocked("invalid_worker_contract", self.image_digest)
+        registered_instance = self.registry.get(instance.agent_id)
+        if registered_instance is None or registered_instance != instance:
+            return self._blocked("agent_not_registered", self.image_digest)
         if (
             not isinstance(self.expected_source_commit, str)
             or re.fullmatch(r"[a-f0-9]{40}", self.expected_source_commit) is None
