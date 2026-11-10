@@ -19,7 +19,17 @@ def _trusted_source_commit(monkeypatch):
 
     monkeypatch.setenv("OLA_SOURCE_COMMIT", "a" * 40)
     monkeypatch.delenv("OLA_AGENT_MANIFEST_PATH", raising=False)
+    from app.provenance.docker_events import DockerEventProof
     monkeypatch.setattr(AgentSupervisor, "_verify_rootless_runtime", lambda self: True)
+    monkeypatch.setattr(
+        AgentSupervisor,
+        "_verify_docker_events",
+        lambda self, execution, request: DockerEventProof(
+            "VERIFIED", None, execution.container_id or "", execution.image_digest or "",
+            execution.supervisor_started_at or 1.0, execution.supervisor_finished_at or 2.0,
+            execution.exit_code, "d" * 64, (),
+        ),
+    )
 
 
 def _supervisor_module():
@@ -68,7 +78,7 @@ def _docker_inspect():
         "Id": CONTAINER_ID,
         "Image": IMAGE_DIGEST,
         "State": {"Status": "exited", "ExitCode": 0},
-        "Config": {"User": "65532:65532", "Entrypoint": ["python", "-m", "app.agent_worker"], "Cmd": None, "Volumes": {}, "Env": [], "Labels": {"org.opencontainers.image.revision": "a" * 40}},
+        "Config": {"User": "65532:65532", "Entrypoint": ["python", "-m", "app.agent_worker"], "Cmd": None, "Volumes": {}, "Env": [], "Labels": {"org.opencontainers.image.revision": "a" * 40, "ola.image.digest": IMAGE_DIGEST, "ola.source.commit": "a" * 40, "ola.run.id": "00000000-0000-4000-8000-000000000011", "ola.agent.id": "hermes-supervisor-01", "ola.agent.instance_id": "00000000-0000-4000-8000-000000000012"}},
         "HostConfig": {
             "NetworkMode": "none",
             "ReadonlyRootfs": True,
