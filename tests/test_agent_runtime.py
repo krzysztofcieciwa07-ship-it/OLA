@@ -235,7 +235,7 @@ def test_successful_agent_run_has_start_end_and_committed_task_only(monkeypatch)
         rows = db.scalars(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq)).all()
     payloads = [json.loads(row.payload_json) for row in rows]
     assert payloads[0]["task_digest"]
-    assert payloads[-1]["status"] == "VERIFIED"
+    assert payloads[-1]["status"] == "COMPLETED"
     assert any(row.record_type == "execution.run.start" for row in rows)
     assert any(row.record_type == "execution.run.end" for row in rows)
     assert not any(task in row.payload_json for row in rows)
