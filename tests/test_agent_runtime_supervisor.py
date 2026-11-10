@@ -251,3 +251,220 @@ def test_runtime_constructs_only_requested_provider_and_blocks_if_it_is_unconfig
 
     assert result.status == "BLOCKED"
     assert result.reason == "provider_model_not_allowlisted"
+
+
+def _lifecycle_provider_result():
+    from app.providers.contracts import AgentModelOutput, ProviderResult, digest_json
+
+    output = AgentModelOutput(
+        status="complete",
+        summary="The plan is ready.",
+        reasoning="Structured output was validated.",
+        tool_name=None,
+        tool_arguments_json="",
+        evidence_refs=[],
+    )
+    return ProviderResult(
+        provider="ollama",
+        model="qwen2.5:0.5b-instruct",
+        model_digest="sha256:" + "a" * 64,
+        request_id="ollama-request-lifecycle",
+        prompt_digest="b" * 64,
+        schema_digest="c" * 64,
+        raw_response_digest="d" * 64,
+        output_digest=digest_json(output.model_dump(mode="json")),
+        latency_ms=7,
+        output=output,
+    )
+
+
+class _LifecycleGateway:
+    def __init__(self, result=None, error=None):
+        self.result = result or _lifecycle_provider_result()
+        self.error = error
+        self.calls = []
+
+    def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return self.result
+
+
+class _LifecycleSupervisor:
+    def __init__(self, agent, source_commit, *, valid_worker=True):
+        from app.agent_supervisor import AgentExecution
+
+        self.registry = {agent.agent_id: agent}
+        self.expected_source_commit = source_commit
+        self.image_digest = "sha256:" + "e" * 64
+        self.valid_worker = valid_worker
+        self.execution_type = AgentExecution
+
+    def _inspect_image(self):
+        return self.image_digest
+
+    def execute(self, instance, request):
+        from app.agent_supervisor import AgentExecution
+        from app.agent_worker import run_agent_worker
+
+        worker_result = run_agent_worker(request).model_copy(update={"worker_pid": 1}) if self.valid_worker else None
+        return AgentExecution(
+            status="COMPLETED",
+            container_id="f" * 64,
+            image_digest=self.image_digest,
+            worker_result=worker_result,
+            exit_code=0,
+        )
+
+
+def test_isolated_agent_task_writes_full_lifecycle_without_plaintext(monkeypatch):
+    from app import agent_runtime
+
+    agent = _instance()
+    source_commit = "a" * 40
+    gateway = _LifecycleGateway()
+    supervisor = _LifecycleSupervisor(agent, source_commit)
+    records = []
+
+    def append(tenant_id, record_type, payload, **kwargs):
+        records.append((record_type, payload))
+        return {"id": f"evidence-{len(records)}"}
+
+    monkeypatch.setattr(agent_runtime, "append_evidence_atomic", append)
+    result = agent_runtime.run_isolated_agent_task(
+        "tenant-test",
+        agent,
+        "calculate 17 * 23",
+        "tool.safe_expression",
+        {"expression": "17 * 23"},
+        provider="ollama",
+        provider_gateway=gateway,
+        supervisor=supervisor,
+        source_commit=source_commit,
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert [item[0] for item in records] == [
+        "execution.run.start",
+        "agent.provider.response",
+        "agent.worker.start",
+        "agent.worker.end",
+        "execution.run.end",
+    ]
+    payloads = [item[1] for item in records]
+    assert all(payload["run_id"] == result["run_id"] for payload in payloads)
+    assert payloads[0]["task_digest"] == __import__("hashlib").sha256(
+        b"calculate 17 * 23"
+    ).hexdigest()
+    assert "task" not in json.dumps(payloads)
+    assert "prompt" not in json.dumps(payloads).lower()
+    assert payloads[1]["fallback_used"] is False
+    assert payloads[1]["model_output_role"] == "advisory_only"
+    assert payloads[1]["model_output_digest"] == payloads[3]["model_output_digest"]
+    assert payloads[3]["worker_pid"] == 1
+    assert payloads[3]["exit_code"] == 0
+    assert payloads[3]["container_id"] == payloads[4]["container_id"]
+    assert payloads[3]["output_digest"] == payloads[4]["output_digest"]
+
+
+def test_isolated_agent_task_blocks_provider_failure_and_records_terminal_state(monkeypatch):
+    from app import agent_runtime
+    from app.providers.contracts import ProviderError
+
+    agent = _instance()
+    source_commit = "a" * 40
+    gateway = _LifecycleGateway(error=ProviderError("ollama_request_failed", "offline"))
+    supervisor = _LifecycleSupervisor(agent, source_commit)
+    records = []
+
+    def append(tenant_id, record_type, payload, **kwargs):
+        records.append((record_type, payload))
+        return {"id": f"evidence-{len(records)}"}
+
+    monkeypatch.setattr(agent_runtime, "append_evidence_atomic", append)
+    result = agent_runtime.run_isolated_agent_task(
+        "tenant-test",
+        agent,
+        "calculate",
+        "tool.safe_expression",
+        {"expression": "1 + 1"},
+        provider="ollama",
+        provider_gateway=gateway,
+        supervisor=supervisor,
+        source_commit=source_commit,
+    )
+
+    assert result["status"] == "BLOCKED"
+    assert result["reason"] == "provider_ollama_request_failed"
+    assert [item[0] for item in records] == [
+        "execution.run.start",
+        "execution.run.error",
+        "execution.run.end",
+    ]
+    assert records[-1][1]["status"] == "BLOCKED"
+
+
+def test_isolated_agent_task_never_claims_completion_if_worker_proof_is_missing(monkeypatch):
+    from app import agent_runtime
+
+    agent = _instance()
+    source_commit = "a" * 40
+    gateway = _LifecycleGateway()
+    supervisor = _LifecycleSupervisor(agent, source_commit, valid_worker=False)
+    records = []
+
+    def append(tenant_id, record_type, payload, **kwargs):
+        records.append((record_type, payload))
+        return {"id": f"evidence-{len(records)}"}
+
+    monkeypatch.setattr(agent_runtime, "append_evidence_atomic", append)
+    result = agent_runtime.run_isolated_agent_task(
+        "tenant-test",
+        agent,
+        "calculate",
+        "tool.safe_expression",
+        {"expression": "1 + 1"},
+        provider="ollama",
+        provider_gateway=gateway,
+        supervisor=supervisor,
+        source_commit=source_commit,
+    )
+
+    assert result["status"] == "BLOCKED"
+    assert result["execution"].reason == "worker_execution_proof_invalid"
+    assert records[-1][0] == "execution.run.end"
+    assert records[-1][1]["status"] == "BLOCKED"
+
+
+def test_isolated_agent_task_returns_finalization_pending_when_worker_end_cannot_be_recorded(monkeypatch):
+    from app import agent_runtime
+
+    agent = _instance()
+    source_commit = "a" * 40
+    gateway = _LifecycleGateway()
+    supervisor = _LifecycleSupervisor(agent, source_commit)
+    records = []
+
+    def append(tenant_id, record_type, payload, **kwargs):
+        if record_type == "agent.worker.end":
+            raise RuntimeError("ledger unavailable")
+        records.append((record_type, payload))
+        return {"id": f"evidence-{len(records)}"}
+
+    monkeypatch.setattr(agent_runtime, "append_evidence_atomic", append)
+    result = agent_runtime.run_isolated_agent_task(
+        "tenant-test",
+        agent,
+        "calculate",
+        "tool.safe_expression",
+        {"expression": "1 + 1"},
+        provider="ollama",
+        provider_gateway=gateway,
+        supervisor=supervisor,
+        source_commit=source_commit,
+    )
+
+    assert result["status"] == "FINALIZATION_PENDING"
+    assert records[-1][0] == "execution.run.end"
+    assert records[-1][1]["status"] == "FINALIZATION_PENDING"
