@@ -49,7 +49,7 @@ def _docker_inspect():
         "Id": CONTAINER_ID,
         "Image": IMAGE_DIGEST,
         "State": {"Status": "exited", "ExitCode": 0},
-        "Config": {"User": "65532:65532", "Entrypoint": ["python", "-m", "app.agent_worker"], "Cmd": None, "Volumes": {}, "Env": []},
+        "Config": {"User": "65532:65532", "Entrypoint": ["python", "-m", "app.agent_worker"], "Cmd": None, "Volumes": {}, "Env": [], "Labels": {"org.opencontainers.image.revision": "a" * 40}},
         "HostConfig": {
             "NetworkMode": "none",
             "ReadonlyRootfs": True,
@@ -90,7 +90,7 @@ def test_supervisor_launches_a_fresh_hardened_worker_with_no_host_mounts(tmp_pat
         if args[1] == "run":
             cidfile_path = args[args.index("--cidfile") + 1]
             Path(cidfile_path).write_text(CONTAINER_ID, encoding="ascii")
-            result = run_agent_worker(request)
+            result = run_agent_worker(request).model_copy(update={"worker_pid": 1})
             return CompletedProcess(args, 0, stdout=result.model_dump_json(), stderr="")
         if args[1] == "inspect":
             return CompletedProcess(args, 0, stdout=json.dumps(_docker_inspect()), stderr="")
@@ -195,3 +195,99 @@ def test_worker_image_requires_digest_pinned_base_and_fixed_entrypoint():
     assert "@sha256:" in source
     assert "ENTRYPOINT [\"python\", \"-m\", \"app.agent_worker\"]" in source
     assert "USER 65532:65532" in source
+
+
+def _runner_for_inspect(agent, request, inspect_override=None, worker_pid=1, result_override=None):
+    from app.agent_worker import run_agent_worker
+
+    calls = []
+
+    def runner(args, **kwargs):
+        calls.append(args)
+        if args[1:3] == ["image", "inspect"]:
+            return CompletedProcess(args, 0, stdout=IMAGE_DIGEST, stderr="")
+        if args[1] == "run":
+            cidfile = args[args.index("--cidfile") + 1]
+            Path(cidfile).write_text(CONTAINER_ID, encoding="ascii")
+            result = result_override or run_agent_worker(request).model_copy(update={"worker_pid": worker_pid})
+            return CompletedProcess(args, 0, stdout=result.model_dump_json(), stderr="")
+        if args[1] == "inspect":
+            return CompletedProcess(args, 0, stdout=json.dumps(inspect_override or _docker_inspect()), stderr="")
+        if args[1:3] == ["rm", "-f"]:
+            return CompletedProcess(args, 0, stdout="", stderr="")
+        raise AssertionError(f"unexpected docker command: {args}")
+
+    return runner, calls
+
+
+def test_supervisor_rejects_container_with_wrong_source_revision_label(tmp_path):
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    inspect = _docker_inspect()
+    inspect["Config"]["Labels"]["org.opencontainers.image.revision"] = "f" * 40
+    runner, _ = _runner_for_inspect(agent, request, inspect_override=inspect)
+    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+
+    result = supervisor.execute(agent, request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "worker_source_revision_mismatch"
+
+
+def test_supervisor_rejects_worker_not_running_as_container_pid_one(tmp_path):
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    runner, _ = _runner_for_inspect(agent, request, worker_pid=2)
+    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+
+    result = supervisor.execute(agent, request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "worker_process_identity_invalid"
+
+
+def test_supervisor_rejects_added_linux_capabilities(tmp_path):
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    inspect = _docker_inspect()
+    inspect["HostConfig"]["CapAdd"] = ["NET_ADMIN"]
+    runner, _ = _runner_for_inspect(agent, request, inspect_override=inspect)
+    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+
+    result = supervisor.execute(agent, request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "worker_capabilities_not_dropped"
+
+
+def test_supervisor_rejects_manifest_capability_escalation_before_docker(tmp_path):
+    from dataclasses import replace
+
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    escalated_agent = replace(agent, capabilities=("production.deploy",))
+    escalated_request = request.model_copy(update={
+        "capability": "production.deploy",
+        "allowed_capabilities": ("production.deploy",),
+    })
+    runner, calls = _runner_for_inspect(escalated_agent, escalated_request)
+    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+
+    result = supervisor.execute(escalated_agent, escalated_request)
+
+    assert result.status == "BLOCKED"
+    assert calls == []
+
+
+def test_supervisor_recomputes_worker_digests_instead_of_trusting_them(tmp_path):
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    from app.agent_worker import run_agent_worker
+    tampered = run_agent_worker(request).model_copy(update={"worker_pid": 1, "output_digest": "f" * 64})
+    runner, _ = _runner_for_inspect(agent, request, result_override=tampered)
+    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+
+    result = supervisor.execute(agent, request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "worker_result_digest_mismatch"
