@@ -860,8 +860,10 @@ def run_isolated_agent_task(
     agent_instance_id=None,
 ):
     """Run one provider-backed isolated worker with a complete append-only lifecycle."""
+    from .agent_protocol import AgentWorkerRequest, digest_json as protocol_digest_json
     from .agent_registry import AgentInstanceSpec, build_agent_registry
     from .agent_supervisor import AgentExecution, AgentSupervisor
+    from .provenance.crypto import verify_worker_signature
     from .providers.contracts import ProviderError, ProviderResult
     from .providers.factory import build_provider_gateway
 
@@ -998,7 +1000,7 @@ def run_isolated_agent_task(
         if provider_result.fallback_used is not False or provider_result.model_output_role != "advisory_only":
             return fail("provider", "provider_output_authority_invalid")
         provider_dump = provider_result.model_dump(mode="json")
-        model_output_digest = _digest(canonical_json(provider_dump))
+        model_output_digest = protocol_digest_json(provider_dump)
     except Exception as exc:
         error_code = getattr(exc, "code", "provider_execution_failed")
         return fail("provider", error_code)
@@ -1058,6 +1060,27 @@ def run_isolated_agent_task(
         return finish("FINALIZATION_PENDING", reason="invalid_worker_execution_result",
                       model_output_digest=model_output_digest)
 
+    expected_worker_request = AgentWorkerRequest(
+        schema_version=1,
+        run_id=run_id,
+        agent_id=instance.agent_id,
+        agent_instance_id=instance_id,
+        specialist_role=instance.specialist_role,
+        execution_profile=instance.execution_profile,
+        capability=capability,
+        allowed_capabilities=(capability,),
+        task=task,
+        capability_input=capability_input,
+        model_output=provider_dump,
+        source_commit=commit,
+    )
+    expected_request_digest = protocol_digest_json(expected_worker_request.model_dump(mode="json"))
+    expected_input_digest = protocol_digest_json({
+        "task": task,
+        "capability_input": capability_input,
+    })
+    expected_capability_input_digest = protocol_digest_json(capability_input)
+
     worker_result = execution.worker_result
     if execution.status == "COMPLETED":
         valid_worker_proof = (
@@ -1076,12 +1099,16 @@ def run_isolated_agent_task(
             and worker_result.source_commit == commit
             and worker_result.worker_pid == 1
             and worker_result.model_output_role == "advisory_only"
-            and worker_result.input_digest == _digest(canonical_json({
-                "task": task,
-                "capability_input": capability_input,
-            }))
-            and worker_result.output_digest == _digest(canonical_json(worker_result.capability_result))
+            and worker_result.request_digest == expected_request_digest
+            and worker_result.input_digest == expected_input_digest
+            and worker_result.capability_input_digest == expected_capability_input_digest
             and worker_result.model_output_digest == model_output_digest
+            and verify_worker_signature(
+                worker_result,
+                expected_request_digest=expected_request_digest,
+                expected_model_output_digest=model_output_digest,
+                expected_capability_input_digest=expected_capability_input_digest,
+            )
         )
         if not valid_worker_proof:
             execution = AgentExecution(
@@ -1109,6 +1136,10 @@ def run_isolated_agent_task(
         "worker_pid": worker_result.worker_pid if worker_result else None,
         "exit_code": execution.exit_code,
         "worker_nonce": worker_result.worker_nonce if worker_result else None,
+        "worker_public_key": worker_result.worker_public_key if worker_result else None,
+        "worker_signature": worker_result.worker_signature if worker_result else None,
+        "request_digest": worker_result.request_digest if worker_result else None,
+        "capability_input_digest": worker_result.capability_input_digest if worker_result else None,
         "input_digest": worker_result.input_digest if worker_result else None,
         "model_output_digest": worker_result.model_output_digest if worker_result else model_output_digest,
         "output_digest": worker_result.output_digest if worker_result else None,
