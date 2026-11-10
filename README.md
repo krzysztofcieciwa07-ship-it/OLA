@@ -178,3 +178,14 @@ Until all required evidence is present, describe production readiness as `UNKNOW
 ## Security
 
 Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities or preparing a release. Never commit API keys, Stripe secrets, signing keys, customer data, or production evidence containing sensitive information.
+
+
+## Repository governance and portfolio
+
+The current repository-governance baseline and portfolio register are maintained in:
+
+- [Security and high-trust engineering baseline](.github/SECURITY-BASELINE.md) — CyFun 2025 Essential is a control-mapping target, not a certification claim.
+- [Portfolio and canonical-source register](docs/governance/PORTFOLIO-REGISTER.md) — repository roles, fork relationships and reconciliation decisions.
+- [Proposed repository metadata](docs/governance/REPOSITORY-METADATA.md) — truthful descriptions and topics for the canonical product repositories.
+
+Current posture: governance hardening in progress; independent review, exact-SHA required checks and account-level controls must be evidenced before a production-security claim.
