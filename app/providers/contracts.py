@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -72,7 +73,7 @@ class ProviderResult(BaseModel):
     @model_validator(mode="after")
     def validate_model_digest(self):
         if self.provider == "ollama":
-            if not isinstance(self.model_digest, str) or not self.model_digest.startswith("sha256:"):
+            if not isinstance(self.model_digest, str) or re.fullmatch(r"sha256:[a-f0-9]{64}", self.model_digest) is None:
                 raise ValueError("Ollama provenance requires a content digest")
         elif self.model_digest is not None:
             raise ValueError("OpenAI model digest is provider-managed and must be null")
