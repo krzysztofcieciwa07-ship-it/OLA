@@ -556,11 +556,10 @@ def run_multi_agent_task(tenant_id, task, agents):
     if not agents:
         raise ValueError("agent registry must not be empty")
     agent_ids = [agent.agent_id for agent in agents]
-    roles = [agent.role for agent in agents]
     if len(set(agent_ids)) != len(agent_ids):
         raise ValueError("agent ids must be unique")
-    if len(set(roles)) != len(roles):
-        raise ValueError("agent roles must be unique")
+    if any(not isinstance(agent.role, str) or not agent.role for agent in agents):
+        raise ValueError("every agent must have a registered specialist role")
 
     run_id = str(uuid.uuid4())
     execution = []
@@ -572,6 +571,7 @@ def run_multi_agent_task(tenant_id, task, agents):
             "run_id": run_id,
             "agent_id": agent.agent_id,
             "role": agent.role,
+            "execution_profile": agent.execution_profile,
             "task_digest": _digest(task),
             "input_digest": previous_digest,
         })
@@ -579,6 +579,7 @@ def run_multi_agent_task(tenant_id, task, agents):
         execution.append({
             "agent_id": agent.agent_id,
             "role": agent.role,
+            "execution_profile": agent.execution_profile,
             "sequence": index,
             "input_digest": previous_digest,
             "output_digest": output_digest,
