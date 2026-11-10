@@ -254,3 +254,40 @@ def test_source_provenance_policy_requires_evidence_references():
             prompt="Research the topic.",
         )
     assert error.value.code == "evidence_refs_required"
+
+
+def test_gateway_rejects_extra_model_fields_and_unapproved_tool_payloads():
+    client, _ = _ollama_client(output=_output(untrusted_field="must be rejected"))
+    adapter = OllamaAdapter(
+        model=MODEL,
+        allowed_models=(MODEL,),
+        base_url="http://127.0.0.1:11434",
+        client=client,
+    )
+    gateway = ProviderGateway(ollama=adapter)
+    with pytest.raises(ProviderError) as error:
+        gateway.generate(provider="ollama", policy="run_policy", prompt="test")
+    assert error.value.code == "structured_output_invalid"
+
+    client, _ = _ollama_client(output=_output(tool_arguments={"command": "rm -rf /"}))
+    adapter = OllamaAdapter(
+        model=MODEL,
+        allowed_models=(MODEL,),
+        base_url="http://127.0.0.1:11434",
+        client=client,
+    )
+    gateway = ProviderGateway(ollama=adapter)
+    with pytest.raises(ProviderError) as error:
+        gateway.generate(provider="ollama", policy="run_policy", prompt="test")
+    assert error.value.code == "structured_output_invalid"
+
+
+def test_openai_endpoint_requires_https_and_host_allowlist():
+    with pytest.raises(ProviderError) as error:
+        OpenAIAdapter(
+            model="gpt-4.1-2025-04-14",
+            allowed_models=("gpt-4.1-2025-04-14",),
+            api_key="sk-test",
+            base_url="http://api.openai.com/v1",
+        )
+    assert error.value.code == "endpoint_not_allowlisted"
