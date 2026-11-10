@@ -75,6 +75,22 @@ class AgentWorkerRequest(BaseModel):
             raise ValueError("capability input size exceeds the worker limit")
         if _json_size(self.model_output) > MAX_PAYLOAD_BYTES:
             raise ValueError("model output size exceeds the worker limit")
+        model_output = self.model_output.get("output")
+        if not isinstance(model_output, dict):
+            raise ValueError("worker request must contain parsed structured model output")
+        if model_output.get("status") != "needs_tool":
+            raise ValueError("model output must explicitly request a capability")
+        if model_output.get("tool_name") != self.capability:
+            raise ValueError("model output capability does not match the requested capability")
+        arguments_json = model_output.get("tool_arguments_json")
+        if not isinstance(arguments_json, str) or len(arguments_json.encode("utf-8")) > 16384:
+            raise ValueError("model output tool arguments are missing or too large")
+        try:
+            model_arguments = json.loads(arguments_json)
+        except json.JSONDecodeError:
+            raise ValueError("model output tool arguments are invalid JSON") from None
+        if not isinstance(model_arguments, dict) or model_arguments != self.capability_input:
+            raise ValueError("capability input is not derived from model output")
         return self
 
 
@@ -94,9 +110,14 @@ class AgentWorkerResult(BaseModel):
     source_commit: str = Field(pattern=r"^[a-f0-9]{40}$")
     worker_pid: int = Field(gt=0)
     worker_nonce: str = Field(min_length=36, max_length=36)
+    request_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     input_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    capability_input_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     model_output_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     output_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    worker_public_key: str = Field(min_length=44, max_length=44)
+    worker_signature: str = Field(min_length=88, max_length=88)
+    attestation_version: Literal[1] = 1
     model_output_role: Literal["advisory_only"] = "advisory_only"
     capability_result: dict[str, Any]
     reason: str | None = None
