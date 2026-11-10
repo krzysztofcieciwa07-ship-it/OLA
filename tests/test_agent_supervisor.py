@@ -52,6 +52,14 @@ def _request_and_agent():
     return agent, request
 
 
+def _run_worker_as_container_pid_one(request):
+    from unittest.mock import patch
+    from app.agent_worker import run_agent_worker
+
+    with patch("app.agent_worker.os.getpid", return_value=1):
+        return run_agent_worker(request)
+
+
 def _docker_inspect():
     return {
         "Id": CONTAINER_ID,
@@ -98,7 +106,7 @@ def test_supervisor_launches_a_fresh_hardened_worker_with_no_host_mounts(tmp_pat
         if args[1] == "run":
             cidfile_path = args[args.index("--cidfile") + 1]
             Path(cidfile_path).write_text(CONTAINER_ID, encoding="ascii")
-            result = run_agent_worker(request).model_copy(update={"worker_pid": 1})
+            result = _run_worker_as_container_pid_one(request)
             return CompletedProcess(args, 0, stdout=result.model_dump_json(), stderr="")
         if args[1] == "inspect":
             return CompletedProcess(args, 0, stdout=json.dumps(_docker_inspect()), stderr="")
