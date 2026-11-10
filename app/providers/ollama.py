@@ -47,11 +47,11 @@ class OllamaAdapter:
         timeout_seconds: float = 30.0,
         client: httpx.Client | None = None,
     ):
-        self.model = model or os.getenv("OLA_OLLAMA_MODEL", "").strip()
-        self.allowed_models = allowed_models or _csv_env("OLA_OLLAMA_ALLOWED_MODELS")
+        self.model = model if model is not None else os.getenv("OLA_OLLAMA_MODEL", "").strip()
+        self.allowed_models = tuple(item.strip() for item in allowed_models if item.strip()) if allowed_models is not None else _csv_env("OLA_OLLAMA_ALLOWED_MODELS")
         if not self.model or not self.allowed_models or self.model not in self.allowed_models:
             raise ProviderError("model_not_allowlisted", "Ollama model must be explicitly allowlisted")
-        self.allowed_hosts = allowed_hosts or _csv_env(
+        self.allowed_hosts = tuple(item.strip() for item in allowed_hosts if item.strip()) if allowed_hosts is not None else _csv_env(
             "OLA_OLLAMA_ALLOWED_HOSTS", "127.0.0.1,localhost,::1"
         )
         self.base_url = _validate_base_url(
