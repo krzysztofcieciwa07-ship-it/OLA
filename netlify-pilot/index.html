@@ -50,15 +50,15 @@
         </div>
         <span id="run-overall" class="status pending" role="status" aria-live="polite">OCZEKUJE</span>
       </div>
-      <p class="summary">Test zapisuje zdarzenia w łańcuchu dowodów tenanta staging. Używaj wyłącznie klucza przeznaczonego dla osobnego, syntetycznego tenanta staging — nigdy klucza produkcyjnego, właściciela ani klienta. Najpierw sprawdzana jest odmowa dla niedozwolonego narzędzia; dopiero po jej potwierdzeniu wykonywane jest bezpieczne obliczenie.</p>
-      <p class="summary"><strong>Uwaga:</strong> to nie jest test bez zapisu. Udane uruchomienie NINA dopisze syntetyczne zdarzenia do staging evidence ledger.</p>
+      <p class="summary">Test zapisuje zdarzenia w łańcuchu dowodów tenanta staging. Używaj wyłącznie klucza z nowego, pustego, syntetycznego tenanta staging — nigdy klucza produkcyjnego, właściciela ani klienta. Najpierw sprawdzana jest odmowa dla niedozwolonego narzędzia; dopiero po jej potwierdzeniu wykonywane jest bezpieczne obliczenie.</p>
+      <p class="summary"><strong>Uwaga:</strong> to nie jest test bez zapisu. Udane uruchomienie NINA dopisze syntetyczne zdarzenia do staging evidence ledger. Strona ma noindex, ale nie jest mechanizmem kontroli dostępu — adres pilota traktuj jako niepubliczny.</p>
 
       <form id="run-form" autocomplete="off">
         <label for="api-key">Dedykowany staging API key</label>
-        <input id="api-key" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Wprowadź klucz staging w tej przeglądarce" required>
+        <input id="api-key" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Klucz dla nowego, pustego tenanta staging" required>
         <label class="confirm-row">
           <input id="staging-confirm" type="checkbox" required>
-          <span>Potwierdzam, że to klucz z osobnego, syntetycznego tenanta staging, a nie klucz produkcyjny, właściciela ani klienta.</span>
+          <span>Potwierdzam, że to klucz z nowego, pustego, syntetycznego tenanta staging, a nie klucz produkcyjny, właściciela ani klienta.</span>
         </label>
         <div class="actions">
           <button id="run-nina" type="submit" class="primary" disabled>Uruchom test NINA</button>
@@ -93,7 +93,7 @@
       </article>
     </section>
 
-    <footer>OLA di-OS · NINA API pilot · brak zapisu klucza w localStorage/sessionStorage · brak produkcyjnych danych i domen</footer>
+    <footer>OLA di-OS · NINA API pilot · klucz nie jest zapisywany w localStorage/sessionStorage · brak produkcyjnych danych i domen</footer>
   </main>
 </body>
 </html>
