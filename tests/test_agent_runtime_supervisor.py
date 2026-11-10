@@ -227,3 +227,27 @@ def test_runtime_does_not_fallback_when_provider_is_missing_or_fails():
     assert isinstance(failed, AgentExecution)
     assert failed.status == "BLOCKED"
     assert failed.reason == "provider_ollama_request_failed"
+
+
+def test_runtime_constructs_only_requested_provider_and_blocks_if_it_is_unconfigured(monkeypatch):
+    from app import agent_runtime
+    assert hasattr(agent_runtime, "run_isolated_agent_instance")
+    monkeypatch.delenv("OLA_OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("OLA_OLLAMA_ALLOWED_MODELS", raising=False)
+
+    class NeverCalledSupervisor:
+        def execute(self, instance, request):
+            raise AssertionError("worker must not run without a configured provider")
+
+    result = agent_runtime.run_isolated_agent_instance(
+        _instance(),
+        "calculate",
+        "tool.safe_expression",
+        {"expression": "1 + 1"},
+        provider="ollama",
+        source_commit="a" * 40,
+        supervisor=NeverCalledSupervisor(),
+    )
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "provider_model_not_allowlisted"
