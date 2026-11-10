@@ -38,6 +38,7 @@ class AgentExecution:
     image_digest: str | None = None
     worker_result: AgentWorkerResult | None = None
     reason: str | None = None
+    exit_code: int | None = None
 
 
 class AgentSupervisor:
@@ -397,6 +398,7 @@ class AgentSupervisor:
                                     container_id=container_id,
                                     image_digest=self.image_digest,
                                     worker_result=worker_result,
+                                    exit_code=worker_process.returncode,
                                 )
         finally:
             if run_attempted:
