@@ -169,6 +169,10 @@ class AgentSupervisor:
             supervisor_started_at=execution.supervisor_started_at,
             supervisor_finished_at=execution.supervisor_finished_at,
             expected_exit_code=execution.exit_code,
+            expected_labels={
+                "ola.image.digest": execution.image_digest,
+                "ola.source.commit": self.expected_source_commit or "",
+            },
         )
 
     def _inspect_image(self) -> bool:
@@ -196,6 +200,9 @@ class AgentSupervisor:
         cpu_millis: int,
         pids_limit: int,
         source_commit: str,
+        run_id: str,
+        agent_id: str,
+        agent_instance_id: str,
     ) -> str | None:
         if inspect.get("Id") != container_id:
             return "container_identity_mismatch"
@@ -217,6 +224,16 @@ class AgentSupervisor:
         labels = config.get("Labels") or {}
         if labels.get("org.opencontainers.image.revision") != source_commit:
             return "worker_source_revision_mismatch"
+        if labels.get("ola.image.digest") != image_digest:
+            return "worker_image_label_mismatch"
+        if labels.get("ola.source.commit") != source_commit:
+            return "worker_source_label_mismatch"
+        if labels.get("ola.run.id") != run_id:
+            return "worker_run_label_mismatch"
+        if labels.get("ola.agent.id") != agent_id:
+            return "worker_agent_label_mismatch"
+        if labels.get("ola.agent.instance_id") != agent_instance_id:
+            return "worker_agent_instance_label_mismatch"
         for env_item in config.get("Env") or []:
             env_name = str(env_item).split("=", 1)[0].lower()
             if any(marker in env_name for marker in _SECRET_ENV_MARKERS):
@@ -333,6 +350,11 @@ class AgentSupervisor:
             "--cpus", f"{cpu_millis / 1000:g}",
             "--user", "65532:65532",
             "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m",
+            "--label", f"ola.image.digest={self.image_digest}",
+            "--label", f"ola.source.commit={request.source_commit}",
+            "--label", f"ola.run.id={request.run_id}",
+            "--label", f"ola.agent.id={request.agent_id}",
+            "--label", f"ola.agent.instance_id={request.agent_instance_id}",
             self.image_digest,
         ]
 
