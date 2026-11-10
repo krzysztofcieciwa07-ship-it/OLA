@@ -1190,6 +1190,9 @@ def run_isolated_agent_task(
         "input_digest": worker_result.input_digest if worker_result else None,
         "model_output_digest": worker_result.model_output_digest if worker_result else model_output_digest,
         "output_digest": worker_result.output_digest if worker_result else None,
+        "docker_event_digest": execution.docker_event_digest,
+        "docker_started_at": execution.docker_started_at,
+        "docker_died_at": execution.docker_died_at,
     }
     if execution.container_id:
         try:
@@ -1203,7 +1206,10 @@ def run_isolated_agent_task(
                 "worker_pubkey": worker_result.worker_public_key if worker_result else None,
                 "worker_nonce": worker_result.worker_nonce if worker_result else None,
                 "supervisor_started_at": execution.supervisor_started_at,
-                "docker_observer_status": "NOT_CONFIGURED",
+                "docker_observer_status": "VERIFIED" if execution.docker_event_digest else "MISSING",
+                "docker_event_digest": execution.docker_event_digest,
+                "docker_started_at": execution.docker_started_at,
+                "docker_died_at": execution.docker_died_at,
             })
         except Exception:
             return finish("FINALIZATION_PENDING", reason="evidence_agent_start_append_failed",
@@ -1242,7 +1248,10 @@ def run_isolated_agent_task(
                 "exit_code": execution.exit_code,
                 "output_digest": worker_payload["output_digest"],
                 "supervisor_finished_at": execution.supervisor_finished_at,
-                "docker_observer_status": "NOT_CONFIGURED",
+                "docker_observer_status": "VERIFIED" if execution.docker_event_digest else "MISSING",
+                "docker_event_digest": execution.docker_event_digest,
+                "docker_started_at": execution.docker_started_at,
+                "docker_died_at": execution.docker_died_at,
                 "status": execution.status,
             })
         except Exception:
