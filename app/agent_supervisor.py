@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import uuid
 from collections.abc import Sequence
+from types import MappingProxyType
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Any
@@ -60,7 +61,7 @@ class AgentSupervisor:
             manifest_path = os.getenv("OLA_AGENT_MANIFEST_PATH")
             registry = load_agent_manifest(manifest_path) if manifest_path else DEFAULT_AGENT_MANIFEST
         validated_registry = build_agent_registry(registry)
-        self.registry = {agent.agent_id: agent for agent in validated_registry}
+        self.registry = MappingProxyType({agent.agent_id: agent for agent in validated_registry})
         self.image_digest = (
             image_digest if image_digest is not None
             else os.getenv("OLA_AGENT_WORKER_IMAGE_DIGEST")
