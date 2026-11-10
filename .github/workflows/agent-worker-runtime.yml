@@ -15,6 +15,7 @@ on:
       - "tests/test_provenance_hardening.py"
       - "tests/test_agent_runtime_supervisor.py"
       - "tests/test_agent_supervisor.py"
+      - "tests/test_docker_event_observer.py"
       - "tests/test_provider_gateway.py"
       - ".github/workflows/agent-worker-runtime.yml"
   pull_request:
@@ -31,6 +32,7 @@ on:
       - "tests/test_provenance_hardening.py"
       - "tests/test_agent_runtime_supervisor.py"
       - "tests/test_agent_supervisor.py"
+      - "tests/test_docker_event_observer.py"
       - "tests/test_provider_gateway.py"
       - ".github/workflows/agent-worker-runtime.yml"
 
@@ -94,4 +96,4 @@ jobs:
           echo "Worker source: $SOURCE_COMMIT"
 
       - name: Run focused provenance and Docker acceptance tests
-        run: pytest -q tests/test_provenance_hardening.py tests/test_agent_runtime_supervisor.py tests/test_agent_supervisor.py tests/test_provider_gateway.py tests/test_agent_supervisor_docker_integration.py
+        run: pytest -q tests/test_provenance_hardening.py tests/test_agent_runtime_supervisor.py tests/test_agent_supervisor.py tests/test_provider_gateway.py tests/test_docker_event_observer.py tests/test_agent_supervisor_docker_integration.py
