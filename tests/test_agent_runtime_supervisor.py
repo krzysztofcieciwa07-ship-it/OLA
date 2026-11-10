@@ -309,7 +309,12 @@ class _LifecycleSupervisor:
         from app.agent_supervisor import AgentExecution
         from app.agent_worker import run_agent_worker
 
-        worker_result = run_agent_worker(request).model_copy(update={"worker_pid": 1}) if self.valid_worker else None
+        if self.valid_worker:
+            from unittest.mock import patch
+            with patch("app.agent_worker.os.getpid", return_value=1):
+                worker_result = run_agent_worker(request)
+        else:
+            worker_result = None
         return AgentExecution(
             status="COMPLETED",
             container_id="f" * 64,
