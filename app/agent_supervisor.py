@@ -1,0 +1,368 @@
+import json
+import os
+import re
+import subprocess
+import tempfile
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Any
+
+from .agent_protocol import (
+    MAX_REQUEST_BYTES,
+    MAX_RESPONSE_BYTES,
+    AgentWorkerRequest,
+    AgentWorkerResult,
+)
+from .agent_registry import AgentInstanceSpec
+
+
+_IMAGE_DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
+_CONTAINER_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+_SECRET_ENV_MARKERS = ("key", "secret", "token", "password", "credential")
+_FIXED_ENTRYPOINT = ["python", "-m", "app.agent_worker"]
+
+
+@dataclass(frozen=True, slots=True)
+class AgentExecution:
+    status: str
+    container_id: str | None = None
+    image_digest: str | None = None
+    worker_result: AgentWorkerResult | None = None
+    reason: str | None = None
+
+
+class AgentSupervisor:
+    """Launch one-shot, network-isolated Docker workers with a fixed image and entrypoint."""
+
+    def __init__(
+        self,
+        *,
+        image_digest: str | None = None,
+        docker_binary: str = "docker",
+        timeout_seconds: int = 120,
+        memory_mb: int = 512,
+        cpu_millis: int = 1000,
+        pids_limit: int = 32,
+        runner: Callable[..., Any] | None = None,
+        temp_dir: str | None = None,
+    ):
+        self.image_digest = (
+            image_digest if image_digest is not None
+            else os.getenv("OLA_AGENT_WORKER_IMAGE_DIGEST")
+        )
+        self.docker_binary = docker_binary
+        self.timeout_seconds = timeout_seconds
+        self.memory_mb = memory_mb
+        self.cpu_millis = cpu_millis
+        self.pids_limit = pids_limit
+        self.runner = runner or subprocess.run
+        self.temp_dir = temp_dir
+        if any(type(value) is not int or value <= 0 for value in (
+            timeout_seconds, memory_mb, cpu_millis, pids_limit
+        )):
+            raise ValueError("supervisor resource limits must be positive integers")
+
+    @staticmethod
+    def _blocked(reason: str, image_digest: str | None = None,
+                 container_id: str | None = None) -> AgentExecution:
+        return AgentExecution(
+            status="BLOCKED",
+            container_id=container_id,
+            image_digest=image_digest,
+            reason=reason,
+        )
+
+    def _call(self, args: list[str], **kwargs):
+        return self.runner(args, **kwargs)
+
+    def _inspect_image(self) -> bool:
+        if not isinstance(self.image_digest, str) or _IMAGE_DIGEST_PATTERN.fullmatch(self.image_digest) is None:
+            return False
+        try:
+            result = self._call(
+                [self.docker_binary, "image", "inspect", "--format", "{{.Id}}", self.image_digest],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except Exception:
+            return False
+        return result.returncode == 0 and result.stdout.strip() == self.image_digest
+
+    @staticmethod
+    def _verify_container(
+        inspect: dict[str, Any],
+        *,
+        container_id: str,
+        image_digest: str,
+        memory_mb: int,
+        cpu_millis: int,
+        pids_limit: int,
+    ) -> str | None:
+        if inspect.get("Id") != container_id:
+            return "container_identity_mismatch"
+        if inspect.get("Image") != image_digest:
+            return "worker_image_mismatch"
+
+        state = inspect.get("State") or {}
+        if state.get("Status") != "exited" or state.get("ExitCode") != 0:
+            return "worker_exit_not_clean"
+
+        config = inspect.get("Config") or {}
+        host = inspect.get("HostConfig") or {}
+        if config.get("Entrypoint") != _FIXED_ENTRYPOINT or config.get("Cmd") not in (None, []):
+            return "worker_entrypoint_not_fixed"
+        if config.get("User") != "65532:65532":
+            return "worker_user_not_unprivileged"
+        if config.get("Volumes"):
+            return "worker_declared_volumes_not_allowed"
+        for env_item in config.get("Env") or []:
+            env_name = str(env_item).split("=", 1)[0].lower()
+            if any(marker in env_name for marker in _SECRET_ENV_MARKERS):
+                return "worker_secret_environment_not_allowed"
+
+        if host.get("NetworkMode") != "none":
+            return "worker_network_not_isolated"
+        if host.get("ReadonlyRootfs") is not True:
+            return "worker_rootfs_not_read_only"
+        if host.get("Privileged") is not False:
+            return "worker_privileged_mode_not_allowed"
+        if "ALL" not in (host.get("CapDrop") or []):
+            return "worker_capabilities_not_dropped"
+        if "no-new-privileges:true" not in (host.get("SecurityOpt") or []):
+            return "worker_no_new_privileges_missing"
+        if host.get("PidsLimit") != pids_limit:
+            return "worker_pid_limit_mismatch"
+        if host.get("Memory") != memory_mb * 1024 * 1024:
+            return "worker_memory_limit_mismatch"
+        if host.get("NanoCpus") != cpu_millis * 1_000_000:
+            return "worker_cpu_limit_mismatch"
+        if host.get("MemorySwap") not in (None, memory_mb * 1024 * 1024):
+            return "worker_swap_limit_mismatch"
+
+        tmpfs = host.get("Tmpfs") or {}
+        tmpfs_options = str(tmpfs.get("/tmp", ""))
+        if not all(flag in tmpfs_options for flag in ("noexec", "nosuid", "nodev")):
+            return "worker_tmpfs_not_hardened"
+
+        if host.get("Binds") or host.get("Mounts"):
+            return "worker_host_mounts_not_allowed"
+        if host.get("Devices") or host.get("DeviceRequests"):
+            return "worker_device_access_not_allowed"
+        if host.get("PortBindings"):
+            return "worker_port_bindings_not_allowed"
+        if host.get("PidMode") == "host" or host.get("IpcMode") == "host":
+            return "worker_host_namespace_not_allowed"
+
+        mounts = inspect.get("Mounts") or []
+        if any(
+            mount.get("Type") != "tmpfs" or mount.get("Destination") != "/tmp"
+            for mount in mounts
+        ):
+            return "worker_external_mount_not_allowed"
+        return None
+
+    def execute(self, instance: AgentInstanceSpec, request: AgentWorkerRequest) -> AgentExecution:
+        if not isinstance(instance, AgentInstanceSpec) or not isinstance(request, AgentWorkerRequest):
+            return self._blocked("invalid_worker_contract", self.image_digest)
+        if instance.availability_status != "enabled":
+            return self._blocked("agent_instance_disabled", self.image_digest)
+        if (
+            request.agent_id != instance.agent_id
+            or request.specialist_role != instance.specialist_role
+            or request.execution_profile != instance.execution_profile
+            or not set(request.allowed_capabilities).issubset(instance.capabilities)
+            or request.capability not in instance.capabilities
+        ):
+            return self._blocked("worker_request_identity_or_policy_mismatch", self.image_digest)
+
+        request_bytes = len(request.model_dump_json().encode("utf-8"))
+        if request_bytes > min(MAX_REQUEST_BYTES, instance.resource_limits.max_input_bytes):
+            return self._blocked("worker_request_too_large", self.image_digest)
+        if not self._inspect_image():
+            return self._blocked("worker_image_digest_not_locally_verified", self.image_digest)
+
+        memory_mb = min(self.memory_mb, instance.resource_limits.memory_mb)
+        cpu_millis = min(self.cpu_millis, instance.resource_limits.cpu_millis)
+        pids_limit = min(self.pids_limit, instance.resource_limits.max_processes)
+        timeout_seconds = min(self.timeout_seconds, instance.resource_limits.timeout_seconds)
+
+        cid_fd, cidfile = tempfile.mkstemp(
+            prefix="ola-worker-", suffix=".cid", dir=self.temp_dir
+        )
+        os.close(cid_fd)
+        os.unlink(cidfile)
+        container_name = f"ola-worker-{uuid.uuid4().hex}"
+        run_attempted = False
+        container_id = None
+        execution = self._blocked("worker_not_started", self.image_digest)
+        cleanup_ok = True
+
+        command = [
+            self.docker_binary, "run", "-i",
+            "--name", container_name,
+            "--cidfile", cidfile,
+            "--pull=never",
+            "--network", "none",
+            "--read-only",
+            "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges:true",
+            "--pids-limit", str(pids_limit),
+            "--memory", f"{memory_mb}m",
+            "--memory-swap", f"{memory_mb}m",
+            "--cpus", f"{cpu_millis / 1000:g}",
+            "--user", "65532:65532",
+            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m",
+            self.image_digest,
+        ]
+
+        try:
+            run_attempted = True
+            try:
+                worker_process = self._call(
+                    command,
+                    input=request.model_dump_json(),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds,
+                    check=False,
+                )
+            except (subprocess.TimeoutExpired, TimeoutError):
+                execution = AgentExecution(
+                    status="FAILED",
+                    image_digest=self.image_digest,
+                    reason="worker_timeout",
+                )
+                worker_process = None
+            except Exception:
+                execution = self._blocked("worker_launch_failed", self.image_digest)
+                worker_process = None
+
+            try:
+                candidate_id = Path(cidfile).read_text(encoding="ascii").strip()
+                if _CONTAINER_ID_PATTERN.fullmatch(candidate_id):
+                    container_id = candidate_id
+            except OSError:
+                container_id = None
+
+            if worker_process is None:
+                if container_id:
+                    execution = AgentExecution(
+                        status="FAILED",
+                        container_id=container_id,
+                        image_digest=self.image_digest,
+                        reason="worker_timeout_or_launch_failure",
+                    )
+            elif container_id is None:
+                execution = self._blocked("worker_container_identity_missing", self.image_digest)
+            else:
+                try:
+                    inspect_process = self._call(
+                        [
+                            self.docker_binary, "inspect", "--type", "container",
+                            "--format", "{{json .}}", container_id,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,
+                    )
+                except Exception:
+                    inspect_process = None
+
+                if inspect_process is None or inspect_process.returncode != 0:
+                    execution = self._blocked(
+                        "worker_container_inspection_failed", self.image_digest, container_id
+                    )
+                else:
+                    try:
+                        inspect = json.loads(inspect_process.stdout)
+                    except (TypeError, ValueError):
+                        inspect = None
+                    if not isinstance(inspect, dict):
+                        execution = self._blocked(
+                            "worker_container_inspection_invalid", self.image_digest, container_id
+                        )
+                    else:
+                        policy_failure = self._verify_container(
+                            inspect,
+                            container_id=container_id,
+                            image_digest=self.image_digest,
+                            memory_mb=memory_mb,
+                            cpu_millis=cpu_millis,
+                            pids_limit=pids_limit,
+                        )
+                        if policy_failure:
+                            execution = self._blocked(
+                                policy_failure, self.image_digest, container_id
+                            )
+                        elif worker_process.returncode != 0:
+                            execution = AgentExecution(
+                                status="FAILED",
+                                container_id=container_id,
+                                image_digest=self.image_digest,
+                                reason="worker_nonzero_exit",
+                            )
+                        else:
+                            try:
+                                worker_result = AgentWorkerResult.model_validate_json(
+                                    worker_process.stdout
+                                )
+                            except Exception:
+                                worker_result = None
+                            if worker_result is None:
+                                execution = self._blocked(
+                                    "worker_response_invalid", self.image_digest, container_id
+                                )
+                            elif (
+                                worker_result.status != "COMPLETED"
+                                or worker_result.run_id != request.run_id
+                                or worker_result.agent_id != request.agent_id
+                                or worker_result.agent_instance_id != request.agent_instance_id
+                                or worker_result.specialist_role != request.specialist_role
+                                or worker_result.execution_profile != request.execution_profile
+                                or worker_result.capability != request.capability
+                                or worker_result.source_commit != request.source_commit
+                            ):
+                                execution = self._blocked(
+                                    "worker_response_identity_or_status_mismatch",
+                                    self.image_digest,
+                                    container_id,
+                                )
+                            elif len(worker_process.stdout.encode("utf-8")) > min(
+                                MAX_RESPONSE_BYTES, instance.resource_limits.max_output_bytes
+                            ):
+                                execution = self._blocked(
+                                    "worker_response_too_large", self.image_digest, container_id
+                                )
+                            else:
+                                execution = AgentExecution(
+                                    status="COMPLETED",
+                                    container_id=container_id,
+                                    image_digest=self.image_digest,
+                                    worker_result=worker_result,
+                                )
+        finally:
+            if run_attempted:
+                cleanup_target = container_id or container_name
+                try:
+                    cleanup = self._call(
+                        [self.docker_binary, "rm", "-f", cleanup_target],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,
+                    )
+                    cleanup_ok = cleanup.returncode == 0
+                except Exception:
+                    cleanup_ok = False
+            try:
+                Path(cidfile).unlink(missing_ok=True)
+            except OSError:
+                cleanup_ok = False
+
+        if not cleanup_ok:
+            return self._blocked("worker_container_cleanup_failed", self.image_digest, container_id)
+        return execution
