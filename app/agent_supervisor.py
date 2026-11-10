@@ -148,7 +148,7 @@ class AgentSupervisor:
         except (OSError, subprocess.SubprocessError, ValueError, TypeError):
             return False
 
-    def _verify_docker_events(self, execution: AgentExecution) -> DockerEventProof:
+    def _verify_docker_events(self, execution: AgentExecution, request: AgentWorkerRequest) -> DockerEventProof:
         if (
             not execution.container_id
             or not execution.image_digest
@@ -171,7 +171,10 @@ class AgentSupervisor:
             expected_exit_code=execution.exit_code,
             expected_labels={
                 "ola.image.digest": execution.image_digest,
-                "ola.source.commit": self.expected_source_commit or "",
+                "ola.source.commit": request.source_commit,
+                "ola.run.id": request.run_id,
+                "ola.agent.id": request.agent_id,
+                "ola.agent.instance_id": request.agent_instance_id,
             },
         )
 
@@ -435,6 +438,9 @@ class AgentSupervisor:
                             cpu_millis=cpu_millis,
                             pids_limit=pids_limit,
                             source_commit=request.source_commit,
+                            run_id=request.run_id,
+                            agent_id=request.agent_id,
+                            agent_instance_id=request.agent_instance_id,
                         )
                         if policy_failure:
                             execution = self._blocked(
@@ -543,7 +549,7 @@ class AgentSupervisor:
             supervisor_finished_at=supervisor_finished_at,
         )
         if execution.container_id and execution.exit_code is not None:
-            docker_proof = self._verify_docker_events(execution)
+            docker_proof = self._verify_docker_events(execution, request)
             if docker_proof.status != "VERIFIED":
                 blocked = self._blocked(
                     docker_proof.reason or "docker_event_proof_missing",
