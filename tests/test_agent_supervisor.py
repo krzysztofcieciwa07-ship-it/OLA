@@ -1,6 +1,8 @@
 import importlib
 import importlib.util
 import json
+
+import pytest
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -9,6 +11,11 @@ import pytest
 
 IMAGE_DIGEST = "sha256:" + "b" * 64
 CONTAINER_ID = "c" * 64
+
+
+@pytest.fixture(autouse=True)
+def _trusted_source_commit(monkeypatch):
+    monkeypatch.setenv("OLA_SOURCE_COMMIT", "a" * 40)
 
 
 def _supervisor_module():
@@ -293,3 +300,39 @@ def test_supervisor_recomputes_worker_digests_instead_of_trusting_them(tmp_path)
 
     assert result.status == "BLOCKED"
     assert result.reason == "worker_result_digest_mismatch"
+
+
+def test_supervisor_blocks_when_trusted_source_commit_is_missing(monkeypatch, tmp_path):
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    calls = []
+    monkeypatch.delenv("OLA_SOURCE_COMMIT", raising=False)
+    supervisor = supervisor_module.AgentSupervisor(
+        image_digest=IMAGE_DIGEST,
+        runner=lambda *args, **kwargs: calls.append(args),
+        temp_dir=str(tmp_path),
+    )
+
+    result = supervisor.execute(agent, request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "source_commit_not_trusted"
+    assert calls == []
+
+
+def test_supervisor_blocks_request_from_a_different_source_commit(tmp_path):
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    altered = request.model_copy(update={"source_commit": "f" * 40})
+    runner, calls = _runner_for_inspect(agent, altered)
+    supervisor = supervisor_module.AgentSupervisor(
+        image_digest=IMAGE_DIGEST,
+        runner=runner,
+        temp_dir=str(tmp_path),
+    )
+
+    result = supervisor.execute(agent, altered)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "source_commit_not_trusted"
+    assert calls == []
