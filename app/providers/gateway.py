@@ -79,6 +79,8 @@ class ProviderGateway:
             model=response["model"],
             model_digest=response["model_digest"],
             request_id=response["request_id"],
+            request_id_source=response["request_id_source"],
+            provider_response_id=response["provider_response_id"],
             prompt_digest=digest_json({"prompt": prompt}),
             schema_digest=schema_digest,
             raw_response_digest=response["raw_response_digest"],
