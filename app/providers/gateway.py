@@ -71,7 +71,7 @@ class ProviderGateway:
                 or output.tool_name not in set(allowed_tools)
             ):
                 raise ProviderError("tool_not_allowlisted", "model requested a tool outside the explicit allowlist")
-        elif output.tool_name is not None or output.tool_arguments:
+        elif output.tool_name is not None or output.tool_arguments_json != "":
             raise ProviderError("tool_authority_violation", "model output cannot carry an unapproved tool action")
 
         return ProviderResult(
