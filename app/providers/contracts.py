@@ -4,7 +4,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 from ..canonical import canonical_json, digest_json
 class ProviderError(RuntimeError):
     def __init__(self, code: str, message: str):
