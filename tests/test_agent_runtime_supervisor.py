@@ -25,8 +25,9 @@ class RecordingSupervisor:
 
 
 def test_runtime_builds_strict_worker_request_and_delegates_without_fallback():
-    from app.agent_runtime import run_isolated_agent_instance
+    from app import agent_runtime
     from app.agent_supervisor import AgentExecution
+    assert hasattr(agent_runtime, "run_isolated_agent_instance"), "isolated runtime integration is missing"
 
     instance = _instance()
     supervisor = RecordingSupervisor(AgentExecution(
@@ -37,7 +38,7 @@ def test_runtime_builds_strict_worker_request_and_delegates_without_fallback():
     run_id = str(uuid.uuid4())
     instance_id = str(uuid.uuid4())
 
-    result = run_isolated_agent_instance(
+    result = agent_runtime.run_isolated_agent_instance(
         instance,
         "calculate 17 * 23",
         "tool.safe_expression",
@@ -63,6 +64,7 @@ def test_runtime_builds_strict_worker_request_and_delegates_without_fallback():
 def test_runtime_blocks_if_source_commit_is_not_trusted(monkeypatch):
     from app import agent_runtime
     from app.agent_supervisor import AgentExecution
+    assert hasattr(agent_runtime, "run_isolated_agent_instance"), "isolated runtime integration is missing"
 
     class NeverCalledSupervisor:
         def execute(self, instance, request):
@@ -84,8 +86,9 @@ def test_runtime_blocks_if_source_commit_is_not_trusted(monkeypatch):
 
 
 def test_runtime_blocks_capability_outside_instance_allowlist_before_delegation():
-    from app.agent_runtime import run_isolated_agent_instance
+    from app import agent_runtime
     from app.agent_supervisor import AgentExecution
+    assert hasattr(agent_runtime, "run_isolated_agent_instance"), "isolated runtime integration is missing"
 
     class NeverCalledSupervisor:
         def execute(self, instance, request):
@@ -107,8 +110,9 @@ def test_runtime_blocks_capability_outside_instance_allowlist_before_delegation(
 
 
 def test_runtime_preserves_supervisor_block_without_deterministic_fallback():
-    from app.agent_runtime import run_isolated_agent_instance
+    from app import agent_runtime
     from app.agent_supervisor import AgentExecution
+    assert hasattr(agent_runtime, "run_isolated_agent_instance"), "isolated runtime integration is missing"
 
     supervisor = RecordingSupervisor(AgentExecution(
         status="BLOCKED",
