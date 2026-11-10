@@ -111,6 +111,8 @@ class OpenAIAdapter:
                 "model": self.model,
                 "model_digest": None,
                 "request_id": str(body.get("id") or f"openai:{raw_digest}"),
+                "request_id_source": "provider",
+                "provider_response_id": body.get("id") if isinstance(body.get("id"), str) else None,
                 "raw_response_digest": raw_digest,
                 "latency_ms": max(0, int((time.monotonic() - started) * 1000)),
             }
