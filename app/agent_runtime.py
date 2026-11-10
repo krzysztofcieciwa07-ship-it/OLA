@@ -1,5 +1,6 @@
 import ast
 import hashlib
+import ipaddress
 import json
 import operator
 import os
@@ -33,6 +34,32 @@ _SAFE_BINOPS = {
 
 def _digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _validate_ollama_base_url(base_url):
+    try:
+        parsed = urlsplit(base_url)
+        host = (parsed.hostname or "").rstrip(".").lower()
+        parsed.port
+    except ValueError:
+        raise RuntimeError("OLLAMA_BASE_URL is not an approved Ollama endpoint") from None
+    if (not host or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or parsed.scheme not in {"http", "https"}):
+        raise RuntimeError("OLLAMA_BASE_URL is not an approved Ollama endpoint")
+    try:
+        is_loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loopback = host == "localhost"
+    allowed_hosts = {
+        item.strip().lower().rstrip(".")
+        for item in os.getenv("OLA_OLLAMA_ALLOWED_HOSTS", "").split(",")
+        if item.strip()
+    }
+    if parsed.scheme == "http" and not is_loopback:
+        raise RuntimeError("OLLAMA_BASE_URL requires loopback HTTP or an allowlisted HTTPS host")
+    if parsed.scheme == "https" and not is_loopback and host not in allowed_hosts:
+        raise RuntimeError("OLLAMA_BASE_URL requires loopback HTTP or an allowlisted HTTPS host")
+    return base_url
 
 
 MAX_AGENT_TASK_CHARS = 4096
@@ -167,7 +194,7 @@ def _invoke_llm(agent, task, context):
                 for content in item.get("content", []):
                     if content.get("type") in {"output_text", "text"} and content.get("text"):
                         parts.append(content["text"])
-            output = "\\n".join(parts)
+            output = "\n".join(parts)
         if not output:
             raise RuntimeError("OpenAI response contained no output text")
         return {
@@ -181,7 +208,8 @@ def _invoke_llm(agent, task, context):
 
     if provider == "ollama":
         model = os.getenv("OLA_LLM_MODEL", os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b-instruct"))
-        base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
+        base_url = _validate_ollama_base_url(base_url)
         options = {"temperature": 0}
         token_budget = os.getenv("OLA_OLLAMA_NUM_PREDICT")
         if token_budget is not None:
@@ -314,6 +342,8 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
         "prompt_digest": model["prompt_digest"],
         "response_id": model.get("response_id"),
         "model_output_digest": _digest(model.get("output", "")),
+        "model_output_role": "advisory_only",
+        "action_result_source": "registered_capability",
     })
     return result
 
@@ -346,13 +376,13 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
     output = {
         "agent": agent,
         "agent_instance_id": agent_instance_id,
-        "execution_boundary": "independent",
+        "execution_boundary": "in_process",
         "commit": _runtime_source_commit() or "UNKNOWN",
         "context_digest": _digest(canonical_json(context)),
         "task_digest": _digest(task),
         "input_digest": _digest(canonical_json(previous_output)),
         **_execute_agent(agent, tenant_id, task, previous_output, execution),
-        "status": "VERIFIED",
+        "status": "RECORDED",
         "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
     }
     saved = append_evidence_atomic(tenant_id, f"agent.{agent}", {"run_id": run_id, **output})
@@ -523,7 +553,7 @@ def verify_agent_run(tenant_id, run_id):
     context_digests = set()
     for row in run_rows:
         payload = json.loads(row.payload_json)
-        required = {"capability", "tool", "tool_output", "result", "status", "agent_instance_id", "execution_boundary", "context_digest", "invocation_type", "model", "provider", "response_id", "commit", "task_digest", "input_digest", "model_output_digest"}
+        required = {"capability", "tool", "tool_output", "result", "status", "agent_instance_id", "execution_boundary", "context_digest", "invocation_type", "model", "provider", "response_id", "commit", "task_digest", "input_digest", "model_output_digest", "model_output_role", "action_result_source"}
         if not required.issubset(payload):
             return {"status": "BLOCK", "reason": "agent execution evidence incomplete", "evidence_count": len(run_rows)}
         for digest_key in ("context_digest", "task_digest", "input_digest", "model_output_digest"):
@@ -533,12 +563,14 @@ def verify_agent_run(tenant_id, run_id):
                 return {"status": "BLOCK", "reason": f"invalid {digest_key} for {payload.get('agent')}", "evidence_count": len(run_rows)}
         if payload.get("commit") != expected_commit:
             return {"status": "BLOCK", "reason": "runtime commit provenance mismatch", "evidence_count": len(run_rows)}
-        if payload["status"] != "VERIFIED":
-            return {"status": "BLOCK", "reason": "agent execution not verified", "evidence_count": len(run_rows)}
+        if payload["status"] != "RECORDED":
+            return {"status": "BLOCK", "reason": "agent evidence was not producer-recorded", "evidence_count": len(run_rows)}
+        if payload.get("model_output_role") != "advisory_only" or payload.get("action_result_source") != "registered_capability":
+            return {"status": "BLOCK", "reason": "model/action provenance is ambiguous", "evidence_count": len(run_rows)}
         if payload.get("agent") == "self_reflection" and payload.get("tool_output") != "PASS":
             return {"status": "BLOCK", "reason": "self-reflection did not pass", "evidence_count": len(run_rows)}
-        if payload["execution_boundary"] != "independent":
-            return {"status": "BLOCK", "reason": "agent execution boundary is not independent", "evidence_count": len(run_rows)}
+        if payload["execution_boundary"] != "in_process":
+            return {"status": "BLOCK", "reason": "unexpected agent execution boundary", "evidence_count": len(run_rows)}
         instance_ids.add(payload["agent_instance_id"])
         context_digests.add(payload["context_digest"])
     if len(instance_ids) != len(AGENT_ROLES) or len(context_digests) != len(AGENT_ROLES):
@@ -551,4 +583,21 @@ def verify_agent_run(tenant_id, run_id):
         return {"status": "BLOCK", "reason": "legacy or untrusted agent evidence", "evidence_count": len(run_rows)}
     if not chain_ok:
         return {"status": "BLOCK", "reason": reason, "evidence_count": len(run_rows)}
-    return {"status": "VERIFIED", "reason": "runtime commit, independent agent identities, contexts, execution evidence and hash-chain verification passed", "commit": expected_commit, "evidence_count": len(run_rows)}
+    return {
+        "status": "VERIFIED",
+        "reason": "source binding, recorded agent structure, unique instance labels and tenant evidence hash-chain integrity passed; process isolation and capability semantics were not verified",
+        "commit": expected_commit,
+        "evidence_count": len(run_rows),
+        "execution_boundary": "in_process",
+        "verification_scope": [
+            "runtime_source_commit_binding",
+            "agent_role_order_and_record_structure",
+            "unique_agent_instance_and_context_labels",
+            "tenant_evidence_hash_chain_integrity",
+        ],
+        "not_established": [
+            "isolated_or_independent_agent_processes",
+            "semantic_correctness_of_registered_capabilities",
+            "model_generated_action_results",
+        ],
+    }

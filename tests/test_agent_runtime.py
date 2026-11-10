@@ -40,7 +40,7 @@ def test_six_agent_runtime_is_ordered_and_verified(monkeypatch):
     assert "isolated_or_independent_agent_processes" in result["not_established"]
 
 
-def test_six_agents_have_independent_execution_identity_and_context(monkeypatch):
+def test_six_agents_have_unique_in_process_identity_and_context(monkeypatch):
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", TEST_SOURCE_COMMIT)
     tenant_id = _seed_tenant("agent-key-independence")
     result = run_agent_task(tenant_id, "prove independent agent execution")
@@ -50,7 +50,10 @@ def test_six_agents_have_independent_execution_identity_and_context(monkeypatch)
     assert [item["agent"] for item in executions] == AGENT_ROLES
     assert len({item["agent_instance_id"] for item in executions}) == 6
     assert len({item["context_digest"] for item in executions}) == 6
-    assert all(item["execution_boundary"] == "independent" for item in executions)
+    assert all(item["execution_boundary"] == "in_process" for item in executions)
+    assert all(item["status"] == "RECORDED" for item in executions)
+    assert all(item["model_output_role"] == "advisory_only" for item in executions)
+    assert all(item["action_result_source"] == "registered_capability" for item in executions)
     assert all(item["invocation_type"] == "local_deterministic_model" for item in executions)
 
 
@@ -236,3 +239,88 @@ def test_successful_agent_run_has_start_end_and_committed_task_only(monkeypatch)
     assert any(row.record_type == "execution.run.start" for row in rows)
     assert any(row.record_type == "execution.run.end" for row in rows)
     assert not any(task in row.payload_json for row in rows)
+
+
+
+def test_openai_multipart_output_uses_real_newline_separator(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "id": "resp-test",
+                "output": [
+                    {"content": [{"type": "output_text", "text": "part one"}]},
+                    {"content": [{"type": "output_text", "text": "part two"}]},
+                ],
+            }
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: Response())
+
+    result = _invoke_llm("codeact", "calculate 1+1", {})
+    assert result["output"] == "part one\npart two"
+
+
+def test_ollama_rejects_non_loopback_http_endpoint(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://attacker.example:11434")
+    monkeypatch.delenv("OLA_OLLAMA_ALLOWED_HOSTS", raising=False)
+
+    with pytest.raises(RuntimeError, match="loopback HTTP or an allowlisted HTTPS host"):
+        _invoke_llm("codeact", "calculate 1+1", {})
+
+
+def test_ollama_remote_https_requires_explicit_host_allowlist(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.internal.example")
+    monkeypatch.delenv("OLA_OLLAMA_ALLOWED_HOSTS", raising=False)
+
+    with pytest.raises(RuntimeError, match="allowlisted HTTPS"):
+        _invoke_llm("codeact", "calculate 1+1", {})
+
+
+def test_ollama_remote_https_uses_explicitly_allowlisted_host(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": {"content": "advisory output"}}
+
+    calls = []
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        return Response()
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.internal.example")
+    monkeypatch.setenv("OLA_OLLAMA_ALLOWED_HOSTS", "ollama.internal.example")
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = _invoke_llm("codeact", "calculate 1+1", {})
+    assert calls == ["https://ollama.internal.example/api/chat"]
+    assert result["output"] == "advisory output"
