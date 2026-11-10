@@ -72,6 +72,8 @@ class ProviderResult(BaseModel):
             raise ValueError("OpenAI model digest is provider-managed and must be null")
         elif self.request_id_source != "provider":
             raise ValueError("OpenAI request IDs must be attributed to the provider")
+        elif self.provider_response_id != self.request_id:
+            raise ValueError("OpenAI request ID must match the provider response ID")
         if self.output_digest != digest_json(self.output.model_dump(mode="json")):
             raise ValueError("output digest does not match structured output")
         return self
