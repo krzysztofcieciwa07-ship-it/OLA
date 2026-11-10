@@ -15,8 +15,11 @@ CONTAINER_ID = "c" * 64
 
 @pytest.fixture(autouse=True)
 def _trusted_source_commit(monkeypatch):
+    from app.agent_supervisor import AgentSupervisor
+
     monkeypatch.setenv("OLA_SOURCE_COMMIT", "a" * 40)
     monkeypatch.delenv("OLA_AGENT_MANIFEST_PATH", raising=False)
+    monkeypatch.setattr(AgentSupervisor, "_verify_rootless_runtime", lambda self: True)
 
 
 def _supervisor_module():
