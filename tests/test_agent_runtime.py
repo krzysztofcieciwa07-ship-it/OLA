@@ -36,6 +36,8 @@ def test_six_agent_runtime_is_ordered_and_verified(monkeypatch):
     assert result["agents"] == AGENT_ROLES
     assert result["evidence_count"] == 6
     assert verify_agent_run(tenant_id, result["run_id"])["status"] == "VERIFIED"
+    assert "tenant_evidence_hash_chain_integrity" in result["verification_scope"]
+    assert "isolated_or_independent_agent_processes" in result["not_established"]
 
 
 def test_six_agents_have_independent_execution_identity_and_context(monkeypatch):

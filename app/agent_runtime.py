@@ -393,6 +393,8 @@ def run_agent_task(tenant_id, task):
         verification = verify_agent_run(tenant_id, run_id)
         final_status = verification["status"]
         final_reason = verification.get("reason")
+        verification_scope = verification.get("verification_scope", [])
+        not_established = verification.get("not_established", [])
     except Exception as exc:
         # Record only the exception class; messages can contain prompts, secrets or PII.
         append_evidence_atomic(tenant_id, "execution.run.error", {
@@ -401,6 +403,8 @@ def run_agent_task(tenant_id, task):
         })
         final_status = "FAILED"
         final_reason = f"agent execution failed: {type(exc).__name__}"
+        verification_scope = []
+        not_established = ["agent execution and semantic correctness were not verified"]
         append_evidence_atomic(tenant_id, "execution.run.end", {
             "run_id": run_id, "status": final_status,
             "completed_agent_count": len(evidence_ids),
@@ -410,6 +414,8 @@ def run_agent_task(tenant_id, task):
             "status": final_status, "reason": final_reason,
             "agents": AGENT_ROLES, "evidence_count": len(evidence_ids),
             "evidence_ids": evidence_ids, "execution": execution,
+            "verification_scope": verification_scope,
+            "not_established": not_established,
         }
 
     final_result = execution[-1].get("final_result") if execution else None
@@ -422,6 +428,8 @@ def run_agent_task(tenant_id, task):
         "status": final_status, "reason": final_reason,
         "agents": AGENT_ROLES, "evidence_count": len(evidence_ids),
         "evidence_ids": evidence_ids, "execution": execution,
+        "verification_scope": verification_scope,
+        "not_established": not_established,
     }
 
 
