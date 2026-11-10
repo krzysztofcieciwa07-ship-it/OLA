@@ -64,8 +64,15 @@ class ProviderGateway:
         except Exception as exc:
             raise ProviderError("structured_output_invalid", "provider output failed strict schema validation") from exc
 
+        if policy == "source_provenance_required" and not output.evidence_refs:
+            raise ProviderError("evidence_refs_required", "source-provenance policy requires evidence references")
         if output.status == "needs_tool":
-            if not allowed_tools or output.tool_name not in set(allowed_tools):
+            if (
+                not allowed_tools
+                or any(not isinstance(tool, str) or not tool for tool in allowed_tools)
+                or len(set(allowed_tools)) != len(allowed_tools)
+                or output.tool_name not in set(allowed_tools)
+            ):
                 raise ProviderError("tool_not_allowlisted", "model requested a tool outside the explicit allowlist")
         elif output.tool_name is not None or output.tool_arguments:
             raise ProviderError("tool_authority_violation", "model output cannot carry an unapproved tool action")
