@@ -40,6 +40,7 @@ class AgentSupervisor:
         self,
         *,
         image_digest: str | None = None,
+        expected_source_commit: str | None = None,
         docker_binary: str = "docker",
         timeout_seconds: int = 120,
         memory_mb: int = 512,
@@ -51,6 +52,10 @@ class AgentSupervisor:
         self.image_digest = (
             image_digest if image_digest is not None
             else os.getenv("OLA_AGENT_WORKER_IMAGE_DIGEST")
+        )
+        self.expected_source_commit = (
+            expected_source_commit if expected_source_commit is not None
+            else os.getenv("OLA_SOURCE_COMMIT")
         )
         self.docker_binary = docker_binary
         self.timeout_seconds = timeout_seconds
@@ -175,6 +180,12 @@ class AgentSupervisor:
             request = AgentWorkerRequest.model_validate_json(request.model_dump_json())
         except Exception:
             return self._blocked("invalid_worker_contract", self.image_digest)
+        if (
+            not isinstance(self.expected_source_commit, str)
+            or re.fullmatch(r"[a-f0-9]{40}", self.expected_source_commit) is None
+            or request.source_commit != self.expected_source_commit
+        ):
+            return self._blocked("source_commit_not_trusted", self.image_digest)
         if instance.availability_status != "enabled":
             return self._blocked("agent_instance_disabled", self.image_digest)
         if (
