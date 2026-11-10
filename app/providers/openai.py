@@ -116,6 +116,10 @@ class OpenAIAdapter:
                 "request_id": provider_response_id,
                 "request_id_source": "provider",
                 "provider_response_id": provider_response_id,
+                "proxy_request_id": None,
+                "proxy_record_digest": None,
+                "proxy_signature": None,
+                "proxy_key_id": None,
                 "raw_response_digest": raw_digest,
                 "latency_ms": max(0, int((time.monotonic() - started) * 1000)),
             }

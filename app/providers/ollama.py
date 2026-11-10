@@ -63,7 +63,7 @@ class OllamaAdapter:
             "OLA_OLLAMA_ALLOWED_HOSTS", "127.0.0.1,localhost,::1"
         )
         self.base_url = _validate_base_url(
-            (base_url or os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")).strip().rstrip("/"),
+            (base_url or os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11435")).strip().rstrip("/"),
             self.allowed_hosts,
         )
         if timeout_seconds <= 0:
@@ -128,6 +128,21 @@ class OllamaAdapter:
                 raise ProviderError("invalid_model_json", "Ollama response was not valid JSON") from None
             raw_digest = hashlib.sha256(response.content).hexdigest()
             provider_response_id = body.get("id")
+            proxy_request_id = response.headers.get("X-OLA-Proxy-Request-ID")
+            proxy_record_digest = response.headers.get("X-OLA-Proxy-Record-Digest")
+            proxy_signature = response.headers.get("X-OLA-Proxy-Signature")
+            proxy_key_id = response.headers.get("X-OLA-Proxy-Key-ID")
+            if (
+                not isinstance(proxy_request_id, str)
+                or not proxy_request_id.startswith("ola-proxy:")
+                or not isinstance(proxy_record_digest, str)
+                or re.fullmatch(r"[a-f0-9]{64}", proxy_record_digest) is None
+                or not isinstance(proxy_signature, str)
+                or len(proxy_signature) != 88
+                or not isinstance(proxy_key_id, str)
+                or not proxy_key_id
+            ):
+                raise ProviderError("proxy_audit_missing", "Ollama response lacks signed independent proxy provenance")
             return {
                 "data": output,
                 "model": self.model,
@@ -135,6 +150,10 @@ class OllamaAdapter:
                 "request_id": gateway_request_id,
                 "request_id_source": "ola_gateway",
                 "provider_response_id": provider_response_id if isinstance(provider_response_id, str) else None,
+                "proxy_request_id": proxy_request_id,
+                "proxy_record_digest": proxy_record_digest,
+                "proxy_signature": proxy_signature,
+                "proxy_key_id": proxy_key_id,
                 "raw_response_digest": raw_digest,
                 "latency_ms": max(0, int((time.monotonic() - started) * 1000)),
             }

@@ -1,3 +1,4 @@
+import base64
 import json
 import uuid
 
@@ -154,6 +155,10 @@ def test_runtime_binds_structured_provider_provenance_to_worker_request():
         request_id="ola-gateway:request-1",
         request_id_source="ola_gateway",
         provider_response_id=None,
+        proxy_request_id="ola-proxy:test-fixture",
+        proxy_record_digest="e" * 64,
+        proxy_signature=base64.b64encode(b"x" * 64).decode("ascii"),
+        proxy_key_id="test-ollama-proxy-key",
         prompt_digest="b" * 64,
         schema_digest="c" * 64,
         raw_response_digest="d" * 64,

@@ -1,3 +1,4 @@
+import base64
 import json
 
 import httpx
@@ -44,7 +45,12 @@ def _ollama_client(output=None, *, status=200, tags=None):
                 "id": "ollama-request-001",
                 "message": {"content": json.dumps(output or _output())},
             }
-            return httpx.Response(status, json=body)
+            return httpx.Response(status, json=body, headers={
+                "X-OLA-Proxy-Request-ID": "ola-proxy:test-request-001",
+                "X-OLA-Proxy-Record-Digest": "e" * 64,
+                "X-OLA-Proxy-Signature": base64.b64encode(b"x" * 64).decode("ascii"),
+                "X-OLA-Proxy-Key-ID": "test-ollama-proxy-key",
+            })
         return httpx.Response(404)
 
     return httpx.Client(transport=httpx.MockTransport(handler)), calls
@@ -196,6 +202,8 @@ def test_openai_uses_strict_json_schema_and_does_not_leak_api_key():
     assert result.request_id_source == "provider"
     assert result.provider_response_id == "chatcmpl-test-001"
     assert api_key not in serialized
+    assert result.proxy_request_id is None
+    assert result.proxy_signature is None
     assert len(calls) == 1
 
 
@@ -436,3 +444,25 @@ def test_model_output_tool_arguments_reject_duplicate_keys_and_nonfinite_values(
                 allowed_tools=("tool.safe_expression",),
             )
         assert error.value.code == "structured_output_invalid"
+
+
+def test_ollama_adapter_blocks_responses_without_signed_proxy_headers():
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": MODEL, "digest": MODEL_DIGEST}]})
+        return httpx.Response(200, json={
+            "model": MODEL,
+            "message": {"content": json.dumps(_output())},
+        })
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    adapter = OllamaAdapter(
+        model=MODEL,
+        allowed_models=(MODEL,),
+        expected_model_digest=MODEL_DIGEST,
+        base_url="http://127.0.0.1:11435",
+        client=client,
+    )
+    with pytest.raises(ProviderError) as error:
+        adapter.generate(prompt="test", schema=AgentModelOutput.model_json_schema())
+    assert error.value.code == "proxy_audit_missing"
