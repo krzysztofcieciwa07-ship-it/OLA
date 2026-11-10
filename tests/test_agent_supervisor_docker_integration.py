@@ -33,6 +33,7 @@ def test_real_docker_worker_is_one_shot_isolated_and_cleaned_up():
         registry=[agent],
         image_digest=WORKER_IMAGE,
         expected_source_commit=SOURCE_COMMIT,
+        runtime_preflight=lambda: True,
     )
 
     def make_request():
