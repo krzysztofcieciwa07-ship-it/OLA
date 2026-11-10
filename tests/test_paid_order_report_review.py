@@ -63,6 +63,16 @@ def _review(ctx, *, reviewer_key=None, tip_hash=None, report_sha256=None):
         },
     )
 
+def _acknowledge(ctx, *, requester_key=None, response_evidence_id=None, report_sha256=None):
+    return TestClient(app).post(
+        f"/checkout-orders/{ctx['order_id']}/report/acknowledge",
+        headers={"Authorization": f"Bearer {requester_key or ctx['requester_key']}"},
+        json={
+            "response_evidence_id": response_evidence_id or ctx["response_evidence_id"],
+            "report_sha256": report_sha256 or ctx["report_digest"],
+        },
+    )
+
 
 def test_checkout_retry_never_discloses_completed_report(monkeypatch):
     from app.main import app as main_app
@@ -84,6 +94,7 @@ def test_report_review_and_download_routes_are_registered():
     paths = {route.path for route in app.routes}
     assert "/checkout-orders/{order_id}/review-report" in paths
     assert "/checkout-orders/{order_id}/report" in paths
+    assert "/checkout-orders/{order_id}/report/acknowledge" in paths
 
 
 def test_customer_cannot_download_report_before_independent_review(monkeypatch):
@@ -116,14 +127,10 @@ def test_report_review_binds_digest_and_fresh_evidence_tip(monkeypatch):
         )) is None
 
 
-def test_reviewed_report_is_delivered_only_to_original_requester(monkeypatch):
+def test_report_response_is_not_delivery_until_authenticated_client_ack(monkeypatch):
     ctx = _completed_order(monkeypatch)
     approved = _review(ctx)
     assert approved.status_code == 200, approved.text
-    approval_body = approved.json()
-    assert approval_body["status"] == "REPORT_APPROVED"
-    assert "report" not in approval_body
-    assert ctx["confidential"] not in json.dumps(approval_body)
 
     wrong_identity = TestClient(app).get(
         f"/checkout-orders/{ctx['order_id']}/report",
@@ -131,20 +138,45 @@ def test_reviewed_report_is_delivered_only_to_original_requester(monkeypatch):
     )
     assert wrong_identity.status_code == 403
 
-    delivered = TestClient(app).get(
+    prepared = TestClient(app).get(
         f"/checkout-orders/{ctx['order_id']}/report",
         headers={"Authorization": f"Bearer {ctx['requester_key']}"},
     )
-    assert delivered.status_code == 200, delivered.text
-    assert delivered.json()["status"] == "REPORT_DELIVERED"
-    assert delivered.json()["report"]["decision_report"]["summary"] == ctx["confidential"]
+    assert prepared.status_code == 200, prepared.text
+    prepared_body = prepared.json()
+    assert prepared_body["status"] == "REPORT_RESPONSE_PREPARED"
+    assert prepared_body["customer_delivery"] == "RESPONSE_PREPARED"
+    assert prepared_body["report"]["decision_report"]["summary"] == ctx["confidential"]
+    ctx["response_evidence_id"] = prepared_body["response_evidence_id"]
 
     repeated = TestClient(app).get(
         f"/checkout-orders/{ctx['order_id']}/report",
         headers={"Authorization": f"Bearer {ctx['requester_key']}"},
     )
     assert repeated.status_code == 200
-    assert repeated.json() == delivered.json()
+    assert repeated.json() == prepared_body
+
+    wrong_ack_identity = _acknowledge(ctx, requester_key=ctx["approver_key"])
+    assert wrong_ack_identity.status_code == 403
+    wrong_digest = _acknowledge(ctx, report_sha256="f" * 64)
+    assert wrong_digest.status_code == 409
+
+    acknowledged = _acknowledge(ctx)
+    assert acknowledged.status_code == 200, acknowledged.text
+    assert acknowledged.json()["status"] == "REPORT_ACKNOWLEDGED"
+    assert acknowledged.json()["customer_delivery"] == "ACKNOWLEDGED"
+    assert acknowledged.json()["response_evidence_id"] == ctx["response_evidence_id"]
+
+    repeated_ack = _acknowledge(ctx)
+    assert repeated_ack.status_code == 200
+    assert repeated_ack.json() == acknowledged.json()
+
+    after_ack = TestClient(app).get(
+        f"/checkout-orders/{ctx['order_id']}/report",
+        headers={"Authorization": f"Bearer {ctx['requester_key']}"},
+    )
+    assert after_ack.status_code == 200
+    assert after_ack.json()["status"] == "REPORT_ACKNOWLEDGED"
 
     with SessionLocal() as db:
         review = db.scalar(select(CheckoutReportReview).where(
@@ -156,12 +188,13 @@ def test_reviewed_report_is_delivered_only_to_original_requester(monkeypatch):
             EvidenceRecord.tenant_id == ctx["tenant_id"]
         )).all()
     assert review.status == "APPROVED"
-    assert review.delivery_evidence_id
     assert review.reviewer_id == ctx["reviewer_id"]
-    assert order.status == "REPORT_DELIVERED"
+    assert order.status == "REPORT_ACKNOWLEDGED"
     assert job.status == "EXECUTED_REVIEW_REQUIRED"
     assert sum(row.record_type == "human.customer_report_approval" for row in records) == 1
-    assert sum(row.record_type == "revenue.report_delivered" for row in records) == 1
+    assert sum(row.record_type == "revenue.report_response_prepared" for row in records) == 1
+    assert sum(row.record_type == "revenue.report_client_acknowledged" for row in records) == 1
+    assert sum(row.record_type == "revenue.report_delivered" for row in records) == 0
 
 
 def test_third_tenant_key_without_report_reviewer_role_is_rejected(monkeypatch):
