@@ -1,9 +1,15 @@
 {
   "schema": "ola.netlify.pilot.v1",
-  "name": "OLA di-OS Netlify static pilot",
-  "scope": "static-hosting-only",
-  "backend_connected": false,
+  "name": "OLA di-OS NINA API Netlify pilot",
+  "scope": "nina-api-staging",
+  "target": "staging",
+  "api_origin": "https://ola-fastapi-api-staging.up.railway.app",
+  "api_routes": [
+    "/api/health",
+    "/api/readyz",
+    "/api/nina-run"
+  ],
   "secrets_included": false,
   "production_deployment_allowed": false,
-  "purpose": "Verify isolated static hosting, branch-scoped builds, security headers, and deploy evidence without connecting OLA runtime services."
+  "purpose": "Exercise the NINA authenticated run contract through a narrow same-origin proxy to the existing Railway staging API. A dedicated staging API key must be entered by the operator at runtime and is not persisted by the page."
 }
