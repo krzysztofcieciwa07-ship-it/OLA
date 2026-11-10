@@ -464,11 +464,10 @@ def run_agent_task(tenant_id, task):
 
 
 def run_multi_agent_task(tenant_id, task, agents):
-    """Execute each registered agent instance and return independently checkable runtime evidence.
+    """Build a deterministic digest-chain simulation for a supplied agent registry.
 
-    This boundary deliberately does not claim external LLM inference. It proves that the
-    registered 391-agent runtime instances execute distinct work units and communicate in
-    a deterministic chain.
+    This function does not start agent processes, invoke an LLM, execute capabilities,
+    persist evidence, or prove inter-agent communication. Its output is SIMULATED only.
     """
     if not agents:
         raise ValueError("agent registry must not be empty")
@@ -481,7 +480,7 @@ def run_multi_agent_task(tenant_id, task, agents):
 
     run_id = str(uuid.uuid4())
     execution = []
-    communication_edges = []
+    digest_edges = []
     previous_digest = _digest(canonical_json({"run_id": run_id, "task": task}))
 
     for index, agent in enumerate(agents):
@@ -489,42 +488,52 @@ def run_multi_agent_task(tenant_id, task, agents):
             "run_id": run_id,
             "agent_id": agent.agent_id,
             "role": agent.role,
-            "task": task,
+            "task_digest": _digest(task),
             "input_digest": previous_digest,
         })
         output_digest = _digest(invocation)
-        execution_record = {
+        execution.append({
             "agent_id": agent.agent_id,
             "role": agent.role,
             "sequence": index,
             "input_digest": previous_digest,
             "output_digest": output_digest,
-            "status": "VERIFIED",
-        }
-        execution.append(execution_record)
+            "status": "SIMULATED",
+        })
         if index:
-            communication_edges.append({
+            digest_edges.append({
                 "from": agents[index - 1].agent_id,
                 "to": agent.agent_id,
                 "input_digest": previous_digest,
+                "edge_type": "synthetic_digest_link",
             })
         previous_digest = output_digest
 
-    cooperation_verified = (
+    digest_chain_valid = (
         len(execution) == len(agents)
         and len({item["output_digest"] for item in execution}) == len(agents)
-        and len(communication_edges) == len(agents) - 1
-        and all(item["status"] == "VERIFIED" for item in execution)
+        and len(digest_edges) == len(agents) - 1
+        and all(item["status"] == "SIMULATED" for item in execution)
     )
     return {
         "run_id": run_id,
         "tenant_id": tenant_id,
-        "task": task,
-        "status": "VERIFIED" if cooperation_verified else "BLOCK",
+        "task_digest": _digest(task),
+        "status": "SIMULATED",
+        "execution_mode": "digest_only_simulation",
+        "claim_boundary": "No agent processes, LLM calls, capability executions, evidence persistence, or real inter-agent communication are established.",
         "agent_count": len(agents),
         "agent_ids": agent_ids,
-        "communication_edges": communication_edges,
-        "cooperation_verified": cooperation_verified,
+        "digest_edges": digest_edges,
+        "cooperation_verified": False,
+        "deterministic_chain_valid": digest_chain_valid,
+        "not_established": [
+            "agent_process_execution",
+            "llm_invocation",
+            "capability_execution",
+            "inter_agent_communication",
+            "independently_verified_agent_evidence",
+        ],
         "execution": execution,
     }
 
