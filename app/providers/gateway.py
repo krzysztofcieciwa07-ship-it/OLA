@@ -1,12 +1,9 @@
 from typing import Sequence
 
-from pydantic import BaseModel
-
 from .contracts import (
     AgentModelOutput,
     ProviderError,
     ProviderResult,
-    canonical_json,
     digest_json,
 )
 
