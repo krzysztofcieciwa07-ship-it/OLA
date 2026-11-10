@@ -216,7 +216,7 @@ def test_gateway_rejects_invalid_schema_and_unapproved_tool_request():
         "summary": "Need a tool.",
         "reasoning": "The model wants to run a shell.",
         "tool_name": "shell.exec",
-        "tool_arguments": {"command": "whoami"},
+        "tool_arguments_json": "{\"command\":\"whoami\"}",
         "evidence_refs": [],
     })
     adapter = OllamaAdapter(
@@ -269,7 +269,7 @@ def test_gateway_rejects_extra_model_fields_and_unapproved_tool_payloads():
         gateway.generate(provider="ollama", policy="run_policy", prompt="test")
     assert error.value.code == "structured_output_invalid"
 
-    client, _ = _ollama_client(output=_output(tool_arguments_json="{\\\"command\\\":\\\"rm -rf /\\\"}"))
+    client, _ = _ollama_client(output=_output(tool_arguments_json="{\"command\":\"rm -rf /\"}"))
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
