@@ -17,6 +17,7 @@ from .agent_protocol import (
     AgentWorkerResult,
     digest_json,
 )
+from .provenance.crypto import verify_worker_signature
 from .agent_registry import (
     AgentInstanceSpec,
     DEFAULT_AGENT_MANIFEST,
@@ -376,12 +377,19 @@ class AgentSupervisor:
                                     "worker_process_identity_invalid", self.image_digest, container_id
                                 )
                             elif (
-                                worker_result.input_digest != digest_json({
+                                worker_result.request_digest != digest_json(request.model_dump(mode="json"))
+                                or worker_result.input_digest != digest_json({
                                     "task": request.task,
                                     "capability_input": request.capability_input,
                                 })
+                                or worker_result.capability_input_digest != digest_json(request.capability_input)
                                 or worker_result.model_output_digest != digest_json(request.model_output)
-                                or worker_result.output_digest != digest_json(worker_result.capability_result)
+                                or not verify_worker_signature(
+                                    worker_result,
+                                    expected_request_digest=digest_json(request.model_dump(mode="json")),
+                                    expected_model_output_digest=digest_json(request.model_output),
+                                    expected_capability_input_digest=digest_json(request.capability_input),
+                                )
                             ):
                                 execution = self._blocked(
                                     "worker_result_digest_mismatch", self.image_digest, container_id
