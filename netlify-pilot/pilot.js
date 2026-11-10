@@ -143,7 +143,7 @@ ui.form.addEventListener("submit", async (event) => {
   const start = performance.now();
 
   try {
-    // An unregistered capability must be rejected before any execution or evidence write.
+    // The real NINA endpoint returns a nested BLOCK decision before runtime or evidence writes.
     const policyProbe = await requestJson("/api/nina-run", {
       method: "POST",
       headers: {
@@ -156,11 +156,17 @@ ui.form.addEventListener("submit", async (event) => {
       }),
     }, 12000);
 
+    const policyBody = policyProbe.body;
+    const policyReason = policyBody?.nina?.reason ?? "";
     const policyOk = policyProbe.response.status === 200 &&
-      policyProbe.body?.status === "BLOCK" &&
-      policyProbe.body?.verified === false &&
-      typeof policyProbe.body?.reason === "string" &&
-      policyProbe.body.reason.includes("unknown tool");
+      policyBody?.status === "BLOCK" &&
+      policyBody?.nina?.status === "BLOCK" &&
+      policyReason.includes("unknown tool: shell") &&
+      policyBody?.igor?.status === "UNKNOWN" &&
+      policyBody?.provenance?.status === "NOT_CREATED" &&
+      Array.isArray(policyBody?.replay) && policyBody.replay.length === 0 &&
+      policyBody?.human_gate?.status === "BLOCK" &&
+      typeof policyBody?.run_id === "undefined";
     mark(ui.policy, policyOk);
 
     if (!policyOk) {
@@ -224,7 +230,7 @@ ui.form.addEventListener("submit", async (event) => {
         " / events=" + (Array.isArray(body?.replay) ? body.replay.length : "brak"),
       "Human Gate: " + (body?.human_gate?.status ?? "UNKNOWN"),
       "Decision: " + (body?.status ?? "UNKNOWN"),
-      "Expected REVIEW means runtime verified but not human-approved; it is not production authorization.",
+      "REVIEW oznacza: przebieg runtime zweryfikowany, ale bez zatwierdzenia człowieka. To nie jest autoryzacja produkcyjna.",
     ]);
     if (!run.response.ok && body?.detail) {
       const detail = document.createElement("p");
