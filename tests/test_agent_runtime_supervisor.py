@@ -143,7 +143,7 @@ def test_runtime_binds_structured_provider_provenance_to_worker_request():
         summary="The task is ready for bounded execution.",
         reasoning="The provider returned a strict structured proposal.",
         tool_name=None,
-        tool_arguments={},
+        tool_arguments_json="",
         evidence_refs=[],
     )
     provider_result = ProviderResult(
