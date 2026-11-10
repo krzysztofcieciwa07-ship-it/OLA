@@ -6,8 +6,10 @@ on:
   pull_request:
     paths:
       - "app/agent_firewall/**"
-      - "tests/test_agent_firewall_policy.py"
-      - "tests/test_agent_firewall_targets.py"
+      - "app/hashchain.py"
+      - "scripts/agent_firewall_signer.py"
+      - "scripts/igor_agent_firewall.py"
+      - "tests/test_agent_firewall_*.py"
       - ".github/workflows/agent-firewall-v02.yml"
       - "policies/agent_firewall_v0_2.toml"
 
@@ -25,7 +27,7 @@ jobs:
           python-version: "3.13"
       - name: Install repository dependencies
         run: python -m pip install -r requirements.txt
-      - name: Compile application and tests
-        run: python -m compileall -q app/agent_firewall tests
-      - name: Firewall policy and target contracts
-        run: pytest -q tests/test_agent_firewall_policy.py tests/test_agent_firewall_targets.py
+      - name: Compile application, signer and tests
+        run: python -m compileall -q app/agent_firewall app/hashchain.py scripts tests
+      - name: Firewall policy, target and checkpoint contracts
+        run: pytest -q tests/test_agent_firewall_policy.py tests/test_agent_firewall_targets.py tests/test_agent_firewall_checkpoints.py tests/test_agent_firewall_hashchain.py

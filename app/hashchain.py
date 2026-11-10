@@ -12,7 +12,7 @@ TRUSTED_PRODUCER = "ola_runtime"
 PUBLIC_PRODUCER = "tenant_api"
 PRIVILEGED_PREFIXES = ("workflow.", "task.", "human.", "agent.",
                        "provenance.", "decision.", "execution.", "verification.",
-                       "stripe.", "revenue.")
+                       "stripe.", "revenue.", "firewall.", "ledger.")
 
 
 def canonical_json(value):
