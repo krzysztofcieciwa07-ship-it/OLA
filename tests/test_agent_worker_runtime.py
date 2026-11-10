@@ -144,3 +144,27 @@ def test_model_output_is_advisory_and_cannot_change_the_capability_result():
     assert first.output_digest == second.output_digest
     assert first.model_output_digest != second.model_output_digest
     assert first.model_output_role == second.model_output_role == "advisory_only"
+
+
+def test_worker_blocks_registered_but_not_yet_implemented_capability():
+    protocol, worker = _worker_modules()
+    request_data = _request_data()
+    request_data["capability"] = "task.plan"
+    request_data["allowed_capabilities"] = ["task.plan"]
+    request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(request_data))
+
+    result = worker.run_agent_worker(request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "capability_not_implemented"
+    assert result.capability_result == {}
+
+
+def test_worker_cli_rejects_malformed_json():
+    _, worker = _worker_modules()
+    stdout = io.StringIO()
+    code = worker.main(stdin=io.BytesIO(b"{not-json"), stdout=stdout)
+
+    assert code == 2
+    payload = json.loads(stdout.getvalue())
+    assert payload == {"status": "BLOCKED", "reason": "invalid_request"}
