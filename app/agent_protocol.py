@@ -19,22 +19,7 @@ _UUID_PATTERN = re.compile(
 )
 
 
-def canonical_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
-
-
-def digest_json(value: Any) -> str:
-    import hashlib
-
-    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
-
-
+from .canonical import canonical_json, digest_json
 def _json_size(value: Any) -> int:
     try:
         return len(canonical_json(value).encode("utf-8"))
