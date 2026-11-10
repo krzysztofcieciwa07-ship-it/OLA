@@ -1,0 +1,465 @@
+"""Contract tests for the Ed25519 authenticated agent invocation boundary."""
+
+import asyncio
+import hashlib
+import base64
+import json
+import secrets
+import time
+import uuid
+
+import httpx
+import pytest
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from fastapi.testclient import TestClient
+
+from app import main
+from app.database import SessionLocal
+from app.models import ApiKey, Tenant
+from app.api_key_hashing import api_key_fingerprint
+from app.secure_bridge import build_signing_message
+
+
+PATH = "/api/v1/secure-bridge/invoke"
+AUDIENCE = "ola-secure-agent-runtime"
+
+
+def _seed_tenant():
+    tenant_id = str(uuid.uuid4())
+    with SessionLocal() as db:
+        db.add(Tenant(id=tenant_id, name="secure-bridge-test"))
+        db.commit()
+    return tenant_id
+
+
+def _public_key_b64(private_key):
+    raw = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    return base64.b64encode(raw).decode("ascii")
+
+
+def _configure_key(monkeypatch, tenant_id, private_key, *, scopes=None, key_id="agent-key-1"):
+    registry = [{
+        "key_id": key_id,
+        "tenant_id": tenant_id,
+        "agent_id": "agent-001",
+        "public_key_b64": _public_key_b64(private_key),
+        "scopes": scopes if scopes is not None else ["agent:run"],
+    }]
+    monkeypatch.setenv("OLA_SECURE_BRIDGE_KEYS_JSON", json.dumps(registry))
+    monkeypatch.setenv("OLA_SECURE_BRIDGE_AUDIENCE", AUDIENCE)
+    monkeypatch.setenv("OLA_SECURE_BRIDGE_CLOCK_SKEW_SECONDS", "60")
+    monkeypatch.delenv("OLA_SECURE_BRIDGE_REVOKED_KEY_IDS", raising=False)
+
+
+def _signed_request(private_key, *, key_id="agent-key-1", body=None, timestamp=None,
+                    nonce=None, audience=AUDIENCE, path=PATH):
+    timestamp = str(int(time.time()) if timestamp is None else timestamp)
+    nonce = nonce or secrets.token_hex(32)
+    body_bytes = body if isinstance(body, bytes) else json.dumps(
+        body if body is not None else {
+            "action": "agent.run",
+            "payload": {"task": "verify secure agent invocation"},
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    message = build_signing_message(
+        key_id=key_id,
+        timestamp=timestamp,
+        nonce=nonce,
+        method="POST",
+        path=path,
+        audience=audience,
+        body=body_bytes,
+    )
+    signature = private_key.sign(message).hex()
+    return body_bytes, nonce, {
+        "content-type": "application/json",
+        "x-key-id": key_id,
+        "x-timestamp": timestamp,
+        "x-nonce": nonce,
+        "x-signature-ed25519": signature,
+    }
+
+
+def _fake_execution(monkeypatch):
+    calls = []
+
+    def fake_run(tenant_id, task):
+        calls.append((tenant_id, task))
+        return {
+            "status": "VERIFIED",
+            "run_id": "run-secure-bridge-test",
+            "evidence_ids": ["evidence-1"],
+            "evidence_count": 1,
+        }
+
+    monkeypatch.setattr(main, "run_agent_task", fake_run)
+    return calls
+
+
+def test_valid_ed25519_request_executes_only_the_allowlisted_agent_action(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, headers = _signed_request(private_key)
+
+    response = TestClient(main.app).post(PATH, content=body, headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "VERIFIED"
+    assert response.json()["execution"]["run_id"] == "run-secure-bridge-test"
+    assert calls == [(tenant_id, "verify secure agent invocation")]
+
+
+def test_replaying_the_same_signed_nonce_is_rejected_across_clients(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, headers = _signed_request(private_key)
+
+    first = TestClient(main.app).post(PATH, content=body, headers=headers)
+    second = TestClient(main.app).post(PATH, content=body, headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.json()["detail"] == "request nonce already used"
+    assert len(calls) == 1
+
+
+def test_signature_binds_exact_raw_body_and_rejects_tampering(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, headers = _signed_request(private_key)
+    changed_body = body.replace(b"verify secure agent invocation", b"tampered invocation")
+
+    response = TestClient(main.app).post(PATH, content=changed_body, headers=headers)
+
+    assert response.status_code == 401
+    assert calls == []
+
+
+def test_timestamp_must_be_canonical_and_inside_configured_clock_window(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    stale = int(time.time()) - 300
+    body, _nonce, headers = _signed_request(private_key, timestamp=stale)
+
+    response = TestClient(main.app).post(PATH, content=body, headers=headers)
+
+    assert response.status_code == 401
+    assert calls == []
+
+
+def test_unknown_revoked_or_malformed_signing_keys_fail_closed(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, headers = _signed_request(private_key)
+    monkeypatch.setenv("OLA_SECURE_BRIDGE_REVOKED_KEY_IDS", "agent-key-1")
+
+    revoked = TestClient(main.app).post(PATH, content=body, headers=headers)
+    assert revoked.status_code == 401
+
+    monkeypatch.delenv("OLA_SECURE_BRIDGE_REVOKED_KEY_IDS")
+    malformed = dict(headers)
+    malformed["x-signature-ed25519"] = "ab" * 63 + "zz"
+    invalid = TestClient(main.app).post(PATH, content=body, headers=malformed)
+
+    assert invalid.status_code == 401
+    assert calls == []
+
+
+def test_scope_mismatch_never_executes(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key, scopes=["evidence:read"])
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, headers = _signed_request(private_key)
+
+    response = TestClient(main.app).post(PATH, content=body, headers=headers)
+
+    assert response.status_code == 403
+    assert calls == []
+
+
+def test_unknown_actions_never_execute(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, headers = _signed_request(
+        private_key,
+        body={"action": "admin.delete", "payload": {"task": "delete all"}},
+    )
+
+    response = TestClient(main.app).post(PATH, content=body, headers=headers)
+
+    assert response.status_code == 403
+    assert calls == []
+
+
+def test_untrusted_signatures_cannot_quarantine_a_real_agent_key(monkeypatch):
+    tenant_id = _seed_tenant()
+    trusted_private_key = Ed25519PrivateKey.generate()
+    attacker_private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, trusted_private_key)
+    calls = _fake_execution(monkeypatch)
+
+    client = TestClient(main.app)
+    for _ in range(2):
+        body, _nonce, forged_headers = _signed_request(attacker_private_key)
+        rejected = client.post(PATH, content=body, headers=forged_headers)
+        assert rejected.status_code == 401
+
+    body, _nonce, trusted_headers = _signed_request(trusted_private_key)
+    accepted = client.post(PATH, content=body, headers=trusted_headers)
+
+    assert accepted.status_code == 200
+    assert len(calls) == 1
+
+
+def test_signature_is_bound_to_method_path_and_audience(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, wrong_path_headers = _signed_request(private_key, path="/other/path")
+    wrong_path = TestClient(main.app).post(PATH, content=body, headers=wrong_path_headers)
+
+    body, _nonce, wrong_audience_headers = _signed_request(private_key, audience="wrong-audience")
+    wrong_audience = TestClient(main.app).post(PATH, content=body, headers=wrong_audience_headers)
+
+    assert wrong_path.status_code == 401
+    assert wrong_audience.status_code == 401
+    assert calls == []
+
+
+def test_nonce_store_unavailability_fails_closed_without_execution(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+
+    from app import secure_bridge
+    monkeypatch.setattr(
+        secure_bridge, "consume_nonce",
+        lambda **_kwargs: (_ for _ in ()).throw(secure_bridge.NonceStoreUnavailable()),
+    )
+    body, _nonce, headers = _signed_request(private_key)
+
+    response = TestClient(main.app).post(PATH, content=body, headers=headers)
+
+    assert response.status_code == 503
+    assert calls == []
+
+
+
+def test_tenant_api_cannot_forge_secure_bridge_internal_evidence():
+    tenant_id = _seed_tenant()
+    api_key = "secure-bridge-evidence-customer-key"
+    with SessionLocal() as db:
+        db.add(ApiKey(
+            id=str(uuid.uuid4()),
+            tenant_id=tenant_id,
+            key_hash=api_key_fingerprint(api_key),
+        ))
+        db.commit()
+
+    response = TestClient(main.app).post(
+        "/evidence",
+        headers={"X-API-Key": api_key},
+        json={
+            "record_type": "secure_bridge.request_authenticated",
+            "payload": {
+                "request_id": "forged-request",
+                "key_id": "forged-agent",
+                "agent_id": "agent-001",
+            },
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "reserved internal evidence type"
+
+
+
+def test_request_body_limit_stops_stream_before_accumulating_oversized_payload():
+    reader = getattr(main, "_read_bounded_request_body", None)
+    assert callable(reader), "secure bridge must stream and bound request-body reads"
+
+    class ChunkedRequest:
+        def __init__(self):
+            self.read_after_limit = False
+
+        async def stream(self):
+            yield b"a" * main.MAX_BODY_BYTES
+            yield b"b"
+            self.read_after_limit = True
+            yield b"c"
+
+    request = ChunkedRequest()
+    with pytest.raises(main.HTTPException) as error:
+        asyncio.run(reader(request))
+
+    assert error.value.status_code == 413
+    assert request.read_after_limit is False
+
+
+def test_agent_runtime_does_not_block_health_endpoint_event_loop(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+
+    def slow_agent_run(_tenant_id, _task):
+        time.sleep(0.30)
+        return {
+            "status": "VERIFIED",
+            "run_id": "run-secure-bridge-nonblocking-test",
+            "evidence_ids": ["evidence-1"],
+            "evidence_count": 1,
+        }
+
+    monkeypatch.setattr(main, "run_agent_task", slow_agent_run)
+    body, _nonce, headers = _signed_request(private_key)
+
+    async def exercise_concurrent_requests():
+        transport = httpx.ASGITransport(app=main.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            started = time.perf_counter()
+            invoke = asyncio.create_task(
+                client.post(PATH, content=body, headers=headers)
+            )
+            await asyncio.sleep(0.01)
+            health = await client.get("/health")
+            health_elapsed = time.perf_counter() - started
+            invoke_response = await invoke
+        return health, health_elapsed, invoke_response
+
+    health, elapsed, invocation = asyncio.run(exercise_concurrent_requests())
+
+    assert health.status_code == 200
+    assert elapsed < 0.15, f"health endpoint was blocked for {elapsed:.3f}s"
+    assert invocation.status_code == 200
+
+
+
+def test_concurrent_duplicate_signed_requests_execute_at_most_once(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, headers = _signed_request(private_key)
+
+    async def send_concurrently():
+        transport = httpx.ASGITransport(app=main.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await asyncio.gather(
+                client.post(PATH, content=body, headers=headers),
+                client.post(PATH, content=body, headers=headers),
+            )
+
+    first, second = asyncio.run(send_concurrently())
+
+    assert sorted([first.status_code, second.status_code]) == [200, 409]
+    assert len(calls) == 1
+
+
+def test_signed_bridge_executes_real_six_agent_runtime_and_records_correlated_evidence(monkeypatch):
+    from app.agent_runtime import AGENT_ROLES
+
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "d" * 40)
+    monkeypatch.delenv("OLA_REQUIRE_BUILD_INFO", raising=False)
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OLA_LLM_MODE", "deterministic")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    body, _nonce, headers = _signed_request(private_key)
+
+    response = TestClient(main.app).post(PATH, content=body, headers=headers)
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "VERIFIED"
+    execution = result["execution"]
+    assert execution["status"] == "VERIFIED"
+    assert execution["evidence_count"] == len(AGENT_ROLES) == 6
+    assert execution["agents"] == AGENT_ROLES
+
+    records = main.read_tenant_evidence(tenant_id)
+    bridge_records = [
+        row for row in records
+        if row["record_type"].startswith("secure_bridge.")
+    ]
+    agent_records = [
+        row for row in records
+        if row["record_type"].startswith("agent.")
+    ]
+    assert [row["record_type"] for row in bridge_records] == [
+        "secure_bridge.request_authenticated",
+        "secure_bridge.execution_completed",
+    ]
+    assert len(agent_records) == 6
+    assert all(
+        json.loads(row["payload_json"])["run_id"] == execution["run_id"]
+        for row in agent_records
+    )
+    assert json.loads(bridge_records[-1]["payload_json"])["run_id"] == execution["run_id"]
+
+
+
+def test_sqlite_nonce_insert_prunes_expired_rows_for_local_runtime():
+    from app import secure_bridge
+    from app.models import SecureBridgeNonce
+
+    key_id = "sqlite-nonce-retention-test"
+    secure_bridge.consume_nonce(
+        key_id=key_id, nonce="d" * 64, retention_seconds=60, now=1000,
+    )
+    secure_bridge.consume_nonce(
+        key_id=key_id, nonce="e" * 64, retention_seconds=60, now=1950,
+    )
+
+    with secure_bridge.SessionLocal() as db:
+        rows = db.query(SecureBridgeNonce).filter(
+            SecureBridgeNonce.key_id == key_id
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].nonce_hash == hashlib.sha256(
+        ("e" * 64).encode("ascii")
+    ).hexdigest()
+
+
+def test_unpaired_surrogate_task_is_rejected_before_nonce_consumption(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, headers = _signed_request(
+        private_key,
+        body=b'{"action":"agent.run","payload":{"task":"\\ud800"}}',
+    )
+    client = TestClient(main.app, raise_server_exceptions=False)
+
+    first = client.post(PATH, content=body, headers=headers)
+    second = client.post(PATH, content=body, headers=headers)
+
+    assert first.status_code == 400
+    assert second.status_code == 400
+    assert first.json()["detail"] == "task must be valid UTF-8"
+    assert second.json()["detail"] == "task must be valid UTF-8"
+    assert calls == []

@@ -26,6 +26,7 @@ The current source tree contains:
 - PostgreSQL can be selected with `OLA_DATABASE_URL` (preferred) or `DATABASE_URL`. PostgreSQL URLs are normalized to SQLAlchemy's `postgresql+psycopg` dialect; Psycopg 3 is pinned in `requirements.txt`.
 - Evidence writes use SQLite `BEGIN IMMEDIATE` or PostgreSQL transaction-scoped, tenant-keyed advisory locks. Both preserve per-tenant sequence numbers and previous-record hashes.
 - PostgreSQL schema DDL is an explicit migration step (`scripts/migrate_postgres.py`) using `OLA_DATABASE_MIGRATION_URL`. API and worker startup verify the migrated schema and append-only triggers but do not create PostgreSQL tables with runtime credentials.
+- Secure bridge nonce reservations are INSERT-only for the API runtime; expired replay records are pruned by the separate maintenance command `scripts/prune_secure_bridge_nonces.py` using migration credentials.
 - PostgreSQL support has a dedicated real-server integration test and GitHub Actions workflow. It is not production-certified until that workflow has passed on the exact candidate SHA and operational backup, TLS, privileges, pooling, and failover checks are verified.
 - `pyproject.toml` metadata names the distribution `ola-evidence-graph` and declares FastAPI; `requirements.txt` supplies the pinned runtime/test dependencies used by the Docker build.
 
@@ -43,6 +44,7 @@ The inspected application source defines these HTTP routes:
 | POST | `/evidence` | Appends tenant-submitted evidence, while rejecting reserved internal evidence types. |
 | POST | `/audit` | Runs the currently supported controlled fault-and-recovery audit scenario. |
 | POST | `/agent-run` | Requests an agent execution through the execution safety controls. |
+| POST | `/api/v1/secure-bridge/invoke` | Ed25519-authenticated, nonce-protected agent invocation; v1 allows only `agent.run`. |
 
 Check `app/main.py` for the complete route contract and current request/response details.
 
@@ -146,3 +148,8 @@ Until all required evidence is present, describe production readiness as `UNKNOW
 ## Security
 
 Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities or preparing a release. Never commit API keys, Stripe secrets, signing keys, customer data, or production evidence containing sensitive information.
+
+
+## Secure Agent Bridge
+
+See [docs/SECURE_AGENT_BRIDGE_V1.md](docs/SECURE_AGENT_BRIDGE_V1.md) for the Ed25519 request format, trusted-key configuration, replay protection, revocation and migration requirements.
