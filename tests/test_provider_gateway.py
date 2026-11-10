@@ -22,7 +22,7 @@ def _output(**updates):
         "summary": "Calculation completed.",
         "reasoning": "The model proposed a bounded arithmetic operation.",
         "tool_name": None,
-        "tool_arguments": {},
+        "tool_arguments_json": "",
         "evidence_refs": [],
     }
     value.update(updates)
@@ -269,7 +269,7 @@ def test_gateway_rejects_extra_model_fields_and_unapproved_tool_payloads():
         gateway.generate(provider="ollama", policy="run_policy", prompt="test")
     assert error.value.code == "structured_output_invalid"
 
-    client, _ = _ollama_client(output=_output(tool_arguments={"command": "rm -rf /"}))
+    client, _ = _ollama_client(output=_output(tool_arguments_json="{\\\"command\\\":\\\"rm -rf /\\\"}"))
     adapter = OllamaAdapter(
         model=MODEL,
         allowed_models=(MODEL,),
