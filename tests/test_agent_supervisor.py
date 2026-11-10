@@ -114,7 +114,7 @@ def test_supervisor_launches_a_fresh_hardened_worker_with_no_host_mounts(tmp_pat
     assert "--read-only" in run_args
     assert "--cap-drop" in run_args and run_args[run_args.index("--cap-drop") + 1] == "ALL"
     assert "--security-opt" in run_args and "no-new-privileges:true" in run_args
-    assert "--pids-limit" in run_args and run_args[run_args.index("--pids-limit") + 1] == "32"
+    assert "--pids-limit" in run_args and run_args[run_args.index("--pids-limit") + 1] == "16"
     assert "--memory" in run_args and run_args[run_args.index("--memory") + 1] == "512m"
     assert "--cpus" in run_args and run_args[run_args.index("--cpus") + 1] == "1"
     assert "--user" in run_args and run_args[run_args.index("--user") + 1] == "65532:65532"
@@ -186,3 +186,12 @@ def test_supervisor_fails_closed_on_worker_timeout_and_cleans_container(tmp_path
     assert result.status == "FAILED"
     assert result.container_id == CONTAINER_ID
     assert any(args[1:3] == ["rm", "-f"] for args in calls)
+
+
+def test_worker_image_requires_digest_pinned_base_and_fixed_entrypoint():
+    source = (Path(__file__).resolve().parents[1] / "workstation" / "worker.Dockerfile").read_text()
+    assert "ARG PYTHON_BASE_IMAGE" in source
+    assert "FROM ${PYTHON_BASE_IMAGE}" in source
+    assert "@sha256:" in source
+    assert "ENTRYPOINT [\"python\", \"-m\", \"app.agent_worker\"]" in source
+    assert "USER 65532:65532" in source
