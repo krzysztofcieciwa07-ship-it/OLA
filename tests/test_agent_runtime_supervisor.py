@@ -351,28 +351,40 @@ def test_isolated_agent_task_writes_full_lifecycle_without_plaintext(monkeypatch
     )
 
     assert result["status"] == "COMPLETED"
-    assert [item[0] for item in records] == [
+    event_types = [item[0] for item in records]
+    assert event_types == [
         "execution.run.start",
+        "plan.committed",
+        "model.request",
+        "model.response",
         "agent.provider.response",
-        "agent.worker.start",
+        "capability.start",
+        "agent.start",
+        "capability.end",
+        "agent.end",
         "agent.worker.end",
         "execution.run.end",
     ]
     payloads = [item[1] for item in records]
+    by_type = {record_type: payload for record_type, payload in records}
     assert all(payload["run_id"] == result["run_id"] for payload in payloads)
-    assert payloads[0]["task_digest"] == __import__("hashlib").sha256(
+    assert by_type["execution.run.start"]["task_digest"] == __import__("hashlib").sha256(
         b"calculate 17 * 23"
     ).hexdigest()
     serialized_payloads = json.dumps(payloads)
     assert "calculate 17 * 23" not in serialized_payloads
     assert "17 * 23" not in serialized_payloads
-    assert payloads[1]["fallback_used"] is False
-    assert payloads[1]["model_output_role"] == "advisory_only"
-    assert payloads[1]["model_output_digest"] == payloads[3]["model_output_digest"]
-    assert payloads[3]["worker_pid"] == 1
-    assert payloads[3]["exit_code"] == 0
-    assert payloads[3]["container_id"] == payloads[4]["container_id"]
-    assert payloads[3]["output_digest"] == payloads[4]["output_digest"]
+    assert by_type["model.request"]["fallback_used"] is False
+    assert by_type["model.request"]["model_output_role"] == "advisory_only"
+    assert by_type["model.request"]["model_output_digest"] == by_type["agent.worker.end"]["model_output_digest"]
+    assert by_type["capability.start"]["args_digest"] == by_type["model.request"]["capability_input_digest"]
+    assert by_type["capability.start"]["derived_from"] == by_type["model.request"]["model_output_digest"]
+    assert by_type["agent.start"]["worker_pubkey"]
+    assert by_type["agent.end"]["worker_sig"]
+    assert by_type["agent.worker.end"]["worker_pid"] == 1
+    assert by_type["agent.worker.end"]["exit_code"] == 0
+    assert by_type["agent.start"]["container_id"] == by_type["agent.end"]["container_id"]
+    assert by_type["agent.end"]["output_digest"] == by_type["capability.end"]["output_digest"]
 
 
 def test_isolated_agent_task_blocks_provider_failure_and_records_terminal_state(monkeypatch):
@@ -406,6 +418,7 @@ def test_isolated_agent_task_blocks_provider_failure_and_records_terminal_state(
     assert result["reason"] == "provider_ollama_request_failed"
     assert [item[0] for item in records] == [
         "execution.run.start",
+        "plan.committed",
         "execution.run.error",
         "execution.run.end",
     ]
