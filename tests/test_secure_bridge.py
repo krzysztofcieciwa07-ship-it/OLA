@@ -442,3 +442,24 @@ def test_sqlite_nonce_insert_prunes_expired_rows_for_local_runtime():
     assert rows[0].nonce_hash == hashlib.sha256(
         ("e" * 64).encode("ascii")
     ).hexdigest()
+
+
+def test_unpaired_surrogate_task_is_rejected_before_nonce_consumption(monkeypatch):
+    tenant_id = _seed_tenant()
+    private_key = Ed25519PrivateKey.generate()
+    _configure_key(monkeypatch, tenant_id, private_key)
+    calls = _fake_execution(monkeypatch)
+    body, _nonce, headers = _signed_request(
+        private_key,
+        body=b'{"action":"agent.run","payload":{"task":"\\ud800"}}',
+    )
+    client = TestClient(main.app, raise_server_exceptions=False)
+
+    first = client.post(PATH, content=body, headers=headers)
+    second = client.post(PATH, content=body, headers=headers)
+
+    assert first.status_code == 400
+    assert second.status_code == 400
+    assert first.json()["detail"] == "task must be valid UTF-8"
+    assert second.json()["detail"] == "task must be valid UTF-8"
+    assert calls == []
