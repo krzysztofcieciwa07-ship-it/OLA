@@ -4,3 +4,22 @@
 
 [build.environment]
   NODE_VERSION = "24"
+
+# Narrow, same-origin HTTPS proxy. Do not widen to /api/*.
+[[redirects]]
+  from = "/api/health"
+  to = "https://ola-fastapi-api-staging.up.railway.app/health"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/readyz"
+  to = "https://ola-fastapi-api-staging.up.railway.app/readyz"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/nina-run"
+  to = "https://ola-fastapi-api-staging.up.railway.app/nina-run"
+  status = 200
+  force = true
