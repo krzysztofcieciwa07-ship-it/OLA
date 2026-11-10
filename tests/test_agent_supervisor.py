@@ -336,3 +336,82 @@ def test_supervisor_blocks_request_from_a_different_source_commit(tmp_path):
     assert result.status == "BLOCKED"
     assert result.reason == "source_commit_not_trusted"
     assert calls == []
+
+
+def test_supervisor_blocks_malformed_worker_response_and_cleans_container(tmp_path):
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    calls = []
+
+    def runner(args, **kwargs):
+        calls.append(args)
+        if args[1:3] == ["image", "inspect"]:
+            return CompletedProcess(args, 0, stdout=IMAGE_DIGEST, stderr="")
+        if args[1] == "run":
+            Path(args[args.index("--cidfile") + 1]).write_text(CONTAINER_ID, encoding="ascii")
+            return CompletedProcess(args, 0, stdout="not-json", stderr="")
+        if args[1] == "inspect":
+            return CompletedProcess(args, 0, stdout=json.dumps(_docker_inspect()), stderr="")
+        if args[1:3] == ["rm", "-f"]:
+            return CompletedProcess(args, 0, stdout="", stderr="")
+        raise AssertionError(f"unexpected docker command: {args}")
+
+    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    result = supervisor.execute(agent, request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "worker_response_invalid"
+    assert any(args[1:3] == ["rm", "-f"] for args in calls)
+
+
+def test_supervisor_blocks_nonzero_worker_exit(tmp_path):
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    calls = []
+
+    def runner(args, **kwargs):
+        calls.append(args)
+        if args[1:3] == ["image", "inspect"]:
+            return CompletedProcess(args, 0, stdout=IMAGE_DIGEST, stderr="")
+        if args[1] == "run":
+            Path(args[args.index("--cidfile") + 1]).write_text(CONTAINER_ID, encoding="ascii")
+            return CompletedProcess(args, 1, stdout="", stderr="worker crash")
+        if args[1] == "inspect":
+            inspect = _docker_inspect()
+            inspect["State"] = {"Status": "exited", "ExitCode": 1}
+            return CompletedProcess(args, 0, stdout=json.dumps(inspect), stderr="")
+        if args[1:3] == ["rm", "-f"]:
+            return CompletedProcess(args, 0, stdout="", stderr="")
+        raise AssertionError(f"unexpected docker command: {args}")
+
+    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    result = supervisor.execute(agent, request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "worker_exit_not_clean"
+    assert any(args[1:3] == ["rm", "-f"] for args in calls)
+
+
+def test_supervisor_blocks_success_if_container_cleanup_fails(tmp_path):
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    from app.agent_worker import run_agent_worker
+
+    def runner(args, **kwargs):
+        if args[1:3] == ["image", "inspect"]:
+            return CompletedProcess(args, 0, stdout=IMAGE_DIGEST, stderr="")
+        if args[1] == "run":
+            Path(args[args.index("--cidfile") + 1]).write_text(CONTAINER_ID, encoding="ascii")
+            result = run_agent_worker(request).model_copy(update={"worker_pid": 1})
+            return CompletedProcess(args, 0, stdout=result.model_dump_json(), stderr="")
+        if args[1] == "inspect":
+            return CompletedProcess(args, 0, stdout=json.dumps(_docker_inspect()), stderr="")
+        if args[1:3] == ["rm", "-f"]:
+            return CompletedProcess(args, 1, stdout="", stderr="cleanup failed")
+        raise AssertionError(f"unexpected docker command: {args}")
+
+    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    result = supervisor.execute(agent, request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "worker_container_cleanup_failed"
