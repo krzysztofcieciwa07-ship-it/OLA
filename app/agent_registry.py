@@ -1,5 +1,7 @@
+import json
 import re
 from collections.abc import Sequence
+from pathlib import Path
 from dataclasses import dataclass
 
 from .agent_catalog import AgentDefinition, ResourceLimits, load_agent_catalog
@@ -131,3 +133,38 @@ def build_agent_registry(manifest: Sequence[AgentInstanceSpec]) -> list[AgentIns
 DEFAULT_AGENT_MANIFEST = (
     make_agent_instance_spec("agent-001", "Hermes", "react"),
 )
+
+
+def load_agent_manifest(path: str | Path) -> list[AgentInstanceSpec]:
+    """Load a strict version-1 manifest; every instance must name a specialist explicitly."""
+    try:
+        raw = Path(path).read_bytes()
+    except OSError:
+        raise ValueError("agent manifest cannot be read") from None
+    if len(raw) > 1_048_576:
+        raise ValueError("agent manifest exceeds the 1 MiB limit")
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise ValueError("agent manifest JSON is invalid") from None
+    if not isinstance(payload, dict) or set(payload) != {"schema_version", "agents"}:
+        raise ValueError("agent manifest must contain only schema_version and agents")
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != 1:
+        raise ValueError("unsupported agent manifest schema_version")
+    entries = payload["agents"]
+    if not isinstance(entries, list) or not entries or len(entries) > 10000:
+        raise ValueError("agent manifest must contain between 1 and 10000 instances")
+
+    manifest = []
+    expected_fields = {"agent_id", "specialist_role", "execution_profile"}
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict) or set(entry) != expected_fields:
+            raise ValueError(f"manifest entry {index} has unknown or missing fields")
+        if any(not isinstance(entry[field], str) for field in expected_fields):
+            raise ValueError(f"manifest entry {index} fields must be strings")
+        manifest.append(make_agent_instance_spec(
+            agent_id=entry["agent_id"],
+            specialist_role=entry["specialist_role"],
+            execution_profile=entry["execution_profile"],
+        ))
+    return build_agent_registry(manifest)
