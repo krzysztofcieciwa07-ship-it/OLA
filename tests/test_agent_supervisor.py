@@ -106,6 +106,7 @@ def test_supervisor_launches_a_fresh_hardened_worker_with_no_host_mounts(tmp_pat
         raise AssertionError(f"unexpected docker command: {args}")
 
     supervisor = supervisor_module.AgentSupervisor(
+        registry=[agent],
         image_digest=IMAGE_DIGEST,
         runner=fake_runner,
         temp_dir=str(tmp_path),
@@ -142,6 +143,7 @@ def test_supervisor_rejects_mutable_or_missing_worker_image_before_docker():
 
     for image in (None, "ola-agent-worker:latest", "sha256:not-a-digest"):
         supervisor = supervisor_module.AgentSupervisor(
+        registry=[agent],
             image_digest=image,
             runner=runner,
         )
@@ -155,6 +157,7 @@ def test_supervisor_blocks_request_identity_mismatch_before_docker():
     agent, request = _request_and_agent()
     calls = []
     supervisor = supervisor_module.AgentSupervisor(
+        registry=[agent],
         image_digest=IMAGE_DIGEST,
         runner=lambda *args, **kwargs: calls.append(args),
     )
@@ -184,6 +187,7 @@ def test_supervisor_fails_closed_on_worker_timeout_and_cleans_container(tmp_path
         raise AssertionError(f"unexpected docker command: {args}")
 
     supervisor = supervisor_module.AgentSupervisor(
+        registry=[agent],
         image_digest=IMAGE_DIGEST,
         runner=fake_runner,
         temp_dir=str(tmp_path),
@@ -235,7 +239,7 @@ def test_supervisor_rejects_container_with_wrong_source_revision_label(tmp_path)
     inspect = _docker_inspect()
     inspect["Config"]["Labels"]["org.opencontainers.image.revision"] = "f" * 40
     runner, _ = _runner_for_inspect(agent, request, inspect_override=inspect)
-    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    supervisor = supervisor_module.AgentSupervisor(registry=[agent], image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
 
     result = supervisor.execute(agent, request)
 
@@ -247,7 +251,7 @@ def test_supervisor_rejects_worker_not_running_as_container_pid_one(tmp_path):
     supervisor_module = _supervisor_module()
     agent, request = _request_and_agent()
     runner, _ = _runner_for_inspect(agent, request, worker_pid=2)
-    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    supervisor = supervisor_module.AgentSupervisor(registry=[agent], image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
 
     result = supervisor.execute(agent, request)
 
@@ -261,7 +265,7 @@ def test_supervisor_rejects_added_linux_capabilities(tmp_path):
     inspect = _docker_inspect()
     inspect["HostConfig"]["CapAdd"] = ["NET_ADMIN"]
     runner, _ = _runner_for_inspect(agent, request, inspect_override=inspect)
-    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    supervisor = supervisor_module.AgentSupervisor(registry=[agent], image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
 
     result = supervisor.execute(agent, request)
 
@@ -280,7 +284,7 @@ def test_supervisor_rejects_manifest_capability_escalation_before_docker(tmp_pat
         "allowed_capabilities": ("production.deploy",),
     })
     runner, calls = _runner_for_inspect(escalated_agent, escalated_request)
-    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    supervisor = supervisor_module.AgentSupervisor(registry=[agent], image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
 
     result = supervisor.execute(escalated_agent, escalated_request)
 
@@ -294,7 +298,7 @@ def test_supervisor_recomputes_worker_digests_instead_of_trusting_them(tmp_path)
     from app.agent_worker import run_agent_worker
     tampered = run_agent_worker(request).model_copy(update={"worker_pid": 1, "output_digest": "f" * 64})
     runner, _ = _runner_for_inspect(agent, request, result_override=tampered)
-    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    supervisor = supervisor_module.AgentSupervisor(registry=[agent], image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
 
     result = supervisor.execute(agent, request)
 
@@ -308,6 +312,7 @@ def test_supervisor_blocks_when_trusted_source_commit_is_missing(monkeypatch, tm
     calls = []
     monkeypatch.delenv("OLA_SOURCE_COMMIT", raising=False)
     supervisor = supervisor_module.AgentSupervisor(
+        registry=[agent],
         image_digest=IMAGE_DIGEST,
         runner=lambda *args, **kwargs: calls.append(args),
         temp_dir=str(tmp_path),
@@ -326,6 +331,7 @@ def test_supervisor_blocks_request_from_a_different_source_commit(tmp_path):
     altered = request.model_copy(update={"source_commit": "f" * 40})
     runner, calls = _runner_for_inspect(agent, altered)
     supervisor = supervisor_module.AgentSupervisor(
+        registry=[agent],
         image_digest=IMAGE_DIGEST,
         runner=runner,
         temp_dir=str(tmp_path),
@@ -356,7 +362,7 @@ def test_supervisor_blocks_malformed_worker_response_and_cleans_container(tmp_pa
             return CompletedProcess(args, 0, stdout="", stderr="")
         raise AssertionError(f"unexpected docker command: {args}")
 
-    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    supervisor = supervisor_module.AgentSupervisor(registry=[agent], image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
     result = supervisor.execute(agent, request)
 
     assert result.status == "BLOCKED"
@@ -384,7 +390,7 @@ def test_supervisor_blocks_nonzero_worker_exit(tmp_path):
             return CompletedProcess(args, 0, stdout="", stderr="")
         raise AssertionError(f"unexpected docker command: {args}")
 
-    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    supervisor = supervisor_module.AgentSupervisor(registry=[agent], image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
     result = supervisor.execute(agent, request)
 
     assert result.status == "BLOCKED"
@@ -410,7 +416,7 @@ def test_supervisor_blocks_success_if_container_cleanup_fails(tmp_path):
             return CompletedProcess(args, 1, stdout="", stderr="cleanup failed")
         raise AssertionError(f"unexpected docker command: {args}")
 
-    supervisor = supervisor_module.AgentSupervisor(image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
+    supervisor = supervisor_module.AgentSupervisor(registry=[agent], image_digest=IMAGE_DIGEST, runner=runner, temp_dir=str(tmp_path))
     result = supervisor.execute(agent, request)
 
     assert result.status == "BLOCKED"
