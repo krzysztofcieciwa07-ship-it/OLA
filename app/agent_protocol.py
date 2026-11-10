@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .agent_catalog import load_agent_catalog
+from .canonical import canonical_json, digest_json
 
 
 MAX_REQUEST_BYTES = 65536
@@ -19,7 +20,7 @@ _UUID_PATTERN = re.compile(
 )
 
 
-from .canonical import canonical_json, digest_json
+
 def _json_size(value: Any) -> int:
     try:
         return len(canonical_json(value).encode("utf-8"))
