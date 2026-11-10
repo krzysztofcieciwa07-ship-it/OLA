@@ -17,7 +17,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN python -m pip install --no-cache-dir --disable-pip-version-check pydantic==2.14.3 \
+RUN python -m pip install --no-cache-dir --disable-pip-version-check pydantic==2.14.3 cryptography==45.0.7 rfc8785==0.1.4 \
     && python -m pip check \
     && groupadd --gid 65532 ola-worker \
     && useradd --uid 65532 --gid 65532 --no-create-home --shell /usr/sbin/nologin ola-worker
