@@ -6,6 +6,7 @@ const ui = {
   auth: document.querySelector("#auth-check"),
   infraTime: document.querySelector("#infra-time"),
   refresh: document.querySelector("#refresh"),
+  runOverall: document.querySelector("#run-overall"),
   key: document.querySelector("#api-key"),
   confirm: document.querySelector("#staging-confirm"),
   form: document.querySelector("#run-form"),
@@ -13,6 +14,7 @@ const ui = {
   clear: document.querySelector("#clear-key"),
   result: document.querySelector("#run-result"),
   runTime: document.querySelector("#run-time"),
+  policy: document.querySelector("#policy-check"),
   nina: document.querySelector("#nina-check"),
   igor: document.querySelector("#igor-check"),
   proof: document.querySelector("#proof-check"),
@@ -29,6 +31,15 @@ function mark(node, state) {
 function setOverall(node, passed, pending = false) {
   node.textContent = pending ? "SPRAWDZANIE" : passed ? "PASS" : "FAIL";
   node.className = "status " + (pending ? "pending" : passed ? "pass" : "fail");
+}
+
+function showResult(lines) {
+  ui.result.replaceChildren();
+  for (const line of lines) {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = line;
+    ui.result.appendChild(paragraph);
+  }
 }
 
 async function requestJson(path, options = {}, timeoutMs = 22000) {
@@ -95,7 +106,7 @@ async function checkInfrastructure() {
 }
 
 function resetRunChecks() {
-  for (const node of [ui.nina, ui.igor, ui.proof, ui.gate, ui.final]) {
+  for (const node of [ui.policy, ui.nina, ui.igor, ui.proof, ui.gate, ui.final]) {
     node.textContent = "NIEURUCHOMIONE";
     node.classList.remove("pass", "fail");
   }
@@ -111,27 +122,59 @@ ui.clear.addEventListener("click", () => {
   ui.key.value = "";
   ui.confirm.checked = false;
   ui.runButton.disabled = true;
-  ui.result.innerHTML = "<p>Klucz wyczyszczony z formularza.</p>";
+  showResult(["Klucz wyczyszczony z formularza."]);
 });
 ui.refresh.addEventListener("click", checkInfrastructure);
 
 ui.form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const apiKey = ui.key.value.trim();
+  let apiKey = ui.key.value.trim();
   if (!apiKey || !ui.confirm.checked || ui.runButton.disabled) return;
 
-  // Keep the key in memory only. Clear the input before making the request.
+  // Keep the key only for this request sequence; never write it to browser storage or the DOM.
   ui.key.value = "";
   ui.confirm.checked = false;
   ui.runButton.disabled = true;
   ui.clear.disabled = true;
-  ui.result.textContent = "Uruchamiam test NINA na środowisku staging…";
+  ui.result.textContent = "Najpierw sprawdzam blokadę narzędzi spoza allowlisty…";
   ui.runTime.textContent = "";
   resetRunChecks();
+  setOverall(ui.runOverall, false, true);
   const start = performance.now();
 
   try {
-    const { response, body } = await requestJson("/api/nina-run", {
+    // An unregistered capability must be rejected before any execution or evidence write.
+    const policyProbe = await requestJson("/api/nina-run", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": apiKey,
+      },
+      body: JSON.stringify({
+        task: "This probe must be blocked before execution.",
+        requested_tools: ["shell"],
+      }),
+    }, 12000);
+
+    const policyOk = policyProbe.response.status === 200 &&
+      policyProbe.body?.status === "BLOCK" &&
+      policyProbe.body?.verified === false &&
+      typeof policyProbe.body?.reason === "string" &&
+      policyProbe.body.reason.includes("unknown tool");
+    mark(ui.policy, policyOk);
+
+    if (!policyOk) {
+      setOverall(ui.runOverall, false);
+      showResult([
+        "FAIL: NINA nie potwierdziła blokady niezarejestrowanego narzędzia.",
+        "Bezpieczny przebieg nie został uruchomiony.",
+        "HTTP " + policyProbe.response.status,
+      ]);
+      return;
+    }
+
+    ui.result.textContent = "Nieznane narzędzie zablokowane. Uruchamiam ograniczony test safe_expression…";
+    const run = await requestJson("/api/nina-run", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -143,11 +186,19 @@ ui.form.addEventListener("submit", async (event) => {
       }),
     }, 23000);
 
-    const ninaOk = response.status === 200 && body?.nina?.status === "VERIFIED";
-    const igorOk = response.status === 200 && body?.igor?.status === "VERIFIED";
+    const body = run.body;
+    const runIdOk = typeof body?.run_id === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.run_id);
+    const tipHashOk = typeof body?.tip_hash === "string" && /^[a-f0-9]{64}$/i.test(body.tip_hash);
+    const ninaOk = run.response.status === 200 && body?.nina?.status === "VERIFIED";
+    const igorOk = run.response.status === 200 && body?.igor?.status === "VERIFIED";
     const proofOk = body?.provenance?.status === "VERIFIED" &&
-      body?.replay_verification?.status === "VERIFIED";
+      /^[a-f0-9]{40}$/i.test(body?.provenance?.commit ?? "") &&
+      body?.replay_verification?.status === "VERIFIED" &&
+      runIdOk && tipHashOk &&
+      Array.isArray(body?.replay) && body.replay.length === 9;
     const gateOk = body?.human_gate?.status === "BLOCK" &&
+      body?.decision_report?.human_review?.approved === false &&
       body?.status_fields?.HUMAN_GATE === "REVIEW" &&
       body?.status_fields?.EXECUTION_ALLOWED === "REVIEW";
     const finalOk = body?.status === "REVIEW";
@@ -158,38 +209,37 @@ ui.form.addEventListener("submit", async (event) => {
     mark(ui.gate, gateOk);
     mark(ui.final, finalOk);
 
-    const passed = ninaOk && igorOk && proofOk && gateOk && finalOk;
-    setOverall(ui.infraOverall, passed && ui.health.classList.contains("pass") &&
-      ui.ready.classList.contains("pass") && ui.auth.classList.contains("pass"));
-    ui.result.replaceChildren();
-    const heading = document.createElement("p");
-    heading.textContent = passed
-      ? "PASS: NINA i IGOR zweryfikowały przebieg; Human Gate poprawnie pozostał zamknięty."
-      : "FAIL: odpowiedź API nie spełniła pełnego kontraktu NINA/IGOR/Human Gate.";
-    ui.result.appendChild(heading);
-    const details = document.createElement("p");
-    details.textContent = [
-      "HTTP " + response.status,
-      "run_id: " + (typeof body?.run_id === "string" ? body.run_id : "brak"),
+    const passed = policyOk && ninaOk && igorOk && proofOk && gateOk && finalOk;
+    setOverall(ui.runOverall, passed);
+    showResult([
+      passed
+        ? "PASS: NINA i IGOR zweryfikowały przebieg; Human Gate poprawnie pozostał zamknięty."
+        : "FAIL: odpowiedź API nie spełniła pełnego kontraktu NINA/IGOR/Human Gate.",
+      "HTTP " + run.response.status,
+      "run_id: " + (runIdOk ? body.run_id : "brak lub nieprawidłowy"),
       "NINA: " + (body?.nina?.status ?? "UNKNOWN"),
       "IGOR: " + (body?.igor?.status ?? "UNKNOWN"),
       "Provenance: " + (body?.provenance?.status ?? "UNKNOWN"),
-      "Replay: " + (body?.replay_verification?.status ?? "UNKNOWN"),
+      "Replay: " + (body?.replay_verification?.status ?? "UNKNOWN") +
+        " / events=" + (Array.isArray(body?.replay) ? body.replay.length : "brak"),
       "Human Gate: " + (body?.human_gate?.status ?? "UNKNOWN"),
       "Decision: " + (body?.status ?? "UNKNOWN"),
-    ].join("\n");
-    ui.result.appendChild(details);
-    if (!response.ok && body?.detail) {
-      const error = document.createElement("p");
-      error.textContent = "API: " + String(body.detail).slice(0, 240);
-      ui.result.appendChild(error);
+      "Expected REVIEW means runtime verified but not human-approved; it is not production authorization.",
+    ]);
+    if (!run.response.ok && body?.detail) {
+      const detail = document.createElement("p");
+      detail.textContent = "API: " + String(body.detail).slice(0, 240);
+      ui.result.appendChild(detail);
     }
   } catch (error) {
-    ui.result.textContent = error?.name === "AbortError"
-      ? "TIMEOUT: proxy Netlify ma limit 26 s. Test deterministyczny nie zakończył się w oknie 23 s."
-      : "BŁĄD POŁĄCZENIA: " + (error?.name || "NetworkError") + ". Nie traktuj testu jako zaliczonego.";
+    setOverall(ui.runOverall, false);
+    showResult([
+      error?.name === "AbortError"
+        ? "TIMEOUT: proxy Netlify ma limit 26 s. Test deterministyczny nie zakończył się w oknie klienta."
+        : "BŁĄD POŁĄCZENIA: " + (error?.name || "NetworkError") + ". Nie traktuj testu jako zaliczonego.",
+    ]);
   } finally {
-    // Do not retain credentials in the input, DOM, storage, or result panel.
+    apiKey = "";
     ui.key.value = "";
     ui.confirm.checked = false;
     ui.runButton.disabled = true;
