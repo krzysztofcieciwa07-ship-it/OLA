@@ -125,13 +125,17 @@ jobs:
           verified=json.loads(result.stdout.splitlines()[-1])
           assert verified["status"] == "VERIFIED", verified
           assert verified["evidence_count"] == 6, verified
-          assert verified["independent_instance_count"] == 6, verified
-          assert verified["independent_context_count"] == 6, verified
+          assert verified["agent_instance_count"] == 6, verified
+          assert verified["unique_context_count"] == 6, verified
+          assert verified["execution_boundary"] == "in_process", verified
+          assert verified["verifier_boundary"] == "separate_process", verified
+          assert "isolated_or_independent_agent_processes" in verified["not_established"], verified
           print("IGOR_OLLAMA_EVIDENCE=VERIFIED")
           print("IGOR_SOURCE_SHA=VERIFIED")
           print("IGOR_PROVIDER_MODEL=VERIFIED")
           print("IGOR_HASH_CHAIN=VERIFIED")
-          print("IGOR_SIX_AGENT_RECORDS=VERIFIED")
+          print("IGOR_AGENT_EVIDENCE_STRUCTURE=VERIFIED")
+          print("IGOR_AGENT_PROCESS_ISOLATION=NOT_ESTABLISHED")
           PY
 
       - name: Tamper mutation must BLOCK

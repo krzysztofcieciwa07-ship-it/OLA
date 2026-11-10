@@ -117,3 +117,32 @@ def test_igor_scopes_checks_to_current_run_but_verifies_full_chain():
     )
     assert result.status == "VERIFIED"
     assert result.evidence_ids == ("new",)
+
+
+
+def test_igor_accepts_sha256_task_commitment_without_plaintext_task():
+    task = "Calculate 17 * 23"
+    payload = {
+        "run_id": "r1",
+        "commit": "abc",
+        "task_digest": __import__("hashlib").sha256(task.encode("utf-8")).hexdigest(),
+        "result": "391",
+    }
+    record = {
+        "id": "e-digest",
+        "tenant_id": "tenant-1",
+        "record_type": "provenance.runtime",
+        "seq": 0,
+        "prev_hash": "0" * 64,
+        "record_hash": "",
+        "payload_json": sealed_payload_json("provenance.runtime", payload),
+    }
+    record["record_hash"] = compute_record_hash_v2(
+        record["tenant_id"], record["seq"], record["prev_hash"],
+        record["record_type"], "ola_runtime", record["payload_json"]
+    )
+
+    result = IgorVerifier().verify_records([record], "abc", task, "391")
+    assert result.status == "VERIFIED"
+    assert result.checks["task"] is True
+    assert result.checks["task_binding"] == "sha256_commitment"

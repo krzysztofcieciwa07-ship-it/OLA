@@ -62,7 +62,7 @@ def test_nina_run_executes_chain_but_does_not_self_approve():
     assert body["status_fields"]["EXECUTION_ALLOWED"] == "REVIEW", body
     assert body["status"] == "REVIEW", body
     assert body["replay_verification"]["status"] == "VERIFIED", body
-    assert len(body["replay"]) == 7
+    assert len(body["replay"]) == 9  # run.start + six agents + run.end
 
 
 def test_nina_run_explicit_llm_does_not_promote_deterministic_fallback(monkeypatch):

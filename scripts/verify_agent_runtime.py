@@ -128,18 +128,30 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
         required = {
             "capability", "tool", "tool_output", "result", "status",
             "agent_instance_id", "execution_boundary", "context_digest",
-            "invocation_type", "model", "provider",
+            "invocation_type", "model", "provider", "task_digest",
+            "input_digest", "model_output_digest", "model_output_role",
+            "action_result_source",
         }
         if not required.issubset(payload):
             return fail(f"execution evidence incomplete for {agent}")
         if payload.get("commit") != expected_commit:
             return fail(f"runtime commit provenance mismatch for {agent}")
-        if payload.get("status") != "VERIFIED":
-            return fail(f"execution not verified for {agent}")
+        if payload.get("status") != "RECORDED":
+            return fail(f"agent evidence was not producer-recorded for {agent}")
+        if (payload.get("model_output_role") != "advisory_only"
+                or payload.get("action_result_source") != "registered_capability"):
+            return fail(f"model/action provenance is ambiguous for {agent}")
+        for digest_key in ("context_digest", "task_digest", "input_digest", "model_output_digest"):
+            digest_value = payload.get(digest_key)
+            if (not isinstance(digest_value, str) or len(digest_value) != 64
+                    or any(character not in "0123456789abcdef" for character in digest_value)):
+                return fail(f"invalid {digest_key} for {agent}")
+        if agent == "self_reflection" and payload.get("tool_output") != "PASS":
+            return fail("self-reflection did not pass")
         if payload.get("capability") != EXPECTED_CAPABILITIES.get(agent):
             return fail(f"unexpected capability for {agent}")
-        if payload.get("execution_boundary") != "independent":
-            return fail(f"non-independent execution boundary for {agent}")
+        if payload.get("execution_boundary") != "in_process":
+            return fail(f"unexpected agent execution boundary for {agent}")
         invocation = {
             "provider": payload["provider"],
             "model": payload["model"],
@@ -159,8 +171,15 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
     if len(context_digests) != len(ROLES):
         return fail("agent contexts are not unique")
 
-    if expected_task is not None and any(payload.get("task") != expected_task for payload in payloads):
-        return fail("task mismatch in execution evidence")
+    if expected_task is not None:
+        expected_task_digest = hashlib.sha256(expected_task.encode("utf-8")).hexdigest()
+        for payload in payloads:
+            # New evidence stores a commitment, not plaintext task content.
+            if payload.get("task_digest") is not None:
+                if payload.get("task_digest") != expected_task_digest:
+                    return fail("task digest mismatch in execution evidence")
+            elif payload.get("task") != expected_task:
+                return fail("task mismatch in legacy execution evidence")
 
     final_result = payloads[-1].get("final_result")
     if expected_result is not None and final_result != expected_result:
@@ -180,11 +199,26 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
         "final_result": final_result,
         "agents": ROLES,
         "capabilities": capabilities,
-        "independent_instance_count": len(instance_ids),
-        "independent_context_count": len(context_digests),
+        "agent_instance_count": len(instance_ids),
+        "unique_context_count": len(context_digests),
+        "execution_boundary": "in_process",
+        "verifier_boundary": "separate_process",
         "invocations": invocations,
         "evidence_count": len(run_rows),
-        "reason": "standalone verifier recomputed source SHA binding, roles, capabilities, invocation metadata, result, identities, contexts and hash chain without importing runtime verification code",
+        "verification_scope": [
+            "runtime_source_commit_binding",
+            "agent_role_order_and_record_structure",
+            "capability_labels_and_invocation_metadata",
+            "unique_agent_instance_and_context_labels",
+            "tenant_evidence_hash_chain_integrity",
+            "external_expected_result_match" if expected_result is not None else "no_external_expected_result_supplied",
+        ],
+        "not_established": [
+            "isolated_or_independent_agent_processes",
+            "semantic_correctness_of_registered_capabilities",
+            "model_generated_action_results",
+        ],
+        "reason": "separate-process verifier checked source binding, record structure, invocation metadata and evidence integrity; it does not isolate agent execution or prove capability semantics",
     }
 
 
