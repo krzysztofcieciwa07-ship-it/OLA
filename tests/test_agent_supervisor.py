@@ -16,6 +16,7 @@ CONTAINER_ID = "c" * 64
 @pytest.fixture(autouse=True)
 def _trusted_source_commit(monkeypatch):
     monkeypatch.setenv("OLA_SOURCE_COMMIT", "a" * 40)
+    monkeypatch.delenv("OLA_AGENT_MANIFEST_PATH", raising=False)
 
 
 def _supervisor_module():
