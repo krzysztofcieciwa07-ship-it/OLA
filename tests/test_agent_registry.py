@@ -147,3 +147,18 @@ def test_versioned_manifest_loader_rejects_extra_fields_and_duplicate_ids(tmp_pa
     }), encoding="utf-8")
     with pytest.raises(ValueError, match="duplicate agent_id"):
         load_agent_manifest(manifest_path)
+
+
+def test_workstation_manifest_registers_all_ten_specialists():
+    from pathlib import Path
+    from app.agent_registry import load_agent_manifest
+
+    manifest_path = Path(__file__).resolve().parents[1] / "workstation" / "agent-manifest.json"
+    agents = load_agent_manifest(manifest_path)
+
+    assert len(agents) == 10
+    assert {agent.role for agent in agents} == {
+        "Hermes", "Builder", "Scout", "Guardian", "Archivist",
+        "Researcher", "Tester", "DevOps", "Sales", "Finance",
+    }
+    assert len({agent.agent_id for agent in agents}) == 10
