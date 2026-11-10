@@ -845,6 +845,7 @@ def run_isolated_agent_instance(
     return execution
 
 
+
 def run_isolated_agent_task(
     tenant_id,
     instance,
@@ -861,7 +862,7 @@ def run_isolated_agent_task(
     """Run one provider-backed isolated worker with a complete append-only lifecycle."""
     from .agent_registry import AgentInstanceSpec, build_agent_registry
     from .agent_supervisor import AgentExecution, AgentSupervisor
-    from .providers.contracts import ProviderResult
+    from .providers.contracts import ProviderError, ProviderResult
     from .providers.factory import build_provider_gateway
 
     evidence_ids = []
@@ -907,6 +908,25 @@ def run_isolated_agent_task(
             return result("FINALIZATION_PENDING", "evidence_run_end_append_failed", execution)
         return result(status, reason, execution)
 
+    def fail(stage, error_code, *, execution=None, model_output_digest=None):
+        safe_code = error_code if isinstance(error_code, str) and re.fullmatch(
+            r"[a-z0-9_]{1,80}", error_code
+        ) else "execution_failed"
+        try:
+            append_event("execution.run.error", {
+                "stage": stage,
+                "error_code": safe_code,
+                "source_commit": commit,
+            })
+        except Exception:
+            return result("FINALIZATION_PENDING", f"evidence_{stage}_error_append_failed", execution)
+        return finish(
+            "BLOCKED",
+            reason=f"{stage}_{safe_code}",
+            execution=execution,
+            model_output_digest=model_output_digest,
+        )
+
     if not isinstance(tenant_id, str) or not tenant_id:
         return result("BLOCKED", "tenant_id_required")
     try:
@@ -951,17 +971,17 @@ def run_isolated_agent_task(
     try:
         executor = supervisor if supervisor is not None else AgentSupervisor()
         if executor.registry.get(instance.agent_id) != instance:
-            return finish("BLOCKED", reason="agent_not_registered")
+            return fail("preflight", "agent_not_registered")
         if executor.expected_source_commit != commit:
-            return finish("BLOCKED", reason="source_commit_not_trusted")
+            return fail("preflight", "source_commit_not_trusted")
         if not isinstance(executor.image_digest, str) or re.fullmatch(
             r"sha256:[a-f0-9]{64}", executor.image_digest
         ) is None:
-            return finish("BLOCKED", reason="worker_image_digest_not_configured")
+            return fail("preflight", "worker_image_digest_not_configured")
         if executor._inspect_image() != executor.image_digest:
-            return finish("BLOCKED", reason="worker_image_digest_not_locally_verified")
+            return fail("preflight", "worker_image_digest_not_locally_verified")
     except Exception:
-        return finish("BLOCKED", reason="worker_preflight_failed")
+        return fail("preflight", "worker_preflight_failed")
 
     try:
         gateway = provider_gateway if provider_gateway is not None else build_provider_gateway(provider)
@@ -972,11 +992,18 @@ def run_isolated_agent_task(
             allowed_tools=instance.capabilities,
         )
         if not isinstance(provider_result, ProviderResult):
-            return finish("BLOCKED", reason="invalid_provider_result")
+            return fail("provider", "invalid_provider_result")
+        if provider_result.provider != provider:
+            return fail("provider", "provider_identity_mismatch")
         if provider_result.fallback_used is not False or provider_result.model_output_role != "advisory_only":
-            return finish("BLOCKED", reason="provider_output_authority_invalid")
+            return fail("provider", "provider_output_authority_invalid")
         provider_dump = provider_result.model_dump(mode="json")
         model_output_digest = _digest(canonical_json(provider_dump))
+    except Exception as exc:
+        error_code = getattr(exc, "code", "provider_execution_failed")
+        return fail("provider", error_code)
+
+    try:
         append_event("agent.provider.response", {
             "agent_id": instance.agent_id,
             "agent_instance_id": instance_id,
@@ -993,19 +1020,9 @@ def run_isolated_agent_task(
             "fallback_used": False,
             "model_output_role": "advisory_only",
         })
-    except Exception as exc:
-        error_code = getattr(exc, "code", "provider_execution_failed")
-        if not isinstance(error_code, str) or not re.fullmatch(r"[a-z0-9_]{1,80}", error_code):
-            error_code = "provider_execution_failed"
-        try:
-            append_event("execution.run.error", {
-                "stage": "provider",
-                "error_code": error_code,
-                "source_commit": commit,
-            })
-        except Exception:
-            return result("FINALIZATION_PENDING", "evidence_provider_error_append_failed")
-        return finish("BLOCKED", reason=f"provider_{error_code}")
+    except Exception:
+        return finish("FINALIZATION_PENDING", reason="evidence_provider_response_append_failed",
+                      model_output_digest=model_output_digest)
 
     try:
         append_event("agent.worker.start", {
@@ -1039,6 +1056,35 @@ def run_isolated_agent_task(
                       model_output_digest=model_output_digest)
 
     worker_result = execution.worker_result
+    if execution.status == "COMPLETED":
+        valid_worker_proof = (
+            worker_result is not None
+            and execution.exit_code == 0
+            and execution.container_id is not None
+            and re.fullmatch(r"[a-f0-9]{64}", execution.container_id) is not None
+            and execution.image_digest == executor.image_digest
+            and worker_result.status == "COMPLETED"
+            and worker_result.run_id == run_id
+            and worker_result.agent_id == instance.agent_id
+            and worker_result.agent_instance_id == instance_id
+            and worker_result.specialist_role == instance.specialist_role
+            and worker_result.execution_profile == instance.execution_profile
+            and worker_result.capability == capability
+            and worker_result.source_commit == commit
+            and worker_result.worker_pid == 1
+            and worker_result.model_output_digest == model_output_digest
+        )
+        if not valid_worker_proof:
+            execution = AgentExecution(
+                status="BLOCKED",
+                container_id=execution.container_id,
+                image_digest=execution.image_digest,
+                worker_result=worker_result,
+                reason="worker_execution_proof_invalid",
+                exit_code=execution.exit_code,
+            )
+            worker_result = execution.worker_result
+
     worker_payload = {
         "agent_id": instance.agent_id,
         "agent_instance_id": instance_id,
