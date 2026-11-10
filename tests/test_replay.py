@@ -10,7 +10,10 @@ def _record(seq, run_id="r1", tenant_id="tenant-1", record_type="agent.codeact",
         "agent": record_type.removeprefix("agent."),
         "input_digest": f"in-{seq}",
         "tool": "safe_expression",
-        "status": status,
+        "status": "RECORDED" if status == "VERIFIED" else status,
+        "execution_boundary": "in_process",
+        "model_output_role": "advisory_only",
+        "action_result_source": "registered_capability",
     }
     payload_json = sealed_payload_json(record_type, payload)
     row = {
@@ -64,7 +67,24 @@ def test_replay_regression_checks_record_type_and_status():
     rows[1]["record_hash"] = compute_record_hash_v2(rows[1]["tenant_id"], rows[1]["seq"], rows[1]["prev_hash"], rows[1]["record_type"], "ola_runtime", rows[1]["payload_json"])
     result = verify_replay(rows, expected_run_id="r1", expected_tenant_id="tenant-1", expected_record_count=2, expected_tip_hash=rows[-1]["record_hash"])
     assert result["status"] == "BLOCK"
-    assert result["reason"] == "run record status mismatch"
+    assert result["reason"] == "producer record must be RECORDED, not self-verified"
+
+    rows = _chain(count=2)
+    rows[1]["payload_json"] = sealed_payload_json("agent.codeact", {
+        "run_id": "r1", "agent": "codeact", "input_digest": "in-1",
+        "tool": "safe_expression", "status": "VERIFIED",
+        "execution_boundary": "independent",
+        "model_output_role": "advisory_only",
+        "action_result_source": "registered_capability",
+    })
+    rows[1]["record_hash"] = compute_record_hash_v2(
+        rows[1]["tenant_id"], rows[1]["seq"], rows[1]["prev_hash"],
+        rows[1]["record_type"], "ola_runtime", rows[1]["payload_json"]
+    )
+    result = verify_replay(rows, expected_run_id="r1", expected_tenant_id="tenant-1",
+                           expected_record_count=2, expected_tip_hash=rows[-1]["record_hash"])
+    assert result["status"] == "BLOCK"
+    assert result["reason"] == "unexpected agent execution boundary"
 
 
 def test_replay_blocks_non_dict_payload_without_exception():
