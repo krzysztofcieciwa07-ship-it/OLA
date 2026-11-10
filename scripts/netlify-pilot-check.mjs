@@ -7,6 +7,11 @@ const root = process.cwd();
 const publishDir = join(root, "netlify-pilot");
 const requiredFiles = ["index.html", "pilot.css", "pilot.js", "pilot-manifest.json", "_headers"];
 const allowedFiles = new Set([...requiredFiles, "build-proof.json"]);
+const requiredRedirects = new Map([
+  ["/api/health", EXPECTED_API_ORIGIN + "/health"],
+  ["/api/readyz", EXPECTED_API_ORIGIN + "/readyz"],
+  ["/api/nina-run", EXPECTED_API_ORIGIN + "/nina-run"],
+]);
 const secretPatterns = [
   /(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}/i,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
@@ -28,23 +33,28 @@ if (!new Set(["branch-deploy", "deploy-preview"]).has(context)) {
 }
 
 const config = await readFile(join(root, "netlify.toml"), "utf8");
-const requiredRedirects = [
-  ['from = "/api/health"', 'to = "' + EXPECTED_API_ORIGIN + '/health"'],
-  ['from = "/api/readyz"', 'to = "' + EXPECTED_API_ORIGIN + '/readyz"'],
-  ['from = "/api/nina-run"', 'to = "' + EXPECTED_API_ORIGIN + '/nina-run"'],
-];
-if ((config.match(/\[\[redirects\]\]/g) ?? []).length !== 3) {
+const redirectBlocks = config.split("[[redirects]]").slice(1);
+if (redirectBlocks.length !== requiredRedirects.size) {
   fail("Exactly three API proxy rules are required.");
 }
-for (const [from, to] of requiredRedirects) {
-  if (!config.includes(from) || !config.includes(to)) fail("Missing or altered staging proxy rule: " + from);
+const observedRedirects = new Set();
+for (const block of redirectBlocks) {
+  const from = block.match(/^\s*from\s*=\s*"([^"]+)"/m)?.[1];
+  const to = block.match(/^\s*to\s*=\s*"([^"]+)"/m)?.[1];
+  const status = block.match(/^\s*status\s*=\s*(\d+)/m)?.[1];
+  const force = block.match(/^\s*force\s*=\s*(true|false)/m)?.[1];
+  if (!from || !to || !requiredRedirects.has(from) || requiredRedirects.get(from) !== to) {
+    fail("Proxy source or target does not match the staging allowlist.");
+  }
+  if (status !== "200" || force !== "true") {
+    fail("Each allowlisted proxy must be an explicit forced 200 rewrite.");
+  }
+  if (observedRedirects.has(from)) fail("Duplicate proxy route.");
+  observedRedirects.add(from);
 }
-if (/from\s*=\s*["']\/api\/\*["']/.test(config)) fail("Wildcard API proxy is forbidden.");
-if (!config.includes("status = 200") || !config.includes("force = true")) {
-  fail("Every staging proxy must be an explicit forced 200 rewrite.");
-}
-if (!config.includes('from = "/api/nina-run"') || config.includes("production.up.railway.app")) {
-  fail("NINA API proxy must target the staging service only.");
+if (observedRedirects.size !== requiredRedirects.size) fail("One or more required proxy routes are missing.");
+if (config.includes("production.up.railway.app") || /from\s*=\s*["']\/api\/\*["']/.test(config)) {
+  fail("Production targets and wildcard API proxies are forbidden.");
 }
 
 const entries = await readdir(publishDir, { withFileTypes: true });
@@ -74,7 +84,7 @@ if (
   manifest.scope !== "nina-api-staging" ||
   manifest.target !== "staging" ||
   manifest.api_origin !== EXPECTED_API_ORIGIN ||
-  manifest.api_routes?.join(",") !== "/api/health,/api/readyz,/api/nina-run" ||
+  manifest.api_routes?.join(",") !== [...requiredRedirects.keys()].join(",") ||
   manifest.secrets_included !== false ||
   manifest.production_deployment_allowed !== false
 ) {
