@@ -9,7 +9,9 @@ on:
       - "app/hashchain.py"
       - "scripts/agent_firewall_signer.py"
       - "scripts/igor_agent_firewall.py"
+      - "scripts/ola_systemd_exec.py"
       - "tests/test_agent_firewall_*.py"
+      - "tests/test_ola_systemd_exec.py"
       - ".github/workflows/agent-firewall-v02.yml"
       - "policies/agent_firewall_v0_2.toml"
 
@@ -29,5 +31,5 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Compile application, signer and tests
         run: python -m compileall -q app/agent_firewall app/hashchain.py scripts tests
-      - name: Firewall policy, target and checkpoint contracts
-        run: pytest -q tests/test_agent_firewall_policy.py tests/test_agent_firewall_targets.py tests/test_agent_firewall_checkpoints.py tests/test_agent_firewall_hashchain.py
+      - name: Firewall policy, target, checkpoint and execution contracts
+        run: pytest -q tests/test_agent_firewall_policy.py tests/test_agent_firewall_targets.py tests/test_agent_firewall_checkpoints.py tests/test_agent_firewall_hashchain.py tests/test_agent_firewall_connector.py tests/test_ola_systemd_exec.py

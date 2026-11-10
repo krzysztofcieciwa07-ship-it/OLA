@@ -37,6 +37,9 @@ class SystemdTarget:
     known_hosts_file: str
     identity_file: str
     identity_public_key_sha256: str
+    receipt_public_key_raw_b64: str
+    receipt_public_key_sha256: str
+    receipt_signer_key_id: str
     allowed_units: tuple[str, ...]
     critical: bool
     connect_timeout_s: int
@@ -57,6 +60,11 @@ class TargetRegistry:
     def from_file(cls, path: str | Path) -> "TargetRegistry":
         path = Path(path)
         try:
+            info = path.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+                raise ValueError("target inventory must be a regular file owned by the gateway")
+            if os.name == "posix" and stat.S_IMODE(info.st_mode) & 0o022:
+                raise ValueError("target inventory must not be group/world writable")
             raw = path.read_bytes()
             if not raw or len(raw) > 128 * 1024:
                 raise ValueError("target inventory size is invalid")
@@ -76,12 +84,16 @@ class TargetRegistry:
 
 
 def _require_file(path_value: str, *, owner_only: bool) -> tuple[Path, bytes]:
-    if not isinstance(path_value, str) or not Path(path_value).is_absolute():
-        raise ValueError("SSH key and known_hosts paths must be absolute")
+    if (
+        not isinstance(path_value, str)
+        or not Path(path_value).is_absolute()
+        or any(char.isspace() for char in path_value)
+    ):
+        raise ValueError("SSH key and known_hosts paths must be absolute and contain no whitespace")
     path = Path(path_value)
-    info = path.stat()
-    if not stat.S_ISREG(info.st_mode):
-        raise ValueError("SSH key and known_hosts paths must be regular files")
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+        raise ValueError("SSH key and known_hosts paths must be regular files owned by the gateway")
     mode = stat.S_IMODE(info.st_mode)
     if owner_only and os.name == "posix" and mode & 0o077:
         raise ValueError("SSH private key must be owner-only")
@@ -137,6 +149,9 @@ def _parse_target(target_id: str, row: dict) -> SystemdTarget:
     port = row.get("port", 22)
     fingerprint = row.get("host_fingerprint")
     identity_public_key_sha256 = row.get("identity_public_key_sha256")
+    receipt_public_key_raw_b64 = row.get("receipt_public_key_raw_b64")
+    receipt_public_key_sha256 = row.get("receipt_public_key_sha256")
+    receipt_signer_key_id = row.get("receipt_signer_key_id")
     allowed_units = row.get("allowed_units")
     critical = row.get("critical", False)
     connect_timeout_s = row.get("connect_timeout_s", 5)
@@ -154,6 +169,18 @@ def _parse_target(target_id: str, row: dict) -> SystemdTarget:
         raise ValueError("pinned host fingerprint is invalid")
     if not isinstance(identity_public_key_sha256, str) or not _HEX64_RE.fullmatch(identity_public_key_sha256):
         raise ValueError("SSH public-key fingerprint must be lowercase SHA-256")
+    try:
+        receipt_public_raw = base64.b64decode(receipt_public_key_raw_b64, validate=True)
+    except (TypeError, ValueError):
+        raise ValueError("receipt public key must be valid base64") from None
+    if len(receipt_public_raw) != 32:
+        raise ValueError("receipt public key must be an Ed25519 raw public key")
+    if not isinstance(receipt_public_key_sha256, str) or not _HEX64_RE.fullmatch(receipt_public_key_sha256):
+        raise ValueError("receipt public-key fingerprint must be lowercase SHA-256")
+    if hashlib.sha256(receipt_public_raw).hexdigest() != receipt_public_key_sha256:
+        raise ValueError("receipt public key does not match configured fingerprint")
+    if not isinstance(receipt_signer_key_id, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,96}", receipt_signer_key_id):
+        raise ValueError("receipt signer key id is invalid")
     if not isinstance(allowed_units, list) or not allowed_units:
         raise ValueError("allowed_units must be a non-empty list")
     if any(not isinstance(unit, str) or not _UNIT_RE.fullmatch(unit) for unit in allowed_units):
@@ -197,6 +224,8 @@ def _parse_target(target_id: str, row: dict) -> SystemdTarget:
         "host_fingerprint": fingerprint,
         "known_hosts_sha256": known_hosts_sha256,
         "identity_public_key_sha256": identity_public_key_sha256,
+        "receipt_public_key_sha256": receipt_public_key_sha256,
+        "receipt_signer_key_id": receipt_signer_key_id,
         "allowed_units": sorted(allowed_units),
         "critical": critical,
         "connect_timeout_s": connect_timeout_s,
@@ -213,6 +242,9 @@ def _parse_target(target_id: str, row: dict) -> SystemdTarget:
         port=port, user=user, host_fingerprint=fingerprint,
         known_hosts_file=str(known_hosts_path), identity_file=str(identity_path),
         identity_public_key_sha256=identity_public_key_sha256,
+        receipt_public_key_raw_b64=receipt_public_key_raw_b64,
+        receipt_public_key_sha256=receipt_public_key_sha256,
+        receipt_signer_key_id=receipt_signer_key_id,
         allowed_units=tuple(sorted(allowed_units)), critical=critical,
         connect_timeout_s=connect_timeout_s, execution_timeout_s=execution_timeout_s,
         config_digest=config_digest,

@@ -29,6 +29,11 @@ def _inventory(tmp_path: Path, *, host="staging.example.internal", critical=Fals
     identity_pub = identity_key.public_key().public_bytes(Encoding.OpenSSH, PublicFormat.OpenSSH)
     identity_digest = hashlib.sha256(identity_pub).hexdigest()
 
+    receipt_key = Ed25519PrivateKey.generate()
+    receipt_public_raw = receipt_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    receipt_public_b64 = base64.b64encode(receipt_public_raw).decode("ascii")
+    receipt_public_sha256 = hashlib.sha256(receipt_public_raw).hexdigest()
+
     config = tmp_path / "targets.toml"
     config.write_text(
         "[targets.staging-api]\n"
@@ -40,6 +45,9 @@ def _inventory(tmp_path: Path, *, host="staging.example.internal", critical=Fals
         f'known_hosts_file = "{known_hosts}"\n'
         f'identity_file = "{identity}"\n'
         f'identity_public_key_sha256 = "{identity_digest}"\n'
+        f'receipt_public_key_raw_b64 = "{receipt_public_b64}"\n'
+        f'receipt_public_key_sha256 = "{receipt_public_sha256}"\n'
+        'receipt_signer_key_id = "target-receipt-v1"\n'
         'allowed_units = ["ola-api.service"]\n'
         f'critical = {str(critical).lower()}\n'
     )
