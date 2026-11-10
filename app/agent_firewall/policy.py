@@ -8,12 +8,7 @@ from typing import Any
 
 _DECISION_RANK = {"ALLOW": 0, "REVIEW": 1, "BLOCK": 2}
 _ALLOWED_ACTIONS = frozenset({"systemd.restart"})
-_REQUIRED_SCORING_FIELDS = (
-    "base",
-    "systemd_restart",
-    "production",
-    "critical_target",
-)
+_REQUIRED_SCORING_FIELDS = ("base", "systemd_restart", "production", "critical_target")
 
 
 @dataclass(frozen=True)
@@ -45,7 +40,6 @@ class PolicyEngine:
     def __init__(self, policy_path: str | Path):
         self.policy_path = Path(policy_path)
         self._policy: dict[str, Any] | None = None
-        self._load_error: str | None = None
         self._load()
 
     def _load(self) -> None:
@@ -103,24 +97,18 @@ class PolicyEngine:
                 if unit is not None and not isinstance(unit, str):
                     raise ValueError("policy rule unit is invalid")
                 normalized_rules.append({
-                    "id": rule_id,
-                    "action_type": action_type,
-                    "environment": environment,
-                    "decision": decision,
-                    "target_id": target_id,
-                    "unit": unit,
+                    "id": rule_id, "action_type": action_type,
+                    "environment": environment, "decision": decision,
+                    "target_id": target_id, "unit": unit,
                 })
 
             self._policy = {
-                "version": version,
-                "allow_below": allow_below,
-                "block_at": block_at,
-                "scoring": normalized_scoring,
+                "version": version, "allow_below": allow_below,
+                "block_at": block_at, "scoring": normalized_scoring,
                 "rules": normalized_rules,
             }
         except (OSError, UnicodeDecodeError, KeyError, TypeError, ValueError, tomllib.TOMLDecodeError):
             self._policy = None
-            self._load_error = "POLICY_UNAVAILABLE"
 
     def evaluate(self, action: FirewallAction) -> PolicyResult:
         if self._policy is None:
@@ -129,9 +117,9 @@ class PolicyEngine:
 
         if not isinstance(action, FirewallAction):
             return PolicyResult("BLOCK", None, "INVALID_ACTION", version)
-        if action.action_type not in _ALLOWED_ACTIONS:
+        if not isinstance(action.action_type, str) or action.action_type not in _ALLOWED_ACTIONS:
             return PolicyResult("BLOCK", None, "ACTION_NOT_ALLOWLISTED", version)
-        if action.environment not in {"staging", "production"}:
+        if not isinstance(action.environment, str) or action.environment not in {"staging", "production"}:
             return PolicyResult("BLOCK", None, "NO_POLICY", version)
         if type(action.target_critical) is not bool:
             decision = "BLOCK" if action.environment == "production" else "REVIEW"
@@ -160,14 +148,11 @@ class PolicyEngine:
             return PolicyResult(decision, None, "RISK_SCORING_FAILED", version)
 
         if risk >= self._policy["block_at"]:
-            risk_decision = "BLOCK"
-            risk_reason = "RISK_BLOCK_THRESHOLD"
+            risk_decision, risk_reason = "BLOCK", "RISK_BLOCK_THRESHOLD"
         elif risk >= self._policy["allow_below"]:
-            risk_decision = "REVIEW"
-            risk_reason = "RISK_REVIEW_THRESHOLD"
+            risk_decision, risk_reason = "REVIEW", "RISK_REVIEW_THRESHOLD"
         else:
-            risk_decision = "ALLOW"
-            risk_reason = "POLICY_MATCH"
+            risk_decision, risk_reason = "ALLOW", "POLICY_MATCH"
 
         policy_decision = max(
             (rule["decision"] for rule in matches),

@@ -7,6 +7,7 @@ on:
     paths:
       - "app/agent_firewall/**"
       - "tests/test_agent_firewall_policy.py"
+      - "tests/test_agent_firewall_targets.py"
       - ".github/workflows/agent-firewall-v02.yml"
       - "policies/agent_firewall_v0_2.toml"
 
@@ -14,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  policy-contract:
+  firewall-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -22,9 +23,9 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - name: Install test dependencies
+      - name: Install repository dependencies
         run: python -m pip install -r requirements.txt
-      - name: Compile policy module and tests
-        run: python -m compileall -q app/agent_firewall tests/test_agent_firewall_policy.py
-      - name: Policy contract tests
-        run: pytest -q tests/test_agent_firewall_policy.py
+      - name: Compile application and tests
+        run: python -m compileall -q app/agent_firewall tests
+      - name: Firewall policy and target contracts
+        run: pytest -q tests/test_agent_firewall_policy.py tests/test_agent_firewall_targets.py
