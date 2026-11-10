@@ -46,7 +46,7 @@ def _request_and_agent():
         "allowed_capabilities": ["tool.safe_expression"],
         "task": "Calculate 17 times 23.",
         "capability_input": {"expression": "17 * 23"},
-        "model_output": {"proposal": "Evaluate the arithmetic expression."},
+        "model_output": {"output": {"status": "needs_tool", "tool_name": "tool.safe_expression", "tool_arguments_json": '{"expression":"17 * 23"}'}},
         "source_commit": "a" * 40,
     }))
     return agent, request
