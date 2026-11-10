@@ -740,3 +740,76 @@ def verify_agent_run(tenant_id, run_id):
             "model_generated_action_results",
         ],
     }
+
+
+def run_isolated_agent_instance(
+    instance,
+    task,
+    capability,
+    capability_input,
+    model_output,
+    *,
+    run_id=None,
+    agent_instance_id=None,
+    source_commit=None,
+    supervisor=None,
+):
+    """Build a strict one-shot request and delegate it to the isolated worker supervisor.
+
+    This entrypoint never falls back to the legacy in-process runtime. A missing
+    source binding, invalid policy, unavailable Docker image, or supervisor error
+    returns BLOCKED so callers cannot mistake a local simulation for execution.
+    """
+    from .agent_protocol import AgentWorkerRequest
+    from .agent_registry import AgentInstanceSpec, build_agent_registry
+    from .agent_supervisor import AgentExecution, AgentSupervisor
+
+    try:
+        if not isinstance(instance, AgentInstanceSpec):
+            raise TypeError("instance must be an AgentInstanceSpec")
+        instance = build_agent_registry([instance])[0]
+    except Exception:
+        return AgentExecution(status="BLOCKED", reason="invalid_agent_instance")
+
+    if instance.availability_status != "enabled":
+        return AgentExecution(status="BLOCKED", reason="agent_instance_disabled")
+    if not isinstance(capability, str) or capability not in instance.capabilities:
+        return AgentExecution(status="BLOCKED", reason="capability_not_in_instance_allowlist")
+
+    commit = source_commit if source_commit is not None else _runtime_source_commit()
+    if (
+        not isinstance(commit, str)
+        or len(commit) != 40
+        or any(char not in "0123456789abcdef" for char in commit)
+    ):
+        return AgentExecution(status="BLOCKED", reason="source_commit_not_trusted")
+
+    try:
+        request = AgentWorkerRequest(
+            schema_version=1,
+            run_id=run_id if run_id is not None else str(uuid.uuid4()),
+            agent_id=instance.agent_id,
+            agent_instance_id=(
+                agent_instance_id if agent_instance_id is not None else str(uuid.uuid4())
+            ),
+            specialist_role=instance.specialist_role,
+            execution_profile=instance.execution_profile,
+            capability=capability,
+            allowed_capabilities=(capability,),
+            task=task,
+            capability_input=capability_input,
+            model_output=model_output,
+            source_commit=commit,
+        )
+    except Exception:
+        return AgentExecution(status="BLOCKED", reason="invalid_worker_request")
+
+    try:
+        executor = supervisor if supervisor is not None else AgentSupervisor()
+        execution = executor.execute(instance, request)
+    except Exception:
+        return AgentExecution(status="BLOCKED", reason="worker_supervisor_error")
+
+    if not isinstance(execution, AgentExecution):
+        return AgentExecution(status="BLOCKED", reason="invalid_supervisor_result")
+    return execution
