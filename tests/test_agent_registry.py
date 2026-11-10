@@ -102,3 +102,48 @@ def test_main_uses_an_explicit_manifest_not_a_fabricated_391_id_set():
     }
     assert len(main_module.AGENT_REGISTRY) == len(DEFAULT_AGENT_MANIFEST)
     assert len(main_module.AGENT_REGISTRY) < 391
+
+
+def test_versioned_manifest_loader_accepts_only_registered_specialist_instances(tmp_path):
+    import json
+    from app import agent_registry
+
+    assert hasattr(agent_registry, "load_agent_manifest"), "versioned manifest loader is missing"
+    manifest_path = tmp_path / "agents.json"
+    manifest_path.write_text(json.dumps({
+        "schema_version": 1,
+        "agents": [
+            {"agent_id": "hermes-001", "specialist_role": "Hermes", "execution_profile": "react"},
+            {"agent_id": "builder-001", "specialist_role": "Builder", "execution_profile": "codeact"},
+        ],
+    }), encoding="utf-8")
+
+    agents = agent_registry.load_agent_manifest(manifest_path)
+
+    assert [agent.agent_id for agent in agents] == ["hermes-001", "builder-001"]
+    assert [agent.role for agent in agents] == ["Hermes", "Builder"]
+
+
+def test_versioned_manifest_loader_rejects_extra_fields_and_duplicate_ids(tmp_path):
+    import json
+    from app.agent_registry import load_agent_manifest
+
+    manifest_path = tmp_path / "agents.json"
+    manifest_path.write_text(json.dumps({
+        "schema_version": 1,
+        "agents": [
+            {"agent_id": "hermes-001", "specialist_role": "Hermes", "execution_profile": "react", "shell": True},
+        ],
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="manifest entry"):
+        load_agent_manifest(manifest_path)
+
+    manifest_path.write_text(json.dumps({
+        "schema_version": 1,
+        "agents": [
+            {"agent_id": "hermes-001", "specialist_role": "Hermes", "execution_profile": "react"},
+            {"agent_id": "hermes-001", "specialist_role": "Hermes", "execution_profile": "mcp_tool_use"},
+        ],
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate agent_id"):
+        load_agent_manifest(manifest_path)
