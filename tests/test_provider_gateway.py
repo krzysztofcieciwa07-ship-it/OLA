@@ -291,3 +291,34 @@ def test_openai_endpoint_requires_https_and_host_allowlist():
             base_url="http://api.openai.com/v1",
         )
     assert error.value.code == "endpoint_not_allowlisted"
+
+
+def test_explicit_empty_model_allowlists_do_not_inherit_environment(monkeypatch):
+    monkeypatch.setenv("OLA_OLLAMA_ALLOWED_MODELS", MODEL)
+    with pytest.raises(ProviderError) as error:
+        OllamaAdapter(model=MODEL, allowed_models=(), base_url="http://127.0.0.1:11434")
+    assert error.value.code == "model_not_allowlisted"
+
+    monkeypatch.setenv("OLA_OPENAI_ALLOWED_MODELS", "gpt-4.1")
+    with pytest.raises(ProviderError) as error:
+        OpenAIAdapter(
+            model="gpt-4.1",
+            allowed_models=(),
+            api_key="sk-test",
+        )
+    assert error.value.code == "model_not_allowlisted"
+
+
+def test_provider_gateway_does_not_replace_an_explicit_empty_policy_map():
+    client, _ = _ollama_client()
+    adapter = OllamaAdapter(
+        model=MODEL,
+        allowed_models=(MODEL,),
+        base_url="http://127.0.0.1:11434",
+        client=client,
+    )
+    gateway = ProviderGateway(ollama=adapter, policy_map={})
+
+    with pytest.raises(ProviderError) as error:
+        gateway.generate(provider="ollama", policy="local_read_only", prompt="test")
+    assert error.value.code == "unknown_provider_policy"
