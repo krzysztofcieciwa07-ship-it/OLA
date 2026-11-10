@@ -22,7 +22,8 @@ RUN python -m pip install --no-cache-dir --disable-pip-version-check pydantic==2
     && groupadd --gid 65532 ola-worker \
     && useradd --uid 65532 --gid 65532 --no-create-home --shell /usr/sbin/nologin ola-worker
 
-COPY --chown=root:root app/agent_catalog.py app/agent_protocol.py app/agent_worker.py /app/app/
+COPY --chown=root:root app/agent_catalog.py app/canonical.py app/agent_protocol.py app/agent_worker.py /app/app/
+COPY --chown=root:root app/provenance /app/app/provenance/
 
 RUN chmod -R a-w /app
 
