@@ -44,7 +44,7 @@ def test_runtime_builds_strict_worker_request_and_delegates_without_fallback():
         "calculate 17 * 23",
         "tool.safe_expression",
         {"expression": "17 * 23"},
-        {"proposal": "evaluate the expression"},
+        {"output": {"status": "needs_tool", "tool_name": "tool.safe_expression", "tool_arguments_json": '{"expression":"17 * 23"}'}},
         run_id=run_id,
         agent_instance_id=instance_id,
         source_commit="a" * 40,
@@ -59,7 +59,7 @@ def test_runtime_builds_strict_worker_request_and_delegates_without_fallback():
     assert supervisor.request.specialist_role == "Hermes"
     assert supervisor.request.execution_profile == "react"
     assert supervisor.request.allowed_capabilities == ("tool.safe_expression",)
-    assert supervisor.request.model_output == {"proposal": "evaluate the expression"}
+    assert supervisor.request.model_output["output"]["tool_arguments_json"] == '{"expression":"17 * 23"}'
 
 
 def test_runtime_blocks_if_source_commit_is_not_trusted(monkeypatch):
@@ -258,11 +258,11 @@ def _lifecycle_provider_result():
     from app.providers.contracts import AgentModelOutput, ProviderResult, digest_json
 
     output = AgentModelOutput(
-        status="complete",
+        status="needs_tool",
         summary="The plan is ready.",
         reasoning="Structured output was validated.",
-        tool_name=None,
-        tool_arguments_json="",
+        tool_name="tool.safe_expression",
+        tool_arguments_json='{"expression":"17 * 23"}',
         evidence_refs=[],
     )
     return ProviderResult(
