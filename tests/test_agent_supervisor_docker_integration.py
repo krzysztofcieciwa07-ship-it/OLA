@@ -61,6 +61,7 @@ def test_real_docker_worker_is_one_shot_isolated_and_cleaned_up():
     assert re.fullmatch(r"[a-f0-9]{64}", second.container_id)
     assert first.container_id != second.container_id
     assert first.image_digest == second.image_digest == WORKER_IMAGE
+    assert first.exit_code == second.exit_code == 0
     assert first.worker_result.worker_pid == second.worker_result.worker_pid == 1
     assert first.worker_result.capability_result == {"value": 391}
     assert second.worker_result.capability_result == {"value": 391}
