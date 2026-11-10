@@ -195,6 +195,8 @@ def test_worker_image_requires_digest_pinned_base_and_fixed_entrypoint():
     assert "@sha256:" in source
     assert "ENTRYPOINT [\"python\", \"-m\", \"app.agent_worker\"]" in source
     assert "USER 65532:65532" in source
+    assert "ARG OLA_SOURCE_COMMIT" in source
+    assert "org.opencontainers.image.revision" in source
 
 
 def _runner_for_inspect(agent, request, inspect_override=None, worker_pid=1, result_override=None):
