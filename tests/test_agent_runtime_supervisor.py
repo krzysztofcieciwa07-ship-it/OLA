@@ -94,7 +94,7 @@ def test_runtime_blocks_capability_outside_instance_allowlist_before_delegation(
         def execute(self, instance, request):
             raise AssertionError("unauthorized capability must not reach the supervisor")
 
-    result = run_isolated_agent_instance(
+    result = agent_runtime.run_isolated_agent_instance(
         _instance(),
         "deploy production",
         "production.deploy",
@@ -118,7 +118,7 @@ def test_runtime_preserves_supervisor_block_without_deterministic_fallback():
         status="BLOCKED",
         reason="worker_image_digest_not_locally_verified",
     ))
-    result = run_isolated_agent_instance(
+    result = agent_runtime.run_isolated_agent_instance(
         _instance(),
         "calculate",
         "tool.safe_expression",
