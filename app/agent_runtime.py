@@ -1040,17 +1040,20 @@ def run_isolated_agent_task(
         return finish("FINALIZATION_PENDING", reason="evidence_worker_start_append_failed",
                       model_output_digest=model_output_digest)
 
-    execution = run_isolated_agent_instance(
-        instance,
-        task,
-        capability,
-        capability_input,
-        provider_dump,
-        run_id=run_id,
-        agent_instance_id=instance_id,
-        source_commit=commit,
-        supervisor=executor,
-    )
+    try:
+        execution = run_isolated_agent_instance(
+            instance,
+            task,
+            capability,
+            capability_input,
+            provider_dump,
+            run_id=run_id,
+            agent_instance_id=instance_id,
+            source_commit=commit,
+            supervisor=executor,
+        )
+    except Exception:
+        return fail("worker", "worker_execution_failed", model_output_digest=model_output_digest)
     if not isinstance(execution, AgentExecution):
         return finish("FINALIZATION_PENDING", reason="invalid_worker_execution_result",
                       model_output_digest=model_output_digest)
@@ -1072,6 +1075,12 @@ def run_isolated_agent_task(
             and worker_result.capability == capability
             and worker_result.source_commit == commit
             and worker_result.worker_pid == 1
+            and worker_result.model_output_role == "advisory_only"
+            and worker_result.input_digest == _digest(canonical_json({
+                "task": task,
+                "capability_input": capability_input,
+            }))
+            and worker_result.output_digest == _digest(canonical_json(worker_result.capability_result))
             and worker_result.model_output_digest == model_output_digest
         )
         if not valid_worker_proof:
