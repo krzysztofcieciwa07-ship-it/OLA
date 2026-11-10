@@ -851,7 +851,7 @@ def run_isolated_agent_task(
     instance,
     task,
     capability,
-    capability_input,
+    capability_input=None,
     *,
     provider,
     provider_gateway=None,
@@ -943,7 +943,7 @@ def run_isolated_agent_task(
         return result("BLOCKED", "task_invalid")
     if not isinstance(capability, str) or capability not in instance.capabilities:
         return result("BLOCKED", "capability_not_in_instance_allowlist")
-    if not isinstance(capability_input, dict):
+    if capability_input is not None and not isinstance(capability_input, dict):
         return result("BLOCKED", "capability_input_invalid")
     if not isinstance(commit, str) or len(commit) != 40 or any(
         char not in "0123456789abcdef" for char in commit
@@ -953,13 +953,12 @@ def run_isolated_agent_task(
         return result("BLOCKED", "provider_not_explicit")
 
     task_digest = _digest(task)
-    capability_input_digest = _digest(canonical_json(capability_input))
+    capability_input_digest = protocol_digest_json(capability_input) if capability_input is not None else None
     try:
         append_event("execution.run.start", {
             "source_commit": commit,
             "execution_boundary": "container",
             "task_digest": task_digest,
-            "capability_input_digest": capability_input_digest,
             "agent_id": instance.agent_id,
             "agent_instance_id": instance_id,
             "specialist_role": instance.specialist_role,
@@ -969,6 +968,30 @@ def run_isolated_agent_task(
         })
     except Exception:
         return result("BLOCKED", "evidence_run_start_append_failed")
+
+    plan_dag = {
+        "schema_version": 1,
+        "nodes": [{
+            "agent_id": instance.agent_id,
+            "agent_instance_id": instance_id,
+            "specialist_role": instance.specialist_role,
+            "execution_profile": instance.execution_profile,
+            "capability": capability,
+            "depends_on": [],
+        }],
+        "edges": [],
+    }
+    try:
+        append_event("plan.committed", {
+            "schema_version": 1,
+            "dag": plan_dag,
+            "dag_digest": protocol_digest_json(plan_dag),
+            "allowlist": [capability],
+            "required_handoffs": [],
+            "source_commit": commit,
+        })
+    except Exception:
+        return finish("BLOCKED", reason="plan_commit_append_failed")
 
     try:
         executor = supervisor if supervisor is not None else AgentSupervisor()
@@ -999,6 +1022,21 @@ def run_isolated_agent_task(
             return fail("provider", "provider_identity_mismatch")
         if provider_result.fallback_used is not False or provider_result.model_output_role != "advisory_only":
             return fail("provider", "provider_output_authority_invalid")
+        model_output = provider_result.output
+        if model_output.status != "needs_tool":
+            return fail("provider", "model_did_not_request_capability")
+        if model_output.tool_name != capability:
+            return fail("provider", "model_requested_different_capability")
+        try:
+            model_arguments = json.loads(model_output.tool_arguments_json)
+        except (TypeError, ValueError):
+            return fail("provider", "model_tool_arguments_invalid")
+        if not isinstance(model_arguments, dict):
+            return fail("provider", "model_tool_arguments_not_object")
+        if capability_input is not None and capability_input != model_arguments:
+            return fail("capability", "capability_input_not_model_derived")
+        capability_input = model_arguments
+        capability_input_digest = protocol_digest_json(capability_input)
         provider_dump = provider_result.model_dump(mode="json")
         model_output_digest = protocol_digest_json(provider_dump)
     except Exception as exc:
@@ -1006,40 +1044,47 @@ def run_isolated_agent_task(
         return fail("provider", error_code)
 
     try:
-        append_event("agent.provider.response", {
+        request_completed_at = time.time()
+        request_started_at = request_completed_at - (provider_result.latency_ms / 1000)
+        model_request_payload = {
             "agent_id": instance.agent_id,
             "agent_instance_id": instance_id,
             "provider": provider_result.provider,
             "model": provider_result.model,
             "model_digest": provider_result.model_digest,
             "request_id": provider_result.request_id,
+            "request_id_source": "ola_gateway" if provider_result.provider == "ollama" else "provider",
             "prompt_digest": provider_result.prompt_digest,
             "schema_digest": provider_result.schema_digest,
+            "request_started_at": request_started_at,
+            "response_received_at": request_completed_at,
             "raw_response_digest": provider_result.raw_response_digest,
             "output_digest": provider_result.output_digest,
             "model_output_digest": model_output_digest,
+            "capability": capability,
+            "capability_input_digest": capability_input_digest,
             "latency_ms": provider_result.latency_ms,
             "fallback_used": False,
             "model_output_role": "advisory_only",
-        })
+        }
+        append_event("model.request", model_request_payload)
+        append_event("model.response", model_request_payload)
+        append_event("agent.provider.response", model_request_payload)
     except Exception:
         return finish("FINALIZATION_PENDING", reason="evidence_provider_response_append_failed",
                       model_output_digest=model_output_digest)
 
     try:
-        append_event("agent.worker.start", {
+        append_event("capability.start", {
             "agent_id": instance.agent_id,
             "agent_instance_id": instance_id,
-            "specialist_role": instance.specialist_role,
-            "execution_profile": instance.execution_profile,
             "capability": capability,
-            "execution_boundary": "container",
+            "args_digest": capability_input_digest,
+            "derived_from": model_output_digest,
             "source_commit": commit,
-            "image_digest": executor.image_digest,
-            "model_output_digest": model_output_digest,
         })
     except Exception:
-        return finish("FINALIZATION_PENDING", reason="evidence_worker_start_append_failed",
+        return finish("FINALIZATION_PENDING", reason="evidence_capability_start_append_failed",
                       model_output_digest=model_output_digest)
 
     try:
