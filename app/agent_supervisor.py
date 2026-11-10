@@ -13,8 +13,9 @@ from .agent_protocol import (
     MAX_RESPONSE_BYTES,
     AgentWorkerRequest,
     AgentWorkerResult,
+    digest_json,
 )
-from .agent_registry import AgentInstanceSpec
+from .agent_registry import AgentInstanceSpec, build_agent_registry
 
 
 _IMAGE_DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
@@ -100,6 +101,7 @@ class AgentSupervisor:
         memory_mb: int,
         cpu_millis: int,
         pids_limit: int,
+        source_commit: str,
     ) -> str | None:
         if inspect.get("Id") != container_id:
             return "container_identity_mismatch"
@@ -118,6 +120,9 @@ class AgentSupervisor:
             return "worker_user_not_unprivileged"
         if config.get("Volumes"):
             return "worker_declared_volumes_not_allowed"
+        labels = config.get("Labels") or {}
+        if labels.get("org.opencontainers.image.revision") != source_commit:
+            return "worker_source_revision_mismatch"
         for env_item in config.get("Env") or []:
             env_name = str(env_item).split("=", 1)[0].lower()
             if any(marker in env_name for marker in _SECRET_ENV_MARKERS):
@@ -129,7 +134,7 @@ class AgentSupervisor:
             return "worker_rootfs_not_read_only"
         if host.get("Privileged") is not False:
             return "worker_privileged_mode_not_allowed"
-        if "ALL" not in (host.get("CapDrop") or []):
+        if "ALL" not in (host.get("CapDrop") or []) or host.get("CapAdd"):
             return "worker_capabilities_not_dropped"
         if "no-new-privileges:true" not in (host.get("SecurityOpt") or []):
             return "worker_no_new_privileges_missing"
@@ -165,7 +170,10 @@ class AgentSupervisor:
         return None
 
     def execute(self, instance: AgentInstanceSpec, request: AgentWorkerRequest) -> AgentExecution:
-        if not isinstance(instance, AgentInstanceSpec) or not isinstance(request, AgentWorkerRequest):
+        try:
+            instance = build_agent_registry([instance])[0]
+            request = AgentWorkerRequest.model_validate_json(request.model_dump_json())
+        except Exception:
             return self._blocked("invalid_worker_contract", self.image_digest)
         if instance.availability_status != "enabled":
             return self._blocked("agent_instance_disabled", self.image_digest)
@@ -189,11 +197,14 @@ class AgentSupervisor:
         pids_limit = min(self.pids_limit, instance.resource_limits.max_processes)
         timeout_seconds = min(self.timeout_seconds, instance.resource_limits.timeout_seconds)
 
-        cid_fd, cidfile = tempfile.mkstemp(
-            prefix="ola-worker-", suffix=".cid", dir=self.temp_dir
-        )
-        os.close(cid_fd)
-        os.unlink(cidfile)
+        try:
+            cid_fd, cidfile = tempfile.mkstemp(
+                prefix="ola-worker-", suffix=".cid", dir=self.temp_dir
+            )
+            os.close(cid_fd)
+            os.unlink(cidfile)
+        except Exception:
+            return self._blocked("worker_cidfile_unavailable", self.image_digest)
         container_name = f"ola-worker-{uuid.uuid4().hex}"
         run_attempted = False
         container_id = None
@@ -293,6 +304,7 @@ class AgentSupervisor:
                             memory_mb=memory_mb,
                             cpu_millis=cpu_millis,
                             pids_limit=pids_limit,
+                            source_commit=request.source_commit,
                         )
                         if policy_failure:
                             execution = self._blocked(
@@ -330,6 +342,21 @@ class AgentSupervisor:
                                     "worker_response_identity_or_status_mismatch",
                                     self.image_digest,
                                     container_id,
+                                )
+                            elif worker_result.worker_pid != 1:
+                                execution = self._blocked(
+                                    "worker_process_identity_invalid", self.image_digest, container_id
+                                )
+                            elif (
+                                worker_result.input_digest != digest_json({
+                                    "task": request.task,
+                                    "capability_input": request.capability_input,
+                                })
+                                or worker_result.model_output_digest != digest_json(request.model_output)
+                                or worker_result.output_digest != digest_json(worker_result.capability_result)
+                            ):
+                                execution = self._blocked(
+                                    "worker_result_digest_mismatch", self.image_digest, container_id
                                 )
                             elif len(worker_process.stdout.encode("utf-8")) > min(
                                 MAX_RESPONSE_BYTES, instance.resource_limits.max_output_bytes
