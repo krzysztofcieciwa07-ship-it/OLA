@@ -278,18 +278,6 @@ async def secure_agent_bridge_invoke(request: Request):
         raise HTTPException(status_code=401, detail="request authentication failed") from None
 
     try:
-        await run_in_threadpool(
-            secure_bridge.consume_nonce,
-            key_id=principal.key_id,
-            nonce=request.headers.get("x-nonce", ""),
-            retention_seconds=max(60, 2 * clock_skew + 60),
-        )
-    except SecureBridgeNonceReplay:
-        raise HTTPException(status_code=409, detail="request nonce already used") from None
-    except NonceStoreUnavailable:
-        raise HTTPException(status_code=503, detail="secure bridge replay protection unavailable") from None
-
-    try:
         payload = json.loads(
             raw_body.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_json_keys,
@@ -312,6 +300,24 @@ async def secure_agent_bridge_invoke(request: Request):
     if not isinstance(task, str) or not task.strip() or len(task) > 4000:
         raise HTTPException(status_code=400, detail="task must be a nonempty string of at most 4000 characters")
     task = task.strip()
+    try:
+        task.encode("utf-8")
+    except UnicodeEncodeError:
+        raise HTTPException(status_code=400, detail="task must be valid UTF-8") from None
+
+    # Reserve replay protection only after the signed request is fully parsed
+    # and its allowlisted task is safe to pass into the runtime.
+    try:
+        await run_in_threadpool(
+            secure_bridge.consume_nonce,
+            key_id=principal.key_id,
+            nonce=request.headers.get("x-nonce", ""),
+            retention_seconds=max(60, 2 * clock_skew + 60),
+        )
+    except SecureBridgeNonceReplay:
+        raise HTTPException(status_code=409, detail="request nonce already used") from None
+    except NonceStoreUnavailable:
+        raise HTTPException(status_code=503, detail="secure bridge replay protection unavailable") from None
 
     return await run_in_threadpool(
         _execute_secure_bridge_task,
