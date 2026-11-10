@@ -389,6 +389,87 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
     return saved["id"], output
 
 
+def _run_evidence_rows(tenant_id, run_id):
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == tenant_id)
+            .order_by(EvidenceRecord.seq.asc())
+        ).all()
+    selected = []
+    for row in rows:
+        try:
+            payload = json.loads(row.payload_json)
+        except (TypeError, ValueError):
+            continue
+        if payload.get("run_id") == run_id:
+            selected.append((row, payload))
+    return rows, selected
+
+
+def finalize_agent_run(tenant_id, run_id):
+    """Idempotently append the terminal lifecycle record, then verify the closed run."""
+    if not isinstance(run_id, str) or not run_id:
+        return {"status": "BLOCK", "reason": "run_id is required"}
+
+    _, selected = _run_evidence_rows(tenant_id, run_id)
+    starts = [(row, payload) for row, payload in selected
+              if row.record_type == "execution.run.start"]
+    ends = [(row, payload) for row, payload in selected
+            if row.record_type == "execution.run.end"]
+    errors = [(row, payload) for row, payload in selected
+              if row.record_type == "execution.run.error"]
+    agent_rows = [(row, payload) for row, payload in selected
+                  if row.record_type.startswith("agent.")]
+
+    if len(starts) != 1:
+        return {"status": "BLOCK", "reason": "run must have exactly one durable start record"}
+    if len(ends) > 1:
+        return {"status": "BLOCK", "reason": "run has duplicate terminal records"}
+    if ends:
+        terminal = ends[0][1]
+        if terminal.get("status") == "COMPLETED":
+            return verify_agent_run(tenant_id, run_id)
+        if terminal.get("status") == "FAILED":
+            return {"status": "FAILED", "reason": "run has a durable failed terminal record"}
+        return {"status": "BLOCK", "reason": "run terminal status is invalid"}
+
+    failed = bool(errors)
+    completed_count = len(agent_rows)
+    if not failed and completed_count != len(AGENT_ROLES):
+        return {
+            "status": "FINALIZATION_PENDING",
+            "reason": "run is incomplete and has no durable error record",
+            "run_id": run_id,
+            "completed_agent_count": completed_count,
+        }
+
+    terminal_status = "FAILED" if failed else "COMPLETED"
+    try:
+        append_evidence_atomic(
+            tenant_id,
+            "execution.run.end",
+            {
+                "run_id": run_id,
+                "status": terminal_status,
+                "completed_agent_count": completed_count,
+            },
+            deduplicate=True,
+        )
+    except Exception as exc:
+        return {
+            "status": "FINALIZATION_PENDING",
+            "reason": f"terminal evidence append unavailable: {type(exc).__name__}",
+            "run_id": run_id,
+            "completed_agent_count": completed_count,
+        }
+
+    if failed:
+        return {"status": "FAILED", "reason": "agent execution failed",
+                "run_id": run_id, "completed_agent_count": completed_count}
+    return verify_agent_run(tenant_id, run_id)
+
+
 def run_agent_task(tenant_id, task):
     if not isinstance(task, str) or not task.strip() or len(task) > MAX_AGENT_TASK_CHARS:
         return {"run_id": None, "task": None, "final_result": None, "status": "BLOCK",
@@ -416,52 +497,55 @@ def run_agent_task(tenant_id, task):
     })
     try:
         for agent in AGENT_ROLES:
-            evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
+            evidence_id, output = _append_agent_evidence(
+                tenant_id, run_id, agent, task, previous_output, execution
+            )
             evidence_ids.append(evidence_id)
             execution.append(output)
             previous_output = output
-        verification = verify_agent_run(tenant_id, run_id)
-        final_status = verification["status"]
-        final_reason = verification.get("reason")
-        verification_scope = verification.get("verification_scope", [])
-        not_established = verification.get("not_established", [])
     except Exception as exc:
-        # Record only the exception class; messages can contain prompts, secrets or PII.
-        append_evidence_atomic(tenant_id, "execution.run.error", {
-            "run_id": run_id, "error_type": type(exc).__name__,
-            "completed_agent_count": len(evidence_ids),
-        })
-        final_status = "FAILED"
-        final_reason = f"agent execution failed: {type(exc).__name__}"
-        verification_scope = []
-        not_established = ["agent execution and semantic correctness were not verified"]
-        append_evidence_atomic(tenant_id, "execution.run.end", {
-            "run_id": run_id, "status": final_status,
-            "completed_agent_count": len(evidence_ids),
-        })
+        # Store only the exception class; messages may contain prompts, secrets or PII.
+        try:
+            append_evidence_atomic(
+                tenant_id,
+                "execution.run.error",
+                {
+                    "run_id": run_id,
+                    "error_type": type(exc).__name__,
+                    "completed_agent_count": len(evidence_ids),
+                },
+                deduplicate=True,
+            )
+        except Exception:
+            return {
+                "run_id": run_id, "task": None, "final_result": None,
+                "status": "FINALIZATION_PENDING",
+                "reason": "failure evidence could not be persisted",
+                "agents": AGENT_ROLES, "evidence_count": len(evidence_ids),
+                "evidence_ids": evidence_ids, "execution": execution,
+            }
+        finalization = finalize_agent_run(tenant_id, run_id)
         return {
             "run_id": run_id, "task": None, "final_result": None,
-            "status": final_status, "reason": final_reason,
+            "status": finalization["status"],
+            "reason": finalization.get("reason", f"agent execution failed: {type(exc).__name__}"),
             "agents": AGENT_ROLES, "evidence_count": len(evidence_ids),
             "evidence_ids": evidence_ids, "execution": execution,
-            "verification_scope": verification_scope,
-            "not_established": not_established,
+            "verification_scope": finalization.get("verification_scope", []),
+            "not_established": finalization.get("not_established", []),
         }
 
+    finalization = finalize_agent_run(tenant_id, run_id)
     final_result = execution[-1].get("final_result") if execution else None
-    append_evidence_atomic(tenant_id, "execution.run.end", {
-        "run_id": run_id, "status": final_status,
-        "completed_agent_count": len(evidence_ids),
-    })
     return {
-        "run_id": run_id, "task": task, "final_result": final_result,
-        "status": final_status, "reason": final_reason,
+        "run_id": run_id, "task": task if finalization["status"] == "VERIFIED" else None,
+        "final_result": final_result if finalization["status"] == "VERIFIED" else None,
+        "status": finalization["status"], "reason": finalization.get("reason"),
         "agents": AGENT_ROLES, "evidence_count": len(evidence_ids),
         "evidence_ids": evidence_ids, "execution": execution,
-        "verification_scope": verification_scope,
-        "not_established": not_established,
+        "verification_scope": finalization.get("verification_scope", []),
+        "not_established": finalization.get("not_established", []),
     }
-
 
 def run_multi_agent_task(tenant_id, task, agents):
     """Build a deterministic digest-chain simulation for a supplied agent registry.
@@ -543,62 +627,107 @@ def verify_agent_run(tenant_id, run_id):
     if expected_commit is None:
         return {"status": "BLOCK", "reason": "runtime source commit missing or invalid"}
 
-    with SessionLocal() as db:
-        rows = db.scalars(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.asc())).all()
-    run_rows = []
-    for row in rows:
-        try:
-            payload = json.loads(row.payload_json)
-        except json.JSONDecodeError:
-            continue
-        if payload.get("run_id") == run_id and row.record_type.startswith("agent."):
-            run_rows.append(row)
+    rows, selected = _run_evidence_rows(tenant_id, run_id)
+    start_rows = [(row, payload) for row, payload in selected
+                  if row.record_type == "execution.run.start"]
+    end_rows = [(row, payload) for row, payload in selected
+                if row.record_type == "execution.run.end"]
+    run_rows = [row for row, _ in selected if row.record_type.startswith("agent.")]
+
+    if len(start_rows) != 1 or len(end_rows) != 1:
+        return {
+            "status": "UNKNOWN",
+            "reason": "complete run lifecycle evidence is required",
+            "evidence_count": len(run_rows),
+        }
+    start_row, _ = start_rows[0]
+    end_row, end_payload = end_rows[0]
+    if end_payload.get("status") != "COMPLETED":
+        return {"status": "BLOCK", "reason": "run terminal record is not COMPLETED",
+                "evidence_count": len(run_rows)}
+    if end_payload.get("completed_agent_count") != len(AGENT_ROLES):
+        return {"status": "BLOCK", "reason": "terminal agent count mismatch",
+                "evidence_count": len(run_rows)}
+    if not (start_row.seq < end_row.seq):
+        return {"status": "BLOCK", "reason": "run lifecycle order is invalid",
+                "evidence_count": len(run_rows)}
+    if any(row.seq >= end_row.seq for row in run_rows):
+        return {"status": "BLOCK", "reason": "agent evidence appears after terminal record",
+                "evidence_count": len(run_rows)}
     if len(run_rows) != len(AGENT_ROLES):
-        return {"status": "UNKNOWN", "reason": "missing agent evidence", "evidence_count": len(run_rows)}
+        return {"status": "UNKNOWN", "reason": "missing agent evidence",
+                "evidence_count": len(run_rows)}
     expected_types = [f"agent.{role}" for role in AGENT_ROLES]
     if [row.record_type for row in run_rows] != expected_types:
-        return {"status": "BLOCK", "reason": "agent order mismatch", "evidence_count": len(run_rows)}
+        return {"status": "BLOCK", "reason": "agent order mismatch",
+                "evidence_count": len(run_rows)}
+
     instance_ids = set()
     context_digests = set()
     for row in run_rows:
         payload = json.loads(row.payload_json)
-        required = {"capability", "tool", "tool_output", "result", "status", "agent_instance_id", "execution_boundary", "context_digest", "invocation_type", "model", "provider", "response_id", "commit", "task_digest", "input_digest", "model_output_digest", "model_output_role", "action_result_source"}
+        required = {
+            "capability", "tool", "tool_output", "result", "status",
+            "agent_instance_id", "execution_boundary", "context_digest",
+            "invocation_type", "model", "provider", "response_id", "commit",
+            "task_digest", "input_digest", "model_output_digest",
+            "model_output_role", "action_result_source",
+        }
         if not required.issubset(payload):
-            return {"status": "BLOCK", "reason": "agent execution evidence incomplete", "evidence_count": len(run_rows)}
+            return {"status": "BLOCK", "reason": "agent execution evidence incomplete",
+                    "evidence_count": len(run_rows)}
         for digest_key in ("context_digest", "task_digest", "input_digest", "model_output_digest"):
             digest_value = payload.get(digest_key)
             if (not isinstance(digest_value, str) or len(digest_value) != 64
                     or any(char not in "0123456789abcdef" for char in digest_value)):
-                return {"status": "BLOCK", "reason": f"invalid {digest_key} for {payload.get('agent')}", "evidence_count": len(run_rows)}
+                return {"status": "BLOCK",
+                        "reason": f"invalid {digest_key} for {payload.get('agent')}",
+                        "evidence_count": len(run_rows)}
         if payload.get("commit") != expected_commit:
-            return {"status": "BLOCK", "reason": "runtime commit provenance mismatch", "evidence_count": len(run_rows)}
+            return {"status": "BLOCK", "reason": "runtime commit provenance mismatch",
+                    "evidence_count": len(run_rows)}
         if payload["status"] != "RECORDED":
-            return {"status": "BLOCK", "reason": "agent evidence was not producer-recorded", "evidence_count": len(run_rows)}
-        if payload.get("model_output_role") != "advisory_only" or payload.get("action_result_source") != "registered_capability":
-            return {"status": "BLOCK", "reason": "model/action provenance is ambiguous", "evidence_count": len(run_rows)}
+            return {"status": "BLOCK", "reason": "agent evidence was not producer-recorded",
+                    "evidence_count": len(run_rows)}
+        if (payload.get("model_output_role") != "advisory_only"
+                or payload.get("action_result_source") != "registered_capability"):
+            return {"status": "BLOCK", "reason": "model/action provenance is ambiguous",
+                    "evidence_count": len(run_rows)}
         if payload.get("agent") == "self_reflection" and payload.get("tool_output") != "PASS":
-            return {"status": "BLOCK", "reason": "self-reflection did not pass", "evidence_count": len(run_rows)}
+            return {"status": "BLOCK", "reason": "self-reflection did not pass",
+                    "evidence_count": len(run_rows)}
         if payload["execution_boundary"] != "in_process":
-            return {"status": "BLOCK", "reason": "unexpected agent execution boundary", "evidence_count": len(run_rows)}
+            return {"status": "BLOCK", "reason": "unexpected agent execution boundary",
+                    "evidence_count": len(run_rows)}
         instance_ids.add(payload["agent_instance_id"])
         context_digests.add(payload["context_digest"])
     if len(instance_ids) != len(AGENT_ROLES) or len(context_digests) != len(AGENT_ROLES):
-        return {"status": "BLOCK", "reason": "agent instances or contexts are not unique", "evidence_count": len(run_rows)}
-    chain = [{"tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash, "record_hash": row.record_hash, "record_type": row.record_type, "payload_json": row.payload_json} for row in rows]
+        return {"status": "BLOCK", "reason": "agent instances or contexts are not unique",
+                "evidence_count": len(run_rows)}
+
+    chain = [{
+        "tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash,
+        "record_hash": row.record_hash, "record_type": row.record_type,
+        "payload_json": row.payload_json,
+    } for row in rows]
     chain_ok, reason = verify_chain(chain)
     from .hashchain import trusted_record
-    if chain_ok and not all(trusted_record({"record_type": row.record_type, "payload_json": row.payload_json})
-                            for row in run_rows):
-        return {"status": "BLOCK", "reason": "legacy or untrusted agent evidence", "evidence_count": len(run_rows)}
+    if chain_ok and not all(
+        trusted_record({"record_type": row.record_type, "payload_json": row.payload_json})
+        for row in run_rows
+    ):
+        return {"status": "BLOCK", "reason": "legacy or untrusted agent evidence",
+                "evidence_count": len(run_rows)}
     if not chain_ok:
         return {"status": "BLOCK", "reason": reason, "evidence_count": len(run_rows)}
     return {
         "status": "VERIFIED",
-        "reason": "source binding, recorded agent structure, unique instance labels and tenant evidence hash-chain integrity passed; process isolation and capability semantics were not verified",
+        "reason": "closed run lifecycle, source binding, recorded agent structure, unique instance labels and tenant evidence hash-chain integrity passed; process isolation and capability semantics were not verified",
         "commit": expected_commit,
         "evidence_count": len(run_rows),
         "execution_boundary": "in_process",
         "verification_scope": [
+            "closed_run_lifecycle",
             "runtime_source_commit_binding",
             "agent_role_order_and_record_structure",
             "unique_agent_instance_and_context_labels",
