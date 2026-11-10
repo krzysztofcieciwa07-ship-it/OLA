@@ -348,3 +348,61 @@ def test_provider_factory_constructs_only_the_explicit_provider(monkeypatch):
     with pytest.raises(ProviderError) as error:
         build_provider_gateway("unknown")
     assert error.value.code == "unknown_provider"
+
+
+def test_provider_factory_loads_model_and_digest_from_strict_lock(tmp_path, monkeypatch):
+    import json
+    from app.providers import build_provider_gateway
+
+    lock = tmp_path / "provider-lock.json"
+    lock.write_text(json.dumps({
+        "schema_version": 1,
+        "providers": {
+            "ollama": {
+                "model": MODEL,
+                "model_digest": MODEL_DIGEST,
+            },
+        },
+    }), encoding="utf-8")
+    monkeypatch.setenv("OLA_PROVIDER_LOCK_PATH", str(lock))
+
+    gateway = build_provider_gateway("ollama")
+
+    assert gateway.adapters["ollama"].model == MODEL
+    assert gateway.adapters["ollama"].expected_model_digest == MODEL_DIGEST
+    assert gateway.adapters["openai"] is None
+
+
+def test_provider_factory_blocks_unconfigured_provider_lock(monkeypatch):
+    from app.providers import build_provider_gateway
+
+    monkeypatch.delenv("OLA_PROVIDER_LOCK_PATH", raising=False)
+    with pytest.raises(ProviderError) as error:
+        build_provider_gateway("ollama")
+
+    assert error.value.code == "model_not_allowlisted"
+
+
+def test_ollama_model_lock_utility_persists_exact_observed_digest(tmp_path, monkeypatch):
+    import json
+    import httpx
+    from scripts import lock_ollama_model
+
+    observed = "sha256:" + "c" * 64
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"models": [{"name": MODEL, "digest": observed}]}
+
+    monkeypatch.setattr(lock_ollama_model.httpx, "get", lambda *args, **kwargs: Response())
+    target = tmp_path / "provider-lock.json"
+
+    result = lock_ollama_model.lock_model(MODEL, output_path=target)
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert result["model_digest"] == observed
+    assert payload["providers"]["ollama"]["model"] == MODEL
+    assert payload["providers"]["ollama"]["model_digest"] == observed
