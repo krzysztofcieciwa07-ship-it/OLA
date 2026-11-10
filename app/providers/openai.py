@@ -41,14 +41,14 @@ class OpenAIAdapter:
         timeout_seconds: float = 30.0,
         client: httpx.Client | None = None,
     ):
-        self.model = model or os.getenv("OLA_OPENAI_MODEL", "").strip()
-        self.allowed_models = allowed_models or _csv_env("OLA_OPENAI_ALLOWED_MODELS")
+        self.model = model if model is not None else os.getenv("OLA_OPENAI_MODEL", "").strip()
+        self.allowed_models = tuple(item.strip() for item in allowed_models if item.strip()) if allowed_models is not None else _csv_env("OLA_OPENAI_ALLOWED_MODELS")
         if not self.model or not self.allowed_models or self.model not in self.allowed_models:
             raise ProviderError("model_not_allowlisted", "OpenAI model must be explicitly allowlisted")
         self.api_key = api_key if api_key is not None else os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise ProviderError("api_key_missing", "OPENAI_API_KEY is required for the OpenAI provider")
-        self.allowed_hosts = allowed_hosts or _csv_env("OLA_OPENAI_ALLOWED_HOSTS", "api.openai.com")
+        self.allowed_hosts = tuple(item.strip() for item in allowed_hosts if item.strip()) if allowed_hosts is not None else _csv_env("OLA_OPENAI_ALLOWED_HOSTS", "api.openai.com")
         self.base_url = _validate_base_url(
             base_url or os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
             self.allowed_hosts,
