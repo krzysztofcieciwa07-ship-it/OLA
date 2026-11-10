@@ -1,9 +1,11 @@
 import ast
 import hashlib
+import ipaddress
 import json
 import operator
 import os
 import uuid
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 
@@ -34,7 +36,41 @@ def _digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _validate_ollama_base_url(base_url):
+    try:
+        parsed = urlsplit(base_url)
+        host = (parsed.hostname or "").rstrip(".").lower()
+        parsed.port
+    except ValueError:
+        raise RuntimeError("OLLAMA_BASE_URL is not an approved Ollama endpoint") from None
+    if (not host or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or parsed.scheme not in {"http", "https"}):
+        raise RuntimeError("OLLAMA_BASE_URL is not an approved Ollama endpoint")
+    try:
+        is_loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loopback = host == "localhost"
+    allowed_hosts = {
+        item.strip().lower().rstrip(".")
+        for item in os.getenv("OLA_OLLAMA_ALLOWED_HOSTS", "").split(",")
+        if item.strip()
+    }
+    if parsed.scheme == "http" and not is_loopback:
+        raise RuntimeError("OLLAMA_BASE_URL requires loopback HTTP or an allowlisted HTTPS host")
+    if parsed.scheme == "https" and not is_loopback and host not in allowed_hosts:
+        raise RuntimeError("OLLAMA_BASE_URL requires loopback HTTP or an allowlisted HTTPS host")
+    return base_url
+
+
+MAX_AGENT_TASK_CHARS = 4096
+MAX_EXPRESSION_NODES = 128
+MAX_EXPRESSION_DEPTH = 24
+MAX_LITERAL_ABS = 10**12
+
+
 def _safe_expression(task):
+    if not isinstance(task, str) or len(task) > MAX_AGENT_TASK_CHARS:
+        return "execution blocked: task exceeds safe input limit"
     lowered = task.lower()
     if "calculate" in lowered:
         expression = task[lowered.index("calculate") + len("calculate"):].strip()
@@ -43,19 +79,28 @@ def _safe_expression(task):
     expression = expression.replace("?", "").split(" and ")[0].strip()
     try:
         tree = ast.parse(expression, mode="eval")
-    except SyntaxError:
+    except (SyntaxError, ValueError, MemoryError):
         return "task accepted: no executable arithmetic expression supplied"
+    if len(list(ast.walk(tree))) > MAX_EXPRESSION_NODES:
+        return "task accepted: expression exceeds safe complexity limit"
 
-    def evaluate(node):
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+    def evaluate(node, depth=0):
+        if depth > MAX_EXPRESSION_DEPTH:
+            raise ValueError("expression nesting limit exceeded")
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            if abs(node.value) > MAX_LITERAL_ABS:
+                raise ValueError("numeric literal exceeds safe range")
             return node.value
         if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BINOPS:
-            return _SAFE_BINOPS[type(node.op)](evaluate(node.left), evaluate(node.right))
+            return _SAFE_BINOPS[type(node.op)](evaluate(node.left, depth + 1), evaluate(node.right, depth + 1))
         raise ValueError("unsafe expression")
 
     try:
-        return str(evaluate(tree.body))
-    except ValueError:
+        value = evaluate(tree.body)
+        if isinstance(value, (int, float)) and abs(value) > MAX_LITERAL_ABS:
+            return "task accepted: result exceeds safe numeric range"
+        return str(value)
+    except (ValueError, ArithmeticError, RecursionError, OverflowError):
         return "task accepted: expression outside safe execution policy"
 
 
@@ -98,7 +143,11 @@ def _mcp_tool_call(name, arguments):
 def _invoke_llm(agent, task, context):
     """Invoke the configured real LLM provider; fail closed when required but unavailable."""
     provider = os.getenv("OLA_LLM_PROVIDER", "openai").strip().lower()
-    mode = os.getenv("OLA_LLM_MODE", "deterministic")
+    mode = os.getenv("OLA_LLM_MODE", "deterministic").strip().lower()
+    if mode == "deterministic":
+        return None
+    if mode != "required":
+        raise RuntimeError("OLA_LLM_MODE must be deterministic or required")
     prompt = canonical_json({"agent": agent, "task": task, "context": context})
     system_message = (
         "You are one agent in OLA di-OS. Return concise JSON-compatible reasoning output. "
@@ -112,8 +161,17 @@ def _invoke_llm(agent, task, context):
             if mode == "required":
                 raise RuntimeError("OLA_LLM_MODE=required but OPENAI_API_KEY is missing")
             return None
-        model = os.getenv("OLA_LLM_MODEL", "gpt-5.6-luna")
-        endpoint = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1") + "/responses"
+        model = os.getenv("OLA_LLM_MODEL", "").strip()
+        if not model:
+            raise RuntimeError("OLA_LLM_MODEL must be explicitly configured when LLM mode is required")
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        parsed_url = urlsplit(base_url)
+        allowed_hosts = {host.strip().lower() for host in os.getenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com").split(",") if host.strip()}
+        if (parsed_url.scheme != "https" or not parsed_url.hostname
+                or parsed_url.hostname.lower() not in allowed_hosts
+                or parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment):
+            raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint")
+        endpoint = base_url + "/responses"
         payload = {
             "model": model,
             "input": [
@@ -125,7 +183,7 @@ def _invoke_llm(agent, task, context):
             endpoint,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
-            timeout=float(os.getenv("OLA_LLM_TIMEOUT", "30")),
+            timeout=min(15.0, max(1.0, float(os.getenv("OLA_LLM_TIMEOUT", "15")))),
         )
         response.raise_for_status()
         body = response.json()
@@ -136,7 +194,7 @@ def _invoke_llm(agent, task, context):
                 for content in item.get("content", []):
                     if content.get("type") in {"output_text", "text"} and content.get("text"):
                         parts.append(content["text"])
-            output = "\\n".join(parts)
+            output = "\n".join(parts)
         if not output:
             raise RuntimeError("OpenAI response contained no output text")
         return {
@@ -150,7 +208,8 @@ def _invoke_llm(agent, task, context):
 
     if provider == "ollama":
         model = os.getenv("OLA_LLM_MODEL", os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b-instruct"))
-        base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
+        base_url = _validate_ollama_base_url(base_url)
         options = {"temperature": 0}
         token_budget = os.getenv("OLA_OLLAMA_NUM_PREDICT")
         if token_budget is not None:
@@ -209,7 +268,7 @@ def _invoke_llm(agent, task, context):
             f"{base_url}/api/chat",
             headers={"Content-Type": "application/json"},
             json=payload,
-            timeout=float(os.getenv("OLA_LLM_TIMEOUT", "60")),
+            timeout=min(15.0, max(1.0, float(os.getenv("OLA_LLM_TIMEOUT", "15")))),
         )
         response.raise_for_status()
         body = response.json()
@@ -282,6 +341,9 @@ def _execute_agent(agent, tenant_id, task, previous_output, execution):
         "invocation_type": model["invocation_type"],
         "prompt_digest": model["prompt_digest"],
         "response_id": model.get("response_id"),
+        "model_output_digest": _digest(model.get("output", "")),
+        "model_output_role": "advisory_only",
+        "action_result_source": "registered_capability",
     })
     return result
 
@@ -307,27 +369,112 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
         "run_id": run_id,
         "agent": agent,
         "agent_instance_id": agent_instance_id,
-        "task": task,
-        "previous_output": previous_output,
+        "task_digest": _digest(task),
+        "previous_output_digest": _digest(canonical_json(previous_output)),
         "upstream_agents": [item["agent"] for item in execution],
     }
     output = {
         "agent": agent,
         "agent_instance_id": agent_instance_id,
-        "execution_boundary": "independent",
+        "execution_boundary": "in_process",
         "commit": _runtime_source_commit() or "UNKNOWN",
         "context_digest": _digest(canonical_json(context)),
-        "task": task,
-        "input_digest": _digest(json.dumps(previous_output, sort_keys=True)),
+        "task_digest": _digest(task),
+        "input_digest": _digest(canonical_json(previous_output)),
         **_execute_agent(agent, tenant_id, task, previous_output, execution),
-        "status": "VERIFIED",
+        "status": "RECORDED",
         "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
     }
     saved = append_evidence_atomic(tenant_id, f"agent.{agent}", {"run_id": run_id, **output})
     return saved["id"], output
 
 
+def _run_evidence_rows(tenant_id, run_id):
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == tenant_id)
+            .order_by(EvidenceRecord.seq.asc())
+        ).all()
+    selected = []
+    for row in rows:
+        try:
+            payload = json.loads(row.payload_json)
+        except (TypeError, ValueError):
+            continue
+        if payload.get("run_id") == run_id:
+            selected.append((row, payload))
+    return rows, selected
+
+
+def finalize_agent_run(tenant_id, run_id):
+    """Idempotently append the terminal lifecycle record, then verify the closed run."""
+    if not isinstance(run_id, str) or not run_id:
+        return {"status": "BLOCK", "reason": "run_id is required"}
+
+    _, selected = _run_evidence_rows(tenant_id, run_id)
+    starts = [(row, payload) for row, payload in selected
+              if row.record_type == "execution.run.start"]
+    ends = [(row, payload) for row, payload in selected
+            if row.record_type == "execution.run.end"]
+    errors = [(row, payload) for row, payload in selected
+              if row.record_type == "execution.run.error"]
+    agent_rows = [(row, payload) for row, payload in selected
+                  if row.record_type.startswith("agent.")]
+
+    if len(starts) != 1:
+        return {"status": "BLOCK", "reason": "run must have exactly one durable start record"}
+    if len(ends) > 1:
+        return {"status": "BLOCK", "reason": "run has duplicate terminal records"}
+    if ends:
+        terminal = ends[0][1]
+        if terminal.get("status") == "COMPLETED":
+            return verify_agent_run(tenant_id, run_id)
+        if terminal.get("status") == "FAILED":
+            return {"status": "FAILED", "reason": "run has a durable failed terminal record"}
+        return {"status": "BLOCK", "reason": "run terminal status is invalid"}
+
+    failed = bool(errors)
+    completed_count = len(agent_rows)
+    if not failed and completed_count != len(AGENT_ROLES):
+        return {
+            "status": "FINALIZATION_PENDING",
+            "reason": "run is incomplete and has no durable error record",
+            "run_id": run_id,
+            "completed_agent_count": completed_count,
+        }
+
+    terminal_status = "FAILED" if failed else "COMPLETED"
+    try:
+        append_evidence_atomic(
+            tenant_id,
+            "execution.run.end",
+            {
+                "run_id": run_id,
+                "status": terminal_status,
+                "completed_agent_count": completed_count,
+            },
+            deduplicate=True,
+        )
+    except Exception as exc:
+        return {
+            "status": "FINALIZATION_PENDING",
+            "reason": f"terminal evidence append unavailable: {type(exc).__name__}",
+            "run_id": run_id,
+            "completed_agent_count": completed_count,
+        }
+
+    if failed:
+        return {"status": "FAILED", "reason": "agent execution failed",
+                "run_id": run_id, "completed_agent_count": completed_count}
+    return verify_agent_run(tenant_id, run_id)
+
+
 def run_agent_task(tenant_id, task):
+    if not isinstance(task, str) or not task.strip() or len(task) > MAX_AGENT_TASK_CHARS:
+        return {"run_id": None, "task": None, "final_result": None, "status": "BLOCK",
+                "reason": "task must be a non-empty string no longer than 4096 characters",
+                "agents": AGENT_ROLES, "evidence_count": 0, "evidence_ids": [], "execution": []}
     source_commit = _runtime_source_commit()
     if source_commit is None:
         return {
@@ -344,34 +491,67 @@ def run_agent_task(tenant_id, task):
     run_id = str(uuid.uuid4())
     evidence_ids = []
     execution = []
-    previous_output = {"task": task}
-    for agent in AGENT_ROLES:
-        evidence_id, output = _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, execution)
-        evidence_ids.append(evidence_id)
-        execution.append(output)
-        previous_output = output
-    verification = verify_agent_run(tenant_id, run_id)
-    final_result = execution[-1].get("final_result") if execution else None
-    result = {
-        "run_id": run_id,
-        "task": task,
-        "final_result": final_result,
-        "status": verification["status"],
-        "reason": verification.get("reason"),
-        "agents": AGENT_ROLES,
-        "evidence_count": len(evidence_ids),
-        "evidence_ids": evidence_ids,
-        "execution": execution,
-    }
-    return result
+    previous_output = {"task_digest": _digest(task)}
+    append_evidence_atomic(tenant_id, "execution.run.start", {
+        "run_id": run_id, "task_digest": _digest(task), "source_commit": source_commit,
+    })
+    try:
+        for agent in AGENT_ROLES:
+            evidence_id, output = _append_agent_evidence(
+                tenant_id, run_id, agent, task, previous_output, execution
+            )
+            evidence_ids.append(evidence_id)
+            execution.append(output)
+            previous_output = output
+    except Exception as exc:
+        # Store only the exception class; messages may contain prompts, secrets or PII.
+        try:
+            append_evidence_atomic(
+                tenant_id,
+                "execution.run.error",
+                {
+                    "run_id": run_id,
+                    "error_type": type(exc).__name__,
+                    "completed_agent_count": len(evidence_ids),
+                },
+                deduplicate=True,
+            )
+        except Exception:
+            return {
+                "run_id": run_id, "task": None, "final_result": None,
+                "status": "FINALIZATION_PENDING",
+                "reason": "failure evidence could not be persisted",
+                "agents": AGENT_ROLES, "evidence_count": len(evidence_ids),
+                "evidence_ids": evidence_ids, "execution": execution,
+            }
+        finalization = finalize_agent_run(tenant_id, run_id)
+        return {
+            "run_id": run_id, "task": None, "final_result": None,
+            "status": finalization["status"],
+            "reason": finalization.get("reason", f"agent execution failed: {type(exc).__name__}"),
+            "agents": AGENT_ROLES, "evidence_count": len(evidence_ids),
+            "evidence_ids": evidence_ids, "execution": execution,
+            "verification_scope": finalization.get("verification_scope", []),
+            "not_established": finalization.get("not_established", []),
+        }
 
+    finalization = finalize_agent_run(tenant_id, run_id)
+    final_result = execution[-1].get("final_result") if execution else None
+    return {
+        "run_id": run_id, "task": task if finalization["status"] == "VERIFIED" else None,
+        "final_result": final_result if finalization["status"] == "VERIFIED" else None,
+        "status": finalization["status"], "reason": finalization.get("reason"),
+        "agents": AGENT_ROLES, "evidence_count": len(evidence_ids),
+        "evidence_ids": evidence_ids, "execution": execution,
+        "verification_scope": finalization.get("verification_scope", []),
+        "not_established": finalization.get("not_established", []),
+    }
 
 def run_multi_agent_task(tenant_id, task, agents):
-    """Execute each registered agent instance and return independently checkable runtime evidence.
+    """Build a deterministic digest-chain simulation for a supplied agent registry.
 
-    This boundary deliberately does not claim external LLM inference. It proves that the
-    registered 391-agent runtime instances execute distinct work units and communicate in
-    a deterministic chain.
+    This function does not start agent processes, invoke an LLM, execute capabilities,
+    persist evidence, or prove inter-agent communication. Its output is SIMULATED only.
     """
     if not agents:
         raise ValueError("agent registry must not be empty")
@@ -384,7 +564,7 @@ def run_multi_agent_task(tenant_id, task, agents):
 
     run_id = str(uuid.uuid4())
     execution = []
-    communication_edges = []
+    digest_edges = []
     previous_digest = _digest(canonical_json({"run_id": run_id, "task": task}))
 
     for index, agent in enumerate(agents):
@@ -392,42 +572,52 @@ def run_multi_agent_task(tenant_id, task, agents):
             "run_id": run_id,
             "agent_id": agent.agent_id,
             "role": agent.role,
-            "task": task,
+            "task_digest": _digest(task),
             "input_digest": previous_digest,
         })
         output_digest = _digest(invocation)
-        execution_record = {
+        execution.append({
             "agent_id": agent.agent_id,
             "role": agent.role,
             "sequence": index,
             "input_digest": previous_digest,
             "output_digest": output_digest,
-            "status": "VERIFIED",
-        }
-        execution.append(execution_record)
+            "status": "SIMULATED",
+        })
         if index:
-            communication_edges.append({
+            digest_edges.append({
                 "from": agents[index - 1].agent_id,
                 "to": agent.agent_id,
                 "input_digest": previous_digest,
+                "edge_type": "synthetic_digest_link",
             })
         previous_digest = output_digest
 
-    cooperation_verified = (
+    digest_chain_valid = (
         len(execution) == len(agents)
         and len({item["output_digest"] for item in execution}) == len(agents)
-        and len(communication_edges) == len(agents) - 1
-        and all(item["status"] == "VERIFIED" for item in execution)
+        and len(digest_edges) == len(agents) - 1
+        and all(item["status"] == "SIMULATED" for item in execution)
     )
     return {
         "run_id": run_id,
         "tenant_id": tenant_id,
-        "task": task,
-        "status": "VERIFIED" if cooperation_verified else "BLOCK",
+        "task_digest": _digest(task),
+        "status": "SIMULATED",
+        "execution_mode": "digest_only_simulation",
+        "claim_boundary": "No agent processes, LLM calls, capability executions, evidence persistence, or real inter-agent communication are established.",
         "agent_count": len(agents),
         "agent_ids": agent_ids,
-        "communication_edges": communication_edges,
-        "cooperation_verified": cooperation_verified,
+        "digest_edges": digest_edges,
+        "cooperation_verified": False,
+        "deterministic_chain_valid": digest_chain_valid,
+        "not_established": [
+            "agent_process_execution",
+            "llm_invocation",
+            "capability_execution",
+            "inter_agent_communication",
+            "independently_verified_agent_evidence",
+        ],
         "execution": execution,
     }
 
@@ -437,44 +627,115 @@ def verify_agent_run(tenant_id, run_id):
     if expected_commit is None:
         return {"status": "BLOCK", "reason": "runtime source commit missing or invalid"}
 
-    with SessionLocal() as db:
-        rows = db.scalars(select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id).order_by(EvidenceRecord.seq.asc())).all()
-    run_rows = []
-    for row in rows:
-        try:
-            payload = json.loads(row.payload_json)
-        except json.JSONDecodeError:
-            continue
-        if payload.get("run_id") == run_id and row.record_type.startswith("agent."):
-            run_rows.append(row)
+    rows, selected = _run_evidence_rows(tenant_id, run_id)
+    start_rows = [(row, payload) for row, payload in selected
+                  if row.record_type == "execution.run.start"]
+    end_rows = [(row, payload) for row, payload in selected
+                if row.record_type == "execution.run.end"]
+    run_rows = [row for row, _ in selected if row.record_type.startswith("agent.")]
+
+    if len(start_rows) != 1 or len(end_rows) != 1:
+        return {
+            "status": "UNKNOWN",
+            "reason": "complete run lifecycle evidence is required",
+            "evidence_count": len(run_rows),
+        }
+    start_row, _ = start_rows[0]
+    end_row, end_payload = end_rows[0]
+    if end_payload.get("status") != "COMPLETED":
+        return {"status": "BLOCK", "reason": "run terminal record is not COMPLETED",
+                "evidence_count": len(run_rows)}
+    if end_payload.get("completed_agent_count") != len(AGENT_ROLES):
+        return {"status": "BLOCK", "reason": "terminal agent count mismatch",
+                "evidence_count": len(run_rows)}
+    if not (start_row.seq < end_row.seq):
+        return {"status": "BLOCK", "reason": "run lifecycle order is invalid",
+                "evidence_count": len(run_rows)}
+    if any(row.seq >= end_row.seq for row in run_rows):
+        return {"status": "BLOCK", "reason": "agent evidence appears after terminal record",
+                "evidence_count": len(run_rows)}
     if len(run_rows) != len(AGENT_ROLES):
-        return {"status": "UNKNOWN", "reason": "missing agent evidence", "evidence_count": len(run_rows)}
+        return {"status": "UNKNOWN", "reason": "missing agent evidence",
+                "evidence_count": len(run_rows)}
     expected_types = [f"agent.{role}" for role in AGENT_ROLES]
     if [row.record_type for row in run_rows] != expected_types:
-        return {"status": "BLOCK", "reason": "agent order mismatch", "evidence_count": len(run_rows)}
+        return {"status": "BLOCK", "reason": "agent order mismatch",
+                "evidence_count": len(run_rows)}
+
     instance_ids = set()
     context_digests = set()
     for row in run_rows:
         payload = json.loads(row.payload_json)
-        required = {"capability", "tool", "tool_output", "result", "status", "agent_instance_id", "execution_boundary", "context_digest", "invocation_type", "model", "provider", "response_id", "commit"}
+        required = {
+            "capability", "tool", "tool_output", "result", "status",
+            "agent_instance_id", "execution_boundary", "context_digest",
+            "invocation_type", "model", "provider", "response_id", "commit",
+            "task_digest", "input_digest", "model_output_digest",
+            "model_output_role", "action_result_source",
+        }
         if not required.issubset(payload):
-            return {"status": "BLOCK", "reason": "agent execution evidence incomplete", "evidence_count": len(run_rows)}
+            return {"status": "BLOCK", "reason": "agent execution evidence incomplete",
+                    "evidence_count": len(run_rows)}
+        for digest_key in ("context_digest", "task_digest", "input_digest", "model_output_digest"):
+            digest_value = payload.get(digest_key)
+            if (not isinstance(digest_value, str) or len(digest_value) != 64
+                    or any(char not in "0123456789abcdef" for char in digest_value)):
+                return {"status": "BLOCK",
+                        "reason": f"invalid {digest_key} for {payload.get('agent')}",
+                        "evidence_count": len(run_rows)}
         if payload.get("commit") != expected_commit:
-            return {"status": "BLOCK", "reason": "runtime commit provenance mismatch", "evidence_count": len(run_rows)}
-        if payload["status"] != "VERIFIED":
-            return {"status": "BLOCK", "reason": "agent execution not verified", "evidence_count": len(run_rows)}
-        if payload["execution_boundary"] != "independent":
-            return {"status": "BLOCK", "reason": "agent execution boundary is not independent", "evidence_count": len(run_rows)}
+            return {"status": "BLOCK", "reason": "runtime commit provenance mismatch",
+                    "evidence_count": len(run_rows)}
+        if payload["status"] != "RECORDED":
+            return {"status": "BLOCK", "reason": "agent evidence was not producer-recorded",
+                    "evidence_count": len(run_rows)}
+        if (payload.get("model_output_role") != "advisory_only"
+                or payload.get("action_result_source") != "registered_capability"):
+            return {"status": "BLOCK", "reason": "model/action provenance is ambiguous",
+                    "evidence_count": len(run_rows)}
+        if payload.get("agent") == "self_reflection" and payload.get("tool_output") != "PASS":
+            return {"status": "BLOCK", "reason": "self-reflection did not pass",
+                    "evidence_count": len(run_rows)}
+        if payload["execution_boundary"] != "in_process":
+            return {"status": "BLOCK", "reason": "unexpected agent execution boundary",
+                    "evidence_count": len(run_rows)}
         instance_ids.add(payload["agent_instance_id"])
         context_digests.add(payload["context_digest"])
     if len(instance_ids) != len(AGENT_ROLES) or len(context_digests) != len(AGENT_ROLES):
-        return {"status": "BLOCK", "reason": "agent instances or contexts are not unique", "evidence_count": len(run_rows)}
-    chain = [{"tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash, "record_hash": row.record_hash, "record_type": row.record_type, "payload_json": row.payload_json} for row in rows]
+        return {"status": "BLOCK", "reason": "agent instances or contexts are not unique",
+                "evidence_count": len(run_rows)}
+
+    chain = [{
+        "tenant_id": row.tenant_id, "seq": row.seq, "prev_hash": row.prev_hash,
+        "record_hash": row.record_hash, "record_type": row.record_type,
+        "payload_json": row.payload_json,
+    } for row in rows]
     chain_ok, reason = verify_chain(chain)
     from .hashchain import trusted_record
-    if chain_ok and not all(trusted_record({"record_type": row.record_type, "payload_json": row.payload_json})
-                            for row in run_rows):
-        return {"status": "BLOCK", "reason": "legacy or untrusted agent evidence", "evidence_count": len(run_rows)}
+    if chain_ok and not all(
+        trusted_record({"record_type": row.record_type, "payload_json": row.payload_json})
+        for row in run_rows
+    ):
+        return {"status": "BLOCK", "reason": "legacy or untrusted agent evidence",
+                "evidence_count": len(run_rows)}
     if not chain_ok:
         return {"status": "BLOCK", "reason": reason, "evidence_count": len(run_rows)}
-    return {"status": "VERIFIED", "reason": "runtime commit, independent agent identities, contexts, execution evidence and hash-chain verification passed", "commit": expected_commit, "evidence_count": len(run_rows)}
+    return {
+        "status": "VERIFIED",
+        "reason": "closed run lifecycle, source binding, recorded agent structure, unique instance labels and tenant evidence hash-chain integrity passed; process isolation and capability semantics were not verified",
+        "commit": expected_commit,
+        "evidence_count": len(run_rows),
+        "execution_boundary": "in_process",
+        "verification_scope": [
+            "closed_run_lifecycle",
+            "runtime_source_commit_binding",
+            "agent_role_order_and_record_structure",
+            "unique_agent_instance_and_context_labels",
+            "tenant_evidence_hash_chain_integrity",
+        ],
+        "not_established": [
+            "isolated_or_independent_agent_processes",
+            "semantic_correctness_of_registered_capabilities",
+            "model_generated_action_results",
+        ],
+    }

@@ -103,14 +103,14 @@ def run_invoice_task(tenant_id, task):
         output = {
             "agent": agent,
             "agent_instance_id": instance_id,
-            "execution_boundary": "independent",
+            "execution_boundary": "in_process",
             "context_digest": hashlib.sha256(canonical_json({"run_id": run_id, "agent": agent, "previous": previous}).encode()).hexdigest(),
             "task": task,
             **checks[agent],
             "provider": "local",
             "model": "deterministic-business-runtime-v1",
             "invocation_type": "local_deterministic_model",
-            "status": "VERIFIED",
+            "status": "RECORDED",
         }
         evidence_ids.append(_append(tenant_id, run_id, f"agent.{agent}", output))
         execution.append(output)
@@ -132,12 +132,24 @@ def run_invoice_task(tenant_id, task):
         trusted_record({"record_type": r.record_type, "payload_json": r.payload_json})
         for r in current
     )
-    status = "VERIFIED" if chain_ok and bound else "BLOCK"
+    status = "RECORDED" if chain_ok and bound else "BLOCK"
     return {
         "run_id": run_id,
         "task": task,
         "status": status,
         "reason": reason,
+        "execution_boundary": "in_process",
+        "verification_scope": [
+            "six_agent_role_records_created",
+            "record_producer_binding",
+            "tenant_evidence_hash_chain_integrity",
+        ] if status == "RECORDED" else [],
+        "not_established": [
+            "isolated_or_independent_agent_processes",
+            "real_llm_invocation",
+            "semantic_correctness_beyond_deterministic_invoice_checks",
+            "external_independent_verification_in_this_api_request",
+        ],
         "agents": AGENT_ROLES,
         "evidence_count": len(evidence_ids),
         "evidence_ids": evidence_ids,

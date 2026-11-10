@@ -80,8 +80,13 @@ def verify_replay(records, expected_run_id, expected_tenant_id,
             expected_type = f"agent.{payload.get('agent', '')}"
             if payload.get("agent") is None or record["record_type"] != expected_type:
                 return {"status": "BLOCK", "reason": "run record type mismatch", "event_count": len(records)}
-            if payload.get("status") != "VERIFIED":
-                return {"status": "BLOCK", "reason": "run record status mismatch", "event_count": len(records)}
+            if payload.get("status") != "RECORDED":
+                return {"status": "BLOCK", "reason": "producer record must be RECORDED, not self-verified", "event_count": len(records)}
+            if payload.get("execution_boundary") != "in_process":
+                return {"status": "BLOCK", "reason": "unexpected agent execution boundary", "event_count": len(records)}
+            if (payload.get("model_output_role") != "advisory_only"
+                    or payload.get("action_result_source") != "registered_capability"):
+                return {"status": "BLOCK", "reason": "ambiguous model/action provenance", "event_count": len(records)}
             run_record_count += 1
 
     if run_record_count == 0:
@@ -89,7 +94,19 @@ def verify_replay(records, expected_run_id, expected_tenant_id,
 
     return {
         "status": "VERIFIED",
-        "reason": "raw evidence records, provenance and hash chain verified",
+        "reason": "raw evidence records, producer status, process-boundary label, provenance and hash chain verified",
+        "verification_scope": [
+            "raw_record_structure",
+            "producer_status_is_recorded",
+            "execution_boundary_label_is_in_process",
+            "model_and_action_result_sources_are_distinguished",
+            "tenant_hash_chain_integrity",
+        ],
+        "not_established": [
+            "isolated_or_independent_agent_processes",
+            "semantic_correctness_of_registered_capabilities",
+            "model_generated_action_results",
+        ],
         "event_count": len(records),
         "run_event_count": run_record_count,
         "run_id": expected_run_id,

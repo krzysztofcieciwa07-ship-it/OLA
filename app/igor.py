@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import hashlib
 import json
 
 from .hashchain import verify_chain, trusted_record, is_privileged_type
@@ -50,8 +51,16 @@ class IgorVerifier:
         if not checks["commit"]:
             return IgorVerification("BLOCK", "commit provenance mismatch", checks)
 
-        matching_task = any(payload.get("task") == expected_task for payload in payloads)
+        expected_task_digest = hashlib.sha256(expected_task.encode("utf-8")).hexdigest()
+        matching_task = any(
+            payload.get("task") == expected_task
+            or payload.get("task_digest") == expected_task_digest
+            for payload in payloads
+        )
         checks["task"] = matching_task
+        checks["task_binding"] = "sha256_commitment" if any(
+            payload.get("task_digest") == expected_task_digest for payload in payloads
+        ) else "plaintext_match" if matching_task else "missing"
         if not matching_task:
             return IgorVerification("BLOCK", "task mismatch", checks)
 

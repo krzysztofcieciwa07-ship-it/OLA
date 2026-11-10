@@ -56,8 +56,11 @@ def test_six_agents_produce_verified_final_result_with_external_verifier(monkeyp
     assert proof["task"] == REAL_TASK
     assert proof["final_result"] == EXPECTED_RESULT
     assert proof["evidence_count"] == 6
-    assert proof["independent_instance_count"] == 6
-    assert proof["independent_context_count"] == 6
+    assert proof["agent_instance_count"] == 6
+    assert proof["unique_context_count"] == 6
+    assert proof["execution_boundary"] == "in_process"
+    assert proof["verifier_boundary"] == "separate_process"
+    assert "isolated_or_independent_agent_processes" in proof["not_established"]
 
     # An otherwise valid run must be rejected when the caller supplies a
     # different source SHA. This catches verifiers that merely echo input.
