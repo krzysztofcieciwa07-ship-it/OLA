@@ -7,6 +7,10 @@ ARG PYTHON_BASE_IMAGE
 RUN case "${PYTHON_BASE_IMAGE}" in *@sha256:*) ;; *) echo "PYTHON_BASE_IMAGE must be digest-pinned" >&2; exit 1 ;; esac
 LABEL org.opencontainers.image.base.name=${PYTHON_BASE_IMAGE}
 
+ARG OLA_SOURCE_COMMIT
+RUN OLA_SOURCE_COMMIT="${OLA_SOURCE_COMMIT}" python -c 'import os,re; assert re.fullmatch(r"[a-f0-9]{40}", os.environ["OLA_SOURCE_COMMIT"])'
+LABEL org.opencontainers.image.revision=${OLA_SOURCE_COMMIT}
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
