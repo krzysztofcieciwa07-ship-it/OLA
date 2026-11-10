@@ -137,7 +137,7 @@ test("browser tester matches NINA's deployed policy and proof response contract"
   assert.match(script, /requested_tools:\s*\["shell"\]/);
   assert.match(script, /policyBody\?\.nina\?\.status === "BLOCK"/);
   assert.match(script, /policyBody\?\.provenance\?\.status === "NOT_CREATED"/);
-  assert.match(script, /policyBody\?\.replay\.length === 0/);
+  assert.match(script, /Array\.isArray\(policyBody\?\.replay\) && policyBody\.replay\.length === 0/);
   assert.match(script, /requested_tools:\s*\["safe_expression"\]/);
   assert.match(script, /body\?\.replay\.length === 9/);
   assert.match(script, /body\?\.decision_report\?\.human_review\?\.approved === false/);
