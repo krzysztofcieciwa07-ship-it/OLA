@@ -171,14 +171,14 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "agent_firewall_requests": {
             "id", "tenant_id", "requester_id", "request_record_id", "decision_record_id",
             "target_id", "action_type", "unit", "environment", "target_config_digest",
-            "action_digest", "policy_version", "decision", "risk_score", "reason_code",
+            "action_digest", "policy_version", "source_commit", "decision", "risk_score", "reason_code",
             "evidence_status", "checkpoint_record_id", "checkpoint_sha256",
             "execution_status", "execution_checkpoint_record_id",
             "execution_checkpoint_sha256", "created_at",
         },
         "agent_firewall_approvals": {
             "id", "tenant_id", "request_id", "action_digest", "requester_id",
-            "approver_id", "status", "reason_sha256", "approval_record_id",
+            "approver_id", "approver_role", "status", "reason_sha256", "approval_record_id",
             "approval_record_hash", "checkpoint_record_id", "checkpoint_sha256",
             "created_at", "expires_at", "consumed_at",
         },
