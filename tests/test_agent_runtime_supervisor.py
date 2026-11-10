@@ -492,3 +492,61 @@ def test_isolated_agent_task_returns_finalization_pending_when_worker_end_cannot
     assert result["status"] == "FINALIZATION_PENDING"
     assert records[-1][0] == "execution.run.end"
     assert records[-1][1]["status"] == "FINALIZATION_PENDING"
+
+
+def test_runtime_builds_locked_provider_gateway_when_not_injected(monkeypatch):
+    from app import agent_runtime
+    from app.agent_supervisor import AgentExecution
+    from app.providers.contracts import AgentModelOutput, ProviderResult, digest_json
+    from app.providers import factory
+
+    output = AgentModelOutput(
+        status="needs_tool",
+        summary="Run the bounded expression.",
+        reasoning="The model selected an allowlisted capability.",
+        tool_name="tool.safe_expression",
+        tool_arguments_json='{"expression":"17 * 23"}',
+        evidence_refs=[],
+    )
+    provider_result = ProviderResult(
+        provider="ollama",
+        model="qwen2.5:0.5b-instruct",
+        model_digest="sha256:" + "a" * 64,
+        request_id="ola-gateway:direct-runtime",
+        request_id_source="ola_gateway",
+        provider_response_id=None,
+        prompt_digest="b" * 64,
+        schema_digest="c" * 64,
+        raw_response_digest="d" * 64,
+        output_digest=digest_json(output.model_dump(mode="json")),
+        latency_ms=10,
+        output=output,
+    )
+
+    class Gateway:
+        def generate(self, **kwargs):
+            return provider_result
+
+    class Supervisor:
+        def __init__(self):
+            self.request = None
+
+        def execute(self, instance, request):
+            self.request = request
+            return AgentExecution(status="COMPLETED")
+
+    monkeypatch.setattr(factory, "build_provider_gateway", lambda provider: Gateway())
+    supervisor = Supervisor()
+    result = agent_runtime.run_isolated_agent_instance(
+        _instance(),
+        "calculate",
+        "tool.safe_expression",
+        None,
+        provider="ollama",
+        provider_gateway=None,
+        source_commit="a" * 40,
+        supervisor=supervisor,
+    )
+
+    assert result.status == "COMPLETED"
+    assert supervisor.request.capability_input == {"expression": "17 * 23"}

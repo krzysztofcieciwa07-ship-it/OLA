@@ -748,7 +748,7 @@ def run_isolated_agent_instance(
     instance,
     task,
     capability,
-    capability_input,
+    capability_input=None,
     model_output=None,
     *,
     provider=None,
@@ -765,6 +765,7 @@ def run_isolated_agent_instance(
     returns BLOCKED so callers cannot mistake a local simulation for execution.
     """
     from .agent_protocol import AgentWorkerRequest
+    from .canonical import parse_json_object
     from .agent_registry import AgentInstanceSpec, build_agent_registry
     from .agent_supervisor import AgentExecution, AgentSupervisor
 
@@ -789,7 +790,7 @@ def run_isolated_agent_instance(
         return AgentExecution(status="BLOCKED", reason="source_commit_not_trusted")
 
     if model_output is None:
-        if provider_gateway is None or not isinstance(provider, str) or not provider:
+        if not isinstance(provider, str) or not provider:
             return AgentExecution(status="BLOCKED", reason="provider_not_configured")
         try:
             if provider_gateway is None:
@@ -815,6 +816,24 @@ def run_isolated_agent_instance(
             return AgentExecution(status="BLOCKED", reason=reason)
     elif provider is not None or provider_gateway is not None:
         return AgentExecution(status="BLOCKED", reason="ambiguous_model_output_source")
+
+    try:
+        structured_output = model_output.get("output") if isinstance(model_output, dict) else None
+        if not isinstance(structured_output, dict):
+            return AgentExecution(status="BLOCKED", reason="model_output_not_structured")
+        if structured_output.get("status") != "needs_tool":
+            return AgentExecution(status="BLOCKED", reason="model_did_not_request_capability")
+        if structured_output.get("tool_name") != capability:
+            return AgentExecution(status="BLOCKED", reason="model_requested_different_capability")
+        model_arguments = parse_json_object(
+            structured_output.get("tool_arguments_json"),
+            max_bytes=16384,
+        )
+        if capability_input is not None and capability_input != model_arguments:
+            return AgentExecution(status="BLOCKED", reason="capability_input_not_model_derived")
+        capability_input = model_arguments
+    except ValueError:
+        return AgentExecution(status="BLOCKED", reason="model_tool_arguments_invalid")
 
     try:
         request = AgentWorkerRequest(

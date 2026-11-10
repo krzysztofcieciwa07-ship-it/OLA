@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .agent_catalog import load_agent_catalog
-from .canonical import canonical_json, digest_json
+from .canonical import canonical_json, digest_json, parse_json_object
 
 
 MAX_REQUEST_BYTES = 65536
@@ -87,10 +87,10 @@ class AgentWorkerRequest(BaseModel):
         if not isinstance(arguments_json, str) or len(arguments_json.encode("utf-8")) > 16384:
             raise ValueError("model output tool arguments are missing or too large")
         try:
-            model_arguments = json.loads(arguments_json)
-        except json.JSONDecodeError:
-            raise ValueError("model output tool arguments are invalid JSON") from None
-        if not isinstance(model_arguments, dict) or model_arguments != self.capability_input:
+            model_arguments = parse_json_object(arguments_json, max_bytes=16384)
+        except ValueError:
+            raise ValueError("model output tool arguments are invalid strict JSON") from None
+        if model_arguments != self.capability_input:
             raise ValueError("capability input is not derived from model output")
         return self
 

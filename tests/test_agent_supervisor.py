@@ -2,7 +2,6 @@ import importlib
 import importlib.util
 import json
 
-import pytest
 from pathlib import Path
 from subprocess import CompletedProcess
 

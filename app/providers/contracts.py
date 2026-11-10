@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..canonical import canonical_json, digest_json
+from ..canonical import canonical_json, digest_json, parse_json_object
 class ProviderError(RuntimeError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -29,11 +29,9 @@ class AgentModelOutput(BaseModel):
             if not isinstance(self.tool_name, str) or not self.tool_name:
                 raise ValueError("needs_tool requires a tool_name")
             try:
-                arguments = json.loads(self.tool_arguments_json)
-            except json.JSONDecodeError:
-                raise ValueError("tool_arguments_json must contain a JSON object") from None
-            if not isinstance(arguments, dict):
-                raise ValueError("tool_arguments_json must contain a JSON object")
+                parse_json_object(self.tool_arguments_json, max_bytes=16384)
+            except ValueError:
+                raise ValueError("tool_arguments_json must contain a strict JSON object") from None
         elif self.tool_name is not None or self.tool_arguments_json != "":
             raise ValueError("tool calls are only valid when status is needs_tool")
         if len(set(self.evidence_refs)) != len(self.evidence_refs):

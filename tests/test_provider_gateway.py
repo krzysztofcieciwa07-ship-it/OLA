@@ -406,3 +406,33 @@ def test_ollama_model_lock_utility_persists_exact_observed_digest(tmp_path, monk
     assert result["model_digest"] == observed
     assert payload["providers"]["ollama"]["model"] == MODEL
     assert payload["providers"]["ollama"]["model_digest"] == observed
+
+
+def test_model_output_tool_arguments_reject_duplicate_keys_and_nonfinite_values():
+    for arguments in (
+        '{"expression":"1","expression":"2"}',
+        '{"expression":NaN}',
+        '{"expression":Infinity}',
+        '["not","an","object"]',
+    ):
+        client, _ = _ollama_client(output=_output(
+            status="needs_tool",
+            tool_name="tool.safe_expression",
+            tool_arguments_json=arguments,
+        ))
+        adapter = OllamaAdapter(
+            model=MODEL,
+            allowed_models=(MODEL,),
+            expected_model_digest=MODEL_DIGEST,
+            base_url="http://127.0.0.1:11434",
+            client=client,
+        )
+        gateway = ProviderGateway(ollama=adapter)
+        with pytest.raises(ProviderError) as error:
+            gateway.generate(
+                provider="ollama",
+                policy="run_policy",
+                prompt="Calculate.",
+                allowed_tools=("tool.safe_expression",),
+            )
+        assert error.value.code == "structured_output_invalid"
