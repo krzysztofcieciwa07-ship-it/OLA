@@ -120,3 +120,57 @@ class CheckoutReportReview(Base):
     reviewed_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
     delivery_evidence_id = Column(String(36), nullable=True)
     delivered_at = Column(Integer, nullable=True)
+
+
+class AgentFirewallRequest(Base):
+    """Immutable action intent plus mutable evidence/execution pointers.
+
+    The evidence ledger remains authoritative; these indexed fields are checked
+    against the ledger before approval and execution.
+    """
+    __tablename__ = "agent_firewall_requests"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    requester_id = Column(String(36), ForeignKey("api_keys.id"), nullable=False)
+    request_record_id = Column(String(36), ForeignKey("evidence_records.id"), nullable=False, unique=True)
+    decision_record_id = Column(String(36), ForeignKey("evidence_records.id"), nullable=False, unique=True)
+    target_id = Column(String(64), nullable=True)
+    action_type = Column(String(64), nullable=False)
+    unit = Column(String(128), nullable=True)
+    environment = Column(String(16), nullable=True)
+    target_config_digest = Column(String(64), nullable=True)
+    action_digest = Column(String(64), nullable=True)
+    policy_version = Column(String(128), nullable=False)
+    decision = Column(String(16), nullable=False)
+    risk_score = Column(Integer, nullable=True)
+    reason_code = Column(String(100), nullable=False)
+    evidence_status = Column(String(32), nullable=False, default="PENDING")
+    checkpoint_record_id = Column(String(36), ForeignKey("evidence_records.id"), nullable=True)
+    checkpoint_sha256 = Column(String(64), nullable=True)
+    execution_status = Column(String(40), nullable=True)
+    execution_checkpoint_record_id = Column(String(36), ForeignKey("evidence_records.id"), nullable=True)
+    execution_checkpoint_sha256 = Column(String(64), nullable=True)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+
+
+class AgentFirewallApproval(Base):
+    """One-time, expiry-bound approval for one exact action digest."""
+    __tablename__ = "agent_firewall_approvals"
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    request_id = Column(String(36), ForeignKey("agent_firewall_requests.id"), nullable=False)
+    action_digest = Column(String(64), nullable=False)
+    requester_id = Column(String(36), ForeignKey("api_keys.id"), nullable=False)
+    approver_id = Column(String(36), ForeignKey("api_keys.id"), nullable=False)
+    status = Column(String(32), nullable=False)
+    reason_sha256 = Column(String(64), nullable=False)
+    approval_record_id = Column(String(36), ForeignKey("evidence_records.id"), nullable=True)
+    approval_record_hash = Column(String(64), nullable=True)
+    checkpoint_record_id = Column(String(36), ForeignKey("evidence_records.id"), nullable=True)
+    checkpoint_sha256 = Column(String(64), nullable=True)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    expires_at = Column(Integer, nullable=False)
+    consumed_at = Column(Integer, nullable=True)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "request_id", name="uq_agent_firewall_approval_tenant_request"),
+    )

@@ -168,6 +168,20 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "reviewed_tip_hash", "reason", "approval_evidence_id", "reviewed_at",
             "delivery_evidence_id", "delivered_at",
         },
+        "agent_firewall_requests": {
+            "id", "tenant_id", "requester_id", "request_record_id", "decision_record_id",
+            "target_id", "action_type", "unit", "environment", "target_config_digest",
+            "action_digest", "policy_version", "decision", "risk_score", "reason_code",
+            "evidence_status", "checkpoint_record_id", "checkpoint_sha256",
+            "execution_status", "execution_checkpoint_record_id",
+            "execution_checkpoint_sha256", "created_at",
+        },
+        "agent_firewall_approvals": {
+            "id", "tenant_id", "request_id", "action_digest", "requester_id",
+            "approver_id", "status", "reason_sha256", "approval_record_id",
+            "approval_record_hash", "checkpoint_record_id", "checkpoint_sha256",
+            "created_at", "expires_at", "consumed_at",
+        },
         "ola_schema_migrations": {"version", "description", "applied_at"},
     }
     inspector = inspect(bind)
@@ -193,6 +207,10 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         },
         "checkout_order_controls": {("order_id",)},
         "checkout_execution_jobs": {("order_id",)},
+        "agent_firewall_requests": {
+            ("request_record_id",), ("decision_record_id",),
+        },
+        "agent_firewall_approvals": {("tenant_id", "request_id")},
     }
     for table_name, expected in expected_unique_constraints.items():
         actual = {
@@ -212,6 +230,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_paid_order_report_review_v3"}).first()
+        firewall_applied = conn.execute(text(
+            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
+        ), {"version": "ola_agent_firewall_v1"}).first()
         trigger_rows = conn.execute(text("""
             SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -233,6 +254,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             evidence_privileges = (False, False)
     if applied is None:
         raise RuntimeError("PostgreSQL schema migration version is missing")
+    if firewall_applied is None:
+        raise RuntimeError("PostgreSQL Agent Firewall schema migration is missing")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
@@ -338,6 +361,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_paid_order_report_review_v3",
             "description": "Add order-bound independent report review and authenticated customer delivery records",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_agent_firewall_v1",
+            "description": "Add tenant-scoped agent firewall requests and one-time action-bound approvals",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
