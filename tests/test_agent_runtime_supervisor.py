@@ -130,3 +130,100 @@ def test_runtime_preserves_supervisor_block_without_deterministic_fallback():
 
     assert result.status == "BLOCKED"
     assert result.reason == "worker_image_digest_not_locally_verified"
+
+
+def test_runtime_binds_structured_provider_provenance_to_worker_request():
+    from app import agent_runtime
+    from app.agent_supervisor import AgentExecution
+    from app.providers.contracts import AgentModelOutput, ProviderResult, digest_json
+    assert hasattr(agent_runtime, "run_isolated_agent_instance")
+
+    output = AgentModelOutput(
+        status="complete",
+        summary="The task is ready for bounded execution.",
+        reasoning="The provider returned a strict structured proposal.",
+        tool_name=None,
+        tool_arguments={},
+        evidence_refs=[],
+    )
+    provider_result = ProviderResult(
+        provider="ollama",
+        model="qwen2.5:0.5b-instruct",
+        model_digest="sha256:" + "a" * 64,
+        request_id="ollama-request-1",
+        prompt_digest="b" * 64,
+        schema_digest="c" * 64,
+        raw_response_digest="d" * 64,
+        output_digest=digest_json(output.model_dump(mode="json")),
+        latency_ms=12,
+        output=output,
+    )
+
+    class RecordingGateway:
+        def __init__(self):
+            self.kwargs = None
+
+        def generate(self, **kwargs):
+            self.kwargs = kwargs
+            return provider_result
+
+    gateway = RecordingGateway()
+    supervisor = RecordingSupervisor(AgentExecution(status="COMPLETED"))
+    result = agent_runtime.run_isolated_agent_instance(
+        _instance(),
+        "calculate 17 * 23",
+        "tool.safe_expression",
+        {"expression": "17 * 23"},
+        provider="ollama",
+        provider_gateway=gateway,
+        source_commit="a" * 40,
+        supervisor=supervisor,
+    )
+
+    assert result.status == "COMPLETED"
+    assert gateway.kwargs["policy"] == "run_policy"
+    assert gateway.kwargs["allowed_tools"] == ("tool.safe_expression",)
+    assert supervisor.request.model_output["provider"] == "ollama"
+    assert supervisor.request.model_output["model_digest"] == "sha256:" + "a" * 64
+    assert supervisor.request.model_output["fallback_used"] is False
+    assert supervisor.request.model_output["model_output_role"] == "advisory_only"
+
+
+def test_runtime_does_not_fallback_when_provider_is_missing_or_fails():
+    from app import agent_runtime
+    from app.agent_supervisor import AgentExecution
+    from app.providers.contracts import ProviderError
+    assert hasattr(agent_runtime, "run_isolated_agent_instance")
+
+    class NeverCalledSupervisor:
+        def execute(self, instance, request):
+            raise AssertionError("worker must not run after provider failure")
+
+    missing = agent_runtime.run_isolated_agent_instance(
+        _instance(),
+        "calculate",
+        "tool.safe_expression",
+        {"expression": "1 + 1"},
+        supervisor=NeverCalledSupervisor(),
+        source_commit="a" * 40,
+    )
+    assert missing.status == "BLOCKED"
+    assert missing.reason == "provider_not_configured"
+
+    class FailingGateway:
+        def generate(self, **kwargs):
+            raise ProviderError("ollama_request_failed", "provider unavailable")
+
+    failed = agent_runtime.run_isolated_agent_instance(
+        _instance(),
+        "calculate",
+        "tool.safe_expression",
+        {"expression": "1 + 1"},
+        provider="ollama",
+        provider_gateway=FailingGateway(),
+        supervisor=NeverCalledSupervisor(),
+        source_commit="a" * 40,
+    )
+    assert isinstance(failed, AgentExecution)
+    assert failed.status == "BLOCKED"
+    assert failed.reason == "provider_ollama_request_failed"
