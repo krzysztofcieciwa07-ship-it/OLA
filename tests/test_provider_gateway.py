@@ -322,3 +322,17 @@ def test_provider_gateway_does_not_replace_an_explicit_empty_policy_map():
     with pytest.raises(ProviderError) as error:
         gateway.generate(provider="ollama", policy="local_read_only", prompt="test")
     assert error.value.code == "unknown_provider_policy"
+
+
+def test_provider_factory_constructs_only_the_explicit_provider(monkeypatch):
+    from app.providers import build_provider_gateway
+
+    monkeypatch.delenv("OLA_OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("OLA_OLLAMA_ALLOWED_MODELS", raising=False)
+    with pytest.raises(ProviderError) as error:
+        build_provider_gateway("ollama")
+    assert error.value.code == "model_not_allowlisted"
+
+    with pytest.raises(ProviderError) as error:
+        build_provider_gateway("unknown")
+    assert error.value.code == "unknown_provider"
