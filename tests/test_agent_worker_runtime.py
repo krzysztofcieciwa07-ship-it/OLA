@@ -35,7 +35,7 @@ def _request_data():
         "allowed_capabilities": ["tool.safe_expression"],
         "task": "Calculate 17 times 23.",
         "capability_input": {"expression": "17 * 23"},
-        "model_output": {"proposal": "Evaluate the arithmetic expression."},
+        "model_output": {"output": {"status": "needs_tool", "tool_name": "tool.safe_expression", "tool_arguments_json": '{"expression":"17 * 23"}'}},
         "source_commit": "a" * 40,
     }
 
@@ -56,6 +56,12 @@ def test_worker_executes_only_a_registered_safe_capability():
     assert len(result.input_digest) == 64
     assert len(result.model_output_digest) == 64
     assert len(result.output_digest) == 64
+    assert len(result.request_digest) == 64
+    assert len(result.capability_input_digest) == 64
+    assert result.worker_public_key
+    assert result.worker_signature
+    from app.provenance.crypto import verify_worker_signature
+    assert verify_worker_signature(result) is True
 
 
 def test_worker_request_rejects_unknown_fields_and_invalid_capability():
@@ -91,6 +97,7 @@ def test_worker_executes_read_only_capability_only_from_supplied_snapshot():
     request_data["capability"] = "tool.read_only"
     request_data["allowed_capabilities"] = ["tool.read_only"]
     request_data["capability_input"] = {"snapshot": {"state": "known"}}
+    request_data["model_output"] = {"output": {"status": "needs_tool", "tool_name": "tool.read_only", "tool_arguments_json": '{"snapshot":{"state":"known"}}'}}
     request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(request_data))
 
     result = worker.run_agent_worker(request)
@@ -124,6 +131,7 @@ def test_worker_blocks_arbitrary_code_and_unsafe_arithmetic(expression):
     protocol, runtime = _worker_modules()
     request_data = _request_data()
     request_data["capability_input"] = {"expression": expression}
+    request_data["model_output"] = {"output": {"status": "needs_tool", "tool_name": "tool.safe_expression", "tool_arguments_json": json.dumps({"expression": expression})}}
     request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(request_data))
 
     result = runtime.run_agent_worker(request)
@@ -133,15 +141,27 @@ def test_worker_blocks_arbitrary_code_and_unsafe_arithmetic(expression):
     assert result.capability_result == {}
 
 
-def test_model_output_is_advisory_and_cannot_change_the_capability_result():
+def test_model_output_is_advisory_but_capability_arguments_are_model_derived():
     protocol, runtime = _worker_modules()
     first_data = _request_data()
-    second_data = {**first_data, "model_output": {"proposal": "different untrusted text"}}
+    second_output = {
+        "output": {
+            "status": "needs_tool",
+            "tool_name": "tool.safe_expression",
+            "tool_arguments_json": '{"expression":"2 + 2"}',
+        }
+    }
+    second_data = {
+        **first_data,
+        "capability_input": {"expression": "2 + 2"},
+        "model_output": second_output,
+    }
     first = runtime.run_agent_worker(protocol.AgentWorkerRequest.model_validate_json(json.dumps(first_data)))
     second = runtime.run_agent_worker(protocol.AgentWorkerRequest.model_validate_json(json.dumps(second_data)))
 
-    assert first.capability_result == second.capability_result == {"value": 391}
-    assert first.output_digest == second.output_digest
+    assert first.capability_result == {"value": 391}
+    assert second.capability_result == {"value": 4}
+    assert first.output_digest != second.output_digest
     assert first.model_output_digest != second.model_output_digest
     assert first.model_output_role == second.model_output_role == "advisory_only"
 
@@ -151,6 +171,8 @@ def test_worker_blocks_registered_but_not_yet_implemented_capability():
     request_data = _request_data()
     request_data["capability"] = "task.plan"
     request_data["allowed_capabilities"] = ["task.plan"]
+    request_data["capability_input"] = {}
+    request_data["model_output"] = {"output": {"status": "needs_tool", "tool_name": "task.plan", "tool_arguments_json": "{}"}}
     request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(request_data))
 
     result = worker.run_agent_worker(request)
