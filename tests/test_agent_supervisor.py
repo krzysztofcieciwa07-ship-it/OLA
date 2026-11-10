@@ -415,3 +415,27 @@ def test_supervisor_blocks_success_if_container_cleanup_fails(tmp_path):
 
     assert result.status == "BLOCKED"
     assert result.reason == "worker_container_cleanup_failed"
+
+
+def test_supervisor_blocks_agents_not_in_the_explicit_manifest_before_docker(tmp_path):
+    supervisor_module = _supervisor_module()
+    agent, request = _request_and_agent()
+    calls = []
+
+    def runner(args, **kwargs):
+        calls.append(args)
+        if args[1:3] == ["image", "inspect"]:
+            return CompletedProcess(args, 0, stdout=IMAGE_DIGEST, stderr="")
+        return CompletedProcess(args, 0, stdout="", stderr="")
+
+    supervisor = supervisor_module.AgentSupervisor(
+        image_digest=IMAGE_DIGEST,
+        expected_source_commit="a" * 40,
+        runner=runner,
+        temp_dir=str(tmp_path),
+    )
+    result = supervisor.execute(agent, request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "agent_not_registered"
+    assert calls == []
