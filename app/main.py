@@ -16,7 +16,7 @@ from .models import Tenant, ApiKey, EvidenceRecord, CheckoutOrder, CheckoutOrder
 from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
-from .agent_registry import DEFAULT_AGENT_MANIFEST, build_agent_registry
+from .agent_registry import DEFAULT_AGENT_MANIFEST, build_agent_registry, load_agent_manifest
 from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
 from .business_runtime import run_invoice_task
 from .nina import NinaOrchestrator, NinaTask, REGISTERED_TOOLS
@@ -31,7 +31,15 @@ from .paid_order_execution import execute_paid_order_job, verify_worker_token, P
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
 
 app = FastAPI(title="OLA Execution Gate")
-AGENT_REGISTRY = {agent.agent_id: agent for agent in build_agent_registry(DEFAULT_AGENT_MANIFEST)}
+
+
+def _load_registered_agents():
+    manifest_path = os.getenv("OLA_AGENT_MANIFEST_PATH")
+    manifest = load_agent_manifest(manifest_path) if manifest_path else DEFAULT_AGENT_MANIFEST
+    return {agent.agent_id: agent for agent in build_agent_registry(manifest)}
+
+
+AGENT_REGISTRY = _load_registered_agents()
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
 
