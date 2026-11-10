@@ -106,6 +106,7 @@ class DockerEventObserver:
         supervisor_started_at: float,
         supervisor_finished_at: float,
         expected_exit_code: int,
+        expected_labels: dict[str, str],
     ) -> DockerEventProof:
         try:
             events = self.collect(
@@ -126,6 +127,14 @@ class DockerEventObserver:
         if not required.issubset(by_action):
             return DockerEventProof(
                 "BLOCKED", "docker_event_lifecycle_incomplete", container_id,
+                image_digest, None, None, None, None, matched,
+            )
+
+        create_event = min(by_action["create"], key=lambda item: self._event_time(item) or 0)
+        create_attributes = self._event_attributes(create_event)
+        if any(create_attributes.get(key) != value for key, value in expected_labels.items()):
+            return DockerEventProof(
+                "BLOCKED", "docker_event_container_labels_mismatch", container_id,
                 image_digest, None, None, None, None, matched,
             )
 
