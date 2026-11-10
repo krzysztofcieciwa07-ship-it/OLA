@@ -38,6 +38,8 @@ def _policy(tmp_path: Path, *, rules=None, scoring=None, thresholds=None):
         ])
         if "target_id" in rule:
             rows.append(f'target_id = "{rule["target_id"]}"')
+        if "unit" in rule:
+            rows.append(f'unit = "{rule["unit"]}"')
     path = tmp_path / "policy.toml"
     path.write_text("\n".join(rows) + "\n", encoding="utf-8")
     return path
@@ -59,7 +61,7 @@ def test_production_restart_requires_review(tmp_path):
 
     assert result.decision == "REVIEW"
     assert result.risk == 55
-    assert result.reason_code == "POLICY_MATCH"
+    assert result.reason_code == "RISK_REVIEW_THRESHOLD"
 
 
 def test_production_critical_restart_at_block_threshold_is_blocked(tmp_path):

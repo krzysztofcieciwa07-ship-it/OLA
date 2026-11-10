@@ -1,0 +1,22 @@
+[meta]
+version = "agent-firewall-v0.2.0"
+allow_below = 40
+block_at = 90
+
+[scoring]
+base = 10
+systemd_restart = 15
+production = 30
+critical_target = 35
+
+[[rules]]
+id = "staging-restart"
+action_type = "systemd.restart"
+environment = "staging"
+decision = "ALLOW"
+
+[[rules]]
+id = "production-restart"
+action_type = "systemd.restart"
+environment = "production"
+decision = "REVIEW"
