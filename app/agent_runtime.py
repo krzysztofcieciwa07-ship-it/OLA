@@ -747,8 +747,10 @@ def run_isolated_agent_instance(
     task,
     capability,
     capability_input,
-    model_output,
+    model_output=None,
     *,
+    provider=None,
+    provider_gateway=None,
     run_id=None,
     agent_instance_id=None,
     source_commit=None,
@@ -783,6 +785,30 @@ def run_isolated_agent_instance(
         or any(char not in "0123456789abcdef" for char in commit)
     ):
         return AgentExecution(status="BLOCKED", reason="source_commit_not_trusted")
+
+    if model_output is None:
+        if provider_gateway is None or not isinstance(provider, str) or not provider:
+            return AgentExecution(status="BLOCKED", reason="provider_not_configured")
+        try:
+            provider_result = provider_gateway.generate(
+                provider=provider,
+                policy=instance.provider_policy,
+                prompt=task,
+                allowed_tools=instance.capabilities,
+            )
+            from .providers.contracts import ProviderResult
+
+            if not isinstance(provider_result, ProviderResult):
+                return AgentExecution(status="BLOCKED", reason="invalid_provider_result")
+            if provider_result.fallback_used is not False or provider_result.model_output_role != "advisory_only":
+                return AgentExecution(status="BLOCKED", reason="provider_output_authority_invalid")
+            model_output = provider_result.model_dump(mode="json")
+        except Exception as exc:
+            provider_code = getattr(exc, "code", None)
+            reason = f"provider_{provider_code}" if isinstance(provider_code, str) else "provider_execution_failed"
+            return AgentExecution(status="BLOCKED", reason=reason)
+    elif provider is not None or provider_gateway is not None:
+        return AgentExecution(status="BLOCKED", reason="ambiguous_model_output_source")
 
     try:
         request = AgentWorkerRequest(
