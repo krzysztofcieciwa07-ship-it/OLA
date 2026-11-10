@@ -10,6 +10,7 @@ from typing import Any, BinaryIO, TextIO
 
 from pydantic import ValidationError
 
+from .provenance.crypto import sign_worker_payload, worker_attestation_payload
 from .agent_protocol import (
     MAX_REQUEST_BYTES,
     MAX_RESPONSE_BYTES,
@@ -96,7 +97,31 @@ _CAPABILITY_HANDLERS = {
 
 def _result(request: AgentWorkerRequest, status: str, capability_result: dict[str, Any],
             reason: str | None = None) -> AgentWorkerResult:
+    worker_pid = os.getpid()
+    worker_nonce = str(uuid.uuid4())
     input_payload = {"task": request.task, "capability_input": request.capability_input}
+    request_digest = digest_json(request.model_dump(mode="json"))
+    input_digest = digest_json(input_payload)
+    capability_input_digest = digest_json(request.capability_input)
+    model_output_digest = digest_json(request.model_output)
+    attestation_payload = worker_attestation_payload(
+        schema_version=1,
+        run_id=request.run_id,
+        agent_id=request.agent_id,
+        agent_instance_id=request.agent_instance_id,
+        specialist_role=request.specialist_role,
+        execution_profile=request.execution_profile,
+        capability=request.capability,
+        source_commit=request.source_commit,
+        worker_pid=worker_pid,
+        worker_nonce=worker_nonce,
+        request_digest=request_digest,
+        input_digest=input_digest,
+        capability_input_digest=capability_input_digest,
+        model_output_digest=model_output_digest,
+        capability_result=capability_result,
+    )
+    worker_public_key, worker_signature = sign_worker_payload(attestation_payload)
     return AgentWorkerResult(
         schema_version=1,
         status=status,
@@ -107,11 +132,16 @@ def _result(request: AgentWorkerRequest, status: str, capability_result: dict[st
         execution_profile=request.execution_profile,
         capability=request.capability,
         source_commit=request.source_commit,
-        worker_pid=os.getpid(),
-        worker_nonce=str(uuid.uuid4()),
-        input_digest=digest_json(input_payload),
-        model_output_digest=digest_json(request.model_output),
-        output_digest=digest_json(capability_result),
+        worker_pid=worker_pid,
+        worker_nonce=worker_nonce,
+        request_digest=request_digest,
+        input_digest=input_digest,
+        capability_input_digest=capability_input_digest,
+        model_output_digest=model_output_digest,
+        output_digest=digest_json(attestation_payload),
+        worker_public_key=worker_public_key,
+        worker_signature=worker_signature,
+        attestation_version=1,
         model_output_role="advisory_only",
         capability_result=capability_result,
         reason=reason,
