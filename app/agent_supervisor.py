@@ -19,6 +19,7 @@ from .agent_protocol import (
     digest_json,
 )
 from .provenance.crypto import verify_worker_signature
+from .provenance.docker_events import DockerEventObserver, DockerEventProof
 from .agent_registry import (
     AgentInstanceSpec,
     DEFAULT_AGENT_MANIFEST,
@@ -43,6 +44,9 @@ class AgentExecution:
     exit_code: int | None = None
     supervisor_started_at: float | None = None
     supervisor_finished_at: float | None = None
+    docker_event_digest: str | None = None
+    docker_started_at: float | None = None
+    docker_died_at: float | None = None
 
 
 class AgentSupervisor:
@@ -143,6 +147,29 @@ class AgentSupervisor:
             )
         except (OSError, subprocess.SubprocessError, ValueError, TypeError):
             return False
+
+    def _verify_docker_events(self, execution: AgentExecution) -> DockerEventProof:
+        if (
+            not execution.container_id
+            or not execution.image_digest
+            or execution.supervisor_started_at is None
+            or execution.supervisor_finished_at is None
+            or execution.exit_code is None
+        ):
+            return DockerEventProof(
+                "BLOCKED", "docker_event_proof_missing",
+                execution.container_id or "",
+                execution.image_digest or "",
+                None, None, None, None, (),
+            )
+        observer = DockerEventObserver(self.docker_binary)
+        return observer.verify_lifecycle(
+            container_id=execution.container_id,
+            image_digest=execution.image_digest,
+            supervisor_started_at=execution.supervisor_started_at,
+            supervisor_finished_at=execution.supervisor_finished_at,
+            expected_exit_code=execution.exit_code,
+        )
 
     def _inspect_image(self) -> bool:
         if not isinstance(self.image_digest, str) or _IMAGE_DIGEST_PATTERN.fullmatch(self.image_digest) is None:
@@ -397,6 +424,7 @@ class AgentSupervisor:
                                 container_id=container_id,
                                 image_digest=self.image_digest,
                                 reason="worker_nonzero_exit",
+                                exit_code=worker_process.returncode,
                             )
                         else:
                             try:
@@ -487,8 +515,33 @@ class AgentSupervisor:
                 supervisor_started_at=supervisor_started_at,
                 supervisor_finished_at=supervisor_finished_at,
             )
-        return replace(
+        execution = replace(
             execution,
             supervisor_started_at=supervisor_started_at,
             supervisor_finished_at=supervisor_finished_at,
         )
+        if execution.container_id and execution.exit_code is not None:
+            docker_proof = self._verify_docker_events(execution)
+            if docker_proof.status != "VERIFIED":
+                blocked = self._blocked(
+                    docker_proof.reason or "docker_event_proof_missing",
+                    self.image_digest,
+                    container_id,
+                )
+                return replace(
+                    blocked,
+                    supervisor_started_at=supervisor_started_at,
+                    supervisor_finished_at=supervisor_finished_at,
+                    docker_event_digest=docker_proof.events_digest,
+                    docker_started_at=docker_proof.started_at,
+                    docker_died_at=docker_proof.died_at,
+                )
+            execution = replace(
+                execution,
+                docker_event_digest=docker_proof.events_digest,
+                docker_started_at=docker_proof.started_at,
+                docker_died_at=docker_proof.died_at,
+            )
+        elif execution.status == "COMPLETED":
+            return self._blocked("docker_event_proof_missing", self.image_digest, container_id)
+        return execution
