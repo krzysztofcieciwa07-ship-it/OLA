@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .contracts import ProviderError, canonical_json
+from .contracts import ProviderError
 
 
 _DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
