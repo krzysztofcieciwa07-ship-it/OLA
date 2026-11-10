@@ -1,4 +1,3 @@
-import hashlib
 import json
 import re
 from typing import Any, Literal
@@ -6,20 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-def canonical_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
-
-
-def digest_json(value: Any) -> str:
-    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
-
-
+from ..canonical import canonical_json, digest_json
 class ProviderError(RuntimeError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
