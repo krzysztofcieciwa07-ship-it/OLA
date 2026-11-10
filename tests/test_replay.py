@@ -72,7 +72,7 @@ def test_replay_regression_checks_record_type_and_status():
     rows = _chain(count=2)
     rows[1]["payload_json"] = sealed_payload_json("agent.codeact", {
         "run_id": "r1", "agent": "codeact", "input_digest": "in-1",
-        "tool": "safe_expression", "status": "VERIFIED",
+        "tool": "safe_expression", "status": "RECORDED",
         "execution_boundary": "independent",
         "model_output_role": "advisory_only",
         "action_result_source": "registered_capability",
