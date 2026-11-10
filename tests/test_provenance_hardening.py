@@ -18,7 +18,9 @@ def _tool_result():
         provider="ollama",
         model="qwen2.5:0.5b-instruct",
         model_digest="sha256:" + "a" * 64,
-        request_id="ola-proxy:request-001",
+        request_id="ola-gateway:request-001",
+        request_id_source="ola_gateway",
+        provider_response_id=None,
         prompt_digest="b" * 64,
         schema_digest="c" * 64,
         raw_response_digest="d" * 64,
@@ -163,10 +165,10 @@ def test_ollama_blocks_digest_drift_against_the_deployment_lock():
     adapter = OllamaAdapter(
         model="qwen2.5:0.5b-instruct",
         allowed_models=("qwen2.5:0.5b-instruct",),
+        expected_model_digest=expected_digest,
         base_url="http://127.0.0.1:11434",
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
-    adapter.expected_model_digest = expected_digest
 
     with pytest.raises(ProviderError) as error:
         adapter.generate(prompt="test", schema=AgentModelOutput.model_json_schema())
