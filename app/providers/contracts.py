@@ -50,6 +50,8 @@ class ProviderResult(BaseModel):
     model: str = Field(min_length=1, max_length=128)
     model_digest: str | None
     request_id: str = Field(min_length=1, max_length=256)
+    request_id_source: Literal["provider", "ola_gateway"]
+    provider_response_id: str | None
     prompt_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     schema_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     raw_response_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -64,8 +66,12 @@ class ProviderResult(BaseModel):
         if self.provider == "ollama":
             if not isinstance(self.model_digest, str) or re.fullmatch(r"sha256:[a-f0-9]{64}", self.model_digest) is None:
                 raise ValueError("Ollama provenance requires a content digest")
+            if self.request_id_source != "ola_gateway":
+                raise ValueError("Ollama request IDs must be attributed to the OLA gateway")
         elif self.model_digest is not None:
             raise ValueError("OpenAI model digest is provider-managed and must be null")
+        elif self.request_id_source != "provider":
+            raise ValueError("OpenAI request IDs must be attributed to the provider")
         if self.output_digest != digest_json(self.output.model_dump(mode="json")):
             raise ValueError("output digest does not match structured output")
         return self
