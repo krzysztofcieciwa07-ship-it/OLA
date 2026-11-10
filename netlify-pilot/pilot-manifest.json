@@ -1,0 +1,9 @@
+{
+  "schema": "ola.netlify.pilot.v1",
+  "name": "OLA di-OS Netlify static pilot",
+  "scope": "static-hosting-only",
+  "backend_connected": false,
+  "secrets_included": false,
+  "production_deployment_allowed": false,
+  "purpose": "Verify isolated static hosting, branch-scoped builds, security headers, and deploy evidence without connecting OLA runtime services."
+}
