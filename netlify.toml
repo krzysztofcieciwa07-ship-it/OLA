@@ -1,0 +1,6 @@
+[build]
+  command = "node scripts/netlify-pilot-check.mjs"
+  publish = "netlify-pilot"
+
+[build.environment]
+  NODE_VERSION = "24"
