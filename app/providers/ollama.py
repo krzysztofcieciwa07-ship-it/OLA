@@ -3,6 +3,7 @@ import json
 import os
 import re
 import time
+import uuid
 from urllib.parse import urlsplit
 
 import httpx
@@ -42,6 +43,7 @@ class OllamaAdapter:
         *,
         model: str | None = None,
         allowed_models: tuple[str, ...] | None = None,
+        expected_model_digest: str | None = None,
         base_url: str | None = None,
         allowed_hosts: tuple[str, ...] | None = None,
         timeout_seconds: float = 30.0,
@@ -51,6 +53,12 @@ class OllamaAdapter:
         self.allowed_models = tuple(item.strip() for item in allowed_models if item.strip()) if allowed_models is not None else _csv_env("OLA_OLLAMA_ALLOWED_MODELS")
         if not self.model or not self.allowed_models or self.model not in self.allowed_models:
             raise ProviderError("model_not_allowlisted", "Ollama model must be explicitly allowlisted")
+        self.expected_model_digest = (
+            expected_model_digest if expected_model_digest is not None
+            else os.getenv("OLA_OLLAMA_EXPECTED_MODEL_DIGEST", "").strip()
+        )
+        if not isinstance(self.expected_model_digest, str) or _DIGEST_PATTERN.fullmatch(self.expected_model_digest) is None:
+            raise ProviderError("model_digest_not_pinned", "Ollama model digest must be pinned in the deployment lock")
         self.allowed_hosts = tuple(item.strip() for item in allowed_hosts if item.strip()) if allowed_hosts is not None else _csv_env(
             "OLA_OLLAMA_ALLOWED_HOSTS", "127.0.0.1,localhost,::1"
         )
@@ -67,6 +75,7 @@ class OllamaAdapter:
         if not isinstance(prompt, str) or not prompt or len(prompt.encode("utf-8")) > 32768:
             raise ProviderError("prompt_invalid", "prompt must be non-empty and at most 32 KiB")
         started = time.monotonic()
+        gateway_request_id = f"ola-gateway:{uuid.uuid4()}"
         try:
             tags_response = self.client.get(
                 f"{self.base_url}/api/tags",
@@ -84,6 +93,8 @@ class OllamaAdapter:
             model_digest = model_entry.get("digest")
             if not isinstance(model_digest, str) or _DIGEST_PATTERN.fullmatch(model_digest) is None:
                 raise ProviderError("model_digest_missing", "Ollama model has no verifiable content digest")
+            if model_digest != self.expected_model_digest:
+                raise ProviderError("model_digest_mismatch", "installed Ollama model digest differs from the deployment lock")
 
             payload = {
                 "model": self.model,
@@ -116,12 +127,14 @@ class OllamaAdapter:
             except json.JSONDecodeError:
                 raise ProviderError("invalid_model_json", "Ollama response was not valid JSON") from None
             raw_digest = hashlib.sha256(response.content).hexdigest()
-            request_id = body.get("id") or f"ollama:{raw_digest}"
+            provider_response_id = body.get("id")
             return {
                 "data": output,
                 "model": self.model,
                 "model_digest": model_digest,
-                "request_id": str(request_id),
+                "request_id": gateway_request_id,
+                "request_id_source": "ola_gateway",
+                "provider_response_id": provider_response_id if isinstance(provider_response_id, str) else None,
                 "raw_response_digest": raw_digest,
                 "latency_ms": max(0, int((time.monotonic() - started) * 1000)),
             }
