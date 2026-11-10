@@ -3,10 +3,11 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import uuid
 from collections.abc import Sequence
 from types import MappingProxyType
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Any
 
@@ -40,6 +41,8 @@ class AgentExecution:
     worker_result: AgentWorkerResult | None = None
     reason: str | None = None
     exit_code: int | None = None
+    supervisor_started_at: float | None = None
+    supervisor_finished_at: float | None = None
 
 
 class AgentSupervisor:
@@ -236,6 +239,8 @@ class AgentSupervisor:
             return self._blocked("worker_cidfile_unavailable", self.image_digest)
         container_name = f"ola-worker-{uuid.uuid4().hex}"
         run_attempted = False
+        supervisor_started_at = None
+        supervisor_finished_at = None
         container_id = None
         execution = self._blocked("worker_not_started", self.image_digest)
         cleanup_ok = True
@@ -260,6 +265,7 @@ class AgentSupervisor:
 
         try:
             run_attempted = True
+            supervisor_started_at = time.time()
             try:
                 worker_process = self._call(
                     command,
@@ -427,6 +433,16 @@ class AgentSupervisor:
             except OSError:
                 cleanup_ok = False
 
+        supervisor_finished_at = time.time()
         if not cleanup_ok:
-            return self._blocked("worker_container_cleanup_failed", self.image_digest, container_id)
-        return execution
+            blocked = self._blocked("worker_container_cleanup_failed", self.image_digest, container_id)
+            return replace(
+                blocked,
+                supervisor_started_at=supervisor_started_at,
+                supervisor_finished_at=supervisor_finished_at,
+            )
+        return replace(
+            execution,
+            supervisor_started_at=supervisor_started_at,
+            supervisor_finished_at=supervisor_finished_at,
+        )
