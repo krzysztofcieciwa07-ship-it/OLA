@@ -26,9 +26,9 @@ def _request_data():
     )
     return {
         "schema_version": 1,
-        "run_id": "run-test-001",
+        "run_id": "00000000-0000-4000-8000-000000000001",
         "agent_id": agent.agent_id,
-        "agent_instance_id": "instance-test-001",
+        "agent_instance_id": "00000000-0000-4000-8000-000000000002",
         "specialist_role": agent.specialist_role,
         "execution_profile": agent.execution_profile,
         "capability": "tool.safe_expression",
@@ -42,7 +42,7 @@ def _request_data():
 
 def test_worker_executes_only_a_registered_safe_capability():
     protocol, worker = _worker_modules()
-    request = protocol.AgentWorkerRequest.model_validate(_request_data())
+    request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(_request_data()))
 
     result = worker.run_agent_worker(request)
 
@@ -61,15 +61,15 @@ def test_worker_executes_only_a_registered_safe_capability():
 def test_worker_request_rejects_unknown_fields_and_invalid_capability():
     protocol, _ = _worker_modules()
     with pytest.raises(ValidationError):
-        protocol.AgentWorkerRequest.model_validate({
+        protocol.AgentWorkerRequest.model_validate_json(json.dumps({
             **_request_data(),
             "untrusted_shell": "rm -rf /",
-        })
+        }))
 
     invalid = _request_data()
     invalid["capability"] = "production.deploy"
     with pytest.raises(ValidationError, match="capability"):
-        protocol.AgentWorkerRequest.model_validate(invalid)
+        protocol.AgentWorkerRequest.model_validate_json(json.dumps(invalid))
 
 
 def test_worker_request_rejects_profile_escalation_and_oversized_payload():
@@ -77,21 +77,21 @@ def test_worker_request_rejects_profile_escalation_and_oversized_payload():
     invalid_profile = _request_data()
     invalid_profile["execution_profile"] = "multi_agent"
     with pytest.raises(ValidationError, match="execution profile"):
-        protocol.AgentWorkerRequest.model_validate(invalid_profile)
+        protocol.AgentWorkerRequest.model_validate_json(json.dumps(invalid_profile))
 
     oversized = _request_data()
     oversized["capability_input"] = {"blob": "x" * 70000}
     with pytest.raises(ValidationError, match="size"):
-        protocol.AgentWorkerRequest.model_validate(oversized)
+        protocol.AgentWorkerRequest.model_validate_json(json.dumps(oversized))
 
 
-def test_worker_blocks_unsupported_capability_without_claiming_completion():
+def test_worker_executes_read_only_capability_only_from_supplied_snapshot():
     protocol, worker = _worker_modules()
     request_data = _request_data()
     request_data["capability"] = "tool.read_only"
     request_data["allowed_capabilities"] = ["tool.read_only"]
     request_data["capability_input"] = {"snapshot": {"state": "known"}}
-    request = protocol.AgentWorkerRequest.model_validate(request_data)
+    request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(request_data))
 
     result = worker.run_agent_worker(request)
 
