@@ -30,7 +30,7 @@ class ProviderGateway:
             "ollama": ollama,
             "openai": openai,
         }
-        self.policy_map = policy_map or POLICY_ALLOWED_PROVIDERS
+        self.policy_map = policy_map if policy_map is not None else POLICY_ALLOWED_PROVIDERS
 
     def generate(
         self,
