@@ -32,8 +32,13 @@ def test_catalog_contains_ten_specialists_and_two_separate_control_plane_service
     assert set(control_plane) == {"NINA", "Broker"}
     assert not (set(catalog) & set(control_plane))
     assert all(item.classification == "control_plane" for item in control_plane.values())
-    assert all(not item.may_bypass_human_gate for item in control_plane.values())
+    assert control_plane["NINA"].may_orchestrate_specialist_work is True
+    assert control_plane["Broker"].may_orchestrate_specialist_work is False
+    assert all(not item.may_execute_as_specialist_worker for item in control_plane.values())
     assert all(not item.may_write_evidence_ledger for item in control_plane.values())
+    assert all(not item.may_bypass_policy for item in control_plane.values())
+    assert all(not item.may_bypass_igor for item in control_plane.values())
+    assert all(not item.may_bypass_human_gate for item in control_plane.values())
 
 
 def test_each_specialist_has_explicit_profile_capability_provider_resource_and_approval_policy():
