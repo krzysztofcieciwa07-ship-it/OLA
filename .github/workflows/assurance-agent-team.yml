@@ -64,6 +64,18 @@ jobs:
           echo "exit_code=$result" >> "$GITHUB_OUTPUT"
           exit 0
 
+      - name: Independently verify evidence bundle
+        if: always()
+        env:
+          EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python scripts/verify_assurance_team.py \
+            --report artifacts/team-report.json \
+            --events artifacts/team-events.jsonl \
+            --manifest artifacts/team-evidence.sha256 \
+            --expected-commit "$EXPECTED_COMMIT"
+
       - name: Upload exact-SHA evidence bundle
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
