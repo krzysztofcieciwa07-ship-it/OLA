@@ -598,7 +598,7 @@ def main(argv: list[str] | None = None) -> int:
             output_path=args.output,
         )
         print(json.dumps(manifest, sort_keys=True, ensure_ascii=False))
-        return 1 if manifest["overall_status"] == "BLOCKED" else 0
+        return 0 if manifest["overall_status"] == "PASS" else 1
     except AgentTeamError as exc:
         print(json.dumps({"status": "BLOCKED", "error": str(exc)}), file=sys.stderr)
         return 2
