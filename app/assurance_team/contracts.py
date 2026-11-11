@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from enum import Enum
 import hashlib
 import json
@@ -101,6 +101,7 @@ def verify_event_chain(events: list[dict[str, Any]]) -> bool:
 
     previous_hash = GENESIS_HASH
     run_id = None
+    source_commit = None
     active_agent = None
 
     try:
@@ -131,17 +132,26 @@ def verify_event_chain(events: list[dict[str, Any]]) -> bool:
             if event_type == "run.start":
                 if index != 0 or active_agent is not None:
                     return False
+                source_commit = payload.get("source_commit")
+                if not isinstance(source_commit, str) or not SOURCE_COMMIT_PATTERN.fullmatch(source_commit):
+                    return False
             elif event_type == "agent.start":
                 role = payload.get("role")
-                if active_agent is not None or not isinstance(role, str) or not role:
+                if (active_agent is not None or not isinstance(role, str) or not role
+                        or payload.get("source_commit") != source_commit):
                     return False
                 active_agent = role
             elif event_type == "agent.end":
-                if active_agent is None or payload.get("role") != active_agent:
+                report = payload.get("report")
+                if (active_agent is None or payload.get("role") != active_agent
+                        or payload.get("source_commit") != source_commit
+                        or not isinstance(report, dict) or report.get("role") != active_agent
+                        or report.get("status") not in {status.value for status in AgentStatus}):
                     return False
                 active_agent = None
             elif event_type == "run.end":
-                if index != len(events) - 1 or active_agent is not None:
+                if (index != len(events) - 1 or active_agent is not None
+                        or payload.get("source_commit") != source_commit):
                     return False
             else:
                 return False

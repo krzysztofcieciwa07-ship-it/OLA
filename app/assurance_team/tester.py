@@ -47,18 +47,33 @@ class TesterAgent:
             duration = round(time.perf_counter() - started, 3)
             combined = f"{completed.stdout or ''}\n{completed.stderr or ''}"
             output_digest = hashlib.sha256(combined.encode("utf-8", errors="replace")).hexdigest()
-            summary_match = _PYTEST_SUMMARY.search(combined)
-            summary = summary_match.group("summary") if summary_match else "pytest completed without a recognized summary"
-            status = AgentStatus.PASS if completed.returncode == 0 else AgentStatus.FAIL
-            findings = [] if status is AgentStatus.PASS else [
-                AgentFinding(
-                    code="TEST_SUITE_FAILED",
-                    severity="high",
-                    message=f"Allowlisted pytest suite exited with code {completed.returncode}.",
-                    evidence_refs=(f"sha256:{output_digest}",),
-                    remediation="Inspect the GitHub Actions job log for the exact source commit and fix the failing assertion or runtime defect.",
-                )
-            ]
+            summary_matches = list(_PYTEST_SUMMARY.finditer(combined))
+            summary = summary_matches[-1].group("summary") if summary_matches else None
+            if completed.returncode != 0:
+                status = AgentStatus.FAIL
+                findings = [
+                    AgentFinding(
+                        code="TEST_SUITE_FAILED",
+                        severity="high",
+                        message=f"Allowlisted pytest suite exited with code {completed.returncode}.",
+                        evidence_refs=(f"sha256:{output_digest}",),
+                        remediation="Inspect the GitHub Actions job log for the exact source commit and fix the failing assertion or runtime defect.",
+                    )
+                ]
+            elif summary is None:
+                status = AgentStatus.UNKNOWN
+                findings = [
+                    AgentFinding(
+                        code="TEST_SUMMARY_UNRECOGNIZED",
+                        severity="medium",
+                        message="pytest returned zero but did not emit a recognized test summary.",
+                        evidence_refs=(f"sha256:{output_digest}",),
+                        remediation="Verify pytest collection and output format; do not promote an uncounted run to PASS.",
+                    )
+                ]
+            else:
+                status = AgentStatus.PASS
+                findings = []
             return AgentReport(
                 role=self.role,
                 status=status,

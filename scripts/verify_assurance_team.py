@@ -45,6 +45,7 @@ def verify_event_stream(events, expected_commit, report):
     active_role = None
     started_roles = []
     ended_roles = []
+    ended_reports = []
     run_start_count = 0
     run_end_count = 0
 
@@ -77,9 +78,15 @@ def verify_event_stream(events, expected_commit, report):
         elif event_type == "agent.end":
             role = payload.get("role")
             require(active_role is not None and role == active_role, "agent.end does not match the active specialist")
-            require(payload.get("status") in VALID_STATUSES, f"{role} status is invalid")
+            require(payload.get("source_commit") == expected_commit, f"{role} end source commit mismatch")
+            specialist_report = payload.get("report")
+            require(isinstance(specialist_report, dict), f"{role} report payload is missing")
+            require(specialist_report.get("role") == role, f"{role} report role mismatch")
+            require(specialist_report.get("status") in VALID_STATUSES, f"{role} status is invalid")
+            require(payload.get("status") == specialist_report.get("status"), f"{role} end status mismatch")
             active_role = None
             ended_roles.append(role)
+            ended_reports.append(specialist_report)
         elif event_type == "run.end":
             run_end_count += 1
             require(sequence == len(events) - 1, "run.end must be the final event")
@@ -95,6 +102,8 @@ def verify_event_stream(events, expected_commit, report):
     require(started_roles == ended_roles, "specialist lifecycle is incomplete")
     require(started_roles == report.get("coverage", {}).get("enabled"), "enabled roles differ from lifecycle")
     require(ended_roles == [item.get("role") for item in report.get("agent_results", [])], "agent results differ from lifecycle")
+    require(ended_reports == report.get("agent_results"), "agent report payloads differ from lifecycle evidence")
+    require(len(set(ended_roles)) == len(ended_roles), "duplicate specialist role in lifecycle")
 
     start_payload = events[0]["payload"]
     require(start_payload.get("planned_roles") == report.get("coverage", {}).get("planned"), "planned role list mismatch")

@@ -27,6 +27,11 @@ python -m app.assurance_team.cli \
   --repo-root . \
   --source-commit "$(git rev-parse HEAD)" \
   --output-dir artifacts/assurance-team
+python scripts/verify_assurance_team.py \
+  --report artifacts/assurance-team/team-report.json \
+  --events artifacts/assurance-team/team-events.jsonl \
+  --manifest artifacts/assurance-team/team-evidence.sha256 \
+  --expected-commit "$(git rev-parse HEAD)"
 ```
 
 The CLI rejects abbreviated or malformed commit identifiers and non-existent repository roots. The tester invokes only its fixed test-path allowlist using `shell=False` and a finite timeout.

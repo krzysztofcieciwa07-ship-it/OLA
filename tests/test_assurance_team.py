@@ -221,3 +221,14 @@ def test_cli_writes_json_report_event_ledger_and_digest(monkeypatch, tmp_path):
         check=False,
     )
     assert tamper_check.returncode == 1
+
+
+def test_tester_returns_unknown_when_success_has_no_recognized_summary(monkeypatch, tmp_path):
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout="........", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = TesterAgent().run(_context(tmp_path))
+
+    assert result.status == AgentStatus.UNKNOWN
+    assert any(item.code == "TEST_SUMMARY_UNRECOGNIZED" for item in result.findings)

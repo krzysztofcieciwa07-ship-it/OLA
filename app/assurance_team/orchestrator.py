@@ -88,7 +88,14 @@ class AgentOrchestrator:
 
             result_dict = result.to_dict()
             agent_results.append(result_dict)
-            append_event("agent.end", result_dict)
+            append_event(
+                "agent.end",
+                {
+                    "role": role,
+                    "source_commit": context.source_commit,
+                    "report": result_dict,
+                },
+            )
 
         statuses = [AgentStatus(item["status"]) for item in agent_results]
         if AgentStatus.FAIL in statuses:
