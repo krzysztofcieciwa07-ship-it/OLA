@@ -31,8 +31,7 @@ def test_tester_runs_only_allowlisted_runtime_test_suites(monkeypatch, tmp_path)
     assert calls
     command, kwargs = calls[0]
     assert command[:3] == [sys.executable, "-m", "pytest"]
-    assert command[3] == "-q"
-    assert command[4:] == list(TEST_PATHS)
+    assert command[3:] == list(TEST_PATHS)
     assert kwargs["cwd"] == tmp_path
     assert kwargs["shell"] is False
     assert kwargs["timeout"] > 0
