@@ -1,4 +1,7 @@
 import copy
+import hashlib
+import os
+import sys
 
 import pytest
 
@@ -185,6 +188,53 @@ def test_agent_failure_blocks_aggregate_even_if_other_agents_pass():
 
     assert manifest["overall_status"] == "BLOCKED"
     assert manifest["agents"]["tester"]["status"] == "FAIL"
+
+
+def test_command_check_bounds_capture_but_hashes_complete_output(tmp_path):
+    from scripts.agent_team import MAX_CAPTURE_BYTES, _command_check
+
+    output_size = MAX_CAPTURE_BYTES + 12345
+    result = _command_check(
+        "bounded_output",
+        (sys.executable, "-c", f"import sys; sys.stdout.write('x' * {output_size})"),
+        10,
+        repo_root=tmp_path,
+        env=os.environ.copy(),
+    )
+
+    assert result["status"] == "PASS"
+    assert result["stdout_bytes"] == output_size
+    assert result["stdout_truncated"] is True
+    assert len(result["stdout_excerpt"]) <= 4000
+    assert result["stdout_sha256"] == hashlib.sha256(b"x" * output_size).hexdigest()
+
+
+def test_command_check_timeout_fails_and_cleans_up(tmp_path):
+    from scripts.agent_team import _command_check
+
+    result = _command_check(
+        "timeout",
+        (sys.executable, "-c", "import time; time.sleep(5)"),
+        0.1,
+        repo_root=tmp_path,
+        env=os.environ.copy(),
+    )
+
+    assert result["status"] == "FAIL"
+    assert result["error"] == "timeout after 0.1 seconds"
+
+
+def test_resolve_repo_path_rejects_symlink_escape(tmp_path):
+    from scripts.agent_team import _resolve_repo_path
+
+    repo_root = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    repo_root.mkdir()
+    outside.mkdir()
+    (repo_root / "linked").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(AgentTeamError, match="inside the repository"):
+        _resolve_repo_path("linked/report.json", repo_root)
 
 
 def test_mixed_run_attempts_block_aggregate():
