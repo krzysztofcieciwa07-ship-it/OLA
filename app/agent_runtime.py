@@ -13,6 +13,8 @@ from .database import SessionLocal, append_evidence_atomic
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .models import EvidenceRecord
 from .runtime_provenance import runtime_source_commit
+from .agent_registry import LEGACY_EXECUTION_BINDINGS
+from .agent_worker import run_agent_worker
 
 
 AGENT_ROLES = [
@@ -301,49 +303,36 @@ def _invoke_local_deterministic_model(agent, task, context):
 
 
 def _execute_agent(agent, tenant_id, task, previous_output, execution):
+    if agent not in LEGACY_EXECUTION_BINDINGS:
+        raise ValueError("no manifest-backed worker identity for execution profile")
+    specialist_id, specialist_role = LEGACY_EXECUTION_BINDINGS[agent]
     context = {
         "task": task,
         "previous_output": previous_output,
         "upstream_agents": [item["agent"] for item in execution],
+        "upstream_execution": execution,
     }
-    model = _invoke_llm(agent, task, context) or _invoke_local_deterministic_model(agent, task, context)
-    if agent == "codeact":
-        tool_output = _safe_expression(task)
-        result = {"capability": "executed_safe_expression", "tool": "safe_expression", "tool_output": tool_output, "result": f"safe execution returned {tool_output}"}
-    elif agent == "react":
-        data = _run_react(task, previous_output)
-        result = {"capability": "reason_act_observe", "tool": "react_loop", "tool_output": json.dumps(data, sort_keys=True), "result": data["result"]}
-    elif agent == "agentic_rag":
-        data = _run_rag(tenant_id, task)
-        result = {"capability": "retrieved_prior_evidence", "tool": "evidence_retriever", "tool_output": json.dumps(data, sort_keys=True), "result": data["result"]}
-    elif agent == "mcp_tool_use":
-        value = _mcp_tool_call("sha256", {"value": previous_output.get("tool_output", task)})
-        result = {"capability": "invoked_tool", "tool": "local_mcp_tool_registry.sha256", "tool_output": value, "result": "invoked a registered tool through the tool-use boundary"}
-    elif agent == "self_reflection":
-        observed = json.dumps(previous_output, sort_keys=True)
-        passed = bool(previous_output.get("tool_output")) and "error" not in observed.lower()
-        result = {"capability": "checked_previous_output", "tool": "reflection_check", "tool_output": "PASS" if passed else "FAIL", "result": "reflection accepted the previous agent output" if passed else "reflection rejected the previous agent output"}
-    elif agent == "multi_agent":
-        aggregate = [item["agent"] for item in execution]
-        final_result = execution[0]["tool_output"] if execution else ""
-        result = {
-            "capability": "aggregated_agent_outputs",
-            "tool": "agent_aggregator",
-            "tool_output": json.dumps(aggregate),
-            "final_result": final_result,
-            "result": f"aggregated {len(aggregate)} upstream agent outputs; final result={final_result}",
-        }
-    else:
-        raise ValueError(f"unsupported agent: {agent}")
+    if agent == "agentic_rag":
+        # Database access stays in the trusted orchestrator. The specialist
+        # worker receives only the bounded, tenant-scoped result by value.
+        context["retrieved_evidence"] = _run_rag(tenant_id, task)
+
+    worker = run_agent_worker(
+        agent_id=specialist_id,
+        role=specialist_role,
+        execution_profile=agent,
+        task=task,
+        context=context,
+    )
+    result = dict(worker["result"])
     result.update({
-        "provider": model["provider"],
-        "model": model["model"],
-        "invocation_type": model["invocation_type"],
-        "prompt_digest": model["prompt_digest"],
-        "response_id": model.get("response_id"),
-        "model_output_digest": _digest(model.get("output", "")),
-        "model_output_role": "advisory_only",
-        "action_result_source": "registered_capability",
+        "agent_id": worker["agent_id"],
+        "specialist_role": worker["specialist_role"],
+        "worker_request_id": worker["request_id"],
+        "worker_pid": worker["worker_pid"],
+        "worker_parent_pid": worker["worker_parent_pid"],
+        "worker_resource_enforcement": worker["resource_enforcement"],
+        "execution_boundary": worker["execution_boundary"],
     })
     return result
 
@@ -376,7 +365,7 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
     output = {
         "agent": agent,
         "agent_instance_id": agent_instance_id,
-        "execution_boundary": "in_process",
+        "execution_boundary": "subprocess",
         "commit": _runtime_source_commit() or "UNKNOWN",
         "context_digest": _digest(canonical_json(context)),
         "task_digest": _digest(task),
