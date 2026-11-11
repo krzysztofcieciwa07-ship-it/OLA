@@ -96,8 +96,11 @@ class ControlPlaneServiceDefinition:
     service_name: str
     description: str
     classification: str
-    may_execute_specialist_work: bool
+    may_orchestrate_specialist_work: bool
+    may_execute_as_specialist_worker: bool
     may_write_evidence_ledger: bool
+    may_bypass_policy: bool
+    may_bypass_igor: bool
     may_bypass_human_gate: bool
 
 
@@ -245,16 +248,22 @@ _CONTROL_PLANE_CATALOG = {
         service_name="NINA",
         description="Trusted task orchestration and policy control plane.",
         classification="control_plane",
-        may_execute_specialist_work=False,
+        may_orchestrate_specialist_work=True,
+        may_execute_as_specialist_worker=False,
         may_write_evidence_ledger=False,
+        may_bypass_policy=False,
+        may_bypass_igor=False,
         may_bypass_human_gate=False,
     ),
     "Broker": ControlPlaneServiceDefinition(
         service_name="Broker",
         description="Provider broker enforcing each run's immutable provider policy.",
         classification="control_plane",
-        may_execute_specialist_work=False,
+        may_orchestrate_specialist_work=False,
+        may_execute_as_specialist_worker=False,
         may_write_evidence_ledger=False,
+        may_bypass_policy=False,
+        may_bypass_igor=False,
         may_bypass_human_gate=False,
     ),
 }
