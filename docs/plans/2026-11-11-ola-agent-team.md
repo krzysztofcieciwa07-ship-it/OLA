@@ -97,4 +97,4 @@
 
 ## Later specialist slices
 
-After the first slice is green, add specialists one at a time in this order: architecture, performance, protection/security, legal/compliance. Only then enable the full six-role plan in the orchestrator. Each specialist gets a concrete evidence input, bounded scope, focused tests, and a documented UNKNOWN/BLOCKED state when its required evidence is unavailable.
+After the first slice is green, add specialists one at a time in this order: architecture, performance, protection/protection, legal/compliance. Only then enable the full six-role plan in the orchestrator. Each specialist gets a concrete evidence input, bounded scope, focused tests, and a documented UNKNOWN/BLOCKED state when its required evidence is unavailable.
