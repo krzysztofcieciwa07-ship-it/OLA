@@ -634,7 +634,11 @@ def aggregate_from_directory(
     output = _resolve_repo_path(output_path, repo_root)
     reports: list[dict[str, Any]] = []
     for agent_id in AGENT_ORDER:
-        path = report_dir / f"agent-{agent_id}.json"
+        candidate = report_dir / f"agent-{agent_id}.json"
+        try:
+            path = _resolve_repo_path(str(candidate), repo_root)
+        except AgentTeamError:
+            raise AgentTeamError(f"report path escapes the repository for {agent_id}")
         if not path.is_file():
             continue
         try:
