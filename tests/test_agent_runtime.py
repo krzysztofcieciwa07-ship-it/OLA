@@ -37,10 +37,10 @@ def test_six_agent_runtime_is_ordered_and_verified(monkeypatch):
     assert result["evidence_count"] == 6
     assert verify_agent_run(tenant_id, result["run_id"])["status"] == "VERIFIED"
     assert "tenant_evidence_hash_chain_integrity" in result["verification_scope"]
-    assert "isolated_or_independent_agent_processes" in result["not_established"]
+    assert "hardened_os_sandbox_and_filesystem_isolation" in result["not_established"]
 
 
-def test_six_agents_have_unique_in_process_identity_and_context(monkeypatch):
+def test_six_agents_have_distinct_worker_process_identity_and_context(monkeypatch):
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", TEST_SOURCE_COMMIT)
     tenant_id = _seed_tenant("agent-key-independence")
     result = run_agent_task(tenant_id, "prove independent agent execution")
@@ -50,7 +50,10 @@ def test_six_agents_have_unique_in_process_identity_and_context(monkeypatch):
     assert [item["agent"] for item in executions] == AGENT_ROLES
     assert len({item["agent_instance_id"] for item in executions}) == 6
     assert len({item["context_digest"] for item in executions}) == 6
-    assert all(item["execution_boundary"] == "in_process" for item in executions)
+    assert all(item["execution_boundary"] == "subprocess" for item in executions)
+    assert len({item["worker_pid"] for item in executions}) == 6
+    assert len({item["worker_parent_pid"] for item in executions}) == 1
+    assert all(item["worker_pid"] != item["worker_parent_pid"] for item in executions)
     assert all(item["status"] == "RECORDED" for item in executions)
     assert all(item["model_output_role"] == "advisory_only" for item in executions)
     assert all(item["action_result_source"] == "registered_capability" for item in executions)
