@@ -69,6 +69,7 @@ class AgentWorkerRequest:
     agent_instance_id: str
     specialist_role: str
     profile: str
+    runtime_profile: str
     task: str
     context: dict[str, Any]
     capability_name: str
@@ -90,7 +91,7 @@ class AgentWorkerRequest:
             raise AgentProtocolError("worker request is not valid UTF-8 JSON") from None
         fields = {
             "schema", "request_id", "run_id", "agent_id", "agent_instance_id",
-            "specialist_role", "profile", "task", "context", "capability",
+            "specialist_role", "profile", "runtime_profile", "task", "context", "capability",
             "model_response",
         }
         _exact_keys(body, fields, "worker request")
@@ -105,6 +106,8 @@ class AgentWorkerRequest:
             raise AgentProtocolError("specialist_role is required")
         if not isinstance(body["profile"], str) or not body["profile"]:
             raise AgentProtocolError("profile is required")
+        if body["runtime_profile"] not in {"test", "zbook"}:
+            raise AgentProtocolError("unsupported runtime profile")
         if (not isinstance(body["task"], str) or not body["task"].strip()
                 or len(body["task"]) > MAX_TASK_CHARS):
             raise AgentProtocolError("task is empty or exceeds character limit")
@@ -146,6 +149,7 @@ class AgentWorkerRequest:
             agent_instance_id=instance_id,
             specialist_role=body["specialist_role"],
             profile=body["profile"],
+            runtime_profile=body["runtime_profile"],
             task=body["task"],
             context=body["context"],
             capability_name=capability["name"],
