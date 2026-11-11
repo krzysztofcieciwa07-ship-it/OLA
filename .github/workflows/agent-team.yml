@@ -56,6 +56,7 @@ jobs:
             --output agent-reports/agent-tester.json
       - name: Upload tester evidence
         if: always()
+        timeout-minutes: 3
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-report-tester-${{ github.run_id }}
@@ -93,6 +94,7 @@ jobs:
             --output agent-reports/agent-architecture.json
       - name: Upload architecture evidence
         if: always()
+        timeout-minutes: 3
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-report-architecture-${{ github.run_id }}
@@ -151,6 +153,7 @@ jobs:
         run: docker logs ola-agent-team > agent-team-runtime.log 2>&1 || true
       - name: Upload performance report
         if: always()
+        timeout-minutes: 3
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-report-performance-${{ github.run_id }}
@@ -159,6 +162,7 @@ jobs:
           retention-days: 14
       - name: Upload performance diagnostics
         if: always()
+        timeout-minutes: 3
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-diagnostics-performance-${{ github.run_id }}
@@ -201,6 +205,7 @@ jobs:
             --output agent-reports/agent-security.json
       - name: Upload protection evidence
         if: always()
+        timeout-minutes: 3
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-report-security-${{ github.run_id }}
@@ -235,6 +240,7 @@ jobs:
             --output agent-reports/agent-legal.json
       - name: Upload legal review evidence
         if: always()
+        timeout-minutes: 3
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-report-legal-${{ github.run_id }}
@@ -282,6 +288,7 @@ jobs:
             --output team-manifest.json
       - name: Upload final team manifest
         if: always()
+        timeout-minutes: 3
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-team-manifest-${{ github.run_id }}
