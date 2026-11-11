@@ -272,8 +272,8 @@ def _architecture_project(tmp_path, files):
 
 def test_architecture_agent_accepts_acyclic_internal_imports(tmp_path):
     root = _architecture_project(tmp_path, {
-        "main.py": "from .service import execute\\n",
-        "service.py": "def execute():\\n    return True\\n",
+        "main.py": "from .service import execute\n",
+        "service.py": "def execute():\n    return True\n",
     })
 
     report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
@@ -287,8 +287,8 @@ def test_architecture_agent_accepts_acyclic_internal_imports(tmp_path):
 
 def test_architecture_agent_detects_module_level_import_cycle(tmp_path):
     root = _architecture_project(tmp_path, {
-        "a.py": "from .b import B\\n",
-        "b.py": "from .a import A\\n",
+        "a.py": "from .b import B\n",
+        "b.py": "from .a import A\n",
     })
 
     report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
@@ -299,8 +299,8 @@ def test_architecture_agent_detects_module_level_import_cycle(tmp_path):
 
 def test_architecture_agent_detects_application_dependency_on_api_composition_root(tmp_path):
     root = _architecture_project(tmp_path, {
-        "main.py": "app = object()\\n",
-        "service.py": "def execute():\\n    from .main import app\\n    return app\\n",
+        "main.py": "app = object()\n",
+        "service.py": "def execute():\n    from .main import app\n    return app\n",
     })
 
     report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
@@ -311,7 +311,7 @@ def test_architecture_agent_detects_application_dependency_on_api_composition_ro
 
 def test_architecture_agent_detects_unresolved_internal_import(tmp_path):
     root = _architecture_project(tmp_path, {
-        "service.py": "from .missing_module import execute\\n",
+        "service.py": "from .missing_module import execute\n",
     })
 
     report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
@@ -322,7 +322,7 @@ def test_architecture_agent_detects_unresolved_internal_import(tmp_path):
 
 def test_architecture_agent_reports_python_syntax_errors(tmp_path):
     root = _architecture_project(tmp_path, {
-        "service.py": "def execute(:\\n    return True\\n",
+        "service.py": "def execute(:\n    return True\n",
     })
 
     report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
@@ -333,8 +333,8 @@ def test_architecture_agent_reports_python_syntax_errors(tmp_path):
 
 def test_architecture_agent_does_not_treat_function_local_import_as_import_time_cycle(tmp_path):
     root = _architecture_project(tmp_path, {
-        "a.py": "from .b import B\\n",
-        "b.py": "def load():\\n    from .a import A\\n    return A\\n",
+        "a.py": "from .b import B\n",
+        "b.py": "def load():\n    from .a import A\n    return A\n",
     })
 
     report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
