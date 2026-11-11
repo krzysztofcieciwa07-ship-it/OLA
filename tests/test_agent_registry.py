@@ -65,7 +65,7 @@ def test_each_specialist_has_explicit_profile_capability_provider_resource_and_a
         assert definition.approval_policy.human_gate_for_mutating_actions is True
         assert definition.approval_policy.human_gate_for_external_actions is True
         assert definition.approval_policy.self_approval_allowed is False
-        assert definition.availability_status == "worker_process_enabled_v1"
+        assert definition.availability_status == "worker_container_v1"
 
     assert catalog["Guardian"].approval_policy.read_only is True
     assert catalog["Guardian"].approval_policy.self_approval_allowed is False
