@@ -120,7 +120,7 @@ _DEFAULT_APPROVAL_POLICY = ApprovalPolicy(
 )
 
 _ZBOOK_PROVIDER_POLICY = ProviderPolicy(
-    allowed_providers=("ollama",),
+    allowed_providers=("ollama", "openai"),
     fallback_allowed=False,
 )
 
