@@ -30,7 +30,7 @@ class TesterAgent:
     role = "tester"
 
     def run(self, context: AgentContext) -> AgentReport:
-        command = [sys.executable, "-m", "pytest", "-q", *TEST_PATHS]
+        command = [sys.executable, "-m", "pytest", *TEST_PATHS]
         timeout = min(context.timeout_seconds, 900)
         started = time.perf_counter()
 
