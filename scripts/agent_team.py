@@ -34,7 +34,6 @@ AGENT_ORDER = (
     "legal",
 )
 VALID_AGENT_STATUSES = frozenset({"PASS", "FAIL", "REVIEW"})
-VALID_FINAL_STATUSES = frozenset({"PASS", "REVIEW_REQUIRED", "BLOCKED"})
 
 LEGAL_REQUIRED_DOCS = (
     "docs/legal/privacy-notice.md",
@@ -208,12 +207,19 @@ def aggregate_reports(
     *,
     expected_source_commit: str,
     expected_run_id: str,
+    expected_run_attempt: int,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Verify every role report and produce one fail-closed team manifest."""
     _validate_commit(expected_source_commit)
     if not isinstance(expected_run_id, str) or not expected_run_id:
         raise AgentTeamError("expected run id must be a non-empty string")
+    if (
+        isinstance(expected_run_attempt, bool)
+        or not isinstance(expected_run_attempt, int)
+        or expected_run_attempt < 1
+    ):
+        raise AgentTeamError("expected run attempt must be a positive integer")
 
     issues: list[str] = []
     review_agents: list[str] = []
@@ -240,6 +246,8 @@ def aggregate_reports(
             issues.append(f"source commit mismatch for {agent_id}")
         if report.get("run_id") != expected_run_id:
             issues.append(f"run id mismatch for {agent_id}")
+        if report.get("run_attempt") != expected_run_attempt:
+            issues.append(f"run attempt mismatch for {agent_id}")
         if report.get("status") not in VALID_AGENT_STATUSES:
             issues.append(f"invalid status for {agent_id}")
         elif report["status"] == "FAIL":
@@ -270,12 +278,26 @@ def aggregate_reports(
             "check_count": len(report.get("checks", [])) if isinstance(report.get("checks"), list) else 0,
             "source_commit": report.get("source_commit"),
             "run_id": report.get("run_id"),
+            "run_attempt": report.get("run_attempt"),
         }
+
+    all_received_reports_integrity_verified = (
+        len(by_agent) == len(AGENT_ORDER)
+        and all(verify_report_integrity(report) for report in by_agent.values())
+    )
+    all_received_reports_match_run_attempt = (
+        len(by_agent) == len(AGENT_ORDER)
+        and all(
+            report.get("run_attempt") == expected_run_attempt
+            for report in by_agent.values()
+        )
+    )
 
     manifest = {
         "schema": "ola-agent-team-manifest-v1",
         "source_commit": expected_source_commit,
         "run_id": expected_run_id,
+        "run_attempt": expected_run_attempt,
         "generated_at": generated_at or _utc_now(),
         "execution_order": list(AGENT_ORDER),
         "agents": agent_summaries,
@@ -288,8 +310,12 @@ def aggregate_reports(
             "status": overall_status,
             "reports_expected": len(AGENT_ORDER),
             "reports_received": len(by_agent),
-            "report_integrity_verified": not any("integrity check failed" in item for item in issues),
-            "source_commit_consistent": not any("source commit mismatch" in item for item in issues),
+            "report_integrity_verified": all_received_reports_integrity_verified,
+            "source_commit_consistent": (
+                len(by_agent) == len(AGENT_ORDER)
+                and not any("source commit mismatch" in item for item in issues)
+            ),
+            "run_attempt_consistent": all_received_reports_match_run_attempt,
             "report_authenticity": "NOT_ESTABLISHED_BY_SHA256",
             "production_deployment_authorized": False,
         },
@@ -504,6 +530,7 @@ def aggregate_from_directory(
     reports_dir: str,
     expected_source_commit: str,
     expected_run_id: str,
+    expected_run_attempt: int,
     output_path: str,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any]:
@@ -523,6 +550,7 @@ def aggregate_from_directory(
         reports,
         expected_source_commit=expected_source_commit,
         expected_run_id=expected_run_id,
+        expected_run_attempt=expected_run_attempt,
     )
     _write_json(output, manifest)
     return manifest
@@ -543,6 +571,7 @@ def _parser() -> argparse.ArgumentParser:
     aggregate_parser.add_argument("--reports-dir", required=True)
     aggregate_parser.add_argument("--source-commit", required=True)
     aggregate_parser.add_argument("--run-id", required=True)
+    aggregate_parser.add_argument("--run-attempt", required=True, type=int)
     aggregate_parser.add_argument("--output", required=True)
     return parser
 
@@ -565,6 +594,7 @@ def main(argv: list[str] | None = None) -> int:
             reports_dir=args.reports_dir,
             expected_source_commit=args.source_commit,
             expected_run_id=args.run_id,
+            expected_run_attempt=args.run_attempt,
             output_path=args.output,
         )
         print(json.dumps(manifest, sort_keys=True, ensure_ascii=False))
