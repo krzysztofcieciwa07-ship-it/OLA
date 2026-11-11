@@ -9,7 +9,7 @@ The Assurance Agent Team performs sequential, read-only checks of an exact OLA s
 | Role | Responsibility | Initial status |
 |---|---|---|
 | Tester | Executes allowlisted runtime, safety, evidence, replay, NINA/IGOR and provider-boundary tests | Enabled |
-| Architecture | Reviews package boundaries, imports, route/API contracts and architecture rules | Not enabled |
+| Architecture | Parses the app package, resolves internal imports, detects import-time cycles, and protects the API composition-root boundary | Enabled |
 | Performance | Evaluates reproducible load and latency evidence | Not enabled |
 | Protection | Reviews security boundaries, action permissions, dependency/secret and supply-chain evidence | Not enabled |
 | Legal | Checks legal/compliance evidence inventory and reports missing or unverifiable controls | Not enabled |
