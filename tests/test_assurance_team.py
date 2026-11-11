@@ -156,7 +156,18 @@ def test_cli_writes_json_report_event_ledger_and_digest(monkeypatch, tmp_path):
                 metrics={"source_commit": context.source_commit},
             )
 
+    class PassingArchitectureAgent:
+        role = "architecture"
+
+        def run(self, context):
+            return AgentReport(
+                role=self.role,
+                status=AgentStatus.PASS,
+                metrics={"source_commit": context.source_commit},
+            )
+
     monkeypatch.setattr(cli, "TesterAgent", PassingAgent)
+    monkeypatch.setattr(cli, "ArchitectureAgent", PassingArchitectureAgent)
     output_dir = tmp_path / "artifacts"
     exit_code = cli.main([
         "--repo-root", str(tmp_path),
@@ -175,7 +186,8 @@ def test_cli_writes_json_report_event_ledger_and_digest(monkeypatch, tmp_path):
     assert report["source_commit"] == "b" * 40
     assert report["status"] == "PASS"
     assert report["coverage"]["coverage_status"] == "PARTIAL"
-    assert report["coverage"]["not_enabled"] == ["architecture", "performance", "protection", "legal"]
+    assert report["coverage"]["enabled"] == ["tester", "architecture"]
+    assert report["coverage"]["not_enabled"] == ["performance", "protection", "legal"]
     assert verify_event_chain(events)
     assert len(manifest.splitlines()) == 2
 
