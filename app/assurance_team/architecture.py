@@ -257,6 +257,28 @@ class ArchitectureAgent:
             )
 
         try:
+            resolved_app_root = app_root.resolve()
+            app_root_escapes_repository = (
+                app_root.is_symlink() or not resolved_app_root.is_relative_to(repo_root)
+            )
+        except (OSError, RuntimeError):
+            app_root_escapes_repository = True
+        if app_root_escapes_repository:
+            return AgentReport(
+                role=self.role,
+                status=AgentStatus.BLOCKED,
+                findings=[
+                    AgentFinding(
+                        code="ARCH_APP_ROOT_ESCAPE",
+                        severity="high",
+                        message="The app/ source root is a symlink or resolves outside the repository.",
+                        remediation="Replace app/ with a real directory inside the canonical repository checkout.",
+                    )
+                ],
+                metrics={"source_commit": context.source_commit, "module_count": 0},
+            )
+
+        try:
             source_paths, skipped_symlinks, discovery_limit = _discover_python_sources(app_root)
         except OSError as exc:
             return AgentReport(

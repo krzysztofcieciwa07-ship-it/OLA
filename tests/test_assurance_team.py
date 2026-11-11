@@ -495,3 +495,19 @@ def test_architecture_agent_stops_enumeration_when_module_limit_is_exceeded(monk
 
     assert report.status == AgentStatus.BLOCKED
     assert any(item.code == "ARCH_SCAN_MODULE_LIMIT" for item in report.findings)
+
+
+
+def test_architecture_agent_blocks_app_root_symlink_escape(tmp_path):
+    repo_root = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    repo_root.mkdir()
+    outside.mkdir()
+    (outside / "__init__.py").write_text("", encoding="utf-8")
+    (outside / "main.py").write_text("raise RuntimeError('must not be scanned')\n", encoding="utf-8")
+    (repo_root / "app").symlink_to(outside, target_is_directory=True)
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=repo_root, source_commit="d" * 40))
+
+    assert report.status == AgentStatus.BLOCKED
+    assert any(item.code == "ARCH_APP_ROOT_ESCAPE" for item in report.findings)
