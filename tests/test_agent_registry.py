@@ -65,7 +65,7 @@ def test_each_specialist_has_explicit_profile_capability_provider_resource_and_a
         assert definition.approval_policy.human_gate_for_mutating_actions is True
         assert definition.approval_policy.human_gate_for_external_actions is True
         assert definition.approval_policy.self_approval_allowed is False
-        assert definition.availability_status == "catalogued_legacy_pipeline_only"
+        assert definition.availability_status == "worker_process_enabled_v1"
 
     assert catalog["Guardian"].approval_policy.read_only is True
     assert catalog["Guardian"].approval_policy.self_approval_allowed is False
@@ -111,15 +111,17 @@ def test_default_manifest_is_explicit_and_has_one_stable_instance_per_specialist
     catalog = load_agent_catalog()
     agents = build_agent_registry(DEFAULT_AGENT_MANIFEST)
 
-    assert len(agents) == 10
-    assert len({agent.agent_id for agent in agents}) == 10
+    assert len(agents) == 11
+    assert len({agent.agent_id for agent in agents}) == 11
     assert {agent.role for agent in agents} == set(catalog)
     assert DEFAULT_AGENT_ID in {agent.agent_id for agent in agents}
+    assert any(agent.agent_id == "builder-mcp" and agent.execution_profile == "mcp_tool_use"
+               for agent in agents)
 
 
 def test_main_registers_only_the_explicit_manifest_not_a_synthetic_391_fixture():
     import app.main as main_module
 
-    assert len(main_module.AGENT_INSTANCES_BY_ID) == len(DEFAULT_AGENT_MANIFEST) == 10
+    assert len(main_module.AGENT_INSTANCES_BY_ID) == len(DEFAULT_AGENT_MANIFEST) == 11
     assert DEFAULT_AGENT_ID in main_module.AGENT_INSTANCES_BY_ID
     assert set(main_module.AGENT_CATALOG) == set(SPECIALIST_ROLE_NAMES)
