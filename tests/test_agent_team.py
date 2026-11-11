@@ -2,6 +2,7 @@ import copy
 import hashlib
 import os
 import sys
+import time
 
 import pytest
 
@@ -252,3 +253,55 @@ def test_mixed_run_attempts_block_aggregate():
 
     assert manifest["overall_status"] == "BLOCKED"
     assert any("run attempt mismatch for security" in issue for issue in manifest["issues"])
+
+
+def test_command_check_kills_timed_out_descendant_process_group(tmp_path):
+    from scripts.agent_team import _command_check
+
+    marker = tmp_path / "orphan-survived.txt"
+    child_code = (
+        "import pathlib,time; time.sleep(0.6); "
+        f"pathlib.Path({str(marker)!r}).write_text('alive')"
+    )
+    parent_code = (
+        "import subprocess,sys,time; "
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
+        "time.sleep(10)"
+    )
+
+    result = _command_check(
+        "descendant_timeout",
+        (sys.executable, "-c", parent_code),
+        0.2,
+        repo_root=tmp_path,
+        env=os.environ.copy(),
+    )
+    time.sleep(0.8)
+
+    assert result["status"] == "FAIL"
+    assert result["error"] == "timeout after 0.2 seconds"
+    assert not marker.exists()
+
+
+def test_aggregator_rejects_report_symlink_escape(tmp_path):
+    from scripts.agent_team import aggregate_from_directory
+
+    repo_root = tmp_path / "repo"
+    reports_dir = repo_root / "reports"
+    outside_dir = tmp_path / "outside"
+    reports_dir.mkdir(parents=True)
+    outside_dir.mkdir()
+    outside_report = outside_dir / "agent-tester.json"
+    outside_report.write_text("{}", encoding="utf-8")
+    (reports_dir / "agent-tester.json").symlink_to(outside_report)
+
+    with pytest.raises(AgentTeamError, match="report path escapes the repository"):
+        aggregate_from_directory(
+            reports_dir="reports",
+            expected_source_commit=SOURCE_COMMIT,
+            expected_run_id=RUN_ID,
+            expected_run_attempt=1,
+            output_path="manifest.json",
+            repo_root=repo_root,
+        )
+
