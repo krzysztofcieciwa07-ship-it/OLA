@@ -56,7 +56,7 @@ def test_each_specialist_has_explicit_profile_capability_provider_resource_and_a
         }
         assert expected_capabilities <= set(definition.capability_allowlist)
         assert definition.memory_namespace == f"specialists/{role.lower()}"
-        assert definition.provider_policy.allowed_providers == ("ollama",)
+        assert definition.provider_policy.allowed_providers == ("ollama", "openai")
         assert definition.provider_policy.fallback_allowed is False
         assert definition.resource_limits.cpu_millis > 0
         assert definition.resource_limits.memory_mb > 0
