@@ -145,7 +145,7 @@ def verify_event_chain(events: list[dict[str, Any]]) -> bool:
                 report = payload.get("report")
                 if (active_agent is None or payload.get("role") != active_agent
                         or payload.get("source_commit") != source_commit
-                        or not isinstance(report, dict) or report.get("role") != active_agent
+                        or not isinstance(report, dict) or payload.get("status") != report.get("status") or report.get("role") != active_agent
                         or report.get("status") not in {status.value for status in AgentStatus}):
                     return False
                 active_agent = None

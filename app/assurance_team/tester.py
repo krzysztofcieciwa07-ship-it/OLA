@@ -20,7 +20,9 @@ TEST_PATHS = (
     "tests/test_runtime_provenance.py",
 )
 _PYTEST_SUMMARY = re.compile(
-    r"(?P<summary>\d+ passed(?:, \d+ skipped)?(?:, \d+ failed)?(?:, \d+ error)?(?: in [0-9.]+s)?)"
+    r"(?P<summary>\\d+ (?:passed|failed|error|errors|skipped|xfailed|xpassed)"
+    r"(?:, \\d+ (?:passed|failed|error|errors|skipped|xfailed|xpassed))*"
+    r"(?: in [0-9.]+s)?)"
 )
 
 

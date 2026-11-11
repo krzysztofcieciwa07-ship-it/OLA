@@ -92,6 +92,7 @@ class AgentOrchestrator:
                 "agent.end",
                 {
                     "role": role,
+                    "status": result_dict["status"],
                     "source_commit": context.source_commit,
                     "report": result_dict,
                 },
