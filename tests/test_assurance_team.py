@@ -142,6 +142,50 @@ def test_agent_context_rejects_non_integer_timeout(tmp_path):
         AgentContext(repo_root=tmp_path, source_commit="a" * 40, timeout_seconds=1.5)
 
 
+
+def test_cli_rejects_output_directory_outside_repository_before_running_agents(tmp_path):
+    from app.assurance_team import cli
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    outside = tmp_path / "outside" / "artifacts"
+
+    class ShouldNotRun:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("agents must not run when the output path is invalid")
+
+    original_tester = cli.TesterAgent
+    original_architecture = cli.ArchitectureAgent
+    try:
+        cli.TesterAgent = ShouldNotRun
+        cli.ArchitectureAgent = ShouldNotRun
+        exit_code = cli.main([
+            "--repo-root", str(repo_root),
+            "--source-commit", "a" * 40,
+            "--output-dir", str(outside),
+        ])
+    finally:
+        cli.TesterAgent = original_tester
+        cli.ArchitectureAgent = original_architecture
+
+    assert exit_code == 2
+    assert not outside.exists()
+
+
+def test_cli_rejects_symlink_output_directory_escape(tmp_path):
+    from app.assurance_team.cli import _resolve_output_dir
+
+    repo_root = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    repo_root.mkdir()
+    outside.mkdir()
+    (repo_root / "artifacts").symlink_to(outside, target_is_directory=True)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="inside repo_root"):
+        _resolve_output_dir(repo_root, "artifacts")
+
 def test_cli_writes_json_report_event_ledger_and_digest(monkeypatch, tmp_path):
     import json
     from app.assurance_team import cli
