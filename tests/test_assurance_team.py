@@ -354,3 +354,16 @@ def test_architecture_agent_does_not_treat_function_local_import_as_import_time_
     assert report.status == AgentStatus.PASS
     assert report.metrics["module_level_import_edges"] == 1
     assert report.metrics["deferred_imports"] == 1
+
+
+def test_architecture_agent_resolves_relative_imports_from_package_initializer(tmp_path):
+    root = _architecture_project(tmp_path, {
+        "feature/__init__.py": "from .service import execute\n",
+        "feature/service.py": "def execute():\n    return True\n",
+    })
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
+
+    assert report.status == AgentStatus.PASS
+    assert report.metrics["unresolved_internal_imports"] == 0
+    assert not report.findings
