@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ola-agent-team-${{ github.event.pull_request.number || github.ref }}
+  group: ola-agent-team-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: false
 
 permissions:
