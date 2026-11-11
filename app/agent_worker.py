@@ -25,10 +25,13 @@ def execute_worker_request(request: AgentWorkerRequest) -> AgentWorkerResult:
         raise AgentProtocolError("unknown specialist role")
     if request.profile not in definition.execution_profiles:
         raise AgentProtocolError("profile is not authorized for specialist")
-    if request.model_provider not in definition.provider_policy.allowed_providers:
-        raise AgentProtocolError("provider is not authorized for specialist")
     if definition.availability_status != "worker_container_v1":
         raise AgentProtocolError("specialist is not enabled for container execution")
+    if request.runtime_profile == "test" and request.model_provider == "local":
+        if request.invocation_type != "local_deterministic_model":
+            raise AgentProtocolError("test runtime local provider metadata is inconsistent")
+    elif request.model_provider not in definition.provider_policy.allowed_providers:
+        raise AgentProtocolError("provider is not authorized for specialist")
     if request.runtime_profile == "zbook":
         if request.model_provider != "ollama":
             raise AgentProtocolError("ZBook worker requires Ollama")
@@ -36,9 +39,6 @@ def execute_worker_request(request: AgentWorkerRequest) -> AgentWorkerResult:
             raise AgentProtocolError("ZBook worker rejects deterministic model responses")
         if not request.model_response_id:
             raise AgentProtocolError("ZBook worker requires a real Ollama response identity")
-    elif request.model_provider == "local" and request.invocation_type != "local_deterministic_model":
-        raise AgentProtocolError("test runtime local provider metadata is inconsistent")
-
     result = execute_registered_capability(request)
     return AgentWorkerResult(
         request_id=request.request_id,
