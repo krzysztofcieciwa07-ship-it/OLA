@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 
+from .architecture import ArchitectureAgent
 from .contracts import AgentContext, AgentStatus, canonical_json
 from .orchestrator import AgentOrchestrator
 from .tester import TesterAgent
@@ -46,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout_seconds=args.timeout_seconds,
         )
         orchestrator = AgentOrchestrator(
-            agents=[TesterAgent()],
+            agents=[TesterAgent(), ArchitectureAgent()],
             planned_roles=PLANNED_ROLES,
         )
         report = orchestrator.run(context)
