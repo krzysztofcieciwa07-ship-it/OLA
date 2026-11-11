@@ -124,21 +124,24 @@ class AgentSupervisor:
         return limits
 
     def _validate_provider(self, request, definition):
-        if request.model_provider == "local":
-            if (
-                os.getenv("OLA_RUNTIME_PROFILE") == "zbook"
-                or os.getenv("OLA_LLM_MODE", "deterministic") != "deterministic"
-                or request.invocation_type != "local_deterministic_model"
-            ):
-                raise AgentSupervisorError("deterministic provider is test-only and cannot run on ZBook")
-            return
-        if request.model_provider not in definition.provider_policy.allowed_providers:
-            raise AgentSupervisorError("provider is not allowed by the specialist policy")
-        if os.getenv("OLA_RUNTIME_PROFILE") == "zbook":
+        configured_profile = os.getenv("OLA_RUNTIME_PROFILE", "test")
+        if request.runtime_profile != configured_profile:
+            raise AgentSupervisorError("worker runtime profile differs from trusted supervisor configuration")
+        if request.runtime_profile == "zbook":
             if request.model_provider != "ollama" or request.invocation_type != "real_llm":
                 raise AgentSupervisorError("ZBook execution requires a real Ollama response")
             if not request.model_response_id:
                 raise AgentSupervisorError("ZBook execution requires an Ollama response identity")
+            return
+        if request.model_provider == "local":
+            if (
+                os.getenv("OLA_LLM_MODE", "deterministic") != "deterministic"
+                or request.invocation_type != "local_deterministic_model"
+            ):
+                raise AgentSupervisorError("deterministic provider is test-only")
+            return
+        if request.model_provider not in definition.provider_policy.allowed_providers:
+            raise AgentSupervisorError("provider is not allowed by the specialist policy")
 
     def _create_command(self, image_id, limits):
         cpu = f"{limits.cpu_millis / 1000:.3f}"
