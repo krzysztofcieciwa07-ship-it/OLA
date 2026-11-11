@@ -93,6 +93,33 @@ def test_legal_review_never_becomes_automatic_compliance_pass():
     assert manifest["agents"]["legal"]["status"] == "REVIEW"
 
 
+def test_cli_returns_nonzero_for_review_required(monkeypatch, tmp_path, capsys):
+    from scripts import agent_team
+
+    review_manifest = {
+        "overall_status": "REVIEW_REQUIRED",
+        "agents": {},
+        "issues": [],
+    }
+    monkeypatch.setattr(
+        agent_team,
+        "aggregate_from_directory",
+        lambda **kwargs: review_manifest,
+    )
+
+    exit_code = agent_team.main([
+        "aggregate",
+        "--reports-dir", str(tmp_path / "reports"),
+        "--source-commit", SOURCE_COMMIT,
+        "--run-id", RUN_ID,
+        "--run-attempt", "1",
+        "--output", str(tmp_path / "manifest.json"),
+    ])
+
+    assert exit_code == 1
+    assert '"overall_status": "REVIEW_REQUIRED"' in capsys.readouterr().out
+
+
 def test_missing_agent_blocks_aggregate():
     reports = [make_report(agent_id) for agent_id in AGENT_ORDER[:-1]]
 
