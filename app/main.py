@@ -690,7 +690,7 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
             reason = "specialist_profile_denied"
         elif capability not in definition.capability_allowlist:
             reason = "specialist_capability_denied"
-        elif definition.availability_status != "catalogued_legacy_pipeline_only":
+        elif definition.availability_status != "worker_process_enabled_v1":
             reason = "agent_unavailable"
         elif not isinstance(risk, str) or risk.upper() not in {"LOW", "HIGH"}:
             reason = "unknown_risk"
