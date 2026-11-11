@@ -1,0 +1,282 @@
+name: OLA Sequential Agent Team
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "scripts/**"
+      - "tests/**"
+      - "docs/legal/**"
+      - "SECURITY.md"
+      - ".github/workflows/agent-team.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "scripts/**"
+      - "tests/**"
+      - "docs/legal/**"
+      - "SECURITY.md"
+      - ".github/workflows/agent-team.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ola-agent-team-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tester:
+    name: "Agent 1 — Tester"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run tester agent
+        run: |
+          set -euo pipefail
+          python scripts/agent_team.py run \
+            --agent tester \
+            --source-commit "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output agent-reports/agent-tester.json
+      - name: Upload tester evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-report-tester-${{ github.run_id }}
+          path: agent-reports/agent-tester.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  architecture:
+    name: "Agent 2 — Architecture"
+    needs: tester
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run architecture agent
+        run: |
+          set -euo pipefail
+          python scripts/agent_team.py run \
+            --agent architecture \
+            --source-commit "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output agent-reports/agent-architecture.json
+      - name: Upload architecture evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-report-architecture-${{ github.run_id }}
+          path: agent-reports/agent-architecture.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  performance:
+    name: "Agent 3 — Performance"
+    needs: architecture
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Build local runtime for load test
+        run: docker build --tag ola-agent-team:${GITHUB_SHA} .
+      - name: Start runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name ola-agent-team --publish 8000:8000 "ola-agent-team:${GITHUB_SHA}"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs ola-agent-team
+          exit 1
+      - name: Run performance agent
+        env:
+          STRESS_REQUESTS: "120"
+          STRESS_CONCURRENCY: "12"
+          STRESS_TIMEOUT: "5"
+          STRESS_P95_LIMIT_MS: "500"
+          STRESS_P99_LIMIT_MS: "1000"
+        run: |
+          set -euo pipefail
+          python scripts/agent_team.py run \
+            --agent performance \
+            --source-commit "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output agent-reports/agent-performance.json
+      - name: Capture runtime logs
+        if: always()
+        run: docker logs ola-agent-team > agent-team-runtime.log 2>&1 || true
+      - name: Upload performance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-report-performance-${{ github.run_id }}
+          path: |
+            agent-reports/agent-performance.json
+            stress-evidence.json
+            agent-team-runtime.log
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Stop runtime
+        if: always()
+        run: docker rm --force ola-agent-team >/dev/null 2>&1 || true
+
+  security:
+    name: "Agent 4 — Protection"
+    needs: performance
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run protection agent
+        run: |
+          set -euo pipefail
+          python scripts/agent_team.py run \
+            --agent security \
+            --source-commit "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output agent-reports/agent-security.json
+      - name: Upload protection evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-report-security-${{ github.run_id }}
+          path: agent-reports/agent-security.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  legal:
+    name: "Agent 5 — Legal review"
+    needs: security
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Run legal coverage agent
+        run: |
+          set -euo pipefail
+          python scripts/agent_team.py run \
+            --agent legal \
+            --source-commit "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output agent-reports/agent-legal.json
+      - name: Upload legal review evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-report-legal-${{ github.run_id }}
+          path: agent-reports/agent-legal.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  orchestrator:
+    name: "Agent 6 — Orchestrator"
+    needs: [tester, architecture, performance, security, legal]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Download specialist evidence
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: agent-report-${{ github.run_id }}-*
+          path: agent-reports
+          merge-multiple: true
+      - name: Verify reports and write team manifest
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p agent-reports
+          python scripts/agent_team.py aggregate \
+            --reports-dir agent-reports \
+            --source-commit "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --output team-manifest.json
+      - name: Upload final team manifest
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-team-manifest-${{ github.run_id }}
+          path: team-manifest.json
+          if-no-files-found: warn
+          retention-days: 30
