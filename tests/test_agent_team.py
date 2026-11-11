@@ -15,12 +15,12 @@ SOURCE_COMMIT = "a" * 40
 RUN_ID = "42950000000"
 
 
-def make_report(agent_id, status="PASS", source_commit=SOURCE_COMMIT):
+def make_report(agent_id, status="PASS", source_commit=SOURCE_COMMIT, run_attempt=1):
     return build_agent_report(
         agent_id=agent_id,
         source_commit=source_commit,
         run_id=RUN_ID,
-        run_attempt=1,
+        run_attempt=run_attempt,
         status=status,
         checks=[{"check_id": "contract", "status": status}],
         started_at="2026-11-11T08:00:00+00:00",
@@ -67,6 +67,7 @@ def test_aggregator_passes_only_when_every_agent_passes():
         reports,
         expected_source_commit=SOURCE_COMMIT,
         expected_run_id=RUN_ID,
+        expected_run_attempt=1,
     )
 
     assert manifest["overall_status"] == "PASS"
@@ -152,3 +153,20 @@ def test_agent_failure_blocks_aggregate_even_if_other_agents_pass():
 
     assert manifest["overall_status"] == "BLOCKED"
     assert manifest["agents"]["tester"]["status"] == "FAIL"
+
+
+def test_mixed_run_attempts_block_aggregate():
+    reports = [
+        make_report(agent_id, run_attempt=2 if agent_id == "security" else 1)
+        for agent_id in AGENT_ORDER
+    ]
+
+    manifest = aggregate_reports(
+        reports,
+        expected_source_commit=SOURCE_COMMIT,
+        expected_run_id=RUN_ID,
+        expected_run_attempt=1,
+    )
+
+    assert manifest["overall_status"] == "BLOCKED"
+    assert any("run attempt mismatch for security" in issue for issue in manifest["issues"])
