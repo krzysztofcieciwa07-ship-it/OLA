@@ -15,6 +15,20 @@ from .tester import TesterAgent
 PLANNED_ROLES = ("tester", "architecture", "performance", "protection", "legal")
 
 
+def _resolve_output_dir(repo_root: Path, raw_output_dir: str) -> Path:
+    """Keep evidence writes inside the selected repository checkout."""
+    root = repo_root.resolve()
+    candidate = Path(raw_output_dir)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("output_dir must remain inside repo_root") from exc
+    return resolved
+
+
 def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
@@ -46,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
             source_commit=args.source_commit,
             timeout_seconds=args.timeout_seconds,
         )
+        output_dir = _resolve_output_dir(context.repo_root, args.output_dir)
         orchestrator = AgentOrchestrator(
             agents=[TesterAgent(), ArchitectureAgent()],
             planned_roles=PLANNED_ROLES,
@@ -54,7 +69,10 @@ def main(argv: list[str] | None = None) -> int:
         if not report["event_chain_valid"]:
             raise RuntimeError("independent lifecycle event verification failed")
 
-        output_dir = Path(args.output_dir).resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        # Re-check after creation so a pre-existing or concurrently substituted
+        # symlink cannot redirect the evidence bundle outside the checkout.
+        output_dir = _resolve_output_dir(context.repo_root, str(output_dir))
         events_content = "".join(canonical_json(event) + "\n" for event in report["events"])
         report_content = json.dumps(report, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
         _atomic_write(output_dir / "team-report.json", report_content)
