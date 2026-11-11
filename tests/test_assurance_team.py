@@ -38,6 +38,7 @@ def test_tester_runs_only_allowlisted_runtime_test_suites(monkeypatch, tmp_path)
     assert kwargs["timeout"] > 0
     assert result.metrics["test_paths"] == list(TEST_PATHS)
     assert result.metrics["output_sha256"]
+    assert result.metrics["summary"] == "12 passed in 0.10s"
 
 
 def test_tester_fails_closed_on_timeout(monkeypatch, tmp_path):
