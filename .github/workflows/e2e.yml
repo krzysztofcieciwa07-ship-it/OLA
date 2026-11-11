@@ -242,9 +242,11 @@ jobs:
               raise RuntimeError(f"Independent business verifier failed with exit code {verifier.returncode}")
           proof = json.loads(verifier.stdout.strip())
           assert proof["status"] == "VERIFIED", proof
-          assert proof["execution_boundary"] == "in_process", proof
+          assert proof["execution_boundary"] == "subprocess", proof
+          assert proof["worker_process_count"] == 6, proof
+          assert proof["worker_parent_pid"] > 0, proof
           assert proof["verifier_boundary"] == "separate_process", proof
-          assert "isolated_or_independent_agent_processes" in proof["not_established"], proof
+          assert "hardened_os_sandbox_and_filesystem_isolation" in proof["not_established"], proof
           PY
           cat business-invoice-proof.json
 
