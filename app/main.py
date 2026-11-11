@@ -754,7 +754,8 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
             "specialist_role": instance.role,
             "requested_profile": instance.execution_profile,
             "execution_mode": "legacy_six_profile_pipeline",
-            "execution_boundary": "in_process",
+            "execution_boundary": "subprocess_workers",
+            "worker_process_count": len(result.get("execution", [])),
             "requested_profile_individually_dispatched": False,
         }
     return result
