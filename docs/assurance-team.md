@@ -37,7 +37,7 @@ The CLI rejects abbreviated or malformed commit identifiers and non-existent rep
 - `team-events.jsonl` — lifecycle events: `run.start`, paired `agent.start` / `agent.end`, and `run.end`.
 - `team-evidence.sha256` — SHA-256 digests for the report and event stream.
 
-Every event hash includes its predecessor hash and canonical event content. The independent verifier checks sequence numbers, one run boundary, matching specialist start/end events, and the hash chain. This detects post-generation tampering; it does not establish that an observation is factually true.
+Every event hash includes its predecessor hash and canonical event content. The separate stdlib-only process `scripts/verify_assurance_team.py` recomputes file digests and event hashes, checks exact source SHA binding, validates sequence numbers and paired specialist start/end events, and re-derives the aggregate status. This detects post-generation tampering; it does not establish that an observation is factually true.
 
 Raw pytest output is not copied to the evidence artifact. The tester records the output digest, recognized one-line summary, test paths, duration, exit code, and timeout.
 
