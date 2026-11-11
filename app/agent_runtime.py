@@ -13,8 +13,9 @@ from .database import SessionLocal, append_evidence_atomic
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .models import EvidenceRecord
 from .runtime_provenance import runtime_source_commit
-from .agent_registry import LEGACY_EXECUTION_BINDINGS
-from .agent_worker import run_agent_worker
+from .agent_registry import LEGACY_EXECUTION_BINDINGS, DEFAULT_AGENT_MANIFEST
+from .agent_protocol import AgentWorkerRequest
+from .agent_supervisor import AgentSupervisor
 
 
 AGENT_ROLES = [
@@ -302,37 +303,92 @@ def _invoke_local_deterministic_model(agent, task, context):
     }
 
 
-def _execute_agent(agent, tenant_id, task, previous_output, execution):
-    if agent not in LEGACY_EXECUTION_BINDINGS:
+def _execute_agent(
+    agent, tenant_id, task, previous_output, execution, run_id, agent_instance_id
+):
+    binding = LEGACY_EXECUTION_BINDINGS.get(agent)
+    if binding is None:
         raise ValueError("no manifest-backed worker identity for execution profile")
-    specialist_id, specialist_role = LEGACY_EXECUTION_BINDINGS[agent]
+    specialist_id, specialist_role = binding
+    instance = next(
+        (
+            item for item in DEFAULT_AGENT_MANIFEST
+            if item.agent_id == specialist_id
+            and item.role == specialist_role
+            and item.execution_profile == agent
+        ),
+        None,
+    )
+    if instance is None:
+        raise ValueError("worker identity/profile is missing from the trusted manifest")
+
     context = {
-        "task": task,
         "previous_output": previous_output,
         "upstream_agents": [item["agent"] for item in execution],
         "upstream_execution": execution,
     }
     if agent == "agentic_rag":
-        # Database access stays in the trusted orchestrator. The specialist
-        # worker receives only the bounded, tenant-scoped result by value.
+        # Database access stays in the trusted OLA process. The worker receives
+        # only the bounded, tenant-scoped retrieval result by value.
         context["retrieved_evidence"] = _run_rag(tenant_id, task)
 
-    worker = run_agent_worker(
-        agent_id=specialist_id,
-        role=specialist_role,
-        execution_profile=agent,
-        task=task,
-        context=context,
-    )
-    result = dict(worker["result"])
+    # The trusted OLA process is the only model gateway. Workers receive the
+    # response envelope, never provider credentials or network access.
+    model = _invoke_llm(agent, task, {"task": task, **context})
+    runtime_profile = os.getenv("OLA_RUNTIME_PROFILE", "test")
+    if model is None:
+        if runtime_profile == "zbook":
+            raise RuntimeError("ZBook profile requires a real Ollama model response")
+        model = _invoke_local_deterministic_model(agent, task, context)
+
+    model_response = {
+        "provider": model["provider"],
+        "model": model["model"],
+        "invocation_type": model["invocation_type"],
+        "response_id": model.get("response_id"),
+        "prompt_digest": model["prompt_digest"],
+        "output_digest": _digest(model.get("output", "")),
+        "output": model.get("output", ""),
+    }
+    worker_request = AgentWorkerRequest.from_json(canonical_json({
+        "schema": "ola.agent-worker.request/v1",
+        "request_id": str(uuid.uuid4()),
+        "run_id": run_id,
+        "agent_id": specialist_id,
+        "agent_instance_id": agent_instance_id,
+        "specialist_role": specialist_role,
+        "profile": agent,
+        "runtime_profile": runtime_profile,
+        "task": task,
+        "context": context,
+        "capability": {
+            "name": {
+                "codeact": "safe_expression",
+                "react": "react_loop",
+                "agentic_rag": "evidence_retriever",
+                "mcp_tool_use": "local_mcp_tool_registry.sha256",
+                "self_reflection": "reflection_check",
+                "multi_agent": "agent_aggregator",
+            }[agent],
+            "allowed": True,
+        },
+        "model_response": model_response,
+    }).encode("utf-8"))
+
+    worker_execution = AgentSupervisor().execute(instance, worker_request)
+    worker_result = worker_execution.worker_result
+    result = dict(worker_result.result)
     result.update({
-        "agent_id": worker["agent_id"],
-        "specialist_role": worker["specialist_role"],
-        "worker_request_id": worker["request_id"],
-        "worker_pid": worker["worker_pid"],
-        "worker_parent_pid": worker["worker_parent_pid"],
-        "worker_resource_enforcement": worker["resource_enforcement"],
-        "execution_boundary": worker["execution_boundary"],
+        "agent_id": worker_result.agent_id,
+        "specialist_role": worker_result.specialist_role,
+        "worker_request_id": worker_result.request_id,
+        "agent_instance_id": worker_result.agent_instance_id,
+        "worker_container_id": worker_execution.container_id,
+        "worker_image_id": worker_execution.image_id,
+        "worker_image_revision": worker_execution.image_revision,
+        "worker_isolation": worker_execution.isolation_report,
+        "worker_pid": worker_result.worker_pid,
+        "execution_boundary": "docker_one_shot_container",
     })
     return result
 
@@ -365,12 +421,14 @@ def _append_agent_evidence(tenant_id, run_id, agent, task, previous_output, exec
     output = {
         "agent": agent,
         "agent_instance_id": agent_instance_id,
-        "execution_boundary": "subprocess",
+        "execution_boundary": "docker_one_shot_container",
         "commit": _runtime_source_commit() or "UNKNOWN",
         "context_digest": _digest(canonical_json(context)),
         "task_digest": _digest(task),
         "input_digest": _digest(canonical_json(previous_output)),
-        **_execute_agent(agent, tenant_id, task, previous_output, execution),
+        **_execute_agent(
+            agent, tenant_id, task, previous_output, execution, run_id, agent_instance_id
+        ),
         "status": "RECORDED",
         "llm_required": os.getenv("OLA_LLM_MODE", "deterministic") == "required",
     }
