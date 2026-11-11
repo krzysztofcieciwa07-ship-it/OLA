@@ -133,3 +133,47 @@ def test_event_chain_detects_mutated_event_payload(tmp_path):
     mutated[1]["payload"] = {"role": "security"}
 
     assert verify_event_chain(mutated) is False
+
+def test_agent_context_rejects_non_integer_timeout(tmp_path):
+    import pytest
+
+    with pytest.raises(ValueError, match="integer"):
+        AgentContext(repo_root=tmp_path, source_commit="a" * 40, timeout_seconds=1.5)
+
+
+def test_cli_writes_json_report_event_ledger_and_digest(monkeypatch, tmp_path):
+    import json
+    from app.assurance_team import cli
+
+    class PassingAgent:
+        role = "tester"
+
+        def run(self, context):
+            return AgentReport(
+                role=self.role,
+                status=AgentStatus.PASS,
+                metrics={"source_commit": context.source_commit},
+            )
+
+    monkeypatch.setattr(cli, "TesterAgent", PassingAgent)
+    output_dir = tmp_path / "artifacts"
+    exit_code = cli.main([
+        "--repo-root", str(tmp_path),
+        "--source-commit", "b" * 40,
+        "--output-dir", str(output_dir),
+    ])
+
+    assert exit_code == 0
+    report = json.loads((output_dir / "team-report.json").read_text(encoding="utf-8"))
+    events = [
+        json.loads(line)
+        for line in (output_dir / "team-events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    manifest = (output_dir / "team-evidence.sha256").read_text(encoding="utf-8")
+
+    assert report["source_commit"] == "b" * 40
+    assert report["status"] == "PASS"
+    assert report["coverage"]["coverage_status"] == "PARTIAL"
+    assert report["coverage"]["not_enabled"] == ["architecture", "performance", "security", "legal"]
+    assert verify_event_chain(events)
+    assert len(manifest.splitlines()) == 2
