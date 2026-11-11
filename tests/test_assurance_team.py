@@ -232,3 +232,27 @@ def test_tester_returns_unknown_when_success_has_no_recognized_summary(monkeypat
 
     assert result.status == AgentStatus.UNKNOWN
     assert any(item.code == "TEST_SUMMARY_UNRECOGNIZED" for item in result.findings)
+
+
+def test_tester_reports_unknown_when_all_tests_are_skipped(monkeypatch, tmp_path):
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout="10 skipped in 0.10s\\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = TesterAgent().run(_context(tmp_path))
+
+    assert result.status == AgentStatus.UNKNOWN
+    assert any(item.code == "TESTS_NOT_EXECUTED" for item in result.findings)
+
+
+def test_tester_parses_pytest_summary_from_stderr(monkeypatch, tmp_path):
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="7 passed, 1 skipped in 0.20s\\n")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = TesterAgent().run(_context(tmp_path))
+
+    assert result.status == AgentStatus.PASS
+    assert result.metrics["summary"] == "7 passed, 1 skipped in 0.20s"
+    assert result.metrics["counts"]["passed"] == 7
+    assert result.metrics["counts"]["skipped"] == 1

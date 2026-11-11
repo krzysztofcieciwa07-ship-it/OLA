@@ -34,7 +34,7 @@ python scripts/verify_assurance_team.py \
   --expected-commit "$(git rev-parse HEAD)"
 ```
 
-The CLI rejects abbreviated or malformed commit identifiers and non-existent repository roots. The tester invokes only its fixed test-path allowlist using `shell=False` and a finite timeout.
+The CLI rejects abbreviated or malformed commit identifiers and non-existent repository roots. In pull requests the workflow checks out the PR head repository and exact head SHA, then compares `git rev-parse HEAD` to the report's expected SHA before and after the run. The tester invokes only its fixed test-path allowlist using `shell=False` and a finite timeout. A successful pytest exit without a recognized summary or without any passing test is `UNKNOWN`, not `PASS`.
 
 ## Evidence bundle
 

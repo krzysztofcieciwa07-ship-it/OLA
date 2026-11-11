@@ -19,10 +19,13 @@ TEST_PATHS = (
     "tests/test_ollama_generation_budget.py",
     "tests/test_runtime_provenance.py",
 )
-_PYTEST_SUMMARY = re.compile(
-    r"(?P<summary>\\d+ (?:passed|failed|error|errors|skipped|xfailed|xpassed)"
-    r"(?:, \\d+ (?:passed|failed|error|errors|skipped|xfailed|xpassed))*"
+_SUMMARY = re.compile(
+    r"(?P<summary>[0-9]+ (?:passed|failed|error|errors|skipped|xfailed|xpassed)"
+    r"(?:, [0-9]+ (?:passed|failed|error|errors|skipped|xfailed|xpassed|warning|warnings|deselected))*"
     r"(?: in [0-9.]+s)?)"
+)
+_SUMMARY_COUNTS = re.compile(
+    r"([0-9]+) (passed|failed|errors?|skipped|xfailed|xpassed)"
 )
 
 
@@ -49,15 +52,25 @@ class TesterAgent:
             duration = round(time.perf_counter() - started, 3)
             combined = f"{completed.stdout or ''}\n{completed.stderr or ''}"
             output_digest = hashlib.sha256(combined.encode("utf-8", errors="replace")).hexdigest()
-            summary_matches = list(_PYTEST_SUMMARY.finditer(combined))
+            summary_matches = list(_SUMMARY.finditer(combined))
             summary = summary_matches[-1].group("summary") if summary_matches else None
-            if completed.returncode != 0:
+            counts = {
+                name: 0
+                for name in ("passed", "failed", "error", "errors", "skipped", "xfailed", "xpassed")
+            }
+            if summary:
+                for count, name in _SUMMARY_COUNTS.findall(summary):
+                    counts[name] += int(count)
+            passed = counts["passed"]
+            failed = counts["failed"] + counts["error"] + counts["errors"]
+
+            if completed.returncode != 0 or failed > 0:
                 status = AgentStatus.FAIL
                 findings = [
                     AgentFinding(
                         code="TEST_SUITE_FAILED",
                         severity="high",
-                        message=f"Allowlisted pytest suite exited with code {completed.returncode}.",
+                        message=f"Allowlisted pytest suite failed (exit_code={completed.returncode}, failed_or_errors={failed}).",
                         evidence_refs=(f"sha256:{output_digest}",),
                         remediation="Inspect the GitHub Actions job log for the exact source commit and fix the failing assertion or runtime defect.",
                     )
@@ -73,9 +86,21 @@ class TesterAgent:
                         remediation="Verify pytest collection and output format; do not promote an uncounted run to PASS.",
                     )
                 ]
+            elif passed == 0:
+                status = AgentStatus.UNKNOWN
+                findings = [
+                    AgentFinding(
+                        code="TESTS_NOT_EXECUTED",
+                        severity="medium",
+                        message="pytest completed without executing any passing tests.",
+                        evidence_refs=(f"sha256:{output_digest}",),
+                        remediation="Inspect skipped and xfailed tests; a run with zero passing tests is not a PASS.",
+                    )
+                ]
             else:
                 status = AgentStatus.PASS
                 findings = []
+
             return AgentReport(
                 role=self.role,
                 status=status,
@@ -85,6 +110,7 @@ class TesterAgent:
                     "return_code": completed.returncode,
                     "duration_seconds": duration,
                     "summary": summary,
+                    "counts": counts,
                     "output_sha256": output_digest,
                     "shell": False,
                     "timeout_seconds": timeout,

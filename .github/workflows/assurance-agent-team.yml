@@ -8,6 +8,7 @@ on:
       - "tests/test_assurance_team.py"
       - ".github/workflows/assurance-agent-team.yml"
       - "docs/assurance-team.md"
+      - "scripts/verify_assurance_team.py"
   push:
     branches: [main]
     paths:
@@ -15,6 +16,7 @@ on:
       - "tests/test_assurance_team.py"
       - ".github/workflows/assurance-agent-team.yml"
       - "docs/assurance-team.md"
+      - "scripts/verify_assurance_team.py"
   workflow_dispatch:
 
 permissions:
@@ -31,11 +33,22 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout exact source
+      - name: Checkout exact source commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           fetch-depth: 1
+
+      - name: Verify checked-out source identity
+        env:
+          EXPECTED_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          actual_source_commit="$(git rev-parse HEAD)"
+          test "$actual_source_commit" = "$EXPECTED_SOURCE_COMMIT"
+          printf 'ASSURANCE_SOURCE_COMMIT=%s\n' "$actual_source_commit"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -70,6 +83,7 @@ jobs:
           EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
           python scripts/verify_assurance_team.py \
             --report artifacts/team-report.json \
             --events artifacts/team-events.jsonl \
@@ -80,7 +94,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ola-assurance-team-${{ github.sha }}
+          name: ola-assurance-team-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             artifacts/team-report.json
             artifacts/team-events.jsonl
