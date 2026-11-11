@@ -52,7 +52,7 @@ jobs:
       - name: Run sequential specialist team
         id: team
         env:
-          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set +e
           python -m app.assurance_team.cli \
