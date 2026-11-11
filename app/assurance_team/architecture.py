@@ -73,7 +73,7 @@ def _relative_base(
 
 def _discover_python_sources(
     app_root: Path,
-) -> tuple[list[Path], list[str], bool]:
+) -> tuple[list[Path], list[str], str | None]:
     """Enumerate Python files without following symlink directories.
 
     The entry budget is enforced while walking, before building a complete
@@ -91,7 +91,7 @@ def _discover_python_sources(
             for entry in entries:
                 seen_entries += 1
                 if seen_entries > _MAX_TREE_ENTRIES:
-                    return sorted(sources), sorted(skipped_symlinks), True
+                    return sorted(sources), sorted(skipped_symlinks), "tree_entry_limit"
 
                 path = Path(entry.path)
                 if entry.is_symlink():
@@ -109,12 +109,14 @@ def _discover_python_sources(
                     try:
                         if path.resolve().is_relative_to(root):
                             sources.append(path)
+                            if len(sources) > _MAX_MODULES:
+                                return sorted(sources), sorted(skipped_symlinks), "module_limit"
                         else:
                             skipped_symlinks.append(path.relative_to(root.parent).as_posix())
                     except OSError:
                         skipped_symlinks.append(path.relative_to(root.parent).as_posix())
 
-    return sorted(sources), sorted(skipped_symlinks), False
+    return sorted(sources), sorted(skipped_symlinks), None
 
 
 def _resolve_import_targets(
@@ -197,7 +199,7 @@ def _strongly_connected_components(graph: dict[str, set[str]]) -> list[list[str]
         if start in visited:
             continue
         visited.add(start)
-        stack: list[tuple[str, Any]] = [(start, iter(adjacency[start]))]
+        stack = [(start, iter(adjacency[start]))]
         while stack:
             node, children = stack[-1]
             try:
@@ -255,7 +257,7 @@ class ArchitectureAgent:
             )
 
         try:
-            source_paths, skipped_symlinks, tree_entry_limit = _discover_python_sources(app_root)
+            source_paths, skipped_symlinks, discovery_limit = _discover_python_sources(app_root)
         except OSError as exc:
             return AgentReport(
                 role=self.role,
@@ -271,7 +273,7 @@ class ArchitectureAgent:
                 metrics={"source_commit": context.source_commit, "module_count": 0},
             )
 
-        if tree_entry_limit:
+        if discovery_limit == "tree_entry_limit":
             return AgentReport(
                 role=self.role,
                 status=AgentStatus.BLOCKED,
@@ -290,7 +292,7 @@ class ArchitectureAgent:
                 },
             )
 
-        if len(source_paths) > _MAX_MODULES:
+        if discovery_limit == "module_limit":
             return AgentReport(
                 role=self.role,
                 status=AgentStatus.BLOCKED,
@@ -298,7 +300,7 @@ class ArchitectureAgent:
                     AgentFinding(
                         code="ARCH_SCAN_MODULE_LIMIT",
                         severity="high",
-                        message=f"Architecture scan found more than {_MAX_MODULES} Python modules.",
+                        message=f"Source enumeration stopped after finding more than {_MAX_MODULES} Python modules.",
                         remediation="Split the scan into bounded package scopes and verify each scope independently.",
                     )
                 ],

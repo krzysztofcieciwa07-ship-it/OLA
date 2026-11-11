@@ -479,3 +479,19 @@ def test_relative_import_from_package_initializer_resolves_inside_package(tmp_pa
 
     assert report.status == AgentStatus.PASS
     assert report.metrics["unresolved_internal_imports"] == 0
+
+
+
+def test_architecture_agent_stops_enumeration_when_module_limit_is_exceeded(monkeypatch, tmp_path):
+    import app.assurance_team.architecture as architecture
+
+    root = _architecture_project(tmp_path, {
+        "one.py": "x = 1\n",
+        "two.py": "y = 2\n",
+    })
+    monkeypatch.setattr(architecture, "_MAX_MODULES", 2)
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="d" * 40))
+
+    assert report.status == AgentStatus.BLOCKED
+    assert any(item.code == "ARCH_SCAN_MODULE_LIMIT" for item in report.findings)
