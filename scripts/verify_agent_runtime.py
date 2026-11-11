@@ -116,6 +116,8 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
     capabilities = {}
     instance_ids = set()
     context_digests = set()
+    worker_pids = set()
+    parent_pids = set()
     invocations = {}
     payloads = []
     for row in run_rows:
@@ -130,7 +132,9 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
             "agent_instance_id", "execution_boundary", "context_digest",
             "invocation_type", "model", "provider", "task_digest",
             "input_digest", "model_output_digest", "model_output_role",
-            "action_result_source",
+            "action_result_source", "agent_id", "specialist_role",
+            "worker_request_id", "worker_pid", "worker_parent_pid",
+            "worker_resource_enforcement",
         }
         if not required.issubset(payload):
             return fail(f"execution evidence incomplete for {agent}")
@@ -150,8 +154,22 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
             return fail("self-reflection did not pass")
         if payload.get("capability") != EXPECTED_CAPABILITIES.get(agent):
             return fail(f"unexpected capability for {agent}")
-        if payload.get("execution_boundary") != "in_process":
+        if payload.get("execution_boundary") != "subprocess":
             return fail(f"unexpected agent execution boundary for {agent}")
+        worker_pid = payload.get("worker_pid")
+        parent_pid = payload.get("worker_parent_pid")
+        if (type(worker_pid) is not int or worker_pid <= 0
+                or type(parent_pid) is not int or parent_pid <= 0
+                or worker_pid == parent_pid):
+            return fail(f"invalid worker process identity for {agent}")
+        if payload.get("worker_resource_enforcement") not in {
+            "posix_rlimit_cpu_as_nofile", "timeout_and_payload_limits_only"
+        }:
+            return fail(f"unknown worker resource enforcement status for {agent}")
+        if not isinstance(payload.get("worker_request_id"), str) or not payload["worker_request_id"]:
+            return fail(f"missing worker request identity for {agent}")
+        worker_pids.add(worker_pid)
+        parent_pids.add(parent_pid)
         invocation = {
             "provider": payload["provider"],
             "model": payload["model"],
@@ -170,6 +188,8 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
         return fail("agent instance identities are not unique")
     if len(context_digests) != len(ROLES):
         return fail("agent contexts are not unique")
+    if len(worker_pids) != len(ROLES) or len(parent_pids) != 1:
+        return fail("worker processes are not distinct children of one orchestrator")
 
     if expected_task is not None:
         expected_task_digest = hashlib.sha256(expected_task.encode("utf-8")).hexdigest()
@@ -201,7 +221,9 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
         "capabilities": capabilities,
         "agent_instance_count": len(instance_ids),
         "unique_context_count": len(context_digests),
-        "execution_boundary": "in_process",
+        "execution_boundary": "subprocess",
+        "worker_process_count": len(worker_pids),
+        "worker_parent_pid": next(iter(parent_pids)),
         "verifier_boundary": "separate_process",
         "invocations": invocations,
         "evidence_count": len(run_rows),
@@ -210,15 +232,17 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
             "agent_role_order_and_record_structure",
             "capability_labels_and_invocation_metadata",
             "unique_agent_instance_and_context_labels",
+            "distinct_worker_process_ids_and_common_parent_pid",
             "tenant_evidence_hash_chain_integrity",
             "external_expected_result_match" if expected_result is not None else "no_external_expected_result_supplied",
         ],
         "not_established": [
-            "isolated_or_independent_agent_processes",
+            "hardened_os_sandbox_and_filesystem_isolation",
+            "worker_network_egress_isolation",
             "semantic_correctness_of_registered_capabilities",
             "model_generated_action_results",
         ],
-        "reason": "separate-process verifier checked source binding, record structure, invocation metadata and evidence integrity; it does not isolate agent execution or prove capability semantics",
+        "reason": "separate-process verifier checked source binding, record structure, distinct child process identities, invocation metadata and evidence integrity; it does not establish a hardened sandbox or capability semantics",
     }
 
 
