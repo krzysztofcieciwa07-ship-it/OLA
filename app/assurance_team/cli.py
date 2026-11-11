@@ -11,7 +11,7 @@ from .orchestrator import AgentOrchestrator
 from .tester import TesterAgent
 
 
-PLANNED_ROLES = ("tester", "architecture", "performance", "security", "legal")
+PLANNED_ROLES = ("tester", "architecture", "performance", "protection", "legal")
 
 
 def _atomic_write(path: Path, content: str) -> None:
