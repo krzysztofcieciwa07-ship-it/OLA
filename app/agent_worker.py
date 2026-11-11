@@ -54,7 +54,7 @@ def _validate_identity(agent_id: Any, role: Any, execution_profile: Any):
     required_capability = EXECUTION_PROFILE_CAPABILITIES[execution_profile]
     if required_capability not in definition.capability_allowlist:
         raise ValueError("execution profile exceeds specialist capability policy")
-    if definition.availability_status != "catalogued_legacy_pipeline_only":
+    if definition.availability_status != "worker_process_enabled_v1":
         raise ValueError("specialist profile is not available")
     return definition
 
