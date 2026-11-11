@@ -70,7 +70,7 @@ def test_orchestrator_runs_agents_in_order_and_records_complete_lifecycle(tmp_pa
 
     runner = AgentOrchestrator(
         agents=[StubAgent("tester"), StubAgent("architecture")],
-        planned_roles=["tester", "architecture", "performance", "security", "legal"],
+        planned_roles=["tester", "architecture", "performance", "protection", "legal"],
     )
     report = runner.run(_context(tmp_path))
 
@@ -78,7 +78,7 @@ def test_orchestrator_runs_agents_in_order_and_records_complete_lifecycle(tmp_pa
     assert report["source_commit"] == "a" * 40
     assert report["status"] == "PASS"
     assert report["coverage"]["enabled"] == ["tester", "architecture"]
-    assert report["coverage"]["not_enabled"] == ["performance", "security", "legal"]
+    assert report["coverage"]["not_enabled"] == ["performance", "protection", "legal"]
     assert [event["event_type"] for event in report["events"]] == [
         "run.start",
         "agent.start",
@@ -130,7 +130,7 @@ def test_event_chain_detects_mutated_event_payload(tmp_path):
     ).run(_context(tmp_path))
 
     mutated = [dict(event) for event in report["events"]]
-    mutated[1]["payload"] = {"role": "security"}
+    mutated[1]["payload"] = {"role": "protection"}
 
     assert verify_event_chain(mutated) is False
 
@@ -174,6 +174,6 @@ def test_cli_writes_json_report_event_ledger_and_digest(monkeypatch, tmp_path):
     assert report["source_commit"] == "b" * 40
     assert report["status"] == "PASS"
     assert report["coverage"]["coverage_status"] == "PARTIAL"
-    assert report["coverage"]["not_enabled"] == ["architecture", "performance", "security", "legal"]
+    assert report["coverage"]["not_enabled"] == ["architecture", "performance", "protection", "legal"]
     assert verify_event_chain(events)
     assert len(manifest.splitlines()) == 2
