@@ -59,9 +59,9 @@ def _validate_identity(agent_id: Any, role: Any, execution_profile: Any):
     return definition
 
 
-def _worker_environment() -> dict[str, str]:
-    # Deliberately do not inherit OPENAI_API_KEY, database credentials, Stripe
-    # credentials, GitHub tokens, cloud credentials, or arbitrary parent env.
+def _worker_environment(provider: str) -> dict[str, str]:
+    # Deliberately do not inherit database credentials, Stripe credentials,
+    # GitHub tokens, cloud credentials, or arbitrary parent environment.
     safe_os_keys = (
         "PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP",
         "HOME", "USERPROFILE", "LANG", "LC_ALL", "TZ",
@@ -71,6 +71,10 @@ def _worker_environment() -> dict[str, str]:
         "OLLAMA_MODEL", "OLLAMA_BASE_URL", "OLA_OLLAMA_ALLOWED_HOSTS",
         "OLA_OLLAMA_NUM_PREDICT",
     )
+    if provider == "openai":
+        # OpenAI credentials cross the boundary only for an explicitly selected,
+        # catalogue-approved OpenAI invocation; they are never sent to Ollama.
+        selected_llm_keys += ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OLA_LLM_ALLOWED_HOSTS")
     env = {
         key: os.environ[key]
         for key in safe_os_keys + selected_llm_keys
@@ -80,20 +84,20 @@ def _worker_environment() -> dict[str, str]:
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONNOUSERSITE": "1",
         "PYTHONUNBUFFERED": "1",
-        # The ZBook profile is Ollama-only. Provider fallback is never inherited.
-        "OLA_LLM_PROVIDER": "ollama",
+        "OLA_LLM_PROVIDER": provider,
     })
     env.setdefault("OLA_LLM_MODE", "deterministic")
     return env
 
 
-def _request_payload(*, request_id, agent_id, role, execution_profile, task, context):
+def _request_payload(*, request_id, agent_id, role, execution_profile, provider, task, context):
     return {
         "schema": REQUEST_SCHEMA,
         "request_id": request_id,
         "agent_id": agent_id,
         "specialist_role": role,
         "execution_profile": execution_profile,
+        "provider": provider,
         "task": task,
         "context": context,
     }
@@ -122,12 +126,16 @@ def run_agent_worker(
     if len(encoded_context) > definition.resource_limits.max_input_bytes:
         raise ValueError("worker context exceeds input limit")
 
+    provider = os.getenv("OLA_LLM_PROVIDER", "ollama").strip().lower()
+    if provider not in definition.provider_policy.allowed_providers:
+        raise ValueError("selected LLM provider is not allowed for this specialist")
     request_id = str(uuid.uuid4())
     request = _request_payload(
         request_id=request_id,
         agent_id=agent_id,
         role=role,
         execution_profile=execution_profile,
+        provider=provider,
         task=task,
         context=context,
     )
@@ -155,7 +163,7 @@ def run_agent_worker(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=str(project_root),
-            env=_worker_environment(),
+            env=_worker_environment(provider),
             timeout=timeout,
             check=False,
             shell=False,
@@ -185,6 +193,7 @@ def run_agent_worker(
         "agent_id": agent_id,
         "specialist_role": role,
         "execution_profile": execution_profile,
+        "provider": provider,
         "status": "COMPLETED",
     }
     if not isinstance(response, dict) or any(response.get(k) != v for k, v in expected.items()):
@@ -238,7 +247,7 @@ def _apply_worker_resource_limits(definition) -> str:
 def _execute_worker_request(request: Any) -> dict[str, Any]:
     required_keys = {
         "schema", "request_id", "agent_id", "specialist_role",
-        "execution_profile", "task", "context",
+        "execution_profile", "provider", "task", "context",
     }
     if not isinstance(request, dict) or set(request) != required_keys:
         raise ValueError("worker request shape is invalid")
@@ -255,6 +264,11 @@ def _execute_worker_request(request: Any) -> dict[str, Any]:
     task = request["task"]
     context = request["context"]
     definition = _validate_identity(agent_id, role, profile)
+    provider = request["provider"]
+    if provider not in definition.provider_policy.allowed_providers:
+        raise ValueError("worker provider exceeds specialist policy")
+    if os.getenv("OLA_LLM_PROVIDER") != provider:
+        raise ValueError("worker provider environment does not match request")
     if not isinstance(task, str) or not task.strip() or len(task) > MAX_TASK_CHARS:
         raise ValueError("worker task is invalid")
     if not isinstance(context, dict):
@@ -367,6 +381,7 @@ def _execute_worker_request(request: Any) -> dict[str, Any]:
         "agent_id": agent_id,
         "specialist_role": role,
         "execution_profile": profile,
+        "provider": provider,
         "status": "COMPLETED",
         "execution_boundary": "subprocess",
         "worker_pid": os.getpid(),
