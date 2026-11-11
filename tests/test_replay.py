@@ -163,3 +163,34 @@ def test_replay_rejects_empty_records():
     result = verify_replay([], expected_run_id="r1", expected_tenant_id="tenant-1", expected_record_count=0, expected_tip_hash=None)
     assert result["status"] == "UNKNOWN"
     assert result["reason"] == "replay is empty"
+
+
+
+def test_replay_accepts_subprocess_worker_records_with_distinct_child_pids():
+    rows = _chain(count=2)
+    for index, row in enumerate(rows):
+        payload = json.loads(row["payload_json"])
+        payload.update({
+            "execution_boundary": "subprocess",
+            "worker_pid": 7000 + index,
+            "worker_parent_pid": 6000,
+            "worker_request_id": f"request-{index}",
+        })
+        row["payload_json"] = sealed_payload_json(row["record_type"], payload)
+        row["prev_hash"] = GENESIS_HASH if index == 0 else rows[index - 1]["record_hash"]
+        row["record_hash"] = compute_record_hash_v2(
+            row["tenant_id"], row["seq"], row["prev_hash"],
+            row["record_type"], "ola_runtime", row["payload_json"],
+        )
+
+    result = verify_replay(
+        rows,
+        expected_run_id="r1",
+        expected_tenant_id="tenant-1",
+        expected_record_count=2,
+        expected_tip_hash=rows[-1]["record_hash"],
+    )
+    assert result["status"] == "VERIFIED"
+    assert result["execution_boundaries"] == ["subprocess"]
+    assert result["worker_process_count"] == 2
+    assert "hardened_os_sandbox_and_filesystem_isolation" in result["not_established"]
