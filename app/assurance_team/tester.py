@@ -47,7 +47,7 @@ class TesterAgent:
             duration = round(time.perf_counter() - started, 3)
             combined = f"{completed.stdout or ''}\n{completed.stderr or ''}"
             output_digest = hashlib.sha256(combined.encode("utf-8", errors="replace")).hexdigest()
-            summary_match = _PYTEST_SUMMARY.search(completed.stdout or "")
+            summary_match = _PYTEST_SUMMARY.search(combined)
             summary = summary_match.group("summary") if summary_match else "pytest completed without a recognized summary"
             status = AgentStatus.PASS if completed.returncode == 0 else AgentStatus.FAIL
             findings = [] if status is AgentStatus.PASS else [
