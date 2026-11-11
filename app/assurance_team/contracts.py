@@ -29,7 +29,8 @@ class AgentContext:
         object.__setattr__(self, "repo_root", root)
         if not SOURCE_COMMIT_PATTERN.fullmatch(self.source_commit):
             raise ValueError("source_commit must be a full 40-character lowercase SHA-1")
-        if (isinstance(self.timeout_seconds, bool) or not isinstance(self.timeout_seconds, int)\n                or not 1 <= self.timeout_seconds <= 3600):
+        if (isinstance(self.timeout_seconds, bool) or not isinstance(self.timeout_seconds, int)
+                or not 1 <= self.timeout_seconds <= 3600):
             raise ValueError("timeout_seconds must be an integer from 1 to 3600")
         if not root.exists() or not root.is_dir():
             raise ValueError("repo_root must be an existing directory")
