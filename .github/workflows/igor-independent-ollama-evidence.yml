@@ -127,9 +127,11 @@ jobs:
           assert verified["evidence_count"] == 6, verified
           assert verified["agent_instance_count"] == 6, verified
           assert verified["unique_context_count"] == 6, verified
-          assert verified["execution_boundary"] == "in_process", verified
+          assert verified["execution_boundary"] == "subprocess", verified
+          assert verified["worker_process_count"] == 6, verified
+          assert verified["worker_parent_pid"] > 0, verified
           assert verified["verifier_boundary"] == "separate_process", verified
-          assert "isolated_or_independent_agent_processes" in verified["not_established"], verified
+          assert "hardened_os_sandbox_and_filesystem_isolation" in verified["not_established"], verified
           print("IGOR_OLLAMA_EVIDENCE=VERIFIED")
           print("IGOR_SOURCE_SHA=VERIFIED")
           print("IGOR_PROVIDER_MODEL=VERIFIED")
