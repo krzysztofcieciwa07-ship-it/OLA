@@ -94,3 +94,37 @@ def test_worker_request_does_not_inherit_openai_credentials(monkeypatch):
 
     assert "OPENAI_API_KEY" not in captured["env"]
     assert captured["command"][-1] == "app.agent_worker"
+
+
+
+def test_openai_credentials_cross_only_an_explicit_openai_worker_boundary(monkeypatch):
+    import app.agent_worker as worker_module
+
+    captured = {}
+
+    class Completed:
+        returncode = 0
+        stdout = b"{}"
+        stderr = b""
+
+    def fake_run(command, **kwargs):
+        captured["env"] = kwargs["env"]
+        captured["request"] = kwargs["input"]
+        return Completed()
+
+    monkeypatch.setattr(worker_module.subprocess, "run", fake_run, raising=False)
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "explicit-openai-test-key")
+    with pytest.raises(RuntimeError):
+        worker_module.run_agent_worker(
+            agent_id="builder-primary",
+            role="Builder",
+            execution_profile="codeact",
+            task="Calculate 1 + 1",
+            context={"previous_output": {}, "upstream_agents": []},
+        )
+
+    request = __import__("json").loads(captured["request"])
+    assert request["provider"] == "openai"
+    assert captured["env"]["OLA_LLM_PROVIDER"] == "openai"
+    assert captured["env"]["OPENAI_API_KEY"] == "explicit-openai-test-key"
