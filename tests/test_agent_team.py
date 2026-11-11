@@ -86,6 +86,7 @@ def test_legal_review_never_becomes_automatic_compliance_pass():
         reports,
         expected_source_commit=SOURCE_COMMIT,
         expected_run_id=RUN_ID,
+        expected_run_attempt=1,
     )
 
     assert manifest["overall_status"] == "REVIEW_REQUIRED"
@@ -127,6 +128,7 @@ def test_missing_agent_blocks_aggregate():
         reports,
         expected_source_commit=SOURCE_COMMIT,
         expected_run_id=RUN_ID,
+        expected_run_attempt=1,
     )
 
     assert manifest["overall_status"] == "BLOCKED"
@@ -146,6 +148,7 @@ def test_source_commit_mismatch_blocks_aggregate():
         reports,
         expected_source_commit=SOURCE_COMMIT,
         expected_run_id=RUN_ID,
+        expected_run_attempt=1,
     )
 
     assert manifest["overall_status"] == "BLOCKED"
@@ -160,6 +163,7 @@ def test_tampered_report_blocks_aggregate():
         reports,
         expected_source_commit=SOURCE_COMMIT,
         expected_run_id=RUN_ID,
+        expected_run_attempt=1,
     )
 
     assert manifest["overall_status"] == "BLOCKED"
@@ -176,6 +180,7 @@ def test_agent_failure_blocks_aggregate_even_if_other_agents_pass():
         reports,
         expected_source_commit=SOURCE_COMMIT,
         expected_run_id=RUN_ID,
+        expected_run_attempt=1,
     )
 
     assert manifest["overall_status"] == "BLOCKED"
