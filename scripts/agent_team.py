@@ -13,9 +13,11 @@ import hmac
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -352,10 +354,45 @@ def _resolve_repo_path(raw_path: str, root: Path) -> Path:
     return resolved
 
 
+MAX_CAPTURE_BYTES = 1024 * 1024
+PIPE_READ_BYTES = 64 * 1024
+
+
 def _excerpt(value: str, max_chars: int = 4000) -> str:
     if len(value) <= max_chars:
         return value
     return value[-max_chars:]
+
+
+def _drain_stream(stream: Any, max_bytes: int) -> tuple[str, bytes, int]:
+    """Hash the complete stream while retaining only a bounded tail in memory."""
+    digest = hashlib.sha256()
+    tail = bytearray()
+    total_bytes = 0
+    while True:
+        chunk = stream.read(PIPE_READ_BYTES)
+        if not chunk:
+            break
+        digest.update(chunk)
+        total_bytes += len(chunk)
+        tail.extend(chunk)
+        if len(tail) > max_bytes:
+            del tail[: len(tail) - max_bytes]
+    return digest.hexdigest(), bytes(tail), total_bytes
+
+
+def _kill_process_group(process: subprocess.Popen[Any]) -> bool:
+    """Kill the command's process group on POSIX, not only its direct child."""
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return True
+        except ProcessLookupError:
+            return False
+    if process.poll() is None:
+        process.kill()
+        return True
+    return False
 
 
 def _command_check(
@@ -367,36 +404,91 @@ def _command_check(
     env: dict[str, str],
 ) -> dict[str, Any]:
     started = time.perf_counter()
+    captured: dict[str, tuple[str, bytes, int]] = {}
+    reader_errors: list[str] = []
+    readers: list[threading.Thread] = []
+    process: subprocess.Popen[Any] | None = None
+    status = "FAIL"
+    return_code: int | None = None
+    error: str | None = None
+
+    def read_pipe(name: str, pipe: Any) -> None:
+        try:
+            captured[name] = _drain_stream(pipe, MAX_CAPTURE_BYTES)
+        except OSError as exc:
+            reader_errors.append(type(exc).__name__)
+
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             list(command),
             cwd=repo_root,
             env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout_seconds,
-            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             shell=False,
+            start_new_session=(os.name == "posix"),
         )
-        stdout = result.stdout or ""
-        stderr = result.stderr or ""
-        status = "PASS" if result.returncode == 0 else "FAIL"
-        return_code = result.returncode
-        error = None
-    except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-        status = "FAIL"
-        return_code = None
-        error = f"timeout after {timeout_seconds} seconds"
+        assert process.stdout is not None and process.stderr is not None
+        for name, pipe in (("stdout", process.stdout), ("stderr", process.stderr)):
+            reader = threading.Thread(
+                target=read_pipe,
+                args=(name, pipe),
+                name=f"ola-agent-{check_id}-{name}",
+                daemon=True,
+            )
+            reader.start()
+            readers.append(reader)
+
+        try:
+            return_code = process.wait(timeout=timeout_seconds)
+            if _kill_process_group(process):
+                error = "child process remained after command exit and was terminated"
+        except subprocess.TimeoutExpired:
+            error = f"timeout after {timeout_seconds} seconds"
+            _kill_process_group(process)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                error = f"{error}; process group did not terminate within 5 seconds"
+
     except OSError as exc:
-        stdout = ""
-        stderr = ""
-        status = "FAIL"
-        return_code = None
         error = f"command could not start: {type(exc).__name__}"
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                _kill_process_group(process)
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    error = error or "process did not terminate during cleanup"
+            for reader in readers:
+                reader.join(timeout=5)
+            if any(reader.is_alive() for reader in readers):
+                _kill_process_group(process)
+                error = error or "output pipe remained open after process cleanup"
+                for reader in readers:
+                    reader.join(timeout=1)
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
+
+    empty_digest = hashlib.sha256(b"").hexdigest()
+    stdout_digest, stdout_bytes, stdout_total = captured.get(
+        "stdout", (empty_digest, b"", 0)
+    )
+    stderr_digest, stderr_bytes, stderr_total = captured.get(
+        "stderr", (empty_digest, b"", 0)
+    )
+    stdout = stdout_bytes.decode("utf-8", errors="replace")
+    stderr = stderr_bytes.decode("utf-8", errors="replace")
+    if reader_errors:
+        error = error or f"output reader failed: {','.join(reader_errors)}"
+    if error is not None or return_code != 0:
+        status = "FAIL"
+    else:
+        status = "PASS"
 
     elapsed_ms = max(0, int((time.perf_counter() - started) * 1000))
     return {
@@ -405,8 +497,12 @@ def _command_check(
         "status": status,
         "return_code": return_code,
         "duration_ms": elapsed_ms,
-        "stdout_sha256": _sha256(stdout.encode("utf-8")),
-        "stderr_sha256": _sha256(stderr.encode("utf-8")),
+        "stdout_sha256": stdout_digest,
+        "stderr_sha256": stderr_digest,
+        "stdout_bytes": stdout_total,
+        "stderr_bytes": stderr_total,
+        "stdout_truncated": stdout_total > len(stdout_bytes),
+        "stderr_truncated": stderr_total > len(stderr_bytes),
         "stdout_excerpt": _excerpt(stdout),
         "stderr_excerpt": _excerpt(stderr),
         "error": error,
