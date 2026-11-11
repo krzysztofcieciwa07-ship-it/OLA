@@ -1,4 +1,5 @@
 import ast
+import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from .contracts import AgentContext, AgentFinding, AgentReport, AgentStatus
 
 _MAX_MODULES = 1024
 _MAX_SOURCE_BYTES = 2 * 1024 * 1024
+_MAX_TOTAL_SOURCE_BYTES = 32 * 1024 * 1024
+_MAX_TREE_ENTRIES = 20000
 
 
 class _ImportVisitor(ast.NodeVisitor):
@@ -50,9 +53,15 @@ def _module_exists(repo_root: Path, module_name: str) -> bool:
     return module_file.is_file() or package_file.is_file()
 
 
-def _relative_base(current_module: str, level: int, module: str | None) -> str | None:
+def _relative_base(
+    current_module: str,
+    level: int,
+    module: str | None,
+    *,
+    package_initializer: bool = False,
+) -> str | None:
     parts = current_module.split(".")
-    package_parts = parts if current_module.endswith(".__init__") else parts[:-1]
+    package_parts = parts if package_initializer else parts[:-1]
     ascend = level - 1
     if level < 1 or ascend >= len(package_parts):
         return None
@@ -62,10 +71,58 @@ def _relative_base(current_module: str, level: int, module: str | None) -> str |
     return ".".join(base_parts)
 
 
+def _discover_python_sources(
+    app_root: Path,
+) -> tuple[list[Path], list[str], bool]:
+    """Enumerate Python files without following symlink directories.
+
+    The entry budget is enforced while walking, before building a complete
+    recursive file list. Only in-tree regular Python files are returned.
+    """
+    root = app_root.resolve()
+    pending = [root]
+    sources: list[Path] = []
+    skipped_symlinks: list[str] = []
+    seen_entries = 0
+
+    while pending:
+        directory = pending.pop()
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                seen_entries += 1
+                if seen_entries > _MAX_TREE_ENTRIES:
+                    return sorted(sources), sorted(skipped_symlinks), True
+
+                path = Path(entry.path)
+                if entry.is_symlink():
+                    try:
+                        is_directory_link = entry.is_dir(follow_symlinks=True)
+                    except OSError:
+                        is_directory_link = False
+                    if is_directory_link or entry.name.endswith(".py"):
+                        skipped_symlinks.append(path.relative_to(root.parent).as_posix())
+                    continue
+
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(path)
+                elif entry.is_file(follow_symlinks=False) and entry.name.endswith(".py"):
+                    try:
+                        if path.resolve().is_relative_to(root):
+                            sources.append(path)
+                        else:
+                            skipped_symlinks.append(path.relative_to(root.parent).as_posix())
+                    except OSError:
+                        skipped_symlinks.append(path.relative_to(root.parent).as_posix())
+
+    return sorted(sources), sorted(skipped_symlinks), False
+
+
 def _resolve_import_targets(
     node: ast.Import | ast.ImportFrom,
     current_module: str,
     repo_root: Path,
+    *,
+    package_initializer: bool = False,
 ) -> tuple[list[str], list[str]]:
     targets: list[str] = []
     unresolved: list[str] = []
@@ -81,7 +138,7 @@ def _resolve_import_targets(
         return sorted(set(targets)), sorted(set(unresolved))
 
     if node.level:
-        base = _relative_base(current_module, node.level, node.module)
+        base = _relative_base(\n            current_module, node.level, node.module,\n            package_initializer=package_initializer,\n        )
         if base is None:
             unresolved.append(f"relative-import-level-{node.level}")
             return targets, unresolved
@@ -121,50 +178,55 @@ def _resolve_import_targets(
 
 
 def _strongly_connected_components(graph: dict[str, set[str]]) -> list[list[str]]:
-    index = 0
-    indices: dict[str, int] = {}
-    lowlinks: dict[str, int] = {}
-    stack: list[str] = []
-    on_stack: set[str] = set()
-    components: list[list[str]] = []
-
-    def visit(node: str) -> None:
-        nonlocal index
-        indices[node] = index
-        lowlinks[node] = index
-        index += 1
-        stack.append(node)
-        on_stack.add(node)
-
-        for target in sorted(graph.get(node, set())):
-            if target not in indices:
-                visit(target)
-                lowlinks[node] = min(lowlinks[node], lowlinks[target])
-            elif target in on_stack:
-                lowlinks[node] = min(lowlinks[node], indices[target])
-
-        if lowlinks[node] == indices[node]:
-            component = []
-            while stack:
-                item = stack.pop()
-                on_stack.remove(item)
-                component.append(item)
-                if item == node:
-                    break
-            components.append(sorted(component))
-
+    """Find strongly connected components iteratively (no Python recursion)."""
     nodes = set(graph)
     for targets in graph.values():
         nodes.update(targets)
-    for node in sorted(nodes):
-        if node not in indices:
-            visit(node)
 
-    cycles = []
-    for component in components:
-        if len(component) > 1:
-            cycles.append(component)
-        elif component and component[0] in graph.get(component[0], set()):
+    adjacency = {node: sorted(graph.get(node, set())) for node in nodes}
+    reverse: dict[str, list[str]] = {node: [] for node in nodes}
+    for source, targets in adjacency.items():
+        for target in targets:
+            reverse[target].append(source)
+    for targets in reverse.values():
+        targets.sort()
+
+    visited: set[str] = set()
+    finish_order: list[str] = []
+    for start in sorted(nodes):
+        if start in visited:
+            continue
+        visited.add(start)
+        stack: list[tuple[str, Any]] = [(start, iter(adjacency[start]))]
+        while stack:
+            node, children = stack[-1]
+            try:
+                target = next(children)
+            except StopIteration:
+                finish_order.append(node)
+                stack.pop()
+                continue
+            if target not in visited:
+                visited.add(target)
+                stack.append((target, iter(adjacency[target])))
+
+    assigned: set[str] = set()
+    cycles: list[list[str]] = []
+    for start in reversed(finish_order):
+        if start in assigned:
+            continue
+        component: list[str] = []
+        stack = [start]
+        assigned.add(start)
+        while stack:
+            node = stack.pop()
+            component.append(node)
+            for target in reverse[node]:
+                if target not in assigned:
+                    assigned.add(target)
+                    stack.append(target)
+        component.sort()
+        if len(component) > 1 or (component and component[0] in graph.get(component[0], set())):
             cycles.append(component)
     return sorted(cycles)
 
@@ -192,7 +254,42 @@ class ArchitectureAgent:
                 metrics={"source_commit": context.source_commit, "module_count": 0},
             )
 
-        source_paths = sorted(app_root.rglob("*.py"))
+        try:
+            source_paths, skipped_symlinks, tree_entry_limit = _discover_python_sources(app_root)
+        except OSError as exc:
+            return AgentReport(
+                role=self.role,
+                status=AgentStatus.BLOCKED,
+                findings=[
+                    AgentFinding(
+                        code="ARCH_SOURCE_DISCOVERY_BLOCKED",
+                        severity="high",
+                        message=f"Unable to enumerate source tree ({type(exc).__name__}).",
+                        remediation="Restore repository read access and rerun the architecture scan.",
+                    )
+                ],
+                metrics={"source_commit": context.source_commit, "module_count": 0},
+            )
+
+        if tree_entry_limit:
+            return AgentReport(
+                role=self.role,
+                status=AgentStatus.BLOCKED,
+                findings=[
+                    AgentFinding(
+                        code="ARCH_SCAN_TREE_ENTRY_LIMIT",
+                        severity="high",
+                        message=f"Source tree entry count exceeded the {_MAX_TREE_ENTRIES}-entry scan budget.",
+                        remediation="Reduce the scan scope or split the repository into independently bounded packages.",
+                    )
+                ],
+                metrics={
+                    "source_commit": context.source_commit,
+                    "module_count": len(source_paths),
+                    "max_tree_entries": _MAX_TREE_ENTRIES,
+                },
+            )
+
         if len(source_paths) > _MAX_MODULES:
             return AgentReport(
                 role=self.role,
@@ -201,11 +298,15 @@ class ArchitectureAgent:
                     AgentFinding(
                         code="ARCH_SCAN_MODULE_LIMIT",
                         severity="high",
-                        message=f"Architecture scan found {len(source_paths)} Python modules; limit is {_MAX_MODULES}.",
+                        message=f"Architecture scan found more than {_MAX_MODULES} Python modules.",
                         remediation="Split the scan into bounded package scopes and verify each scope independently.",
                     )
                 ],
-                metrics={"source_commit": context.source_commit, "module_count": len(source_paths)},
+                metrics={
+                    "source_commit": context.source_commit,
+                    "module_count": len(source_paths),
+                    "max_modules": _MAX_MODULES,
+                },
             )
 
         module_sources: dict[str, tuple[Path, ast.Module]] = {}
@@ -218,23 +319,44 @@ class ArchitectureAgent:
         composition_root_violations = 0
         total_source_bytes = 0
 
+        for symlink_path in skipped_symlinks:
+            findings.append(
+                AgentFinding(
+                    code="ARCH_SOURCE_SYMLINK_SKIPPED",
+                    severity="medium",
+                    message="A symlinked source path was excluded from the architecture scan.",
+                    evidence_refs=(symlink_path,),
+                    remediation="Replace the symlink with an explicitly reviewed in-repository source file.",
+                )
+            )
+
         for source_path in source_paths:
+            relative_path = source_path.relative_to(repo_root).as_posix()
             if source_path.is_symlink() or not source_path.resolve().is_relative_to(app_root.resolve()):
                 findings.append(
                     AgentFinding(
                         code="ARCH_SOURCE_SYMLINK_SKIPPED",
                         severity="medium",
                         message="A symlinked Python source file was excluded from the architecture scan.",
-                        evidence_refs=(str(source_path.relative_to(repo_root)),),
+                        evidence_refs=(relative_path,),
                         remediation="Replace the symlink with an explicitly reviewed in-repository source file.",
                     )
                 )
                 continue
-
-            relative_path = source_path.relative_to(repo_root).as_posix()
             try:
                 source_bytes = source_path.stat().st_size
                 total_source_bytes += source_bytes
+                if total_source_bytes > _MAX_TOTAL_SOURCE_BYTES:
+                    findings.append(
+                        AgentFinding(
+                            code="ARCH_SCAN_TOTAL_SOURCE_BYTES_LIMIT",
+                            severity="high",
+                            message=f"Aggregate Python source exceeds the {_MAX_TOTAL_SOURCE_BYTES}-byte scan budget.",
+                            evidence_refs=(relative_path,),
+                            remediation="Split the architecture scan into smaller bounded source scopes.",
+                        )
+                    )
+                    break
                 if source_bytes > _MAX_SOURCE_BYTES:
                     findings.append(
                         AgentFinding(
@@ -272,6 +394,17 @@ class ArchitectureAgent:
                     )
                 )
                 continue
+            except RecursionError:
+                findings.append(
+                    AgentFinding(
+                        code="ARCH_AST_DEPTH_LIMIT",
+                        severity="high",
+                        message="Python AST parsing exceeded the interpreter recursion limit.",
+                        evidence_refs=(relative_path,),
+                        remediation="Reduce syntactic nesting or split the module into smaller functions/files.",
+                    )
+                )
+                continue
             except OSError as exc:
                 findings.append(
                     AgentFinding(
@@ -289,9 +422,26 @@ class ArchitectureAgent:
             graph.setdefault(module, set())
 
             visitor = _ImportVisitor()
-            visitor.visit(tree)
+            try:
+                visitor.visit(tree)
+            except RecursionError:
+                findings.append(
+                    AgentFinding(
+                        code="ARCH_AST_DEPTH_LIMIT",
+                        severity="high",
+                        message="AST traversal exceeded the interpreter recursion limit.",
+                        evidence_refs=(relative_path,),
+                        remediation="Reduce syntactic nesting or split the module into smaller functions/files.",
+                    )
+                )
+                continue
             for node, is_module_level in visitor.imports:
-                targets, unresolved = _resolve_import_targets(node, module, repo_root)
+                targets, unresolved = _resolve_import_targets(
+                    node,
+                    module,
+                    repo_root,
+                    package_initializer=source_path.name == "__init__.py",
+                )
                 for target in unresolved:
                     unresolved_count += 1
                     findings.append(
@@ -339,6 +489,10 @@ class ArchitectureAgent:
                 )
             )
 
+        blocked_codes = {
+            "ARCH_SCAN_TOTAL_SOURCE_BYTES_LIMIT",
+            "ARCH_AST_DEPTH_LIMIT",
+        }
         fatal_codes = {
             "ARCH_SYNTAX_ERROR",
             "ARCH_SOURCE_ENCODING_ERROR",
@@ -347,7 +501,9 @@ class ArchitectureAgent:
             "ARCH_IMPORT_CYCLE",
             "ARCH_SOURCE_FILE_TOO_LARGE",
         }
-        if any(item.code in fatal_codes for item in findings):
+        if any(item.code in blocked_codes for item in findings):
+            status = AgentStatus.BLOCKED
+        elif any(item.code in fatal_codes for item in findings):
             status = AgentStatus.FAIL
         elif findings:
             status = AgentStatus.UNKNOWN
@@ -370,5 +526,7 @@ class ArchitectureAgent:
                 "scanned_source_bytes": total_source_bytes,
                 "max_modules": _MAX_MODULES,
                 "max_source_bytes_per_module": _MAX_SOURCE_BYTES,
+                "max_total_source_bytes": _MAX_TOTAL_SOURCE_BYTES,
+                "max_tree_entries": _MAX_TREE_ENTRIES,
             },
         )

@@ -2,7 +2,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app.assurance_team.architecture import ArchitectureAgent
+from app.assurance_team.architecture import ArchitectureAgent, _strongly_connected_components
 from app.assurance_team.contracts import (
     AgentContext,
     AgentReport,
@@ -411,3 +411,71 @@ def test_architecture_agent_resolves_relative_imports_from_package_initializer(t
     assert report.status == AgentStatus.PASS
     assert report.metrics["unresolved_internal_imports"] == 0
     assert not report.findings
+
+
+
+def test_architecture_agent_enforces_aggregate_source_byte_budget(monkeypatch, tmp_path):
+    import app.assurance_team.architecture as architecture
+
+    root = _architecture_project(tmp_path, {
+        "one.py": "x = 1\n",
+        "two.py": "y = 2\n",
+    })
+    monkeypatch.setattr(architecture, "_MAX_TOTAL_SOURCE_BYTES", 4)
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="d" * 40))
+
+    assert report.status == AgentStatus.BLOCKED
+    assert any(item.code == "ARCH_SCAN_TOTAL_SOURCE_BYTES_LIMIT" for item in report.findings)
+
+
+def test_architecture_agent_enforces_tree_entry_budget_during_enumeration(monkeypatch, tmp_path):
+    import app.assurance_team.architecture as architecture
+
+    root = _architecture_project(tmp_path, {
+        "one.py": "x = 1\n",
+        "two.py": "y = 2\n",
+        "three.py": "z = 3\n",
+    })
+    monkeypatch.setattr(architecture, "_MAX_TREE_ENTRIES", 2)
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="d" * 40))
+
+    assert report.status == AgentStatus.BLOCKED
+    assert any(item.code == "ARCH_SCAN_TREE_ENTRY_LIMIT" for item in report.findings)
+
+
+def test_architecture_agent_skips_symlinked_python_directories(tmp_path):
+    root = _architecture_project(tmp_path, {"service.py": "def run():\n    return True\n"})
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    (outside / "secret.py").write_text("raise RuntimeError('must not scan')\n", encoding="utf-8")
+    (root / "app" / "linked").symlink_to(outside, target_is_directory=True)
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="d" * 40))
+
+    assert report.status == AgentStatus.UNKNOWN
+    assert any(item.code == "ARCH_SOURCE_SYMLINK_SKIPPED" for item in report.findings)
+    assert report.metrics["module_count"] == 2
+
+
+def test_scc_solver_handles_graph_deeper_than_python_recursion_limit():
+    graph = {f"app.m{index}": {f"app.m{index + 1}"} for index in range(1500)}
+    graph["app.m1500"] = {"app.m0"}
+
+    cycles = _strongly_connected_components(graph)
+
+    assert len(cycles) == 1
+    assert len(cycles[0]) == 1501
+
+
+def test_relative_import_from_package_initializer_resolves_inside_package(tmp_path):
+    root = _architecture_project(tmp_path, {
+        "feature/__init__.py": "from .service import execute\n",
+        "feature/service.py": "def execute():\n    return True\n",
+    })
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="d" * 40))
+
+    assert report.status == AgentStatus.PASS
+    assert report.metrics["unresolved_internal_imports"] == 0
