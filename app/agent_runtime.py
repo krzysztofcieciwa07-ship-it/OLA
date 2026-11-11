@@ -652,6 +652,8 @@ def verify_agent_run(tenant_id, run_id):
 
     instance_ids = set()
     context_digests = set()
+    worker_pids = set()
+    parent_pids = set()
     for row in run_rows:
         payload = json.loads(row.payload_json)
         required = {
@@ -660,6 +662,8 @@ def verify_agent_run(tenant_id, run_id):
             "invocation_type", "model", "provider", "response_id", "commit",
             "task_digest", "input_digest", "model_output_digest",
             "model_output_role", "action_result_source",
+            "agent_id", "specialist_role", "worker_request_id",
+            "worker_pid", "worker_parent_pid", "worker_resource_enforcement",
         }
         if not required.issubset(payload):
             return {"status": "BLOCK", "reason": "agent execution evidence incomplete",
@@ -684,13 +688,33 @@ def verify_agent_run(tenant_id, run_id):
         if payload.get("agent") == "self_reflection" and payload.get("tool_output") != "PASS":
             return {"status": "BLOCK", "reason": "self-reflection did not pass",
                     "evidence_count": len(run_rows)}
-        if payload["execution_boundary"] != "in_process":
+        if payload["execution_boundary"] != "subprocess":
             return {"status": "BLOCK", "reason": "unexpected agent execution boundary",
                     "evidence_count": len(run_rows)}
+        worker_pid = payload.get("worker_pid")
+        parent_pid = payload.get("worker_parent_pid")
+        if (type(worker_pid) is not int or worker_pid <= 0
+                or type(parent_pid) is not int or parent_pid <= 0
+                or worker_pid == parent_pid):
+            return {"status": "BLOCK", "reason": "invalid worker process identity",
+                    "evidence_count": len(run_rows)}
+        if payload.get("worker_resource_enforcement") not in {
+            "posix_rlimit_cpu_as_nofile", "timeout_and_payload_limits_only"
+        }:
+            return {"status": "BLOCK", "reason": "unknown worker resource enforcement status",
+                    "evidence_count": len(run_rows)}
+        if not isinstance(payload.get("worker_request_id"), str) or not payload["worker_request_id"]:
+            return {"status": "BLOCK", "reason": "missing worker request identity",
+                    "evidence_count": len(run_rows)}
+        worker_pids.add(worker_pid)
+        parent_pids.add(parent_pid)
         instance_ids.add(payload["agent_instance_id"])
         context_digests.add(payload["context_digest"])
     if len(instance_ids) != len(AGENT_ROLES) or len(context_digests) != len(AGENT_ROLES):
         return {"status": "BLOCK", "reason": "agent instances or contexts are not unique",
+                "evidence_count": len(run_rows)}
+    if len(worker_pids) != len(AGENT_ROLES) or len(parent_pids) != 1:
+        return {"status": "BLOCK", "reason": "worker processes are not distinct children of one orchestrator",
                 "evidence_count": len(run_rows)}
 
     chain = [{
@@ -710,19 +734,23 @@ def verify_agent_run(tenant_id, run_id):
         return {"status": "BLOCK", "reason": reason, "evidence_count": len(run_rows)}
     return {
         "status": "VERIFIED",
-        "reason": "closed run lifecycle, source binding, recorded agent structure, unique instance labels and tenant evidence hash-chain integrity passed; process isolation and capability semantics were not verified",
+        "reason": "closed run lifecycle, source binding, recorded worker identities and tenant evidence hash-chain integrity passed; worker processes are not hardened sandboxes",
         "commit": expected_commit,
         "evidence_count": len(run_rows),
-        "execution_boundary": "in_process",
+        "execution_boundary": "subprocess",
+        "worker_process_count": len(worker_pids),
+        "worker_parent_pid": next(iter(parent_pids)),
         "verification_scope": [
             "closed_run_lifecycle",
             "runtime_source_commit_binding",
             "agent_role_order_and_record_structure",
             "unique_agent_instance_and_context_labels",
+            "distinct_worker_process_ids_and_common_parent_pid",
             "tenant_evidence_hash_chain_integrity",
         ],
         "not_established": [
-            "isolated_or_independent_agent_processes",
+            "hardened_os_sandbox_and_filesystem_isolation",
+            "worker_network_egress_isolation",
             "semantic_correctness_of_registered_capabilities",
             "model_generated_action_results",
         ],
