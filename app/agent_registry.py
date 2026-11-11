@@ -47,6 +47,7 @@ class AgentInstanceSpec:
 DEFAULT_AGENT_MANIFEST = (
     AgentInstanceSpec("hermes-primary", "Hermes", "multi_agent"),
     AgentInstanceSpec("builder-primary", "Builder", "codeact"),
+    AgentInstanceSpec("builder-mcp", "Builder", "mcp_tool_use"),
     AgentInstanceSpec("scout-primary", "Scout", "react"),
     AgentInstanceSpec("guardian-primary", "Guardian", "self_reflection"),
     AgentInstanceSpec("archivist-primary", "Archivist", "agentic_rag"),
@@ -96,3 +97,16 @@ def build_agent_registry(
         registered.append(instance)
 
     return registered
+
+
+# Stable, allowlisted identities for the existing six capability stages. These
+# bindings choose a specialist instance whose manifest profile matches the
+# actual worker profile; no request-time identity generation is performed.
+LEGACY_EXECUTION_BINDINGS = {
+    "codeact": ("builder-primary", "Builder"),
+    "react": ("scout-primary", "Scout"),
+    "agentic_rag": ("archivist-primary", "Archivist"),
+    "mcp_tool_use": ("builder-mcp", "Builder"),
+    "self_reflection": ("guardian-primary", "Guardian"),
+    "multi_agent": ("hermes-primary", "Hermes"),
+}
