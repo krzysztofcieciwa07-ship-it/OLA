@@ -177,3 +177,47 @@ def test_cli_writes_json_report_event_ledger_and_digest(monkeypatch, tmp_path):
     assert report["coverage"]["not_enabled"] == ["architecture", "performance", "protection", "legal"]
     assert verify_event_chain(events)
     assert len(manifest.splitlines()) == 2
+
+    repo_root = Path(__file__).resolve().parents[1]
+    verifier = repo_root / "scripts" / "verify_assurance_team.py"
+    verify = subprocess.run(
+        [
+            sys.executable,
+            str(verifier),
+            "--report", str(output_dir / "team-report.json"),
+            "--events", str(output_dir / "team-events.jsonl"),
+            "--manifest", str(output_dir / "team-evidence.sha256"),
+            "--expected-commit", "b" * 40,
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        shell=False,
+        check=False,
+    )
+    assert verify.returncode == 0, verify.stderr
+    assert json.loads(verify.stdout)["status"] == "VERIFIED"
+
+    events_path = output_dir / "team-events.jsonl"
+    events_path.write_text(
+        events_path.read_text(encoding="utf-8").replace('"role":"tester"', '"role":"protection"', 1),
+        encoding="utf-8",
+    )
+    tamper_check = subprocess.run(
+        [
+            sys.executable,
+            str(verifier),
+            "--report", str(output_dir / "team-report.json"),
+            "--events", str(events_path),
+            "--manifest", str(output_dir / "team-evidence.sha256"),
+            "--expected-commit", "b" * 40,
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        shell=False,
+        check=False,
+    )
+    assert tamper_check.returncode == 1
