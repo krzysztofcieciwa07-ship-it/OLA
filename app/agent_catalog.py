@@ -126,7 +126,7 @@ _ZBOOK_PROVIDER_POLICY = ProviderPolicy(
 
 # This describes the currently available compatibility path only. Task 2
 # replaces it with isolated workers; "catalogued" is not a claim of autonomy.
-_LEGACY_AVAILABILITY = "worker_process_enabled_v1"
+_LEGACY_AVAILABILITY = "worker_container_v1"
 
 
 _AGENT_CATALOG = {
