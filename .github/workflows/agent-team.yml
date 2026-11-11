@@ -278,6 +278,7 @@ jobs:
             --reports-dir agent-reports \
             --source-commit "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --output team-manifest.json
       - name: Upload final team manifest
         if: always()
