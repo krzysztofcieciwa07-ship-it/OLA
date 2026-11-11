@@ -62,7 +62,7 @@ def test_registered_low_risk_agent_is_allowed_and_decision_is_chained(monkeypatc
     assert rows[0][1]["specialist_role"] == "Hermes"
     assert rows[0][1]["requested_execution_profile"] == "multi_agent"
     assert rows[0][1]["requested_capability"] == "agent_aggregator"
-    assert rows[0][1]["provider_policy"] == ["ollama"]
+    assert rows[0][1]["provider_policy"] == ["ollama", "openai"]
     assert rows[0][1]["approval_policy"]["self_approval_allowed"] is False
     assert rows[0][1]["risk"] == "LOW"
     assert rows[0][1]["reason"] == "allowlisted_action"
