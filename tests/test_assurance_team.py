@@ -2,6 +2,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from app.assurance_team.architecture import ArchitectureAgent
 from app.assurance_team.contracts import (
     AgentContext,
     AgentReport,
@@ -256,3 +257,88 @@ def test_tester_parses_pytest_summary_from_stderr(monkeypatch, tmp_path):
     assert result.metrics["summary"] == "7 passed, 1 skipped in 0.20s"
     assert result.metrics["counts"]["passed"] == 7
     assert result.metrics["counts"]["skipped"] == 1
+
+
+def _architecture_project(tmp_path, files):
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    (app_root / "__init__.py").write_text("", encoding="utf-8")
+    for relative_path, source in files.items():
+        target = app_root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(source, encoding="utf-8")
+    return tmp_path
+
+
+def test_architecture_agent_accepts_acyclic_internal_imports(tmp_path):
+    root = _architecture_project(tmp_path, {
+        "main.py": "from .service import execute\\n",
+        "service.py": "def execute():\\n    return True\\n",
+    })
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
+
+    assert report.role == "architecture"
+    assert report.status == AgentStatus.PASS
+    assert report.metrics["module_count"] == 3
+    assert report.metrics["module_level_import_edges"] == 1
+    assert not report.findings
+
+
+def test_architecture_agent_detects_module_level_import_cycle(tmp_path):
+    root = _architecture_project(tmp_path, {
+        "a.py": "from .b import B\\n",
+        "b.py": "from .a import A\\n",
+    })
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
+
+    assert report.status == AgentStatus.FAIL
+    assert any(item.code == "ARCH_IMPORT_CYCLE" for item in report.findings)
+
+
+def test_architecture_agent_detects_application_dependency_on_api_composition_root(tmp_path):
+    root = _architecture_project(tmp_path, {
+        "main.py": "app = object()\\n",
+        "service.py": "def execute():\\n    from .main import app\\n    return app\\n",
+    })
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
+
+    assert report.status == AgentStatus.FAIL
+    assert any(item.code == "ARCH_API_COMPOSITION_ROOT_IMPORT" for item in report.findings)
+
+
+def test_architecture_agent_detects_unresolved_internal_import(tmp_path):
+    root = _architecture_project(tmp_path, {
+        "service.py": "from .missing_module import execute\\n",
+    })
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
+
+    assert report.status == AgentStatus.FAIL
+    assert any(item.code == "ARCH_UNRESOLVED_INTERNAL_IMPORT" for item in report.findings)
+
+
+def test_architecture_agent_reports_python_syntax_errors(tmp_path):
+    root = _architecture_project(tmp_path, {
+        "service.py": "def execute(:\\n    return True\\n",
+    })
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
+
+    assert report.status == AgentStatus.FAIL
+    assert any(item.code == "ARCH_SYNTAX_ERROR" for item in report.findings)
+
+
+def test_architecture_agent_does_not_treat_function_local_import_as_import_time_cycle(tmp_path):
+    root = _architecture_project(tmp_path, {
+        "a.py": "from .b import B\\n",
+        "b.py": "def load():\\n    from .a import A\\n    return A\\n",
+    })
+
+    report = ArchitectureAgent().run(AgentContext(repo_root=root, source_commit="c" * 40))
+
+    assert report.status == AgentStatus.PASS
+    assert report.metrics["module_level_import_edges"] == 1
+    assert report.metrics["deferred_imports"] == 1
