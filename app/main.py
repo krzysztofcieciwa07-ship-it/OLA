@@ -690,7 +690,7 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
             reason = "specialist_profile_denied"
         elif capability not in definition.capability_allowlist:
             reason = "specialist_capability_denied"
-        elif definition.availability_status != "worker_process_enabled_v1":
+        elif definition.availability_status != "worker_container_v1":
             reason = "agent_unavailable"
         elif not isinstance(risk, str) or risk.upper() not in {"LOW", "HIGH"}:
             reason = "unknown_risk"
@@ -754,8 +754,10 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
             "specialist_role": instance.role,
             "requested_profile": instance.execution_profile,
             "execution_mode": "legacy_six_profile_pipeline",
-            "execution_boundary": "subprocess_workers",
-            "worker_process_count": len(result.get("execution", [])),
+            "execution_boundary": "docker_one_shot_containers",
+            "worker_container_count": len(result.get("execution", [])),
+            "worker_image_id": next(iter({item.get("worker_image_id") for item in result.get("execution", [])}), None),
+            "isolation_verified": all(bool(item.get("worker_isolation")) for item in result.get("execution", [])),
             "requested_profile_individually_dispatched": False,
         }
     return result
