@@ -1,24 +1,24 @@
 # Katalog repozytoriów OLA di-OS — stan i źródło prawdy
 
-Snapshot: **2026-11-12 11:17 UTC** · kontrolowane konto GitHub: **krzysztofcieciwa07-ship-it** · zakres: 9 repozytoriów publicznych tego konta oraz wskazane repozytoria powiązane z kontem **krzys167-crypto**.
+Snapshot: **2026-11-12 11:38 UTC** · kontrolowane konto GitHub: **krzysztofcieciwa07-ship-it** · zakres: 9 repozytoriów publicznych tego konta oraz wskazane repozytoria powiązane z kontem **krzys167-crypto**.
 
-> Ten dokument jest rejestrem pochodzenia i odpowiedzialności, nie deklaracją gotowości produktu. STATUS ≠ CI ≠ RUNTIME ≠ VERIFIED. Wartości SHA oraz liczby gałęzi/PR zostały odświeżone z GitHub API 2026-11-12 11:17 UTC. Nie wolno podejmować merge, usuwania repozytorium ani synchronizacji forków na podstawie samej nazwy.
+> Ten dokument jest rejestrem pochodzenia i odpowiedzialności, nie deklaracją gotowości produktu. STATUS ≠ CI ≠ RUNTIME ≠ VERIFIED. Wartości SHA oraz liczby gałęzi/PR zostały odświeżone z GitHub API 2026-11-12 11:38 UTC. Nie wolno podejmować merge, usuwania repozytorium ani synchronizacji forków na podstawie samej nazwy.
 
 ## 1. Jedno źródło prawdy dla własnych produktów
 
 | Produkt | Kanoniczne repozytorium | Główna gałąź / SHA | Gałęzie | Otwarte PR-y | Decyzja |
 |---|---|---|---:|---:|---|
-| OLA di-OS | [krzysztofcieciwa07-ship-it/OLA](https://github.com/krzysztofcieciwa07-ship-it/OLA) | main · c2462b393ec6372e5a48da44a37481a96ae034ba | 196 | 92 | **JEDYNE KANONICZNE REPO OLA** |
+| OLA di-OS | [krzysztofcieciwa07-ship-it/OLA](https://github.com/krzysztofcieciwa07-ship-it/OLA) | main · e0b5ca8eefb58cb151f2dddf61552c201bacabad | 198 | 92 | **JEDYNE KANONICZNE REPO OLA** |
 | Vantage | [krzysztofcieciwa07-ship-it/vantage](https://github.com/krzysztofcieciwa07-ship-it/vantage) | main · 991445100a3ddfae85bef0d0f9f7680373658d5f | 28 | 9 | **JEDYNE KANONICZNE REPO VANTAGE** |
 
 Reguła od teraz: nowe zmiany OLA rozwijamy wyłącznie w kanonicznym repozytorium OLA, a Vantage wyłącznie w kanonicznym repozytorium Vantage. Drugie konto nie jest równoległym miejscem rozwoju. Nie oznacza to jednak, że każda jego gałąź jest zbędna — patrz sekcja 3.
 
 ### Stan porządku w repo OLA
 
-- 196 gałęzi i 92 otwarte pull requesty (odczyt GitHub API, 2026-11-12 11:17 UTC). Żadna para otwartych PR-ów nie ma identycznego head SHA. Dziewięć gałęzi `fix/agent-runtime-minimal-2` do `-11` wskazuje na ten sam stary commit `c87cb3c…` i nie ma przypiętych PR-ów; usunięcie refów wymaga operacji administracyjnej niedostępnej w obecnej integracji. Pozostałe PR-y klasyfikować przed scaleniem lub zamknięciem.
+- 198 gałęzi i 92 otwarte pull requesty (odczyt GitHub API, 2026-11-12 11:38 UTC). Żadna para otwartych PR-ów nie ma identycznego head SHA. W całym repo znaleziono 5 grup identycznych head commitów obejmujących 18 gałęzi; żadna z nich nie ma przypiętego otwartego PR-a. Kandydaci są wyszczególnieni w rejestrze JSON. Reguła repozytorium blokuje usuwanie refów, a dostępna integracja nie udostępnia operacji DELETE — gałęzie zachowano.
 - Klasyczna ochrona `main` nie jest aktywna (`protected: false`). Aktywny ruleset 25853037 blokuje usuwanie gałęzi i force-push, ale nie wymaga niezależnego review ani obowiązkowych kontroli CI.
 - PR #212 z ujednoliceniem standardu repozytorium został scalony 2026-11-11 do SHA `5e60c800b8135ad51aee6786396202e0c22d800e`. CI na tym SHA przeszło; nie jest to samo w sobie dowód wdrożenia produktu.
-- Aktualny `main` to SHA `c2462b393ec6372e5a48da44a37481a96ae034ba`. Historyczny run `43203128596` wykazał `startup_failure` bez jobów; naprawa uprawnień reusable workflow została scalona w PR #224. Nowy run `43207319361` na aktualnym `main` zakończył się `SUCCESS`: preflight, rzeczywisty Ollama/NINA, niezależny IGOR, weryfikacja atestacji i końcowa klasyfikacja przeszły. To potwierdza ten konkretny przepływ 12h, nie całe wdrożenie produktu.
+- Aktualny `main` to SHA `e0b5ca8eefb58cb151f2dddf61552c201bacabad`. Historyczny run `43203128596` wykazał `startup_failure`; naprawa uprawnień reusable workflow została scalona w PR #224, a run `43207319361` zakończył się `SUCCESS`. PR #226 dodał tenant-scoped `GET /evidence` z read-only i paginacją; przeszedł 21/21 kontroli i został scalony. Po scaleniu run `43210488311` ponownie potwierdził pełny przepływ 12h: preflight, Ollama/NINA, niezależny IGOR, atestację i fail-closed classification. To potwierdza konkretne przepływy runtime, nie całe wdrożenie produktu.
 
 ### Stan porządku w repo Vantage
 
