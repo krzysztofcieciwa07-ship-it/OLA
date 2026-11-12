@@ -85,5 +85,5 @@ jobs:
           subject-path: dist/ola-dora-audit-evidence-pack-v0.1.0.zip
       - name: Verify generated attestation
         env:
-          GH_TOKEN: \${{ github.token }}
-        run: gh attestation verify dist/ola-dora-audit-evidence-pack-v0.1.0.zip --repo "\${GITHUB_REPOSITORY}"
+          GH_TOKEN: ${{ github.token }}
+        run: gh attestation verify dist/ola-dora-audit-evidence-pack-v0.1.0.zip --repo "${GITHUB_REPOSITORY}"
