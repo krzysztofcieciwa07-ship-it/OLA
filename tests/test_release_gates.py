@@ -1,10 +1,11 @@
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from verify_release_gates import IGOR_JOB_NAME, REQUIRED_EXACT, REFERENCE_GATES, evaluate_release_gates
+from verify_release_gates import (IGOR_JOB_NAME, REQUIRED_EXACT, REFERENCE_GATES, ReleaseGateError, _verify_source_branch_head, evaluate_release_gates)
 
 SHA = "a" * 40
 
@@ -75,6 +76,40 @@ class ReleaseGatePolicyTests(unittest.TestCase):
         result = evaluate_release_gates(expected_sha=SHA, exact_runs=exact, reference_runs=[], igor_jobs=jobs)
         self.assertEqual(result["status"], "PENDING")
         self.assertIn("reference:OLA Frontier Baseline", result["missing"])
+
+    @patch("verify_release_gates._get_json")
+    def test_current_source_branch_head_is_accepted(self, get_json):
+        get_json.return_value = {"commit": {"sha": SHA}}
+        _verify_source_branch_head(
+            base="https://api.github.com/repos/example/OLA",
+            source_ref="refs/heads/security/oci-release-chain-20261112",
+            expected_sha=SHA,
+            token="token",
+        )
+        get_json.assert_called_once_with(
+            "https://api.github.com/repos/example/OLA/branches/security%2Foci-release-chain-20261112",
+            "token",
+        )
+
+    @patch("verify_release_gates._get_json")
+    def test_moved_source_branch_blocks_release(self, get_json):
+        get_json.return_value = {"commit": {"sha": "c" * 40}}
+        with self.assertRaises(ReleaseGateError):
+            _verify_source_branch_head(
+                base="https://api.github.com/repos/example/OLA",
+                source_ref="refs/heads/security/oci-release-chain-20261112",
+                expected_sha=SHA,
+                token="token",
+            )
+
+    def test_non_branch_source_ref_is_rejected(self):
+        with self.assertRaises(ValueError):
+            _verify_source_branch_head(
+                base="https://api.github.com/repos/example/OLA",
+                source_ref="refs/tags/v1.0.0",
+                expected_sha=SHA,
+                token="token",
+            )
 
     def test_newest_duplicate_run_wins(self):
         exact, reference, jobs = passing_snapshot()

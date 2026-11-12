@@ -183,6 +183,7 @@ def verify_release_gates(*, repository: str, expected_sha: str, source_ref: str,
             expected_sha=expected_sha, exact_runs=exact_runs,
             reference_runs=reference_runs, igor_jobs=igor_jobs,
         )
+        result["source_ref"] = source_ref
         print(json.dumps({"attempt": attempt, **result}, sort_keys=True), flush=True)
         if result["status"] == "VERIFIED":
             return result
