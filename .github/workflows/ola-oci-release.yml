@@ -242,15 +242,41 @@ jobs:
             --entrypoint python "$IMAGE_REF" -m pytest -q tests/test_core_readiness.py
           echo "PUBLISHED_IMAGE_RUNTIME_SMOKE=VERIFIED"
 
-      - name: Trivy scan exact published OCI digest
+      - name: Report CRITICAL/HIGH findings for the exact published OCI digest
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}
-          format: sarif
-          output: trivy-image-results.sarif
+          format: table
+          output: trivy-image-results.txt
           severity: CRITICAL,HIGH
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
+
+      - name: Enforce CRITICAL/HIGH digest policy and write SARIF
+        env:
+          IMAGE_REF: ${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          trivy image \
+            --format sarif \
+            --output trivy-image-results.sarif \
+            --severity CRITICAL,HIGH \
+            --vuln-type os,library \
+            --scanners vuln,secret \
+            --ignore-unfixed \
+            --exit-code 1 \
+            "$IMAGE_REF"
+
+      - name: Preserve Trivy diagnostic reports even when blocked
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-trivy-diagnostics-${{ steps.source.outputs.sha }}
+          path: |
+            trivy-image-results.txt
+            trivy-image-results.sarif
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Attest exact OCI image digest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
@@ -367,6 +393,7 @@ jobs:
             ola-oci-release-manifest.json
             ola-oci-release-manifest.sha256
             ola-release-gate-status.json
+            trivy-image-results.txt
             trivy-image-results.sarif
           if-no-files-found: error
           retention-days: 90
