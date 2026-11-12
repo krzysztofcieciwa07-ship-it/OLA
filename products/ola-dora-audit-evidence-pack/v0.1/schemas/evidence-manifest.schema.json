@@ -52,10 +52,11 @@
       "type":"array",
       "items":{
         "type":"object",
-        "required":["control_id","status","evidence_integrity","approval_status","evidence_ids","reason","reviewer"],
+        "required":["control_id","status","reported_status","evidence_integrity","approval_status","required_evidence_types","missing_evidence_types","evidence_ids","reason","reviewer"],
         "properties":{
           "control_id":{"type":"string"},
           "status":{"enum":["PASS","FAIL","PARTIAL","BLOCKED","UNKNOWN","SKIPPED","NOT_APPLICABLE"]},
+          "reported_status":{"enum":["PASS","FAIL","PARTIAL","BLOCKED","UNKNOWN","SKIPPED","NOT_APPLICABLE"]},
           "evidence_integrity":{"enum":["VERIFIED","INVALID","UNVERIFIED"]},
           "approval_status":{"enum":["APPROVED","PENDING","REJECTED"]},
           "evidence_ids":{"type":"array","items":{"type":"string"}},
@@ -80,11 +81,13 @@
           "source_uri":{"type":["string","null"]},
           "captured_at":{"type":["string","null"]},
           "payload_digest":{"type":["string","null"]},
-          "binding":{"type":"object","required":["repository","change_id","commit_sha","artifact_digest"],"properties":{"repository":{"type":"string"},"change_id":{"type":"string"},"commit_sha":{"type":"string","pattern":"^[a-f0-9]{40}$"},"artifact_digest":{"type":"string","pattern":"^sha256:[a-f0-9]{64}$"}},"additionalProperties":false}
+          "payload_digest_status":{"enum":["VERIFIED","INVALID","UNVERIFIED"]},
+          "binding":{"type":"object","required":["repository","change_id","commit_sha","artifact_digest"],"properties":{"repository":{"type":["string","null"]},"change_id":{"type":["string","null"]},"commit_sha":{"type":["string","null"],"pattern":"^([a-f0-9]{40})?$"},"artifact_digest":{"type":["string","null"],"pattern":"^(sha256:[a-f0-9]{64})?$"}},"additionalProperties":false}
         },
         "additionalProperties":false
       }
     },
+    "attestation":{"type":"object","required":["customer_manifest_status","pack_archive_attestation"],"properties":{"customer_manifest_status":{"const":"NOT_IMPLEMENTED_IN_V0.1"},"pack_archive_attestation":{"const":"SEPARATE_BUILD_PROVENANCE_ONLY"}},"additionalProperties":false},
     "limitations":{"type":"array","items":{"type":"string"}},
     "manifest_digest":{"type":"string","pattern":"^sha256:[a-f0-9]{64}$"}
   },
