@@ -1,0 +1,19 @@
+{
+  "pack_id": "ola.dora.ict-change-management",
+  "pack_version": "0.1.0-draft",
+  "status": "DRAFT",
+  "controls": [
+    {"id":"DORA-CM-01","title":"Approved and documented ICT change-management process","legal_basis":["DORA 9(4)(e)","RTS 17 chapeau"],"required_evidence":["approved_policy","management_approval","operating_protocol"]},
+    {"id":"DORA-CM-02","title":"Changes are recorded and risk-assessed before approval","legal_basis":["DORA 9(4)(e)"],"required_evidence":["change_record","risk_assessment","change_approval"]},
+    {"id":"DORA-CM-03","title":"ICT security requirements are verified","legal_basis":["RTS 17(1)(a)"],"required_evidence":["security_requirements","security_test_results"]},
+    {"id":"DORA-CM-04","title":"Approval is independent from request and implementation","legal_basis":["RTS 17(1)(b)"],"required_evidence":["requester_identity","implementer_identity","approver_identity","role_relationship_check"]},
+    {"id":"DORA-CM-05","title":"Change roles, responsibilities and planning are defined","legal_basis":["RTS 17(1)(c)(i)"],"required_evidence":["roles_responsibilities","change_plan"]},
+    {"id":"DORA-CM-06","title":"An adequate transition is designed","legal_basis":["RTS 17(1)(c)(ii)"],"required_evidence":["transition_plan"]},
+    {"id":"DORA-CM-07","title":"Testing, controlled finalisation and quality assurance are evidenced","legal_basis":["RTS 17(1)(c)(iii)-(iv)"],"required_evidence":["test_plan","test_results","quality_assurance"]},
+    {"id":"DORA-CM-08","title":"Change purpose, scope, timeline and outcomes are documented and communicated","legal_basis":["RTS 17(1)(d)"],"required_evidence":["purpose_scope","implementation_timeline","expected_outcomes","change_communication"]},
+    {"id":"DORA-CM-09","title":"Fallback, abort and recovery procedures are identified","legal_basis":["RTS 17(1)(e)"],"required_evidence":["fallback_procedure","abort_criteria","recovery_responsibility"]},
+    {"id":"DORA-CM-10","title":"Emergency changes use approved safeguards","legal_basis":["RTS 17(1)(f)"],"required_evidence":["emergency_change_policy","emergency_safeguards"]},
+    {"id":"DORA-CM-11","title":"Emergency changes are documented and re-evaluated after implementation","legal_basis":["RTS 17(1)(g)"],"required_evidence":["emergency_change_record","post_implementation_reevaluation","post_implementation_assessment","post_implementation_approval"]},
+    {"id":"DORA-CM-12","title":"Changes are implemented and verified in a controlled manner","legal_basis":["DORA 9(4)(e)"],"required_evidence":["source_commit","released_artifact","deployment_record","post_deployment_verification"]}
+  ]
+}

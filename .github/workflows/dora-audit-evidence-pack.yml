@@ -1,0 +1,46 @@
+name: OLA DORA Audit Evidence Pack
+
+on:
+  pull_request:
+    paths:
+      - "docs/product/OLA-INTEGRITY-LAYER-DECISION-CHARTER-v1.0.md"
+      - "products/ola-dora-audit-evidence-pack/v0.1/**"
+      - ".github/workflows/dora-audit-evidence-pack.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/product/OLA-INTEGRITY-LAYER-DECISION-CHARTER-v1.0.md"
+      - "products/ola-dora-audit-evidence-pack/v0.1/**"
+      - ".github/workflows/dora-audit-evidence-pack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate DORA bundle contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Run contract and negative tests
+        run: python -m unittest discover -s products/ola-dora-audit-evidence-pack/v0.1/tests -v
+      - name: Emit fail-closed demo Evidence Manifest
+        run: |
+          python products/ola-dora-audit-evidence-pack/v0.1/scripts/verify_bundle.py \
+            products/ola-dora-audit-evidence-pack/v0.1/examples/incomplete-bundle.json \
+            --output /tmp/ola-evidence-manifest.json
+          python - <<'PY'
+          import json
+          m = json.load(open("/tmp/ola-evidence-manifest.json", encoding="utf-8"))
+          assert m["summary"]["status"] == "NOT_READY"
+          assert m["summary"]["control_counts"]["UNKNOWN"] == 12
+          assert m["attestation"]["status"] == "NOT_ISSUED"
+          print("DEMO=VALID_BUT_NOT_READY")
+          PY

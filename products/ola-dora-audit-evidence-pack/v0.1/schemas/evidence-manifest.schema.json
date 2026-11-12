@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ola.example/schemas/evidence-manifest-v0.1.json",
+  "title": "OLA DORA Evidence Manifest v0.1",
+  "type": "object",
+  "required": ["schema","pack_version","source","controls","summary","attestation","manifest_digest"],
+  "properties": {
+    "schema": {"const":"ola-evidence-manifest-v0.1"},
+    "pack_version": {"type":"string"},
+    "generated_at": {"type":"string","format":"date-time"},
+    "source": {
+      "type":"object",
+      "required":["repository","change_id","commit_sha","artifact_digest"],
+      "properties": {
+        "repository":{"type":"string","pattern":"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+        "change_id":{"type":"string","minLength":1},
+        "commit_sha":{"type":"string","pattern":"^[0-9a-f]{40}$"},
+        "artifact_digest":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}
+      },
+      "additionalProperties":false
+    },
+    "controls":{"type":"array","items":{"type":"object"}},
+    "summary":{"type":"object","required":["status","control_counts"]},
+    "attestation":{"type":"object","required":["status"],"properties":{"status":{"const":"NOT_ISSUED"}}},
+    "manifest_digest":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}
+  },
+  "additionalProperties":false
+}

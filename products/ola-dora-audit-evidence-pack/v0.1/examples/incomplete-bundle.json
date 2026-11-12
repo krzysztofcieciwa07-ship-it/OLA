@@ -1,0 +1,8 @@
+{
+  "schema": "ola-evidence-bundle-v0.1",
+  "repository": "example-org/payments-api",
+  "change_id": "CHG-DEMO-001",
+  "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+  "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "controls": []
+}
