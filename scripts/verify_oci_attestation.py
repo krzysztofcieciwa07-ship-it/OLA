@@ -20,7 +20,7 @@ from typing import Any
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GIT_SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-_IMAGE_RE = re.compile(r"^ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")
+_IMAGE_RE = re.compile(r"^ghcr\.io/[a-z0-9_.-]+/[a-z0-9_.-]+$")
 _SLSA_PROVENANCE_V1 = "https://slsa.dev/provenance/v1"
 _GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 
