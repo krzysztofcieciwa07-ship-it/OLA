@@ -131,10 +131,11 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json, os
+          from urllib.parse import quote
           from urllib.request import Request, urlopen
           repository = os.environ["GITHUB_REPOSITORY"]
           branch = os.environ["GITHUB_REF_NAME"]
-          url = f"https://api.github.com/repos/{repository}/branches/{branch}"
+          url = f"https://api.github.com/repos/{repository}/branches/{quote(branch, safe='')}"
           request = Request(url, headers={
               "Authorization": "Bearer " + os.environ["GH_TOKEN"],
               "Accept": "application/vnd.github+json",
@@ -158,6 +159,7 @@ jobs:
           python scripts/verify_release_gates.py \
             --repository "$GITHUB_REPOSITORY" \
             --source-sha "${{ steps.source.outputs.sha }}" \
+            --source-ref "$GITHUB_REF" \
             --timeout-seconds 1800 \
             --poll-seconds 15 \
             --output ola-release-gate-status.json
@@ -171,10 +173,11 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json, os
+          from urllib.parse import quote
           from urllib.request import Request, urlopen
           repository = os.environ["GITHUB_REPOSITORY"]
           branch = os.environ["GITHUB_REF_NAME"]
-          url = f"https://api.github.com/repos/{repository}/branches/{branch}"
+          url = f"https://api.github.com/repos/{repository}/branches/{quote(branch, safe='')}"
           request = Request(url, headers={
               "Authorization": "Bearer " + os.environ["GH_TOKEN"],
               "Accept": "application/vnd.github+json",
