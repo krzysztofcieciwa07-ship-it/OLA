@@ -77,4 +77,4 @@ This attests the pack ZIP build provenance only. It does not attest customer sou
 
 
 ## Product governance
-The binding scope and feature-admission rules for the first 60 days are defined in [OLA Integrity Layer — Decision Charter v1.0](../../../../docs/OLA-INTEGRITY-LAYER-DECISION-CHARTER-v1.md). The Evidence Manifest is the only primary customer-facing MVP output; proposed features must directly test H1–H4.
+The binding scope and feature-admission rules for the first 60 days are defined in [OLA Integrity Layer — Decision Charter v1.0](../../../docs/OLA-INTEGRITY-LAYER-DECISION-CHARTER-v1.md). The Evidence Manifest is the only primary customer-facing MVP output; proposed features must directly test H1–H4.
