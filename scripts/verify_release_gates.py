@@ -179,14 +179,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-sha", default=os.getenv("GITHUB_SHA"), required=os.getenv("GITHUB_SHA") is None)
     parser.add_argument("--timeout-seconds", type=int, default=1800)
     parser.add_argument("--poll-seconds", type=int, default=15)
+    parser.add_argument("--output", default="ola-release-gate-status.json")
     args = parser.parse_args(argv)
     try:
-        verify_release_gates(
+        result = verify_release_gates(
             repository=args.repository, expected_sha=args.source_sha,
             token=os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN") or "",
             timeout_seconds=args.timeout_seconds, poll_seconds=args.poll_seconds,
         )
-    except (ValueError, ReleaseGateError) as exc:
+        with open(args.output, "w", encoding="utf-8") as stream:
+            json.dump(result, stream, indent=2, sort_keys=True)
+            stream.write("\\n")
+    except (ValueError, ReleaseGateError, OSError) as exc:
         print("BLOCKED: " + str(exc), file=sys.stderr)
         return 1
     print("ALL_REQUIRED_RELEASE_GATES=VERIFIED")
