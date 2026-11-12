@@ -3,7 +3,7 @@
 **Status: DRAFT / pilot validation only.** A portable, versioned control-to-evidence contract for one ICT change, from request through controlled implementation and post-implementation verification.
 
 ## Product promise
-Translate technical and process artefacts into traceable evidence linked to a named control, authoritative source, tenant, change ID, exact repository, full source commit SHA and released-artifact digest.
+North Star: shorten the path from a code change to an audit-usable evidence manifest. The primary product output is one Evidence Manifest linking control outcomes and referenced evidence to the authoritative source, tenant, change ID, exact repository, full source commit SHA and released-artifact digest.
 
 This pack does not certify an organisation, establish full DORA compliance, replace an entity's approved policy, provide legal advice, or guarantee auditor/regulator acceptance. The mapping requires qualified ICT-risk/compliance review and independent auditor feedback before commercial reliance.
 
@@ -25,11 +25,13 @@ The catalogue contains twelve draft control objectives. v0.1 focuses on software
 
 ## Contents
 - controls/dora/ict-change-management.yaml — twelve draft controls mapped to DORA/RTS provisions.
-- mappings/knowledge-graph.yaml — versioned regulatory requirement → control → evidence type → source type relationships; no graph database.
+- mappings/control-evidence-map.yaml — the minimum flat control-to-evidence mapping needed by the manifest; no Knowledge Graph or graph database.
 - policies/verdict-policy.yaml — independent result, integrity and approval axes.
 - schemas/ — JSON Schemas for evidence and control verdict records.
 - verification/ — source/artifact binding and pack-release attestation policy.
-- examples/unverified-demo-bundle.json — synthetic incomplete bundle, expected NOT_READY.
+- examples/unverified-demo-bundle.json — synthetic incomplete input bundle, expected NOT_READY.
+- scripts/build_manifest.py — builds the primary Evidence Manifest from an input evidence bundle.
+- schemas/evidence-manifest.schema.json — manifest output contract.
 - scripts/verify_pack.py — deterministic fail-closed validator.
 - scripts/build_pack.py — deterministic ZIP builder.
 - tests/ — positive-contract, negative, tamper and packaging tests.
@@ -40,6 +42,7 @@ Python 3.11+:
 \`\`\`bash
 python -m pip install -r requirements.txt
 python scripts/verify_pack.py examples/unverified-demo-bundle.json
+python scripts/build_manifest.py examples/unverified-demo-bundle.json --output /tmp/ola-evidence-manifest.json
 python -m pytest -q
 python scripts/build_pack.py --output dist/ola-dora-audit-evidence-pack-v0.1.0.zip
 \`\`\`
@@ -70,3 +73,30 @@ This attests the pack ZIP build provenance only. It does not attest customer sou
 - Commission Delegated Regulation (EU) 2024/1774, Article 17: https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1774
 
 **Legal source-text review date:** 12 November 2026. This is not legal advice. Re-check the official EUR-Lex text, corrigenda and amendments before each pack release.
+
+
+## Decision Charter — first 60 days
+The product is the Evidence Manifest. Collectors, validation code, CI workflows and agents are implementation means, not product outcomes.
+
+North Star: **OLA Integrity Layer shortens the path from a code change to an audit-usable evidence record.**
+
+One problem: translating technical artefacts into DORA ICT change-management evidence.  
+One customer: a regulated financial entity.  
+One process: ICT change management.
+
+Critical hypotheses:
+- H1 — Auditor acceptance: can an external auditor understand and judge a sample manifest without the builder explaining it?
+- H2 — Pain: is manual evidence collection sufficiently costly and disruptive to justify change?
+- H3 — Willingness to pay: will a budget owner commit to a priced paid pilot, not merely praise a demo?
+- H4 — Technical value: does SHA-bound evidence matter to the buyer, beyond a readable report?
+
+For the next 60 days, do not build a Knowledge Graph, dashboard, AI auditor, NIS2/ISO 27001/SOC 2 packs, marketplace or multi-tenant platform. Keep those in the strategic backlog. Any proposed feature must state which of H1–H4 it tests and what observable result would change the decision.
+
+MVP success after 30 days is not a code-volume target. It is:
+1. one working DORA Evidence Manifest for one real change on one repository;
+2. one end-to-end demonstration from request/approval through PR, test, commit, released artefact and verification;
+3. H1–H4 each marked validated, falsified or still unknown, with evidence from at least five customer/auditor conversations and a priced-pilot discussion.
+
+The MVP must make it clear that PASS, evidence integrity and human approval are separate dimensions. SKIPPED and NOT_APPLICABLE never count as PASS. A valid digest does not prove the truth of the source or legal compliance.
+
+Success is measured by validated/invalidated hypotheses, customer time saved, paid pilot commitments and eventually renewals — not lines of code, module count, dashboard views, stars or downloads.
