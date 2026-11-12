@@ -9,8 +9,8 @@
       "full_name": "krzysztofcieciwa07-ship-it/OLA",
       "default_branch": "main",
       "main_sha": "5e60c800b8135ad51aee6786396202e0c22d800e",
-      "branches": 194,
-      "open_pull_requests": 94,
+      "branches": 195,
+      "open_pull_requests": 95,
       "status": "CANONICAL_SOURCE_NOT_RELEASE_ACCEPTED"
     },
     "vantage": {
@@ -38,8 +38,8 @@
       "fork": false,
       "status": "SOURCE_PRESENT_NOT_RELEASE_ACCEPTED",
       "main_sha": "5e60c800b8135ad51aee6786396202e0c22d800e",
-      "branches": 194,
-      "open_pull_requests": 94
+      "branches": 195,
+      "open_pull_requests": 95
     },
     {
       "full_name": "krzysztofcieciwa07-ship-it/vantage",
@@ -244,7 +244,7 @@
   ],
   "current_open_pr_inventory": {
     "snapshot_date": "2026-11-12",
-    "ola": 94,
+    "ola": 95,
     "vantage": 9,
     "note": "Counts only. Open PRs include draft and stacked work; review each PR and dependency before merge or closure."
   }

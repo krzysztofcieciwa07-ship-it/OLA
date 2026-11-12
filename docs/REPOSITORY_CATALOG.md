@@ -8,14 +8,14 @@ Snapshot: **2026-11-12** · kontrolowane konto GitHub: **krzysztofcieciwa07-ship
 
 | Produkt | Kanoniczne repozytorium | Główna gałąź / SHA | Gałęzie | Otwarte PR-y | Decyzja |
 |---|---|---|---:|---:|---|
-| OLA di-OS | [krzysztofcieciwa07-ship-it/OLA](https://github.com/krzysztofcieciwa07-ship-it/OLA) | main · 5e60c800b8135ad51aee6786396202e0c22d800e | 194 | 94 | **JEDYNE KANONICZNE REPO OLA** |
+| OLA di-OS | [krzysztofcieciwa07-ship-it/OLA](https://github.com/krzysztofcieciwa07-ship-it/OLA) | main · 5e60c800b8135ad51aee6786396202e0c22d800e | 195 | 95 | **JEDYNE KANONICZNE REPO OLA** |
 | Vantage | [krzysztofcieciwa07-ship-it/vantage](https://github.com/krzysztofcieciwa07-ship-it/vantage) | main · 991445100a3ddfae85bef0d0f9f7680373658d5f | 28 | 9 | **JEDYNE KANONICZNE REPO VANTAGE** |
 
 Reguła od teraz: nowe zmiany OLA rozwijamy wyłącznie w kanonicznym repozytorium OLA, a Vantage wyłącznie w kanonicznym repozytorium Vantage. Drugie konto nie jest równoległym miejscem rozwoju. Nie oznacza to jednak, że każda jego gałąź jest zbędna — patrz sekcja 3.
 
 ### Stan porządku w repo OLA
 
-- 194 gałęzie i 94 otwarte pull requesty (odczyt GitHub API, 2026-11-12). Wiele PR-ów jest roboczych lub opartych na innych gałęziach; nie wolno ich masowo scalać ani zamykać bez klasyfikacji zależności i unikalnych commitów.
+- 195 gałęzi i 95 otwartych pull requestów (odczyt GitHub API, 2026-11-12). Wiele PR-ów jest roboczych lub opartych na innych gałęziach; nie wolno ich masowo scalać ani zamykać bez klasyfikacji zależności i unikalnych commitów.
 - Klasyczna ochrona `main` nie jest aktywna (`protected: false`). Aktywny ruleset 25853037 blokuje usuwanie gałęzi i force-push, ale nie wymaga niezależnego review ani obowiązkowych kontroli CI.
 - PR #212 z ujednoliceniem standardu repozytorium został scalony 2026-11-11 do SHA `5e60c800b8135ad51aee6786396202e0c22d800e`. CI na tym SHA przeszło; nie jest to samo w sobie dowód wdrożenia produktu.
 - Aktualny `main` to SHA `5e60c800…`. Najnowszy `OLA 12h Autonomous Evidence Flow` miał `startup_failure` bez utworzenia jobów; przyczyna nie została zwrócona przez GitHub API. `OLA 24x7 Watchdog` zakończył się sukcesem. Traktować automatyczny runtime flow jako wymagający osobnej diagnostyki.
