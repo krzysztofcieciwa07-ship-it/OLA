@@ -1,5 +1,8 @@
 import copy
 import json
+import subprocess
+import sys
+import zipfile
 import yaml
 from scripts.verify_pack import ROOT, canonical_json, sha256, validate_bundle
 from scripts.build_pack import build_archive
@@ -122,6 +125,32 @@ def test_duplicate_control_verdict_invalidates_contract():
     bundle = valid_bundle()
     bundle["control_verdicts"].append(copy.deepcopy(bundle["control_verdicts"][0]))
     assert not validate_bundle(bundle)["valid_contract"]
+
+
+def test_extracted_pack_runs_outside_repository_tree(tmp_path):
+    archive = tmp_path / "consumer-pack.zip"
+    extract_to = tmp_path / "independent-consumer"
+    digest = build_archive(archive)
+    assert len(digest) == 64
+    with zipfile.ZipFile(archive) as package:
+        package.extractall(extract_to)
+
+    pack_root = extract_to / "ola-dora-audit-evidence-pack"
+    validator = pack_root / "scripts" / "verify_pack.py"
+    demo = pack_root / "examples" / "unverified-demo-bundle.json"
+    completed = subprocess.run(
+        [sys.executable, str(validator), str(demo)],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    result = json.loads(completed.stdout)
+    assert result["valid_contract"] is True
+    assert result["ready"] is False
+    assert result["required_controls"] == 12
+    assert result["state_counts"]["UNKNOWN"] == 12
 
 
 def test_deterministic_zip_excludes_cache_files(tmp_path):
