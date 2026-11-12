@@ -8,3 +8,5 @@ setuptools==84.0.0
 urllib3==2.8.0
 wheel==0.48.0
 psycopg[binary]==3.3.8
+cryptography==45.0.7
+rfc8785==0.1.4

@@ -1,0 +1,192 @@
+import importlib
+import importlib.util
+import io
+import json
+
+import pytest
+from pydantic import ValidationError
+
+
+def _worker_modules():
+    protocol_spec = importlib.util.find_spec("app.agent_protocol")
+    assert protocol_spec is not None, "versioned worker protocol is not implemented"
+    worker_spec = importlib.util.find_spec("app.agent_worker")
+    assert worker_spec is not None, "one-shot worker entrypoint is not implemented"
+    return importlib.import_module("app.agent_protocol"), importlib.import_module("app.agent_worker")
+
+
+def _request_data():
+    from app.agent_registry import make_agent_instance_spec
+
+    agent = make_agent_instance_spec(
+        "hermes-worker-01",
+        "Hermes",
+        "react",
+        capabilities=("tool.safe_expression",),
+    )
+    return {
+        "schema_version": 1,
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "agent_id": agent.agent_id,
+        "agent_instance_id": "00000000-0000-4000-8000-000000000002",
+        "specialist_role": agent.specialist_role,
+        "execution_profile": agent.execution_profile,
+        "capability": "tool.safe_expression",
+        "allowed_capabilities": ["tool.safe_expression"],
+        "task": "Calculate 17 times 23.",
+        "capability_input": {"expression": "17 * 23"},
+        "model_output": {"output": {"status": "needs_tool", "tool_name": "tool.safe_expression", "tool_arguments_json": '{"expression":"17 * 23"}'}},
+        "source_commit": "a" * 40,
+    }
+
+
+def test_worker_executes_only_a_registered_safe_capability():
+    protocol, worker = _worker_modules()
+    request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(_request_data()))
+
+    result = worker.run_agent_worker(request)
+
+    assert result.status == "COMPLETED"
+    assert result.capability_result == {"value": 391}
+    assert result.agent_id == request.agent_id
+    assert result.agent_instance_id == request.agent_instance_id
+    assert result.worker_pid > 0
+    assert len(result.worker_nonce) == 36
+    assert result.model_output_role == "advisory_only"
+    assert len(result.input_digest) == 64
+    assert len(result.model_output_digest) == 64
+    assert len(result.output_digest) == 64
+    assert len(result.request_digest) == 64
+    assert len(result.capability_input_digest) == 64
+    assert result.worker_public_key
+    assert result.worker_signature
+    from app.provenance.crypto import verify_worker_signature
+    assert verify_worker_signature(result) is True
+
+
+def test_worker_request_rejects_unknown_fields_and_invalid_capability():
+    protocol, _ = _worker_modules()
+    with pytest.raises(ValidationError):
+        protocol.AgentWorkerRequest.model_validate_json(json.dumps({
+            **_request_data(),
+            "untrusted_shell": "rm -rf /",
+        }))
+
+    invalid = _request_data()
+    invalid["capability"] = "production.deploy"
+    with pytest.raises(ValidationError, match="capability"):
+        protocol.AgentWorkerRequest.model_validate_json(json.dumps(invalid))
+
+
+def test_worker_request_rejects_profile_escalation_and_oversized_payload():
+    protocol, _ = _worker_modules()
+    invalid_profile = _request_data()
+    invalid_profile["execution_profile"] = "multi_agent"
+    with pytest.raises(ValidationError, match="execution profile"):
+        protocol.AgentWorkerRequest.model_validate_json(json.dumps(invalid_profile))
+
+    oversized = _request_data()
+    oversized["capability_input"] = {"blob": "x" * 70000}
+    with pytest.raises(ValidationError, match="size"):
+        protocol.AgentWorkerRequest.model_validate_json(json.dumps(oversized))
+
+
+def test_worker_executes_read_only_capability_only_from_supplied_snapshot():
+    protocol, worker = _worker_modules()
+    request_data = _request_data()
+    request_data["capability"] = "tool.read_only"
+    request_data["allowed_capabilities"] = ["tool.read_only"]
+    request_data["capability_input"] = {"snapshot": {"state": "known"}}
+    request_data["model_output"] = {"output": {"status": "needs_tool", "tool_name": "tool.read_only", "tool_arguments_json": '{"snapshot":{"state":"known"}}'}}
+    request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(request_data))
+
+    result = worker.run_agent_worker(request)
+
+    assert result.status == "COMPLETED"
+    assert result.capability_result == {"snapshot": {"state": "known"}}
+
+
+def test_worker_cli_rejects_oversized_stdin_before_json_parsing():
+    _, worker = _worker_modules()
+    stdout = io.StringIO()
+    code = worker.main(
+        stdin=io.BytesIO(b"x" * (worker.MAX_REQUEST_BYTES + 1)),
+        stdout=stdout,
+    )
+
+    assert code == 2
+    payload = json.loads(stdout.getvalue())
+    assert payload["status"] == "BLOCKED"
+    assert payload["reason"] == "request_too_large"
+
+
+@pytest.mark.parametrize("expression", [
+    "__import__('os').system('id')",
+    "open('/etc/passwd').read()",
+    "2 ** 99",
+    "1 / 0",
+    "unknown_name + 1",
+])
+def test_worker_blocks_arbitrary_code_and_unsafe_arithmetic(expression):
+    protocol, runtime = _worker_modules()
+    request_data = _request_data()
+    request_data["capability_input"] = {"expression": expression}
+    request_data["model_output"] = {"output": {"status": "needs_tool", "tool_name": "tool.safe_expression", "tool_arguments_json": json.dumps({"expression": expression})}}
+    request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(request_data))
+
+    result = runtime.run_agent_worker(request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "capability_input_invalid"
+    assert result.capability_result == {}
+
+
+def test_model_output_is_advisory_but_capability_arguments_are_model_derived():
+    protocol, runtime = _worker_modules()
+    first_data = _request_data()
+    second_output = {
+        "output": {
+            "status": "needs_tool",
+            "tool_name": "tool.safe_expression",
+            "tool_arguments_json": '{"expression":"2 + 2"}',
+        }
+    }
+    second_data = {
+        **first_data,
+        "capability_input": {"expression": "2 + 2"},
+        "model_output": second_output,
+    }
+    first = runtime.run_agent_worker(protocol.AgentWorkerRequest.model_validate_json(json.dumps(first_data)))
+    second = runtime.run_agent_worker(protocol.AgentWorkerRequest.model_validate_json(json.dumps(second_data)))
+
+    assert first.capability_result == {"value": 391}
+    assert second.capability_result == {"value": 4}
+    assert first.output_digest != second.output_digest
+    assert first.model_output_digest != second.model_output_digest
+    assert first.model_output_role == second.model_output_role == "advisory_only"
+
+
+def test_worker_blocks_registered_but_not_yet_implemented_capability():
+    protocol, worker = _worker_modules()
+    request_data = _request_data()
+    request_data["capability"] = "task.plan"
+    request_data["allowed_capabilities"] = ["task.plan"]
+    request_data["capability_input"] = {}
+    request_data["model_output"] = {"output": {"status": "needs_tool", "tool_name": "task.plan", "tool_arguments_json": "{}"}}
+    request = protocol.AgentWorkerRequest.model_validate_json(json.dumps(request_data))
+
+    result = worker.run_agent_worker(request)
+
+    assert result.status == "BLOCKED"
+    assert result.reason == "capability_not_implemented"
+    assert result.capability_result == {}
+
+
+def test_worker_cli_rejects_malformed_json():
+    _, worker = _worker_modules()
+    stdout = io.StringIO()
+    code = worker.main(stdin=io.BytesIO(b"{not-json"), stdout=stdout)
+
+    assert code == 2
+    payload = json.loads(stdout.getvalue())
+    assert payload == {"status": "BLOCKED", "reason": "invalid_request"}

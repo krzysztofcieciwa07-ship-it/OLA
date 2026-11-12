@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "agents": [
+    {"agent_id": "hermes-001", "specialist_role": "Hermes", "execution_profile": "react"},
+    {"agent_id": "builder-001", "specialist_role": "Builder", "execution_profile": "codeact"},
+    {"agent_id": "scout-001", "specialist_role": "Scout", "execution_profile": "agentic_rag"},
+    {"agent_id": "guardian-001", "specialist_role": "Guardian", "execution_profile": "self_reflection"},
+    {"agent_id": "archivist-001", "specialist_role": "Archivist", "execution_profile": "agentic_rag"},
+    {"agent_id": "researcher-001", "specialist_role": "Researcher", "execution_profile": "agentic_rag"},
+    {"agent_id": "tester-001", "specialist_role": "Tester", "execution_profile": "codeact"},
+    {"agent_id": "devops-001", "specialist_role": "DevOps", "execution_profile": "react"},
+    {"agent_id": "sales-001", "specialist_role": "Sales", "execution_profile": "agentic_rag"},
+    {"agent_id": "finance-001", "specialist_role": "Finance", "execution_profile": "agentic_rag"}
+  ]
+}

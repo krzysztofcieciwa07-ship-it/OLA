@@ -16,7 +16,7 @@ from .models import Tenant, ApiKey, EvidenceRecord, CheckoutOrder, CheckoutOrder
 from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
-from .agent_registry import build_agent_registry
+from .agent_registry import DEFAULT_AGENT_MANIFEST, build_agent_registry, load_agent_manifest
 from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
 from .business_runtime import run_invoice_task
 from .nina import NinaOrchestrator, NinaTask, REGISTERED_TOOLS
@@ -31,7 +31,19 @@ from .paid_order_execution import execute_paid_order_job, verify_worker_token, P
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
 
 app = FastAPI(title="OLA Execution Gate")
-REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
+
+
+def _load_registered_agents():
+    manifest_path = os.getenv("OLA_AGENT_MANIFEST_PATH")
+    manifest = load_agent_manifest(manifest_path) if manifest_path else DEFAULT_AGENT_MANIFEST
+    return {agent.agent_id: agent for agent in build_agent_registry(manifest)}
+
+
+AGENT_REGISTRY = _load_registered_agents()
+DEFAULT_AGENT_ID = next(
+    (agent.agent_id for agent in AGENT_REGISTRY.values() if "agent.run" in agent.capabilities),
+    None,
+)
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
 
@@ -667,13 +679,16 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
 
-    # Preserve the original task-only API with a registered default identity.
-    agent_id = body.get("agent_id", "agent-001")
+    # The compatibility identity is a real manifest entry, not a generated ID range.
+    agent_id = body.get("agent_id", DEFAULT_AGENT_ID)
     risk = body.get("risk", "LOW")
+    agent_spec = AGENT_REGISTRY.get(agent_id) if isinstance(agent_id, str) else None
     allowed = False
     try:
-        if not isinstance(agent_id, str) or agent_id not in REGISTERED_AGENT_IDS:
+        if agent_spec is None:
             reason = "unregistered_agent"
+        elif "agent.run" not in agent_spec.capabilities:
+            reason = "agent_capability_denied"
         elif not isinstance(risk, str) or risk.upper() not in {"LOW", "HIGH"}:
             reason = "unknown_risk"
         else:
@@ -696,7 +711,10 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
     try:
         append_record(tenant_id, "execution.safety_gate", {
             "decision": "ALLOW" if allowed else "DENY",
-            "agent_id": agent_id, "risk": risk, "reason": reason,
+            "agent_id": agent_id,
+            "specialist_role": agent_spec.specialist_role if agent_spec else None,
+            "execution_profile": agent_spec.execution_profile if agent_spec else None,
+            "risk": risk, "reason": reason,
             "action": "run_agent_task",
             "task_sha256": hashlib.sha256(canonical_json(task).encode()).hexdigest(),
         })

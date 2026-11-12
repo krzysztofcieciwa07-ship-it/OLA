@@ -4,6 +4,8 @@ import ipaddress
 import json
 import operator
 import os
+import re
+import time
 import uuid
 from urllib.parse import urlsplit
 
@@ -556,11 +558,10 @@ def run_multi_agent_task(tenant_id, task, agents):
     if not agents:
         raise ValueError("agent registry must not be empty")
     agent_ids = [agent.agent_id for agent in agents]
-    roles = [agent.role for agent in agents]
     if len(set(agent_ids)) != len(agent_ids):
         raise ValueError("agent ids must be unique")
-    if len(set(roles)) != len(roles):
-        raise ValueError("agent roles must be unique")
+    if any(not isinstance(agent.role, str) or not agent.role for agent in agents):
+        raise ValueError("every agent must have a registered specialist role")
 
     run_id = str(uuid.uuid4())
     execution = []
@@ -572,6 +573,7 @@ def run_multi_agent_task(tenant_id, task, agents):
             "run_id": run_id,
             "agent_id": agent.agent_id,
             "role": agent.role,
+            "execution_profile": agent.execution_profile,
             "task_digest": _digest(task),
             "input_digest": previous_digest,
         })
@@ -579,6 +581,7 @@ def run_multi_agent_task(tenant_id, task, agents):
         execution.append({
             "agent_id": agent.agent_id,
             "role": agent.role,
+            "execution_profile": agent.execution_profile,
             "sequence": index,
             "input_digest": previous_digest,
             "output_digest": output_digest,
@@ -739,3 +742,563 @@ def verify_agent_run(tenant_id, run_id):
             "model_generated_action_results",
         ],
     }
+
+
+def run_isolated_agent_instance(
+    instance,
+    task,
+    capability,
+    capability_input=None,
+    model_output=None,
+    *,
+    provider=None,
+    provider_gateway=None,
+    run_id=None,
+    agent_instance_id=None,
+    source_commit=None,
+    supervisor=None,
+):
+    """Build a strict one-shot request and delegate it to the isolated worker supervisor.
+
+    This entrypoint never falls back to the legacy in-process runtime. A missing
+    source binding, invalid policy, unavailable Docker image, or supervisor error
+    returns BLOCKED so callers cannot mistake a local simulation for execution.
+    """
+    from .agent_protocol import AgentWorkerRequest
+    from .canonical import parse_json_object
+    from .agent_registry import AgentInstanceSpec, build_agent_registry
+    from .agent_supervisor import AgentExecution, AgentSupervisor
+
+    try:
+        if not isinstance(instance, AgentInstanceSpec):
+            raise TypeError("instance must be an AgentInstanceSpec")
+        instance = build_agent_registry([instance])[0]
+    except Exception:
+        return AgentExecution(status="BLOCKED", reason="invalid_agent_instance")
+
+    if instance.availability_status != "enabled":
+        return AgentExecution(status="BLOCKED", reason="agent_instance_disabled")
+    if not isinstance(capability, str) or capability not in instance.capabilities:
+        return AgentExecution(status="BLOCKED", reason="capability_not_in_instance_allowlist")
+
+    commit = source_commit if source_commit is not None else _runtime_source_commit()
+    if (
+        not isinstance(commit, str)
+        or len(commit) != 40
+        or any(char not in "0123456789abcdef" for char in commit)
+    ):
+        return AgentExecution(status="BLOCKED", reason="source_commit_not_trusted")
+
+    if model_output is None:
+        if not isinstance(provider, str) or not provider:
+            return AgentExecution(status="BLOCKED", reason="provider_not_configured")
+        try:
+            if provider_gateway is None:
+                from .providers.factory import build_provider_gateway
+
+                provider_gateway = build_provider_gateway(provider)
+            provider_result = provider_gateway.generate(
+                provider=provider,
+                policy=instance.provider_policy,
+                prompt=task,
+                allowed_tools=instance.capabilities,
+            )
+            from .providers.contracts import ProviderResult
+
+            if not isinstance(provider_result, ProviderResult):
+                return AgentExecution(status="BLOCKED", reason="invalid_provider_result")
+            if provider_result.fallback_used is not False or provider_result.model_output_role != "advisory_only":
+                return AgentExecution(status="BLOCKED", reason="provider_output_authority_invalid")
+            model_output = provider_result.model_dump(mode="json")
+        except Exception as exc:
+            provider_code = getattr(exc, "code", None)
+            reason = f"provider_{provider_code}" if isinstance(provider_code, str) else "provider_execution_failed"
+            return AgentExecution(status="BLOCKED", reason=reason)
+    elif provider is not None or provider_gateway is not None:
+        return AgentExecution(status="BLOCKED", reason="ambiguous_model_output_source")
+
+    try:
+        structured_output = model_output.get("output") if isinstance(model_output, dict) else None
+        if not isinstance(structured_output, dict):
+            return AgentExecution(status="BLOCKED", reason="model_output_not_structured")
+        if structured_output.get("status") != "needs_tool":
+            return AgentExecution(status="BLOCKED", reason="model_did_not_request_capability")
+        if structured_output.get("tool_name") != capability:
+            return AgentExecution(status="BLOCKED", reason="model_requested_different_capability")
+        model_arguments = parse_json_object(
+            structured_output.get("tool_arguments_json"),
+            max_bytes=16384,
+        )
+        if capability_input is not None and capability_input != model_arguments:
+            return AgentExecution(status="BLOCKED", reason="capability_input_not_model_derived")
+        capability_input = model_arguments
+    except ValueError:
+        return AgentExecution(status="BLOCKED", reason="model_tool_arguments_invalid")
+
+    try:
+        request = AgentWorkerRequest(
+            schema_version=1,
+            run_id=run_id if run_id is not None else str(uuid.uuid4()),
+            agent_id=instance.agent_id,
+            agent_instance_id=(
+                agent_instance_id if agent_instance_id is not None else str(uuid.uuid4())
+            ),
+            specialist_role=instance.specialist_role,
+            execution_profile=instance.execution_profile,
+            capability=capability,
+            allowed_capabilities=(capability,),
+            task=task,
+            capability_input=capability_input,
+            model_output=model_output,
+            source_commit=commit,
+        )
+    except Exception:
+        return AgentExecution(status="BLOCKED", reason="invalid_worker_request")
+
+    try:
+        executor = supervisor if supervisor is not None else AgentSupervisor()
+        execution = executor.execute(instance, request)
+    except Exception:
+        return AgentExecution(status="BLOCKED", reason="worker_supervisor_error")
+
+    if not isinstance(execution, AgentExecution):
+        return AgentExecution(status="BLOCKED", reason="invalid_supervisor_result")
+    return execution
+
+
+
+def run_isolated_agent_task(
+    tenant_id,
+    instance,
+    task,
+    capability,
+    capability_input=None,
+    *,
+    provider,
+    provider_gateway=None,
+    supervisor=None,
+    source_commit=None,
+    agent_instance_id=None,
+):
+    """Run one provider-backed isolated worker with a complete append-only lifecycle."""
+    from .agent_protocol import AgentWorkerRequest, digest_json as protocol_digest_json
+    from .agent_registry import AgentInstanceSpec, build_agent_registry
+    from .agent_supervisor import AgentExecution, AgentSupervisor
+    from .provenance.crypto import verify_worker_signature
+    from .providers.contracts import ProviderError, ProviderResult
+    from .providers.factory import build_provider_gateway
+
+    evidence_ids = []
+    run_id = str(uuid.uuid4())
+    instance_id = agent_instance_id if agent_instance_id is not None else str(uuid.uuid4())
+    commit = source_commit if source_commit is not None else _runtime_source_commit()
+
+    def result(status, reason=None, execution=None):
+        return {
+            "status": status,
+            "run_id": run_id,
+            "execution": execution,
+            "evidence_record_ids": tuple(evidence_ids),
+            "reason": reason,
+        }
+
+    def append_event(record_type, payload):
+        record = append_evidence_atomic(
+            tenant_id,
+            record_type,
+            {"run_id": run_id, **payload},
+            deduplicate=True,
+        )
+        evidence_ids.append(record["id"])
+        return record
+
+    def finish(status, *, reason=None, execution=None, worker_count=0,
+               container_id=None, output_digest=None, model_output_digest=None):
+        try:
+            append_event("execution.run.end", {
+                "status": status,
+                "reason": reason,
+                "source_commit": commit,
+                "execution_boundary": "container",
+                "agent_id": instance.agent_id,
+                "agent_instance_id": instance_id,
+                "worker_count": worker_count,
+                "container_id": container_id,
+                "output_digest": output_digest,
+                "model_output_digest": model_output_digest,
+            })
+        except Exception:
+            return result("FINALIZATION_PENDING", "evidence_run_end_append_failed", execution)
+        return result(status, reason, execution)
+
+    def fail(stage, error_code, *, execution=None, model_output_digest=None):
+        safe_code = error_code if isinstance(error_code, str) and re.fullmatch(
+            r"[a-z0-9_]{1,80}", error_code
+        ) else "execution_failed"
+        try:
+            append_event("execution.run.error", {
+                "stage": stage,
+                "error_code": safe_code,
+                "source_commit": commit,
+            })
+        except Exception:
+            return result("FINALIZATION_PENDING", f"evidence_{stage}_error_append_failed", execution)
+        return finish(
+            "BLOCKED",
+            reason=f"{stage}_{safe_code}",
+            execution=execution,
+            model_output_digest=model_output_digest,
+        )
+
+    if not isinstance(tenant_id, str) or not tenant_id:
+        return result("BLOCKED", "tenant_id_required")
+    try:
+        if not isinstance(instance, AgentInstanceSpec):
+            raise TypeError("invalid agent instance")
+        instance = build_agent_registry([instance])[0]
+    except Exception:
+        return result("BLOCKED", "invalid_agent_instance")
+    if instance.availability_status != "enabled":
+        return result("BLOCKED", "agent_instance_disabled")
+    if not isinstance(task, str) or not task or len(task.encode("utf-8")) > 32768:
+        return result("BLOCKED", "task_invalid")
+    if not isinstance(capability, str) or capability not in instance.capabilities:
+        return result("BLOCKED", "capability_not_in_instance_allowlist")
+    if capability_input is not None and not isinstance(capability_input, dict):
+        return result("BLOCKED", "capability_input_invalid")
+    if not isinstance(commit, str) or len(commit) != 40 or any(
+        char not in "0123456789abcdef" for char in commit
+    ):
+        return result("BLOCKED", "source_commit_not_trusted")
+    if not isinstance(provider, str) or provider not in {"ollama", "openai"}:
+        return result("BLOCKED", "provider_not_explicit")
+
+    task_digest = _digest(task)
+    capability_input_digest = protocol_digest_json(capability_input) if capability_input is not None else None
+    try:
+        append_event("execution.run.start", {
+            "source_commit": commit,
+            "execution_boundary": "container",
+            "task_digest": task_digest,
+            "agent_id": instance.agent_id,
+            "agent_instance_id": instance_id,
+            "specialist_role": instance.specialist_role,
+            "execution_profile": instance.execution_profile,
+            "capability": capability,
+            "provider": provider,
+        })
+    except Exception:
+        return result("BLOCKED", "evidence_run_start_append_failed")
+
+    plan_dag = {
+        "schema_version": 1,
+        "nodes": [{
+            "agent_id": instance.agent_id,
+            "agent_instance_id": instance_id,
+            "specialist_role": instance.specialist_role,
+            "execution_profile": instance.execution_profile,
+            "capability": capability,
+            "depends_on": [],
+        }],
+        "edges": [],
+    }
+    try:
+        append_event("plan.committed", {
+            "schema_version": 1,
+            "dag": plan_dag,
+            "dag_digest": protocol_digest_json(plan_dag),
+            "allowlist": [capability],
+            "required_handoffs": [],
+            "source_commit": commit,
+        })
+    except Exception:
+        return finish("BLOCKED", reason="plan_commit_append_failed")
+
+    try:
+        executor = supervisor if supervisor is not None else AgentSupervisor()
+        if executor.registry.get(instance.agent_id) != instance:
+            return fail("preflight", "agent_not_registered")
+        if executor.expected_source_commit != commit:
+            return fail("preflight", "source_commit_not_trusted")
+        if not isinstance(executor.image_digest, str) or re.fullmatch(
+            r"sha256:[a-f0-9]{64}", executor.image_digest
+        ) is None:
+            return fail("preflight", "worker_image_digest_not_configured")
+        if executor._inspect_image() != executor.image_digest:
+            return fail("preflight", "worker_image_digest_not_locally_verified")
+    except Exception:
+        return fail("preflight", "worker_preflight_failed")
+
+    try:
+        gateway = provider_gateway if provider_gateway is not None else build_provider_gateway(provider)
+        provider_result = gateway.generate(
+            provider=provider,
+            policy=instance.provider_policy,
+            prompt=task,
+            allowed_tools=instance.capabilities,
+        )
+        if not isinstance(provider_result, ProviderResult):
+            return fail("provider", "invalid_provider_result")
+        if provider_result.provider != provider:
+            return fail("provider", "provider_identity_mismatch")
+        if provider_result.fallback_used is not False or provider_result.model_output_role != "advisory_only":
+            return fail("provider", "provider_output_authority_invalid")
+        model_output = provider_result.output
+        if model_output.status != "needs_tool":
+            return fail("provider", "model_did_not_request_capability")
+        if model_output.tool_name != capability:
+            return fail("provider", "model_requested_different_capability")
+        try:
+            model_arguments = json.loads(model_output.tool_arguments_json)
+        except (TypeError, ValueError):
+            return fail("provider", "model_tool_arguments_invalid")
+        if not isinstance(model_arguments, dict):
+            return fail("provider", "model_tool_arguments_not_object")
+        if capability_input is not None and capability_input != model_arguments:
+            return fail("capability", "capability_input_not_model_derived")
+        capability_input = model_arguments
+        capability_input_digest = protocol_digest_json(capability_input)
+        provider_dump = provider_result.model_dump(mode="json")
+        model_output_digest = protocol_digest_json(provider_dump)
+    except Exception as exc:
+        error_code = getattr(exc, "code", "provider_execution_failed")
+        return fail("provider", error_code)
+
+    try:
+        request_completed_at = time.time()
+        request_started_at = request_completed_at - (provider_result.latency_ms / 1000)
+        model_request_payload = {
+            "agent_id": instance.agent_id,
+            "agent_instance_id": instance_id,
+            "provider": provider_result.provider,
+            "model": provider_result.model,
+            "model_digest": provider_result.model_digest,
+            "request_id": provider_result.request_id,
+            "request_id_source": "ola_gateway" if provider_result.provider == "ollama" else "provider",
+            "proxy_request_id": provider_result.proxy_request_id,
+            "proxy_record_digest": provider_result.proxy_record_digest,
+            "proxy_signature": provider_result.proxy_signature,
+            "proxy_key_id": provider_result.proxy_key_id,
+            "prompt_digest": provider_result.prompt_digest,
+            "schema_digest": provider_result.schema_digest,
+            "request_started_at": request_started_at,
+            "response_received_at": request_completed_at,
+            "raw_response_digest": provider_result.raw_response_digest,
+            "output_digest": provider_result.output_digest,
+            "model_output_digest": model_output_digest,
+            "capability": capability,
+            "capability_input_digest": capability_input_digest,
+            "latency_ms": provider_result.latency_ms,
+            "fallback_used": False,
+            "model_output_role": "advisory_only",
+        }
+        append_event("model.request", model_request_payload)
+        append_event("model.response", model_request_payload)
+        append_event("agent.provider.response", model_request_payload)
+    except Exception:
+        return finish("FINALIZATION_PENDING", reason="evidence_provider_response_append_failed",
+                      model_output_digest=model_output_digest)
+
+    try:
+        append_event("capability.start", {
+            "agent_id": instance.agent_id,
+            "agent_instance_id": instance_id,
+            "capability": capability,
+            "args_digest": capability_input_digest,
+            "derived_from": model_output_digest,
+            "source_commit": commit,
+        })
+    except Exception:
+        return finish("FINALIZATION_PENDING", reason="evidence_capability_start_append_failed",
+                      model_output_digest=model_output_digest)
+
+    try:
+        execution = run_isolated_agent_instance(
+            instance,
+            task,
+            capability,
+            capability_input,
+            provider_dump,
+            run_id=run_id,
+            agent_instance_id=instance_id,
+            source_commit=commit,
+            supervisor=executor,
+        )
+    except Exception:
+        return fail("worker", "worker_execution_failed", model_output_digest=model_output_digest)
+    if not isinstance(execution, AgentExecution):
+        return finish("FINALIZATION_PENDING", reason="invalid_worker_execution_result",
+                      model_output_digest=model_output_digest)
+
+    expected_worker_request = AgentWorkerRequest(
+        schema_version=1,
+        run_id=run_id,
+        agent_id=instance.agent_id,
+        agent_instance_id=instance_id,
+        specialist_role=instance.specialist_role,
+        execution_profile=instance.execution_profile,
+        capability=capability,
+        allowed_capabilities=(capability,),
+        task=task,
+        capability_input=capability_input,
+        model_output=provider_dump,
+        source_commit=commit,
+    )
+    expected_request_digest = protocol_digest_json(expected_worker_request.model_dump(mode="json"))
+    expected_input_digest = protocol_digest_json({
+        "task": task,
+        "capability_input": capability_input,
+    })
+    expected_capability_input_digest = protocol_digest_json(capability_input)
+
+    worker_result = execution.worker_result
+    if execution.status == "COMPLETED":
+        valid_worker_proof = (
+            worker_result is not None
+            and execution.exit_code == 0
+            and execution.container_id is not None
+            and re.fullmatch(r"[a-f0-9]{64}", execution.container_id) is not None
+            and execution.image_digest == executor.image_digest
+            and worker_result.status == "COMPLETED"
+            and worker_result.run_id == run_id
+            and worker_result.agent_id == instance.agent_id
+            and worker_result.agent_instance_id == instance_id
+            and worker_result.specialist_role == instance.specialist_role
+            and worker_result.execution_profile == instance.execution_profile
+            and worker_result.capability == capability
+            and worker_result.source_commit == commit
+            and worker_result.worker_pid == 1
+            and worker_result.model_output_role == "advisory_only"
+            and worker_result.request_digest == expected_request_digest
+            and worker_result.input_digest == expected_input_digest
+            and worker_result.capability_input_digest == expected_capability_input_digest
+            and worker_result.model_output_digest == model_output_digest
+            and verify_worker_signature(
+                worker_result,
+                expected_request_digest=expected_request_digest,
+                expected_model_output_digest=model_output_digest,
+                expected_capability_input_digest=expected_capability_input_digest,
+            )
+        )
+        if not valid_worker_proof:
+            execution = AgentExecution(
+                status="BLOCKED",
+                container_id=execution.container_id,
+                image_digest=execution.image_digest,
+                worker_result=worker_result,
+                reason="worker_execution_proof_invalid",
+                exit_code=execution.exit_code,
+            )
+            worker_result = execution.worker_result
+
+    worker_payload = {
+        "agent_id": instance.agent_id,
+        "agent_instance_id": instance_id,
+        "specialist_role": instance.specialist_role,
+        "execution_profile": instance.execution_profile,
+        "capability": capability,
+        "execution_boundary": "container",
+        "source_commit": commit,
+        "status": execution.status,
+        "reason": execution.reason,
+        "container_id": execution.container_id,
+        "image_digest": execution.image_digest or executor.image_digest,
+        "worker_pid": worker_result.worker_pid if worker_result else None,
+        "exit_code": execution.exit_code,
+        "worker_nonce": worker_result.worker_nonce if worker_result else None,
+        "worker_public_key": worker_result.worker_public_key if worker_result else None,
+        "worker_signature": worker_result.worker_signature if worker_result else None,
+        "request_digest": worker_result.request_digest if worker_result else None,
+        "capability_input_digest": worker_result.capability_input_digest if worker_result else None,
+        "input_digest": worker_result.input_digest if worker_result else None,
+        "model_output_digest": worker_result.model_output_digest if worker_result else model_output_digest,
+        "output_digest": worker_result.output_digest if worker_result else None,
+        "docker_event_digest": execution.docker_event_digest,
+        "docker_started_at": execution.docker_started_at,
+        "docker_died_at": execution.docker_died_at,
+    }
+    if execution.container_id:
+        try:
+            append_event("agent.start", {
+                "agent_id": instance.agent_id,
+                "agent_instance_id": instance_id,
+                "specialist_role": instance.specialist_role,
+                "execution_profile": instance.execution_profile,
+                "container_id": execution.container_id,
+                "image_digest": execution.image_digest or executor.image_digest,
+                "worker_pubkey": worker_result.worker_public_key if worker_result else None,
+                "worker_nonce": worker_result.worker_nonce if worker_result else None,
+                "supervisor_started_at": execution.supervisor_started_at,
+                "docker_observer_status": "VERIFIED" if execution.docker_event_digest else "MISSING",
+                "docker_event_digest": execution.docker_event_digest,
+                "docker_started_at": execution.docker_started_at,
+                "docker_died_at": execution.docker_died_at,
+            })
+        except Exception:
+            return finish("FINALIZATION_PENDING", reason="evidence_agent_start_append_failed",
+                          execution=execution, worker_count=1,
+                          container_id=execution.container_id,
+                          model_output_digest=model_output_digest)
+
+    try:
+        append_event("capability.end", {
+            "agent_id": instance.agent_id,
+            "agent_instance_id": instance_id,
+            "capability": capability,
+            "args_digest": capability_input_digest,
+            "derived_from": model_output_digest,
+            "output_digest": worker_payload["output_digest"],
+            "worker_nonce": worker_payload["worker_nonce"],
+            "status": execution.status,
+        })
+    except Exception:
+        return finish("FINALIZATION_PENDING", reason="evidence_capability_end_append_failed",
+                      execution=execution, worker_count=1 if execution.container_id else 0,
+                      container_id=execution.container_id,
+                      output_digest=worker_payload["output_digest"],
+                      model_output_digest=model_output_digest)
+
+    if execution.container_id:
+        try:
+            append_event("agent.end", {
+                "agent_id": instance.agent_id,
+                "agent_instance_id": instance_id,
+                "container_id": execution.container_id,
+                "image_digest": execution.image_digest or executor.image_digest,
+                "worker_pubkey": worker_result.worker_public_key if worker_result else None,
+                "worker_sig": worker_result.worker_signature if worker_result else None,
+                "worker_nonce": worker_result.worker_nonce if worker_result else None,
+                "exit_code": execution.exit_code,
+                "output_digest": worker_payload["output_digest"],
+                "supervisor_finished_at": execution.supervisor_finished_at,
+                "docker_observer_status": "VERIFIED" if execution.docker_event_digest else "MISSING",
+                "docker_event_digest": execution.docker_event_digest,
+                "docker_started_at": execution.docker_started_at,
+                "docker_died_at": execution.docker_died_at,
+                "status": execution.status,
+            })
+        except Exception:
+            return finish("FINALIZATION_PENDING", reason="evidence_agent_end_append_failed",
+                          execution=execution, worker_count=1,
+                          container_id=execution.container_id,
+                          output_digest=worker_payload["output_digest"],
+                          model_output_digest=model_output_digest)
+
+    try:
+        append_event("agent.worker.end", worker_payload)
+    except Exception:
+        return finish("FINALIZATION_PENDING", reason="evidence_worker_end_append_failed",
+                      execution=execution, worker_count=1 if execution.container_id else 0,
+                      container_id=execution.container_id,
+                      output_digest=worker_payload["output_digest"],
+                      model_output_digest=model_output_digest)
+
+    return finish(
+        execution.status,
+        reason=execution.reason,
+        execution=execution,
+        worker_count=1 if execution.container_id else 0,
+        container_id=execution.container_id,
+        output_digest=worker_payload["output_digest"],
+        model_output_digest=model_output_digest,
+    )
