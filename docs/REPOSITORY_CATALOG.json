@@ -8,10 +8,10 @@
     "ola": {
       "full_name": "krzysztofcieciwa07-ship-it/OLA",
       "default_branch": "main",
-      "main_sha": "5e60c800b8135ad51aee6786396202e0c22d800e",
-      "branches": 195,
-      "open_pull_requests": 95,
-      "status": "CANONICAL_SOURCE_NOT_RELEASE_ACCEPTED"
+      "main_sha": "c2462b393ec6372e5a48da44a37481a96ae034ba",
+      "branches": 196,
+      "open_pull_requests": 92,
+      "status": "SOURCE_PRESENT_CI_PASS_12H_RUNTIME_VERIFIED_NOT_RELEASE_ACCEPTED"
     },
     "vantage": {
       "full_name": "krzysztofcieciwa07-ship-it/vantage",
@@ -37,9 +37,9 @@
       "role": "CANONICAL_CORE",
       "fork": false,
       "status": "SOURCE_PRESENT_NOT_RELEASE_ACCEPTED",
-      "main_sha": "5e60c800b8135ad51aee6786396202e0c22d800e",
-      "branches": 195,
-      "open_pull_requests": 95
+      "main_sha": "c2462b393ec6372e5a48da44a37481a96ae034ba",
+      "branches": 196,
+      "open_pull_requests": 92
     },
     {
       "full_name": "krzysztofcieciwa07-ship-it/vantage",
@@ -244,8 +244,50 @@
   ],
   "current_open_pr_inventory": {
     "snapshot_date": "2026-11-12",
-    "ola": 95,
+    "snapshot_timestamp_utc": "2026-11-12T11:17:32Z",
+    "ola": 92,
     "vantage": 9,
-    "note": "Counts only. Open PRs include draft and stacked work; review each PR and dependency before merge or closure."
+    "note": "Live GitHub counts. OLA has 196 branches. No identical head SHAs found among the 92 open OLA PRs. PR #59 closed as superseded by #60; PR #224 merged."
+  },
+  "snapshot_timestamp_utc": "2026-11-12T11:17:32Z",
+  "latest_verified_runtime": {
+    "workflow": "OLA 12h Autonomous Evidence Flow",
+    "run_id": 43207319361,
+    "source_sha": "c2462b393ec6372e5a48da44a37481a96ae034ba",
+    "status": "SUCCESS",
+    "evidence": [
+      "preflight success",
+      "real Ollama/NINA flow success",
+      "independent IGOR verification success",
+      "IGOR attestation verification success",
+      "fail-closed classification success"
+    ],
+    "date_utc": "2026-11-12T11:17:32Z",
+    "scope_note": "One successful 12h workflow run is not proof of full product release acceptance."
+  },
+  "cleanup_update": {
+    "closed_superseded_prs": [
+      {
+        "number": 59,
+        "replacement_pr": 60,
+        "evidence": "Replacement head was 106 commits ahead and 0 commits behind PR #59 head; branch and commits preserved."
+      }
+    ],
+    "merged_prs": [
+      {
+        "number": 224,
+        "merge_commit_sha": "c2462b393ec6372e5a48da44a37481a96ae034ba",
+        "reason": "Pass required scoped GITHUB_TOKEN permissions to reusable 12h evidence chain."
+      }
+    ],
+    "stale_branch_candidates": [
+      {
+        "pattern": "fix/agent-runtime-minimal-2 through fix/agent-runtime-minimal-11",
+        "count": 9,
+        "common_head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+        "open_prs": 0,
+        "action": "Deletion not performed; requires repository ref deletion capability."
+      }
+    ]
   }
 }
