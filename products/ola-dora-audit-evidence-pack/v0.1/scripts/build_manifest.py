@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from scripts.verify_pack import canonical_json, sha256, validate_bundle
+import yaml
+from scripts.verify_pack import ROOT, canonical_json, sha256, validate_bundle
 
 
 def build_manifest(bundle: dict[str, Any]) -> dict[str, Any]:
@@ -17,6 +18,7 @@ def build_manifest(bundle: dict[str, Any]) -> dict[str, Any]:
         for item in verdicts
         if isinstance(item, dict) and isinstance(item.get("control_id"), str)
     }
+    catalogue = yaml.safe_load((ROOT / "controls/dora/ict-change-management.yaml").read_text(encoding="utf-8"))
     evidence = bundle.get("evidence", []) if isinstance(bundle, dict) else []
     evidence_refs = []
     for item in evidence:
@@ -32,20 +34,22 @@ def build_manifest(bundle: dict[str, Any]) -> dict[str, Any]:
             "source_uri": source.get("uri"),
             "captured_at": item.get("captured_at"),
             "payload_digest": item.get("payload_digest"),
+            "binding": item.get("binding", {}),
         })
     evidence_refs.sort(key=lambda x: (str(x.get("control_id")), str(x.get("evidence_id"))))
 
     controls = []
-    for cid in sorted(verdict_by_id):
-        verdict = verdict_by_id[cid]
+    for control in catalogue["controls"]:
+        cid = control["id"]
+        verdict = verdict_by_id.get(cid, {})
         controls.append({
             "control_id": cid,
             "status": verdict.get("status", "UNKNOWN"),
             "evidence_integrity": verdict.get("evidence_integrity", "UNVERIFIED"),
             "approval_status": verdict.get("approval_status", "PENDING"),
-            "evidence_ids": sorted(verdict.get("evidence_ids", [])) if isinstance(verdict.get("evidence_ids"), list) else [],
-            "reason": verdict.get("reason", ""),
-            "reviewer": verdict.get("reviewer", {}),
+            "evidence_ids": sorted(verdict.get("evidence_ids", [])) if isinstance(verdict.get("evidence_ids"), list) and all(isinstance(x, str) for x in verdict.get("evidence_ids", [])) else [],
+            "reason": verdict.get("reason", "No control verdict supplied.") if not verdict else verdict.get("reason", ""),
+            "reviewer": verdict.get("reviewer", {}) if isinstance(verdict.get("reviewer", {}), dict) else {},
         })
 
     manifest = {
