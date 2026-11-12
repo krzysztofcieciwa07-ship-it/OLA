@@ -55,6 +55,8 @@
         "required":["control_id","status","reported_status","evidence_integrity","approval_status","required_evidence_types","missing_evidence_types","evidence_ids","reason","reviewer"],
         "properties":{
           "control_id":{"type":"string"},
+          "required_evidence_types":{"type":"array","items":{"type":"string"}},
+          "missing_evidence_types":{"type":"array","items":{"type":"string"}},
           "status":{"enum":["PASS","FAIL","PARTIAL","BLOCKED","UNKNOWN","SKIPPED","NOT_APPLICABLE"]},
           "reported_status":{"enum":["PASS","FAIL","PARTIAL","BLOCKED","UNKNOWN","SKIPPED","NOT_APPLICABLE"]},
           "evidence_integrity":{"enum":["VERIFIED","INVALID","UNVERIFIED"]},
