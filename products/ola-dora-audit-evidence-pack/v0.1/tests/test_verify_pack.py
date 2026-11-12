@@ -192,3 +192,47 @@ def test_deterministic_zip_excludes_cache_files(tmp_path):
     with zipfile.ZipFile(one) as archive:
         names = archive.namelist()
     assert names and not any("__pycache__" in n or ".pytest_cache" in n or n.endswith(".pyc") for n in names)
+
+def _set_control_evidence_payload(bundle, evidence_type, payload):
+    record = next(
+        row for row in bundle["evidence"]
+        if row["control_id"] == "DORA-CM-04" and row["evidence_type"] == evidence_type
+    )
+    record["payload"] = payload
+    record["payload_digest"] = sha256(canonical_json(payload))
+
+
+def test_requester_cannot_self_approve_even_with_recomputed_evidence_digests():
+    bundle = valid_bundle()
+    _set_control_evidence_payload(bundle, "requester_identity", {"principal_id": "person-a"})
+    _set_control_evidence_payload(bundle, "implementer_identity", {"principal_id": "person-b"})
+    _set_control_evidence_payload(bundle, "approver_identity", {"principal_id": "person-a"})
+    _set_control_evidence_payload(bundle, "role_relationship_check", {
+        "requester_principal_id": "person-a",
+        "implementer_principal_id": "person-b",
+        "approver_principal_id": "person-a",
+        "independence_status": "INDEPENDENT",
+    })
+
+    result = validate_bundle(bundle)
+
+    assert result["valid_contract"] is False
+    assert any("approver identity overlaps requester or implementer" in error for error in result["errors"])
+
+
+def test_role_relationship_check_must_match_the_three_identity_records():
+    bundle = valid_bundle()
+    _set_control_evidence_payload(bundle, "requester_identity", {"principal_id": "person-a"})
+    _set_control_evidence_payload(bundle, "implementer_identity", {"principal_id": "person-b"})
+    _set_control_evidence_payload(bundle, "approver_identity", {"principal_id": "person-c"})
+    _set_control_evidence_payload(bundle, "role_relationship_check", {
+        "requester_principal_id": "person-a",
+        "implementer_principal_id": "person-b",
+        "approver_principal_id": "someone-else",
+        "independence_status": "INDEPENDENT",
+    })
+
+    result = validate_bundle(bundle)
+
+    assert result["valid_contract"] is False
+    assert any("role relationship check does not match identity records" in error for error in result["errors"])
