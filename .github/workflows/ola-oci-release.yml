@@ -85,7 +85,7 @@ jobs:
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     needs: validate
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
@@ -276,7 +276,8 @@ jobs:
               "published_image_source_binding": "VERIFIED",
               "published_image_runtime_smoke": "VERIFIED",
               "published_image_vulnerability_scan": "VERIFIED",
-              "attestation": "VERIFIED",              "negative_tests": {
+              "attestation": "VERIFIED",
+              "negative_tests": {
                   "digest_mismatch": "BLOCKED",
                   "source_commit_mismatch": "BLOCKED",
                   "signer_workflow_mismatch": "BLOCKED"
