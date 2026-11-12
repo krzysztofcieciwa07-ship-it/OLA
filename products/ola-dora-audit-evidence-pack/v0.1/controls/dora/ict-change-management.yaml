@@ -131,3 +131,12 @@ controls:
       - {id: deployment_record, source_types: [deployment_platform]}
       - {id: post_deployment_verification, source_types: [monitoring, test_management]}
     human_review_required: true
+  - id: DORA-CM-13
+    title: Impact on existing ICT security measures is assessed and additional measures are considered
+    rts_reference: Article 17(1)(h)
+    legal_basis: [RTS-2024-1774-17]
+    objective: The potential impact of the change on existing ICT security measures is identified and assessed, including whether additional ICT security measures are required.
+    required_evidence:
+      - {id: existing_security_measure_impact, source_types: [security_assessment, risk_system, change_management_system]}
+      - {id: additional_security_measures_decision, source_types: [security_assessment, risk_system, approval_system]}
+    human_review_required: true
