@@ -1,0 +1,12 @@
+policy_id: ola.dora.sha-bound-verdict.v1
+requirements:
+  repository_identity: exact
+  change_id: exact
+  source_commit_sha: full_40_character_sha
+  release_artifact_digest: sha256_digest
+  every_evidence_record_binds_release: true
+  every_control_verdict_binds_release: true
+  every_pass_references_all_catalogue_evidence_types: true
+  every_pass_recomputes_all_payload_digests: true
+  tree_hash_equivalence_sufficient: false
+failure_mode: BLOCKED

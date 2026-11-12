@@ -1,0 +1,142 @@
+pack_id: ola.dora.ict-change-management
+pack_version: 0.1.0-draft
+status: DRAFT
+scope:
+  scenario: one ICT change from request through controlled implementation and post-implementation verification
+  regulation_scope:
+    - Regulation (EU) 2022/2554 Article 9(4)(e)
+    - Commission Delegated Regulation (EU) 2024/1774 Article 17(1)(a)-(h) and 17(9)
+  implementation_focus: software changes
+  other_change_types: hardware, firmware, systems and security parameters need manually supplied evidence in v0.1
+  article_17_9: risk-based application also covers ICT systems developed or managed outside the ICT function
+  exclusions: [complete ICT risk management framework, DORA Article 9(4)(f) patch/update policy assessment, legal sufficiency, full compliance or auditor acceptance]
+legal_sources:
+  - {id: DORA-2022-2554-9-4-e, uri: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32022R2554"}
+  - {id: RTS-2024-1774-17, uri: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1774"}
+controls:
+  - id: DORA-CM-01
+    title: Approved and documented ICT change-management process
+    rts_reference: Article 17 chapeau
+    legal_basis: [DORA-2022-2554-9-4-e]
+    objective: Policy and procedures are integrated into the overall change process, approved by appropriate management lines and supported by specific protocols.
+    required_evidence:
+      - {id: approved_policy, source_types: [policy_repository, document_management]}
+      - {id: management_approval, source_types: [approval_system, document_management]}
+      - {id: operating_protocol, source_types: [policy_repository, change_management_system]}
+    human_review_required: true
+  - id: DORA-CM-02
+    title: Changes are recorded and risk-assessed before approval
+    legal_basis: [DORA-2022-2554-9-4-e]
+    objective: Each in-scope change is uniquely recorded, assessed and approved through the controlled process.
+    required_evidence:
+      - {id: change_record, source_types: [itsm, change_management_system]}
+      - {id: risk_assessment, source_types: [itsm, risk_system]}
+      - {id: change_approval, source_types: [itsm, approval_system]}
+    human_review_required: true
+  - id: DORA-CM-03
+    title: ICT security requirements are verified
+    rts_reference: Article 17(1)(a)
+    legal_basis: [RTS-2024-1774-17]
+    objective: Applicable ICT security requirements are identified and fulfilment is checked before promotion.
+    required_evidence:
+      - {id: security_requirements, source_types: [security_policy, risk_system]}
+      - {id: security_test_results, source_types: [ci_system, security_scanner, test_management]}
+    human_review_required: true
+  - id: DORA-CM-04
+    title: Approval functions are independent from request and implementation
+    rts_reference: Article 17(1)(b)
+    legal_basis: [RTS-2024-1774-17]
+    objective: The approval function is independent under the entity's approved role model.
+    required_evidence:
+      - {id: requester_identity, source_types: [itsm, identity_provider]}
+      - {id: implementer_identity, source_types: [git_provider, ci_system, identity_provider]}
+      - {id: approver_identity, source_types: [git_provider, itsm, identity_provider]}
+      - {id: role_relationship_check, source_types: [identity_provider, hr_role_source]}
+    human_review_required: true
+  - id: DORA-CM-05
+    title: Change roles, responsibilities and planning are defined
+    rts_reference: Article 17(1)(c)(i)
+    legal_basis: [RTS-2024-1774-17]
+    objective: Roles and responsibilities ensure changes are specified and planned.
+    required_evidence:
+      - {id: roles_responsibilities, source_types: [policy_repository, itsm]}
+      - {id: change_plan, source_types: [itsm, project_management]}
+    human_review_required: true
+  - id: DORA-CM-06
+    title: An adequate transition is designed
+    rts_reference: Article 17(1)(c)(ii)
+    legal_basis: [RTS-2024-1774-17]
+    objective: An adequate transition is planned for affected ICT systems and risks.
+    required_evidence:
+      - {id: transition_plan, source_types: [itsm, release_management]}
+    human_review_required: true
+  - id: DORA-CM-07
+    title: Testing, controlled finalisation and quality assurance are evidenced
+    rts_reference: Article 17(1)(c)(iii)-(iv)
+    legal_basis: [RTS-2024-1774-17]
+    objective: Changes are tested, finalised in a controlled manner and subject to effective quality assurance.
+    required_evidence:
+      - {id: test_plan, source_types: [test_management, pull_request]}
+      - {id: test_results, source_types: [ci_system, test_management]}
+      - {id: quality_assurance, source_types: [qa_system, approval_system]}
+    human_review_required: true
+  - id: DORA-CM-08
+    title: Change purpose, scope, timeline and outcomes are documented and communicated
+    rts_reference: Article 17(1)(d)(i)-(iii)
+    legal_basis: [RTS-2024-1774-17]
+    objective: Change details are documented and communicated to relevant stakeholders.
+    required_evidence:
+      - {id: purpose_scope, source_types: [itsm, change_management_system, pull_request]}
+      - {id: implementation_timeline, source_types: [itsm, release_management]}
+      - {id: expected_outcomes, source_types: [itsm, change_management_system]}
+      - {id: change_communication, source_types: [itsm, notification_system]}
+    human_review_required: false
+  - id: DORA-CM-09
+    title: Fallback, abort and recovery procedures and responsibilities are identified
+    rts_reference: Article 17(1)(e)
+    legal_basis: [RTS-2024-1774-17]
+    objective: Fallback covers aborting a change and recovery where implementation fails.
+    required_evidence:
+      - {id: fallback_procedure, source_types: [policy_repository, release_management]}
+      - {id: abort_criteria, source_types: [change_management_system, release_management]}
+      - {id: recovery_responsibility, source_types: [policy_repository, itsm]}
+    human_review_required: true
+  - id: DORA-CM-10
+    title: Emergency changes use procedures, protocols, tools and safeguards
+    rts_reference: Article 17(1)(f)
+    legal_basis: [RTS-2024-1774-17]
+    objective: Emergency-change safeguards are adequate to the nature and urgency of the change.
+    required_evidence:
+      - {id: emergency_change_policy, source_types: [policy_repository, itsm]}
+      - {id: emergency_safeguards, source_types: [itsm, approval_system, ci_system]}
+    human_review_required: true
+  - id: DORA-CM-11
+    title: Emergency changes are documented, re-evaluated, assessed and approved after implementation
+    rts_reference: Article 17(1)(g)
+    legal_basis: [RTS-2024-1774-17]
+    objective: Emergency changes, workarounds and patches are documented and re-evaluated after implementation.
+    required_evidence:
+      - {id: emergency_change_record, source_types: [itsm, change_management_system]}
+      - {id: post_implementation_reevaluation, source_types: [risk_system, itsm]}
+      - {id: post_implementation_assessment, source_types: [itsm, approval_system]}
+      - {id: post_implementation_approval, source_types: [approval_system, itsm]}
+    human_review_required: true
+  - id: DORA-CM-12
+    title: Changes are implemented and verified in a controlled manner
+    legal_basis: [DORA-2022-2554-9-4-e]
+    objective: Implemented change is tied to the approved source and artifact, and post-implementation verification is recorded.
+    required_evidence:
+      - {id: source_commit, source_types: [git_provider]}
+      - {id: released_artifact, source_types: [build_system, registry]}
+      - {id: deployment_record, source_types: [deployment_platform]}
+      - {id: post_deployment_verification, source_types: [monitoring, test_management]}
+    human_review_required: true
+  - id: DORA-CM-13
+    title: Impact on existing ICT security measures is assessed and additional measures are considered
+    rts_reference: Article 17(1)(h)
+    legal_basis: [RTS-2024-1774-17]
+    objective: The potential impact of the change on existing ICT security measures is identified and assessed, including whether additional ICT security measures are required.
+    required_evidence:
+      - {id: existing_security_measure_impact, source_types: [security_assessment, risk_system, change_management_system]}
+      - {id: additional_security_measures_decision, source_types: [security_assessment, risk_system, approval_system]}
+    human_review_required: true

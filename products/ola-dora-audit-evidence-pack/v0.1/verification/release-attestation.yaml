@@ -1,0 +1,9 @@
+policy_id: ola.dora.pack-release-attestation.v1
+status: GENERATED_BY_MAIN_BRANCH_RELEASE_WORKFLOW
+subject_path: dist/ola-dora-audit-evidence-pack-v0.1.0.zip
+predicate_type: https://slsa.dev/provenance/v1
+signing_system: GitHub Artifact Attestations (Sigstore)
+verification_command: gh attestation verify dist/ola-dora-audit-evidence-pack-v0.1.0.zip --repo OWNER/REPOSITORY
+verification_requirements: [expected_repository, expected_workflow_identity, exact_subject_digest, verified_sigstore_signature, transparency_log_inclusion]
+claim_boundary: Attests only the pack ZIP build provenance; it does not attest customer software/deployments, validate the legal mapping or certify compliance.
+customer_artifact_attestation: NOT_IMPLEMENTED_IN_V0.1; requires separate source-platform integration and trust policy.
