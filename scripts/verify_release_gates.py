@@ -8,7 +8,7 @@ import sys
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 REQUIRED_EXACT = (
@@ -99,6 +99,7 @@ def evaluate_release_gates(*, expected_sha: str, exact_runs: list[dict[str, Any]
         "schema": "ola-release-gate-status/v1",
         "status": status,
         "expected_source_sha": expected_sha,
+        "source_ref": source_ref,
         "required_exact_gates": list(REQUIRED_EXACT),
         "reference_gates": list(REFERENCE_GATES),
         "observed": observed,
@@ -125,12 +126,27 @@ def _get_json(url: str, token: str) -> dict[str, Any]:
     return data
 
 
-def verify_release_gates(*, repository: str, expected_sha: str, token: str,
+def _verify_source_branch_head(*, base: str, source_ref: str, expected_sha: str, token: str) -> None:
+    if not source_ref.startswith("refs/heads/") or not source_ref.removeprefix("refs/heads/"):
+        raise ValueError("source_ref must be a fully qualified refs/heads/<branch> ref")
+    branch = source_ref.removeprefix("refs/heads/")
+    data = _get_json(base + "/branches/" + quote(branch, safe=""), token)
+    actual_sha = (data.get("commit") or {}).get("sha")
+    if actual_sha != expected_sha:
+        raise ReleaseGateError(
+            "source branch moved while release evidence was being collected: "
+            f"expected={expected_sha} current={actual_sha}"
+        )
+
+
+def verify_release_gates(*, repository: str, expected_sha: str, source_ref: str, token: str,
                          timeout_seconds: int = 1800, poll_seconds: int = 15) -> dict[str, Any]:
     if not repository or repository.count("/") != 1:
         raise ValueError("repository must use owner/repository form")
     if len(expected_sha) != 40 or any(c not in "0123456789abcdef" for c in expected_sha):
         raise ValueError("expected_sha must be a lowercase full 40-character Git SHA")
+    if not source_ref.startswith("refs/heads/") or not source_ref.removeprefix("refs/heads/"):
+        raise ValueError("source_ref must be a fully qualified refs/heads/<branch> ref")
     if not token:
         raise ValueError("GitHub token is required")
     if timeout_seconds < 1 or poll_seconds < 1:
@@ -144,6 +160,11 @@ def verify_release_gates(*, repository: str, expected_sha: str, token: str,
 
     while True:
         attempt += 1
+        # Recheck the branch on every poll. A newer push invalidates this candidate
+        # immediately instead of waiting for old-SHA CI runs to be cancelled.
+        _verify_source_branch_head(
+            base=base, source_ref=source_ref, expected_sha=expected_sha, token=token
+        )
         exact_data, reference_data = _get_json(exact_url, token), _get_json(reference_url, token)
         exact_runs, reference_runs = exact_data.get("workflow_runs", []), reference_data.get("workflow_runs", [])
         if not isinstance(exact_runs, list) or not isinstance(reference_runs, list):
@@ -177,13 +198,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", default=os.getenv("GITHUB_REPOSITORY"), required=os.getenv("GITHUB_REPOSITORY") is None)
     parser.add_argument("--source-sha", default=os.getenv("GITHUB_SHA"), required=os.getenv("GITHUB_SHA") is None)
+    parser.add_argument("--source-ref", default=os.getenv("GITHUB_REF"), required=os.getenv("GITHUB_REF") is None)
     parser.add_argument("--timeout-seconds", type=int, default=1800)
     parser.add_argument("--poll-seconds", type=int, default=15)
     parser.add_argument("--output", default="ola-release-gate-status.json")
     args = parser.parse_args(argv)
     try:
         result = verify_release_gates(
-            repository=args.repository, expected_sha=args.source_sha,
+            repository=args.repository, expected_sha=args.source_sha, source_ref=args.source_ref,
             token=os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN") or "",
             timeout_seconds=args.timeout_seconds, poll_seconds=args.poll_seconds,
         )
