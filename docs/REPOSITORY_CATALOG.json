@@ -18,7 +18,7 @@
       "default_branch": "main",
       "main_sha": "991445100a3ddfae85bef0d0f9f7680373658d5f",
       "branches": 28,
-      "open_pull_requests": 9,
+      "open_pull_requests": 7,
       "status": "CANONICAL_PROTOTYPE_NOT_PRODUCTION_VERIFIED"
     }
   },
@@ -48,7 +48,7 @@
       "status": "PROTOTYPE_NOT_PRODUCTION_VERIFIED",
       "main_sha": "991445100a3ddfae85bef0d0f9f7680373658d5f",
       "branches": 28,
-      "open_pull_requests": 9
+      "open_pull_requests": 7
     },
     {
       "full_name": "krzysztofcieciwa07-ship-it/ola-evidence-gateway",
@@ -244,12 +244,12 @@
   ],
   "current_open_pr_inventory": {
     "snapshot_date": "2026-11-12",
-    "snapshot_timestamp_utc": "2026-11-12T11:38:50Z",
+    "snapshot_timestamp_utc": "2026-11-12T11:54:50Z",
     "ola": 92,
-    "vantage": 9,
+    "vantage": 7,
     "note": "Live GitHub counts at snapshot time. OLA has 198 branches and 92 open PRs. No duplicate open-PR head SHAs. Five groups of identical branch head SHAs cover 18 refs and have no open PR; candidate refs recorded separately. PR #59 was superseded by #60; PR #58 was superseded by #226; PR #224 and #226 merged."
   },
-  "snapshot_timestamp_utc": "2026-11-12T11:38:50Z",
+  "snapshot_timestamp_utc": "2026-11-12T11:54:50Z",
   "latest_verified_runtime": {
     "workflow": "OLA 12h Autonomous Evidence Flow",
     "run_id": 43210488311,
@@ -342,6 +342,18 @@
     ],
     "duplicate_branch_ref_count": 18,
     "duplicate_branch_ref_groups_count": 5,
-    "branch_deletion": "NOT_PERFORMED_RULESET_BLOCKS_DELETION_AND_AVAILABLE_INTEGRATION_HAS_NO_DELETE_REF_ACTION"
+    "branch_deletion": "NOT_PERFORMED_RULESET_BLOCKS_DELETION_AND_AVAILABLE_INTEGRATION_HAS_NO_DELETE_REF_ACTION",
+    "vantage_closed_superseded_prs": [
+      {
+        "number": 15,
+        "replacement": "existing SECURITY.md on main",
+        "reason": "Generic placeholder policy contained fictional supported-version values and incomplete report instructions; current main already has repo-specific policy."
+      },
+      {
+        "number": 13,
+        "replacement_pr": 14,
+        "reason": "PR #14 head is 8 commits ahead and 0 behind PR #13 head; all PR #13 history is included. Branch preserved."
+      }
+    ]
   }
 }
