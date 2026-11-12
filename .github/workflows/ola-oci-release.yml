@@ -234,7 +234,12 @@ jobs:
           IMAGE_REF: ${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
-          docker run --rm --entrypoint python "$IMAGE_REF" -m pytest -q tests/test_core_readiness.py
+          # This suite includes legacy env-fallback cases. The immutable build-info file
+          # is verified separately above; hide it only while exercising those fallback fixtures.
+          docker run --rm \
+            -e OLA_REQUIRE_BUILD_INFO=0 \
+            -e OLA_BUILD_INFO_PATH=/tmp/ola-no-embedded-build-info.json \
+            --entrypoint python "$IMAGE_REF" -m pytest -q tests/test_core_readiness.py
           echo "PUBLISHED_IMAGE_RUNTIME_SMOKE=VERIFIED"
 
       - name: Trivy scan exact published OCI digest
