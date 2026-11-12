@@ -27,7 +27,7 @@ A local READY result means only that the supplied bundle satisfies the pack cont
 | DORA-CM-09 | {{STATUS}} | {{INTEGRITY}} | {{APPROVAL}} | {{IDS}} | {{LIMIT}} |
 | DORA-CM-10 | {{STATUS}} | {{INTEGRITY}} | {{APPROVAL}} | {{IDS}} | {{LIMIT}} |
 | DORA-CM-11 | {{STATUS}} | {{INTEGRITY}} | {{APPROVAL}} | {{IDS}} | {{LIMIT}} |
-| DORA-CM-12 | {{STATUS}} | {{INTEGRITY}} | {{APPROVAL}} | {{IDS}} | {{LIMIT}} |
+| DORA-CM-12 | {{STATUS}} | {{INTEGRITY}} | {{APPROVAL}} | {{IDS}} | {{LIMIT}} |\n| DORA-CM-13 | {{STATUS}} | {{INTEGRITY}} | {{APPROVAL}} | {{IDS}} | {{LIMIT}} |
 
 ## Integrity and source binding
 - Bundle digest: {{BUNDLE_DIGEST}}
