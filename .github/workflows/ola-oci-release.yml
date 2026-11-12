@@ -122,6 +122,34 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      - name: Reject an already stale release-candidate branch before gate polling
+        if: ${{ github.ref == 'refs/heads/security/oci-release-chain-20261112' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from urllib.request import Request, urlopen
+          repository = os.environ["GITHUB_REPOSITORY"]
+          branch = os.environ["GITHUB_REF_NAME"]
+          url = f"https://api.github.com/repos/{repository}/branches/{branch}"
+          request = Request(url, headers={
+              "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "ola-release-candidate-gate/1.0",
+          })
+          with urlopen(request, timeout=20) as response:
+              data = json.load(response)
+          actual = data["commit"]["sha"]
+          expected = os.environ["EXPECTED_SOURCE_SHA"]
+          if actual != expected:
+              raise SystemExit(f"BLOCKED: stale queued candidate: current={actual} release={expected}")
+          print("RELEASE_CANDIDATE_BRANCH_HEAD_BEFORE_POLL=VERIFIED")
+          PY
+
       - name: Wait for full exact-source evidence gates
         env:
           GH_TOKEN: ${{ github.token }}
