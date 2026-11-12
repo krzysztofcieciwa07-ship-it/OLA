@@ -8,10 +8,10 @@
     "ola": {
       "full_name": "krzysztofcieciwa07-ship-it/OLA",
       "default_branch": "main",
-      "main_sha": "c2462b393ec6372e5a48da44a37481a96ae034ba",
-      "branches": 196,
+      "main_sha": "e0b5ca8eefb58cb151f2dddf61552c201bacabad",
+      "branches": 198,
       "open_pull_requests": 92,
-      "status": "SOURCE_PRESENT_CI_PASS_12H_RUNTIME_VERIFIED_NOT_RELEASE_ACCEPTED"
+      "status": "SOURCE_PRESENT_CI_PASS_12H_RUNTIME_VERIFIED_EVIDENCE_LIST_API_MERGED_NOT_RELEASE_ACCEPTED"
     },
     "vantage": {
       "full_name": "krzysztofcieciwa07-ship-it/vantage",
@@ -37,8 +37,8 @@
       "role": "CANONICAL_CORE",
       "fork": false,
       "status": "SOURCE_PRESENT_12H_RUNTIME_VERIFIED_NOT_RELEASE_ACCEPTED",
-      "main_sha": "c2462b393ec6372e5a48da44a37481a96ae034ba",
-      "branches": 196,
+      "main_sha": "e0b5ca8eefb58cb151f2dddf61552c201bacabad",
+      "branches": 198,
       "open_pull_requests": 92
     },
     {
@@ -244,16 +244,16 @@
   ],
   "current_open_pr_inventory": {
     "snapshot_date": "2026-11-12",
-    "snapshot_timestamp_utc": "2026-11-12T11:17:32Z",
+    "snapshot_timestamp_utc": "2026-11-12T11:38:50Z",
     "ola": 92,
     "vantage": 9,
-    "note": "Live GitHub counts. OLA has 196 branches. No identical head SHAs found among the 92 open OLA PRs. PR #59 closed as superseded by #60; PR #224 merged."
+    "note": "Live GitHub counts at snapshot time. OLA has 198 branches and 92 open PRs. No duplicate open-PR head SHAs. Five groups of identical branch head SHAs cover 18 refs and have no open PR; candidate refs recorded separately. PR #59 was superseded by #60; PR #58 was superseded by #226; PR #224 and #226 merged."
   },
-  "snapshot_timestamp_utc": "2026-11-12T11:17:32Z",
+  "snapshot_timestamp_utc": "2026-11-12T11:38:50Z",
   "latest_verified_runtime": {
     "workflow": "OLA 12h Autonomous Evidence Flow",
-    "run_id": 43207319361,
-    "source_sha": "c2462b393ec6372e5a48da44a37481a96ae034ba",
+    "run_id": 43210488311,
+    "source_sha": "e0b5ca8eefb58cb151f2dddf61552c201bacabad",
     "status": "SUCCESS",
     "evidence": [
       "preflight success",
@@ -262,7 +262,7 @@
       "IGOR attestation verification success",
       "fail-closed classification success"
     ],
-    "date_utc": "2026-11-12T11:17:32Z",
+    "date_utc": "2026-11-12T11:38:50Z",
     "scope_note": "One successful 12h workflow run is not proof of full product release acceptance."
   },
   "cleanup_update": {
@@ -271,6 +271,11 @@
         "number": 59,
         "replacement_pr": 60,
         "evidence": "Replacement head was 106 commits ahead and 0 commits behind PR #59 head; branch and commits preserved."
+      },
+      {
+        "number": 58,
+        "replacement_pr": 226,
+        "evidence": "Tenant-scoped GET /evidence was ported to current main; legacy API-key fixture replaced with api_key_fingerprint; 21/21 checks passed; old branch preserved."
       }
     ],
     "merged_prs": [
@@ -278,16 +283,65 @@
         "number": 224,
         "merge_commit_sha": "c2462b393ec6372e5a48da44a37481a96ae034ba",
         "reason": "Pass required scoped GITHUB_TOKEN permissions to reusable 12h evidence chain."
+      },
+      {
+        "number": 226,
+        "merge_commit_sha": "e0b5ca8eefb58cb151f2dddf61552c201bacabad",
+        "reason": "Add tenant-scoped read-only evidence collection API with bounded pagination, authentication and tenant-isolation tests."
       }
     ],
-    "stale_branch_candidates": [
+    "duplicate_branch_ref_groups": [
       {
-        "pattern": "fix/agent-runtime-minimal-2 through fix/agent-runtime-minimal-11",
-        "count": 9,
-        "common_head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
-        "open_prs": 0,
-        "action": "Deletion not performed; requires repository ref deletion capability."
+        "head_sha": "6dff9c43ccd5a6892a50d1f59363d232b07ceafb",
+        "branches": [
+          "feat/ola-staging-bff-bootstrap-clean-20261108",
+          "integration/jev-decision-fabric-20261106"
+        ],
+        "open_prs": 0
+      },
+      {
+        "head_sha": "8e56b33df9a3e2806f3709fca90b07e4e595d28f",
+        "branches": [
+          "feat/runtime-image-attestation-20261107",
+          "integration/ola-first-five-closure-20261106",
+          "integration/replit-bff-recovery-20261107"
+        ],
+        "open_prs": 0
+      },
+      {
+        "head_sha": "c87cb3c8a798fece4ee18f73ecc648e397b23c24",
+        "branches": [
+          "fix/agent-runtime-minimal-2",
+          "fix/agent-runtime-minimal-3",
+          "fix/agent-runtime-minimal-4",
+          "fix/agent-runtime-minimal-5",
+          "fix/agent-runtime-minimal-7",
+          "fix/agent-runtime-minimal-8",
+          "fix/agent-runtime-minimal-9",
+          "fix/agent-runtime-minimal-10",
+          "fix/agent-runtime-minimal-11"
+        ],
+        "open_prs": 0
+      },
+      {
+        "head_sha": "3f39ff8c1b705b501d86fcfa9572604596906e65",
+        "branches": [
+          "fix/agent-runtime-source-binding-20261105",
+          "verify/pr170-final-head-20261105"
+        ],
+        "open_prs": 0
+      },
+      {
+        "head_sha": "9990e9f990cee87bc0d00c5c99566d4e436238f0",
+        "branches": [
+          "fix/final-production-gate-20261006",
+          "fix/final-production-gate-stage-20261006"
+        ],
+        "open_prs": 0
       }
-    ]
+    ],
+    "duplicate_branch_ref_count": 18,
+    "duplicate_branch_ref_groups_count": 5,
+    "branch_deletion": "NOT_PERFORMED_RULESET_BLOCKS_DELETION_AND_AVAILABLE_INTEGRATION_HAS_NO_DELETE_REF_ACTION"
   }
 }
