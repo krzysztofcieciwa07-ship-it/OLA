@@ -66,6 +66,11 @@ jobs:
 
   real_ollama_flow:
     needs: preflight
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/nina-igor-ollama.yml
 
   classify:
