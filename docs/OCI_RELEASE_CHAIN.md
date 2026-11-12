@@ -10,10 +10,11 @@ This workflow does not deploy to Railway or approve production. Its evidence man
 
 - Pull requests targeting `main`: run policy tests, release-gate policy tests, and build `linux/amd64` without publishing.
 - Pushes to `main`: validate first, then enter the publisher job.
+- Pushes to the fixed release-candidate branch `security/oci-release-chain-20261112`: the publisher may run only when `github.actor` is the repository owner account `krzysztofcieciwa07-ship-it`; it still requires all exact-source gates to pass.
 - Manual dispatch on `main`: same publisher policy; every required exact-source gate must already be successful.
 - Manual dispatch on any other branch: validate/build only; no registry publication.
 
-The PR validation job has only `contents:read`. The separate main publisher receives `actions:read`, `packages:write`, `attestations:write`, and `id-token:write`. The publisher waits for the full exact-source evidence set used by Final Production Gate, including the nested independent Ollama IGOR job and the Frontier Baseline reference. Missing or pending gates are polled for at most 30 minutes; a failed gate or timeout blocks publication.
+The PR validation job has only `contents:read`. The separate publisher receives `actions:read`, `packages:write`, `attestations:write`, and `id-token:write`, and its source-branch condition is restricted to `main` or the fixed owner-controlled release-candidate branch. The publisher waits for the full exact-source evidence set used by Final Production Gate, including the nested independent Ollama IGOR job and the Frontier Baseline reference. Missing or pending gates are polled for at most 30 minutes; a failed gate or timeout blocks publication.
 
 The workflow checks out and asserts the exact event SHA before building. It passes that SHA into `OLA_SOURCE_COMMIT` and the OCI revision label.
 
@@ -51,7 +52,7 @@ Making the package public is a separate owner decision and is not automated here
 
 The Railway connector used for this project cannot attach credentials to a private image source. Therefore, the first switch to a private GHCR digest must be configured in the Railway dashboard after the account plan and credential prerequisites are confirmed. Do not stage or accept a deployment until image pull access is in place.
 
-**Merge safety:** the current staging API and Worker source the repository's `main` branch through Railpack. Merging this PR to `main` can trigger an independent Railway staging deployment. Do not merge until that auto-deploy path has been deliberately controlled or a staging deployment is explicitly authorized.
+**Merge safety:** the current staging API and Worker source the repository's `main` branch through Railpack. Merging this PR to `main` can trigger an independent Railway staging deployment. The fixed owner-controlled candidate branch is used to obtain the first GHCR digest and attestation without merging to `main`. Do not merge until that auto-deploy path has been deliberately controlled or a staging deployment is explicitly authorized.
 
 ## Deployment hand-off
 
