@@ -1,15 +1,15 @@
 # Katalog repozytoriów OLA di-OS — stan i źródło prawdy
 
-Snapshot: **2026-11-12 11:38 UTC** · kontrolowane konto GitHub: **krzysztofcieciwa07-ship-it** · zakres: 9 repozytoriów publicznych tego konta oraz wskazane repozytoria powiązane z kontem **krzys167-crypto**.
+Snapshot: **2026-11-12 11:54 UTC** · kontrolowane konto GitHub: **krzysztofcieciwa07-ship-it** · zakres: 9 repozytoriów publicznych tego konta oraz wskazane repozytoria powiązane z kontem **krzys167-crypto**.
 
-> Ten dokument jest rejestrem pochodzenia i odpowiedzialności, nie deklaracją gotowości produktu. STATUS ≠ CI ≠ RUNTIME ≠ VERIFIED. Wartości SHA oraz liczby gałęzi/PR zostały odświeżone z GitHub API 2026-11-12 11:38 UTC. Nie wolno podejmować merge, usuwania repozytorium ani synchronizacji forków na podstawie samej nazwy.
+> Ten dokument jest rejestrem pochodzenia i odpowiedzialności, nie deklaracją gotowości produktu. STATUS ≠ CI ≠ RUNTIME ≠ VERIFIED. Wartości SHA oraz liczby gałęzi/PR zostały odświeżone z GitHub API 2026-11-12 11:54 UTC. Nie wolno podejmować merge, usuwania repozytorium ani synchronizacji forków na podstawie samej nazwy.
 
 ## 1. Jedno źródło prawdy dla własnych produktów
 
 | Produkt | Kanoniczne repozytorium | Główna gałąź / SHA | Gałęzie | Otwarte PR-y | Decyzja |
 |---|---|---|---:|---:|---|
 | OLA di-OS | [krzysztofcieciwa07-ship-it/OLA](https://github.com/krzysztofcieciwa07-ship-it/OLA) | main · e0b5ca8eefb58cb151f2dddf61552c201bacabad | 198 | 92 | **JEDYNE KANONICZNE REPO OLA** |
-| Vantage | [krzysztofcieciwa07-ship-it/vantage](https://github.com/krzysztofcieciwa07-ship-it/vantage) | main · 991445100a3ddfae85bef0d0f9f7680373658d5f | 28 | 9 | **JEDYNE KANONICZNE REPO VANTAGE** |
+| Vantage | [krzysztofcieciwa07-ship-it/vantage](https://github.com/krzysztofcieciwa07-ship-it/vantage) | main · 991445100a3ddfae85bef0d0f9f7680373658d5f | 28 | 7 | **JEDYNE KANONICZNE REPO VANTAGE** |
 
 Reguła od teraz: nowe zmiany OLA rozwijamy wyłącznie w kanonicznym repozytorium OLA, a Vantage wyłącznie w kanonicznym repozytorium Vantage. Drugie konto nie jest równoległym miejscem rozwoju. Nie oznacza to jednak, że każda jego gałąź jest zbędna — patrz sekcja 3.
 
@@ -22,7 +22,7 @@ Reguła od teraz: nowe zmiany OLA rozwijamy wyłącznie w kanonicznym repozytori
 
 ### Stan porządku w repo Vantage
 
-- 28 gałęzi i 9 otwartych PR-ów (odczyt GitHub API, 2026-11-12).
+- 28 gałęzi i 7 otwartych PR-ów (odczyt GitHub API, 2026-11-12 11:54 UTC). PR #15 zamknięto jako zastąpiony istniejącą polityką bezpieczeństwa w `main`; PR #13 zamknięto jako zastąpiony przez #14, który zawiera całą jego historię oraz 8 kolejnych commitów.
 - Klasyczna ochrona `main` jest wyłączona (`protected: false`); nie znaleziono aktywnego rulesetu repozytorium.
 - PR #32 ze standardem repozytorium i poprawką weryfikacji provenance został scalony 2026-11-11 do SHA `991445100a3ddfae85bef0d0f9f7680373658d5f`. `Vantage Verify`, niezależny verifier provenance i CFR-18 przeszły na `main`.
 - PR #19 pozostaje otwarty jako Draft. Pozostałe PR-y i gałęzie CFR-18 wymagają klasyfikacji przed zamknięciem lub usunięciem.
