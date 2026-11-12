@@ -53,6 +53,21 @@ jobs:
           assert result["state_counts"]["UNKNOWN"] == 12, result
           print("DEMO_BUNDLE=VALID_BUT_NOT_READY")
           PY
+      - name: Build the primary Evidence Manifest
+        run: |
+          set -euo pipefail
+          python scripts/build_manifest.py examples/unverified-demo-bundle.json --output "$RUNNER_TEMP/demo-evidence-manifest.json"
+          python - "$RUNNER_TEMP/demo-evidence-manifest.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          assert manifest["schema_version"] == "ola.evidence-manifest.v0.1", manifest
+          assert manifest["evaluation"]["status"] == "NOT_READY", manifest
+          assert manifest["summary"]["control_state_counts"]["UNKNOWN"] == 12, manifest
+          assert manifest["manifest_digest"].startswith("sha256:"), manifest
+          print("EVIDENCE_MANIFEST=GENERATED_AND_FAIL_CLOSED")
+          PY
       - name: Run contract and negative tests
         run: python -m pytest -q
       - name: Build deterministic distribution ZIP
