@@ -53,6 +53,8 @@ jobs:
           assert result["state_counts"]["UNKNOWN"] == 13, result
           print("DEMO_BUNDLE=VALID_BUT_NOT_READY")
           PY
+      - name: Run contract and negative tests
+        run: python -m pytest -q
       - name: Build the primary Evidence Manifest
         run: |
           set -euo pipefail
@@ -68,8 +70,6 @@ jobs:
           assert manifest["manifest_digest"].startswith("sha256:"), manifest
           print("EVIDENCE_MANIFEST=GENERATED_AND_FAIL_CLOSED")
           PY
-      - name: Run contract and negative tests
-        run: python -m pytest -q
       - name: Build deterministic distribution ZIP
         run: python scripts/build_pack.py --output dist/ola-dora-audit-evidence-pack-v0.1.0.zip
       - name: Upload pack archive
