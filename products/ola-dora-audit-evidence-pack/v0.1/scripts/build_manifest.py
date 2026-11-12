@@ -4,15 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from scripts.verify_pack import ROOT, canonical_json, sha256, validate_bundle
+from scripts.verify_pack import canonical_json, sha256, validate_bundle
 
 
 def build_manifest(bundle: dict[str, Any]) -> dict[str, Any]:
     """Build a deterministic, source-bound manifest; never upgrades a non-pass."""
     validation = validate_bundle(bundle)
     release = bundle.get("release", {}) if isinstance(bundle, dict) else {}
-    catalogue = json.loads("null")  # keep the manifest independent of a graph/runtime service
-    del catalogue
     verdicts = bundle.get("control_verdicts", []) if isinstance(bundle, dict) else []
     verdict_by_id = {
         item.get("control_id"): item
