@@ -69,16 +69,18 @@
       "type":"array",
       "items":{
         "type":"object",
-        "required":["evidence_id","control_id","evidence_type","source_system","source_record_id","source_uri","captured_at","payload_digest"],
+        "required":["evidence_id","tenant_id","control_id","evidence_type","source_system","source_record_id","source_uri","captured_at","payload_digest","binding"],
         "properties":{
           "evidence_id":{"type":["string","null"]},
+          "tenant_id":{"type":["string","null"]},
           "control_id":{"type":["string","null"]},
           "evidence_type":{"type":["string","null"]},
           "source_system":{"type":["string","null"]},
           "source_record_id":{"type":["string","null"]},
           "source_uri":{"type":["string","null"]},
           "captured_at":{"type":["string","null"]},
-          "payload_digest":{"type":["string","null"]}
+          "payload_digest":{"type":["string","null"]},
+          "binding":{"type":"object","required":["repository","change_id","commit_sha","artifact_digest"],"properties":{"repository":{"type":"string"},"change_id":{"type":"string"},"commit_sha":{"type":"string","pattern":"^[a-f0-9]{40}$"},"artifact_digest":{"type":"string","pattern":"^sha256:[a-f0-9]{64}$"}},"additionalProperties":false}
         },
         "additionalProperties":false
       }
