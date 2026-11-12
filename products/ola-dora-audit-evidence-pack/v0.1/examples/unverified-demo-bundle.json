@@ -1,0 +1,243 @@
+{
+  "schema_version": "ola.dora.audit-bundle.v0.1",
+  "pack_id": "ola.dora.ict-change-management",
+  "pack_version": "0.1.0-draft",
+  "tenant_id": "synthetic-tenant",
+  "release": {
+    "repository": "example.invalid/customer/service",
+    "change_id": "DEMO-ONLY-0001",
+    "commit_sha": "1111111111111111111111111111111111111111",
+    "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "evidence": [],
+  "control_verdicts": [
+    {
+      "control_id": "DORA-CM-01",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-02",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-03",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-04",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-05",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-06",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-07",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-08",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-09",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-10",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-11",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    },
+    {
+      "control_id": "DORA-CM-12",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
+    }
+  ]
+}

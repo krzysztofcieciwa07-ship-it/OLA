@@ -1,0 +1,20 @@
+graph_id: ola.dora.ict-change-management.v0.1
+representation: versioned_yaml_relationships
+database: none
+edges:
+  - {requirement: DORA-2022-2554-9-4-e, controls: [DORA-CM-01, DORA-CM-02, DORA-CM-12]}
+  - {requirement: RTS-2024-1774-17(1)(a), controls: [DORA-CM-03]}
+  - {requirement: RTS-2024-1774-17(1)(b), controls: [DORA-CM-04]}
+  - {requirement: RTS-2024-1774-17(1)(c)(i), controls: [DORA-CM-05]}
+  - {requirement: RTS-2024-1774-17(1)(c)(ii), controls: [DORA-CM-06]}
+  - {requirement: RTS-2024-1774-17(1)(c)(iii)-(iv), controls: [DORA-CM-07]}
+  - {requirement: RTS-2024-1774-17(1)(d)(i)-(iii), controls: [DORA-CM-08]}
+  - {requirement: RTS-2024-1774-17(1)(e), controls: [DORA-CM-09]}
+  - {requirement: RTS-2024-1774-17(1)(f), controls: [DORA-CM-10]}
+  - {requirement: RTS-2024-1774-17(1)(g), controls: [DORA-CM-11]}
+  - {requirement: RTS-2024-1774-17(9), controls: [DORA-CM-01, DORA-CM-02, DORA-CM-03, DORA-CM-04, DORA-CM-05, DORA-CM-06, DORA-CM-07, DORA-CM-08, DORA-CM-09, DORA-CM-10, DORA-CM-11, DORA-CM-12]}
+edge_semantics:
+  requirement_to_control: draft_product_mapping_not_legal_conclusion
+  control_to_evidence: required_evidence_types_in_control_catalogue
+  evidence_to_source: source_types_in_control_catalogue
+  evidence_to_verification: canonical_payload_digest_and_exact_release_binding
