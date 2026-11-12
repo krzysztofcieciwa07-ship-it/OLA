@@ -13,7 +13,9 @@ on:
       - web/**
       - .github/workflows/ola-oci-release.yml
   push:
-    branches: [main]
+    branches:
+      - main
+      - security/oci-release-chain-20261112
     paths:
       - Dockerfile
       - .dockerignore
@@ -82,7 +84,7 @@ jobs:
             org.opencontainers.image.title=OLA di-OS
 
   publish-attested:
-    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/security/oci-release-chain-20261112' && github.actor == 'krzysztofcieciwa07-ship-it')) }}
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -203,7 +205,7 @@ jobs:
             --digest "${{ steps.image.outputs.digest }}" \
             --repository "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ola-oci-release.yml" \
-            --source-ref refs/heads/main \
+            --source-ref "$GITHUB_REF" \
             --source-sha "${{ steps.source.outputs.sha }}"
 
       - name: Prove fail-closed behavior for digest, source and signer mutations
@@ -220,7 +222,7 @@ jobs:
             if python scripts/verify_oci_attestation.py \
               --image "$IMAGE_NAME" \
               --repository "$GITHUB_REPOSITORY" \
-              --source-ref refs/heads/main \
+              --source-ref "$GITHUB_REF" \
               "$@"; then
               echo "::error::Negative mutation was accepted: $label"
               exit 1
@@ -269,7 +271,7 @@ jobs:
           manifest = {
               "schema": "ola-oci-release-evidence/v1",
               "source_repository": os.environ["GITHUB_REPOSITORY"],
-              "source_ref": "refs/heads/main",
+              "source_ref": os.environ["GITHUB_REF"],
               "source_commit_sha": source_sha,
               "image": image,
               "image_digest": digest,
