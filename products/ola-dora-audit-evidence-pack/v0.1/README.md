@@ -100,3 +100,30 @@ MVP success after 30 days is not a code-volume target. It is:
 The MVP must make it clear that PASS, evidence integrity and human approval are separate dimensions. SKIPPED and NOT_APPLICABLE never count as PASS. A valid digest does not prove the truth of the source or legal compliance.
 
 Success is measured by validated/invalidated hypotheses, customer time saved, paid pilot commitments and eventually renewals — not lines of code, module count, dashboard views, stars or downloads.
+
+
+## Decision Charter — first 60 days
+The Evidence Manifest is the product. Collectors, validation code, CI workflows and agents are implementation means, not product outcomes.
+
+North Star: **OLA Integrity Layer shortens the path from a code change to an audit-usable evidence record.**
+
+One problem: translating technical artefacts into DORA ICT change-management evidence.  
+One customer: a regulated financial entity.  
+One process: ICT change management.
+
+Critical hypotheses:
+- H1 — Auditor acceptance: can an external auditor understand and judge a sample manifest without the builder explaining it?
+- H2 — Pain: is manual evidence collection sufficiently costly and disruptive to justify change?
+- H3 — Willingness to pay: will a budget owner commit to a priced paid pilot, not merely praise a demo?
+- H4 — Technical value: does SHA-bound evidence matter to the buyer, beyond a readable report?
+
+For the next 60 days, do not build a Knowledge Graph, dashboard, AI auditor, NIS2/ISO 27001/SOC 2 packs, marketplace or multi-tenant platform. Keep those in the strategic backlog. Any proposed feature must state which of H1–H4 it tests and what observable result would change the decision.
+
+MVP success after 30 days is not a code-volume target. It is:
+1. one working DORA Evidence Manifest for one real change on one repository;
+2. one end-to-end demonstration from request/approval through PR, test, commit, released artefact and verification;
+3. H1–H4 each marked validated, falsified or still unknown, with evidence from at least five customer/auditor conversations and a priced-pilot discussion.
+
+The MVP must make it clear that PASS, evidence integrity and human approval are separate dimensions. SKIPPED and NOT_APPLICABLE never count as PASS. A valid digest does not prove the truth of the source or legal compliance.
+
+Success is measured by validated/invalidated hypotheses, customer time saved, paid pilot commitments and eventually renewals — not lines of code, module count, dashboard views, stars or downloads.
