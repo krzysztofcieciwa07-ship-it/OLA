@@ -129,7 +129,8 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --source-sha "${{ steps.source.outputs.sha }}" \
             --timeout-seconds 1800 \
-            --poll-seconds 15
+            --poll-seconds 15 \
+            --output ola-release-gate-status.json
 
       - name: Authenticate to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -179,7 +180,8 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}
-          format: table
+          format: sarif
+          output: trivy-image-results.sarif
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: true
@@ -298,5 +300,7 @@ jobs:
           path: |
             ola-oci-release-manifest.json
             ola-oci-release-manifest.sha256
+            ola-release-gate-status.json
+            trivy-image-results.sarif
           if-no-files-found: error
           retention-days: 90
