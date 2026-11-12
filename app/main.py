@@ -28,7 +28,7 @@ from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
 from .order_approval import approve_paid_order, PaidOrderApprovalRejected
 from .paid_order_execution import execute_paid_order_job, verify_worker_token, PaidOrderExecutionRejected
-from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
+from .report_review import approve_paid_order_report, deliver_paid_order_report, acknowledge_paid_order_report, PaidReportReviewRejected
 
 app = FastAPI(title="OLA Execution Gate")
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
@@ -869,6 +869,25 @@ def retrieve_checkout_order_report(
     try:
         return deliver_paid_order_report(
             tenant_id=tenant_id, requester_id=requester_id, order_id=order_id,
+        )
+    except PaidReportReviewRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
+
+
+@app.post("/checkout-orders/{order_id}/report/acknowledge")
+def acknowledge_checkout_order_report(
+    order_id: str,
+    body: dict,
+    authorization: str | None = Header(default=None),
+):
+    tenant_id, requester_id = bearer_identity(authorization)
+    try:
+        return acknowledge_paid_order_report(
+            tenant_id=tenant_id,
+            requester_id=requester_id,
+            order_id=order_id,
+            response_evidence_id=body.get("response_evidence_id"),
+            report_sha256=body.get("report_sha256"),
         )
     except PaidReportReviewRejected as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
