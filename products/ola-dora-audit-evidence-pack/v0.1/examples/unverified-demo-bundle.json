@@ -238,6 +238,25 @@
         "role": "none",
         "approved_at": "2026-11-12T00:00:00Z"
       }
+    },
+    {
+      "control_id": "DORA-CM-13",
+      "status": "UNKNOWN",
+      "evidence_integrity": "UNVERIFIED",
+      "approval_status": "PENDING",
+      "evidence_ids": [],
+      "binding": {
+        "repository": "example.invalid/customer/service",
+        "change_id": "DEMO-ONLY-0001",
+        "commit_sha": "1111111111111111111111111111111111111111",
+        "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "reason": "Synthetic demo; no authoritative evidence attached.",
+      "reviewer": {
+        "identity": "none",
+        "role": "none",
+        "approved_at": "2026-11-12T00:00:00Z"
+      }
     }
   ]
 }
