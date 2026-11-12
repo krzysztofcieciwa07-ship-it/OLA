@@ -252,6 +252,17 @@ jobs:
           exit-code: "0"
           ignore-unfixed: true
 
+      - name: Print CRITICAL/HIGH findings from the exact digest
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -s trivy-image-results.txt ]]; then
+            cat trivy-image-results.txt
+          else
+            echo "::warning::Trivy table report was not created"
+          fi
+
       - name: Enforce CRITICAL/HIGH digest policy and write SARIF
         env:
           IMAGE_REF: ${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}
