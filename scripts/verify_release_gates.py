@@ -99,7 +99,6 @@ def evaluate_release_gates(*, expected_sha: str, exact_runs: list[dict[str, Any]
         "schema": "ola-release-gate-status/v1",
         "status": status,
         "expected_source_sha": expected_sha,
-        "source_ref": source_ref,
         "required_exact_gates": list(REQUIRED_EXACT),
         "reference_gates": list(REFERENCE_GATES),
         "observed": observed,
