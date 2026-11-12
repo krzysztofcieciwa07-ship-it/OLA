@@ -249,7 +249,7 @@ jobs:
           format: table
           output: trivy-image-results.txt
           severity: CRITICAL,HIGH
-          exit-code: "0"
+          exit-code: "1"
           ignore-unfixed: true
 
       - name: Print CRITICAL/HIGH findings from the exact digest
@@ -263,7 +263,8 @@ jobs:
             echo "::warning::Trivy table report was not created"
           fi
 
-      - name: Enforce CRITICAL/HIGH digest policy and write SARIF
+      - name: Generate full SARIF diagnostics for the exact digest
+        if: always()
         env:
           IMAGE_REF: ${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}
         run: |
@@ -271,11 +272,9 @@ jobs:
           trivy image \
             --format sarif \
             --output trivy-image-results.sarif \
-            --severity CRITICAL,HIGH \
             --vuln-type os,library \
             --scanners vuln,secret \
-            --ignore-unfixed \
-            --exit-code 1 \
+            --exit-code 0 \
             "$IMAGE_REF"
 
       - name: Preserve Trivy diagnostic reports even when blocked
