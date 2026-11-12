@@ -25,7 +25,7 @@ After publishing, the workflow pulls the exact `image@sha256:...` reference and:
 1. Checks the OCI revision label against the expected source commit.
 2. Checks `/app/ola-build-info.json` inside the pulled image against the same commit.
 3. Runs `tests/test_core_readiness.py` inside that exact image.
-4. Runs Trivy against that exact published digest; CRITICAL and HIGH vulnerabilities with `ignore-unfixed=true` block the release.
+4. Runs Trivy against that exact published digest. A human-readable CRITICAL/HIGH table is generated first; a second scan writes SARIF and fails the release on any CRITICAL/HIGH finding with `ignore-unfixed=true`. Diagnostic table and SARIF are uploaded even when the blocking scan fails.
 5. Only after those checks pass, creates and verifies the attestation.
 
 The `sha-<commit>` tag is a convenience locator only. It is not the artifact identity and may be moved. The immutable identity used in all evidence and deployment hand-offs is the registry manifest digest.
@@ -37,7 +37,7 @@ The published image digest is the subject of the attestation. Verification requi
 - exact GHCR image name and full lowercase `sha256` digest;
 - GitHub OIDC issuer;
 - exact repository and signer workflow `.github/workflows/ola-oci-release.yml`;
-- source ref `refs/heads/main`;
+- exact source ref matching the release event (`GITHUB_REF`), restricted to `main` or the fixed owner-controlled candidate branch;
 - exact full 40-character source commit SHA, checked against the certificate's source repository digest;
 - SLSA provenance v1 statement whose subject contains the exact image name and digest;
 - GitHub-hosted runner (self-hosted runners are denied).
@@ -63,7 +63,7 @@ After a successful release workflow, the evidence artifact contains:
 - immutable image reference (`image@sha256:...`);
 - required CI gate verification;
 - published-image source-label/build-info verification;
-- in-image readiness test result and exact-digest Trivy result;
+- in-image readiness test result, human-readable Trivy table, exact-digest SARIF and scan result;
 - positive attestation verification and three negative-test outcomes;
 - `deployment=NOT_TRIGGERED` and `human_gate=PENDING`.
 
