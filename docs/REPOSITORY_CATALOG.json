@@ -1,0 +1,251 @@
+{
+  "schema": "ola.public-repositories.v2",
+  "snapshot_date": "2026-11-12",
+  "canonical_owner": "krzysztofcieciwa07-ship-it",
+  "inspected_secondary_owner": "krzys167-crypto",
+  "scope": "NINE_PUBLIC_REPOSITORIES_PLUS_REFERENCED_SECONDARY_ACCOUNT_REPOS",
+  "canonical_source_of_truth": {
+    "ola": {
+      "full_name": "krzysztofcieciwa07-ship-it/OLA",
+      "default_branch": "main",
+      "main_sha": "5e60c800b8135ad51aee6786396202e0c22d800e",
+      "branches": 194,
+      "open_pull_requests": 94,
+      "status": "CANONICAL_SOURCE_NOT_RELEASE_ACCEPTED"
+    },
+    "vantage": {
+      "full_name": "krzysztofcieciwa07-ship-it/vantage",
+      "default_branch": "main",
+      "main_sha": "991445100a3ddfae85bef0d0f9f7680373658d5f",
+      "branches": 28,
+      "open_pull_requests": 9,
+      "status": "CANONICAL_PROTOTYPE_NOT_PRODUCTION_VERIFIED"
+    }
+  },
+  "private_repository_excluded_from_public_total": [
+    {
+      "full_name": "krzysztofcieciwa07-ship-it/Vantage-v0.3",
+      "visibility": "private",
+      "branches": 1,
+      "source_files": 1,
+      "classification": "EMPTY_PLACEHOLDER_README_ONLY_NOT_ACTIVE"
+    }
+  ],
+  "public_repositories": [
+    {
+      "full_name": "krzysztofcieciwa07-ship-it/OLA",
+      "role": "CANONICAL_CORE",
+      "fork": false,
+      "status": "SOURCE_PRESENT_NOT_RELEASE_ACCEPTED",
+      "main_sha": "5e60c800b8135ad51aee6786396202e0c22d800e",
+      "branches": 194,
+      "open_pull_requests": 94
+    },
+    {
+      "full_name": "krzysztofcieciwa07-ship-it/vantage",
+      "role": "CANONICAL_SECURITY_GATE_PROTOTYPE",
+      "fork": false,
+      "status": "PROTOTYPE_NOT_PRODUCTION_VERIFIED",
+      "main_sha": "991445100a3ddfae85bef0d0f9f7680373658d5f",
+      "branches": 28,
+      "open_pull_requests": 9
+    },
+    {
+      "full_name": "krzysztofcieciwa07-ship-it/ola-evidence-gateway",
+      "role": "SPECIFICATION_ONLY",
+      "fork": true,
+      "parent": "krzys167-crypto/ola-evidence-gateway",
+      "main_tree_paths": 5,
+      "status": "NO_RUNTIME_IMPLEMENTATION"
+    },
+    {
+      "full_name": "krzysztofcieciwa07-ship-it/quantum-ai-chatbot",
+      "role": "SEPARATE_CHATBOT_EXPERIMENT",
+      "fork": true,
+      "parent": "krzys167-crypto/quantum-ai-chatbot",
+      "tracked_env": true,
+      "status": "NOT_NOVA_NOT_OLA_VERIFIED"
+    },
+    {
+      "full_name": "krzysztofcieciwa07-ship-it/ai",
+      "role": "EXTERNAL_REFERENCE_FORK",
+      "fork": true,
+      "parent": "vercel/ai",
+      "status": "NOT_OLA_INTEGRATED"
+    },
+    {
+      "full_name": "krzysztofcieciwa07-ship-it/cli",
+      "role": "EXTERNAL_REFERENCE_FORK",
+      "fork": true,
+      "parent": "cli/cli",
+      "status": "NOT_CODEX_CLI_NOT_OLA_INTEGRATED"
+    },
+    {
+      "full_name": "krzysztofcieciwa07-ship-it/MetaGPT",
+      "role": "EXTERNAL_REFERENCE_FORK",
+      "fork": true,
+      "parent": "FoundationAgents/MetaGPT",
+      "status": "NOT_OLA_INTEGRATED"
+    },
+    {
+      "full_name": "krzysztofcieciwa07-ship-it/swarmclaw",
+      "role": "EXTERNAL_REFERENCE_FORK",
+      "fork": true,
+      "parent": "swarmclawai/swarmclaw",
+      "status": "NOT_OLA_INTEGRATED"
+    },
+    {
+      "full_name": "krzysztofcieciwa07-ship-it/uygulamali-kriptografi",
+      "role": "EDUCATIONAL_REFERENCE_FORK",
+      "fork": true,
+      "parent": "hnfgns/uygulamali-kriptografi",
+      "status": "NOT_PRODUCT_COMPONENT"
+    }
+  ],
+  "secondary_account_repositories": [
+    {
+      "full_name": "krzys167-crypto/OLA",
+      "relationship": "FORK_OF_CANONICAL_OLA",
+      "main_sha": "d2dd11c8dd964d4c846bcab4e74b2d02b77a9f4a",
+      "compare_to_canonical": {
+        "status": "diverged",
+        "ahead_by": 235,
+        "behind_by": 54
+      },
+      "branches": 87,
+      "unique_top_level": [
+        "cfr_scenarios",
+        "governance",
+        "ola_pipeline",
+        "sales",
+        "tools"
+      ],
+      "action": "RECOVER_UNIQUE_WORK_SELECTIVELY_DO_NOT_DELETE_OR_MERGE_WHOLE_FORK",
+      "unique_files": 179,
+      "public_content_risk": {
+        "file": "sales/prospects.csv",
+        "rows": 18,
+        "observed_columns": [
+          "company",
+          "sector",
+          "stage",
+          "contact",
+          "last_action",
+          "next_due",
+          "note"
+        ],
+        "other_paths": [
+          "docs/sales/sample"
+        ],
+        "classification": "POTENTIAL_PERSONAL_OR_COMMERCIAL_DATA",
+        "values_disclosed": false,
+        "action": "RESTRICT_OR_REMOVE_PUBLIC_COPY_AFTER OWNER REVIEW; inspect history and rotate any exposed credentials"
+      }
+    },
+    {
+      "full_name": "krzys167-crypto/vantage",
+      "relationship": "FORK_OF_CANONICAL_VANTAGE",
+      "main_sha": "1dc1618879",
+      "compare_to_canonical": {
+        "status": "behind",
+        "ahead_by": 0,
+        "behind_by": 1
+      },
+      "branches": 2,
+      "action": "HISTORICAL_COPY_NO_PARALLEL_DEVELOPMENT"
+    },
+    {
+      "full_name": "krzys167-crypto/ola-evidence-gateway",
+      "relationship": "INDEPENDENT_SPECIFICATION_REPOSITORY",
+      "main_sha": "1103eb6162",
+      "main_tree_paths": 1,
+      "action": "SPECIFICATION_ONLY_MOVE_CONTRACTS_TO_OLA_DOCS_IF_NEEDED"
+    },
+    {
+      "full_name": "krzys167-crypto/quantum-ai-chatbot",
+      "relationship": "CHATBOT_EXPERIMENT_SOURCE",
+      "tracked_env": true,
+      "action": "SEPARATE_FROM_NOVA_AND_OLA"
+    }
+  ],
+  "security_notes": {
+    "active_main_ruleset": {
+      "id": 25853037,
+      "rules": [
+        "deletion",
+        "non_fast_forward"
+      ],
+      "required_reviews": false,
+      "required_status_checks": false,
+      "classic_branch_protection": false
+    },
+    "quantum_chatbot_tracked_env": {
+      "files": [
+        ".env",
+        ".env.example"
+      ],
+      "variable_names_observed": [
+        "VITE_SUPABASE_URL",
+        "VITE_SUPABASE_ANON_KEY"
+      ],
+      "values_disclosed": false,
+      "service_role_key_name_observed": false,
+      "action": "replace tracked .env with .env.example, ensure ignore, verify RLS and history",
+      "connected_fork_current_main": {
+        "tracked_env_present": false,
+        "env_example_placeholders": true,
+        "remediation_commits": {
+          "env_example": "df217a2c69335bd4094fdc430538b509cce1b948",
+          "delete_env": "4c12c36601630215c14cd0a5382fef791f7f5ef5",
+          "gitignore": "f0f23fec8270fe745754268f26f4c7cdaa7a0dd7"
+        },
+        "git_history_still_contains_prior_blobs": true,
+        "head_sha": "f0f23fec8270fe745754268f26f4c7cdaa7a0dd7",
+        "gitignore_rules": [
+          ".env",
+          ".env.*",
+          "!.env.example"
+        ]
+      },
+      "source_repo": {
+        "full_name": "krzys167-crypto/quantum-ai-chatbot",
+        "tracked_env_present": true,
+        "tracked_env_example_present": true,
+        "credential_shaped_fields": [
+          "ANTHROPIC_API_KEY",
+          "GOOGLE_CLIENT_SECRET",
+          "GOOGLE_RISC_SERVICE_ACCOUNT_PRIVATE_KEY",
+          "ELEVENLABS_API_KEY"
+        ],
+        "values_disclosed": false,
+        "validity": "UNKNOWN_NOT_TESTED",
+        "required_actions": [
+          "rotate credentials as exposed",
+          "replace public files with placeholders",
+          "inspect and remediate Git history",
+          "confirm provider/service-account revocation"
+        ]
+      }
+    },
+    "vantage_main_rulesets": {
+      "active_rulesets": [],
+      "classic_branch_protection": false
+    }
+  },
+  "release_gate": "BLOCKED",
+  "cleanup_policy": [
+    "Only canonical account repositories receive new OLA/Vantage feature work.",
+    "Do not delete or wholesale merge the divergent krzys167-crypto/OLA fork until its 235 ahead commits and unique directories have been reviewed.",
+    "Close or archive stale PRs only after classifying unique commits and replacement PRs.",
+    "Delete temporary Vantage CI branches for closed unmerged test-trigger PRs after preserving evidence.",
+    "Evidence Gateway remains specification-only unless a real tested service is implemented.",
+    "Do not republish or migrate sales/prospects.csv or docs/sales/sample from the public secondary-account fork until a privacy and provenance review is complete.",
+    "Treat credential-shaped values found in krzys167-crypto/quantum-ai-chatbot/.env.example as exposed; rotate them and sanitize the source repository and Git history. Do not copy or test the values."
+  ],
+  "current_open_pr_inventory": {
+    "snapshot_date": "2026-11-12",
+    "ola": 94,
+    "vantage": 9,
+    "note": "Counts only. Open PRs include draft and stacked work; review each PR and dependency before merge or closure."
+  }
+}

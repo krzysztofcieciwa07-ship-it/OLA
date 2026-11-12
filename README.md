@@ -183,3 +183,5 @@ Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities or preparing a 
 ## Repository governance
 
 Engineering rules, contribution steps, and the pull-request evidence format are maintained in docs/ENGINEERING_STANDARD.md, CONTRIBUTING.md, and .github/PULL_REQUEST_TEMPLATE.md. Security reporting and release-evidence requirements are defined in SECURITY.md. Dependency update checks are configured through Dependabot.
+
+Portfolio ownership and fork provenance: [Repository Catalog](docs/REPOSITORY_CATALOG.md), [machine-readable catalog](docs/REPOSITORY_CATALOG.json), and [metadata plan](docs/REPOSITORY_METADATA_PLAN.md). These are inventory records, not release-readiness claims.
