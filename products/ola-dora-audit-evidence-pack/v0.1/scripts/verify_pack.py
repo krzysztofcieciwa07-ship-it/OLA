@@ -26,6 +26,7 @@ def validate_bundle(bundle: dict) -> dict:
     catalogue = yaml.safe_load((ROOT / "controls/dora/ict-change-management.yaml").read_text(encoding="utf-8"))
     controls = catalogue["controls"]
     required = {c["id"]: {e["id"] for e in c["required_evidence"]} for c in controls}
+    source_types = {c["id"]: {e["id"]: set(e["source_types"]) for e in c["required_evidence"]} for c in controls}
     ev_schema = json.loads((ROOT / "schemas/evidence.schema.json").read_text(encoding="utf-8"))
     vd_schema = json.loads((ROOT / "schemas/control-verdict.schema.json").read_text(encoding="utf-8"))
     ev_validator = Draft202012Validator(ev_schema, format_checker=FormatChecker())
@@ -72,6 +73,8 @@ def validate_bundle(bundle: dict) -> dict:
         evidence_by_id[eid] = record
         payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
         integrity[eid] = "VERIFIED" if record.get("payload_digest") == sha256(canonical_json(payload)) else "INVALID"
+        if integrity[eid] != "VERIFIED":
+            errors.append(f"evidence {eid}: payload_digest mismatch; evidence integrity is INVALID")
         if record.get("tenant_id") != tenant:
             errors.append(f"evidence {eid}: tenant_id mismatch")
         binding = record.get("binding", {})
@@ -82,6 +85,11 @@ def validate_bundle(bundle: dict) -> dict:
         cid, etype = record.get("control_id"), record.get("evidence_type")
         if cid not in required or etype not in required[cid]:
             errors.append(f"evidence {eid}: unknown control/evidence type")
+        else:
+            allowed = source_types[cid][etype]
+            observed_source = record.get("source", {}).get("system")
+            if observed_source not in allowed:
+                errors.append(f"evidence {eid}: source.system is not allowed for {cid}/{etype}")
 
     verdicts = bundle.get("control_verdicts", [])
     if not isinstance(verdicts, list):
