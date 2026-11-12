@@ -41,10 +41,12 @@ jobs:
       - name: Validate intentionally incomplete demonstration bundle
         run: |
           set -euo pipefail
-          python scripts/verify_pack.py examples/unverified-demo-bundle.json | tee demo-validation.json
+          python scripts/verify_pack.py examples/unverified-demo-bundle.json | tee "$RUNNER_TEMP/demo-validation.json"
           python - <<'PY'
           import json
-          with open("demo-validation.json", encoding="utf-8") as stream:
+          import os
+          from pathlib import Path
+          with (Path(os.environ["RUNNER_TEMP"]) / "demo-validation.json").open(encoding="utf-8") as stream:
               result = json.load(stream)
           assert result["valid_contract"] is True, result
           assert result["ready"] is False, result
