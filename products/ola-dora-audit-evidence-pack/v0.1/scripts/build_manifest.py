@@ -4,8 +4,13 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any
+import sys
 
 import yaml
+
+PACK_ROOT = Path(__file__).resolve().parents[1]
+if str(PACK_ROOT) not in sys.path:
+    sys.path.insert(0, str(PACK_ROOT))
 
 from scripts.verify_pack import ROOT, canonical_json, sha256, validate_bundle
 
