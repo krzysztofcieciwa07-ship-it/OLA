@@ -178,6 +178,40 @@ def validate_bundle(bundle: dict) -> dict:
         if verdict.get("evidence_integrity") != observed:
             errors.append(f"{cid}: evidence_integrity must be {observed}")
 
+        # DORA CM-04: verify the declared approval identity is distinct from
+        # both the requester and implementer. This checks supplied evidence
+        # consistency only; it does not authenticate identities or HR roles.
+        if cid == "DORA-CM-04" and verdict.get("status") == "PASS":
+            records_by_type = {record.get("evidence_type"): record for record in records}
+            identity_types = ("requester_identity", "implementer_identity", "approver_identity")
+            principal_ids = {}
+            for evidence_type in identity_types:
+                identity_record = records_by_type.get(evidence_type)
+                identity_payload = _dict(identity_record.get("payload")) if identity_record else {}
+                principal_id = identity_payload.get("principal_id")
+                if not isinstance(principal_id, str) or not principal_id.strip():
+                    errors.append(f"{cid}: {evidence_type} must contain a nonempty principal_id")
+                else:
+                    principal_ids[evidence_type] = principal_id
+
+            if len(principal_ids) == len(identity_types):
+                requester_id = principal_ids["requester_identity"]
+                implementer_id = principal_ids["implementer_identity"]
+                approver_id = principal_ids["approver_identity"]
+                if approver_id in {requester_id, implementer_id}:
+                    errors.append(f"{cid}: approver identity overlaps requester or implementer")
+
+                relationship_record = records_by_type.get("role_relationship_check")
+                relationship = _dict(relationship_record.get("payload")) if relationship_record else {}
+                expected_relationship = {
+                    "requester_principal_id": requester_id,
+                    "implementer_principal_id": implementer_id,
+                    "approver_principal_id": approver_id,
+                    "independence_status": "INDEPENDENT",
+                }
+                if any(relationship.get(key) != value for key, value in expected_relationship.items()):
+                    errors.append(f"{cid}: role relationship check does not match identity records")
+
         status = verdict.get("status")
         if status == "PASS":
             observed_types = {r.get("evidence_type") for r in records}
