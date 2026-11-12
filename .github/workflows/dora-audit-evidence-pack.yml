@@ -50,7 +50,7 @@ jobs:
               result = json.load(stream)
           assert result["valid_contract"] is True, result
           assert result["ready"] is False, result
-          assert result["state_counts"]["UNKNOWN"] == 12, result
+          assert result["state_counts"]["UNKNOWN"] == 13, result
           print("DEMO_BUNDLE=VALID_BUT_NOT_READY")
           PY
       - name: Build the primary Evidence Manifest
@@ -64,7 +64,7 @@ jobs:
           manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
           assert manifest["schema_version"] == "ola.evidence-manifest.v0.1", manifest
           assert manifest["evaluation"]["status"] == "NOT_READY", manifest
-          assert manifest["summary"]["control_state_counts"]["UNKNOWN"] == 12, manifest
+          assert manifest["summary"]["control_state_counts"]["UNKNOWN"] == 13, manifest
           assert manifest["manifest_digest"].startswith("sha256:"), manifest
           print("EVIDENCE_MANIFEST=GENERATED_AND_FAIL_CLOSED")
           PY
