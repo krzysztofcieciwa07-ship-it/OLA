@@ -21,6 +21,7 @@ The catalogue contains thirteen draft control objectives. v0.1 focuses on softwa
 - SKIPPED is never PASS. NOT_APPLICABLE is never PASS. UNKNOWN is never promoted.
 - PASS requires all evidence types in the control catalogue, valid recomputed payload digests, exact repository/change/commit/artifact binding and an approved reviewer identity/role/time.
 - A SHA-256 digest establishes consistency against the recorded bytes; it does not prove source truth, collection authority, role independence or legal compliance.
+- For DORA-CM-04, the validator checks that the supplied requester, implementer and approver `principal_id` values are distinct where required, and that `role_relationship_check` matches those values. This is a consistency check over the supplied bundle; v0.1 does not authenticate identities or roles against an external identity/HR system.
 - A local READY result means only that this bundle satisfies this pack's contract. It is not legal compliance, auditor acceptance or certification.
 
 ## Contents
@@ -75,55 +76,5 @@ This attests the pack ZIP build provenance only. It does not attest customer sou
 **Legal source-text review date:** 12 November 2026. This is not legal advice. Re-check the official EUR-Lex text, corrigenda and amendments before each pack release.
 
 
-## Decision Charter — first 60 days
-The product is the Evidence Manifest. Collectors, validation code, CI workflows and agents are implementation means, not product outcomes.
-
-North Star: **OLA Integrity Layer shortens the path from a code change to an audit-usable evidence record.**
-
-One problem: translating technical artefacts into DORA ICT change-management evidence.  
-One customer: a regulated financial entity.  
-One process: ICT change management.
-
-Critical hypotheses:
-- H1 — Auditor acceptance: can an external auditor understand and judge a sample manifest without the builder explaining it?
-- H2 — Pain: is manual evidence collection sufficiently costly and disruptive to justify change?
-- H3 — Willingness to pay: will a budget owner commit to a priced paid pilot, not merely praise a demo?
-- H4 — Technical value: does SHA-bound evidence matter to the buyer, beyond a readable report?
-
-For the next 60 days, do not build a Knowledge Graph, dashboard, AI auditor, NIS2/ISO 27001/SOC 2 packs, marketplace or multi-tenant platform. Keep those in the strategic backlog. Any proposed feature must state which of H1–H4 it tests and what observable result would change the decision.
-
-MVP success after 30 days is not a code-volume target. It is:
-1. one working DORA Evidence Manifest for one real change on one repository;
-2. one end-to-end demonstration from request/approval through PR, test, commit, released artefact and verification;
-3. H1–H4 each marked validated, falsified or still unknown, with evidence from at least five customer/auditor conversations and a priced-pilot discussion.
-
-The MVP must make it clear that PASS, evidence integrity and human approval are separate dimensions. SKIPPED and NOT_APPLICABLE never count as PASS. A valid digest does not prove the truth of the source or legal compliance.
-
-Success is measured by validated/invalidated hypotheses, customer time saved, paid pilot commitments and eventually renewals — not lines of code, module count, dashboard views, stars or downloads.
-
-
-## Decision Charter — first 60 days
-The Evidence Manifest is the product. Collectors, validation code, CI workflows and agents are implementation means, not product outcomes.
-
-North Star: **OLA Integrity Layer shortens the path from a code change to an audit-usable evidence record.**
-
-One problem: translating technical artefacts into DORA ICT change-management evidence.  
-One customer: a regulated financial entity.  
-One process: ICT change management.
-
-Critical hypotheses:
-- H1 — Auditor acceptance: can an external auditor understand and judge a sample manifest without the builder explaining it?
-- H2 — Pain: is manual evidence collection sufficiently costly and disruptive to justify change?
-- H3 — Willingness to pay: will a budget owner commit to a priced paid pilot, not merely praise a demo?
-- H4 — Technical value: does SHA-bound evidence matter to the buyer, beyond a readable report?
-
-For the next 60 days, do not build a Knowledge Graph, dashboard, AI auditor, NIS2/ISO 27001/SOC 2 packs, marketplace or multi-tenant platform. Keep those in the strategic backlog. Any proposed feature must state which of H1–H4 it tests and what observable result would change the decision.
-
-MVP success after 30 days is not a code-volume target. It is:
-1. one working DORA Evidence Manifest for one real change on one repository;
-2. one end-to-end demonstration from request/approval through PR, test, commit, released artefact and verification;
-3. H1–H4 each marked validated, falsified or still unknown, with evidence from at least five customer/auditor conversations and a priced-pilot discussion.
-
-The MVP must make it clear that PASS, evidence integrity and human approval are separate dimensions. SKIPPED and NOT_APPLICABLE never count as PASS. A valid digest does not prove the truth of the source or legal compliance.
-
-Success is measured by validated/invalidated hypotheses, customer time saved, paid pilot commitments and eventually renewals — not lines of code, module count, dashboard views, stars or downloads.
+## Product governance
+The binding scope and feature-admission rules for the first 60 days are defined in [OLA Integrity Layer — Decision Charter v1.0](../../../../docs/OLA-INTEGRITY-LAYER-DECISION-CHARTER-v1.md). The Evidence Manifest is the only primary customer-facing MVP output; proposed features must directly test H1–H4.
