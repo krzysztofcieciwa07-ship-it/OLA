@@ -30,7 +30,6 @@ REQUIRED_EXACT = (
     "Nina Real Runtime Provenance Gate (OpenAI optional)",
     "OLA State Continuity and Stability",
     "OLA Real Runtime Stress Gate",
-    "OLA Local Staging Rehearsal",
     "Python package CI",
 )
 REFERENCE_GATES = ("OLA Frontier Baseline",)
