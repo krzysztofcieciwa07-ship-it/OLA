@@ -27,6 +27,7 @@ def build_manifest(bundle: dict[str, Any]) -> dict[str, Any]:
         source = item.get("source", {}) if isinstance(item.get("source"), dict) else {}
         evidence_refs.append({
             "evidence_id": item.get("evidence_id"),
+            "tenant_id": item.get("tenant_id"),
             "control_id": item.get("control_id"),
             "evidence_type": item.get("evidence_type"),
             "source_system": source.get("system"),
