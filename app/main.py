@@ -16,7 +16,8 @@ from .models import Tenant, ApiKey, EvidenceRecord, CheckoutOrder, CheckoutOrder
 from .api_key_hashing import api_key_fingerprint
 from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
 from .agent_runtime import run_agent_task
-from .agent_registry import build_agent_registry
+from .agent_catalog import EXECUTION_PROFILE_CAPABILITIES, load_agent_catalog
+from .agent_registry import DEFAULT_AGENT_ID, DEFAULT_AGENT_MANIFEST, build_agent_registry
 from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
 from .business_runtime import run_invoice_task
 from .nina import NinaOrchestrator, NinaTask, REGISTERED_TOOLS
@@ -31,7 +32,9 @@ from .paid_order_execution import execute_paid_order_job, verify_worker_token, P
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
 
 app = FastAPI(title="OLA Execution Gate")
-REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
+AGENT_CATALOG = load_agent_catalog()
+AGENT_INSTANCE_REGISTRY = tuple(build_agent_registry(DEFAULT_AGENT_MANIFEST))
+AGENT_INSTANCES_BY_ID = {instance.agent_id: instance for instance in AGENT_INSTANCE_REGISTRY}
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
 
@@ -667,36 +670,73 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
 
-    # Preserve the original task-only API with a registered default identity.
-    agent_id = body.get("agent_id", "agent-001")
+    # A task-only legacy request resolves to one explicit manifest entry; no
+    # identity or role is generated during import or at request time.
+    agent_id = body.get("agent_id", DEFAULT_AGENT_ID)
+    instance = AGENT_INSTANCES_BY_ID.get(agent_id) if isinstance(agent_id, str) else None
+    definition = AGENT_CATALOG.get(instance.role) if instance is not None else None
+    capability = (
+        EXECUTION_PROFILE_CAPABILITIES.get(instance.execution_profile)
+        if instance is not None else None
+    )
     risk = body.get("risk", "LOW")
     allowed = False
     try:
-        if not isinstance(agent_id, str) or agent_id not in REGISTERED_AGENT_IDS:
+        if instance is None:
             reason = "unregistered_agent"
+        elif definition is None:
+            reason = "unregistered_specialist"
+        elif instance.execution_profile not in definition.execution_profiles:
+            reason = "specialist_profile_denied"
+        elif capability not in definition.capability_allowlist:
+            reason = "specialist_capability_denied"
+        elif definition.availability_status != "catalogued_legacy_pipeline_only":
+            reason = "agent_unavailable"
         elif not isinstance(risk, str) or risk.upper() not in {"LOW", "HIGH"}:
             reason = "unknown_risk"
         else:
             risk = risk.upper()
-            # The HTTP caller cannot certify its own human approval. The gate
-            # checks a no-op first; runtime is unreachable without ALLOW.
+            # The caller cannot approve its own high-risk action. The legacy
+            # gate remains fail-closed while identity and specialist policy
+            # now come from the explicit registry and immutable catalogue.
             decision = AGENT_RUN_GATE.execute(
                 agent_id=agent_id, action="run_agent_task", effect=lambda: None,
                 risk=risk, human_approved=False,
             )
-            allowed = (risk == "LOW" and isinstance(decision, ExecutionDecision)
-                       and decision.status == "ALLOW")
-            reason = ("allowlisted_action" if allowed else
-                      "human_owner_approval_required" if risk == "HIGH" else
-                      "gate_denied_or_missing_decision")
+            allowed = (
+                risk == "LOW"
+                and isinstance(decision, ExecutionDecision)
+                and decision.status == "ALLOW"
+            )
+            reason = (
+                "allowlisted_action" if allowed else
+                "human_owner_approval_required" if risk == "HIGH" else
+                "gate_denied_or_missing_decision"
+            )
     except Exception:
         reason = "gate_exception"
         allowed = False
 
+    approval_policy = None
+    if definition is not None:
+        approval_policy = {
+            "human_gate_for_mutating_actions": definition.approval_policy.human_gate_for_mutating_actions,
+            "human_gate_for_external_actions": definition.approval_policy.human_gate_for_external_actions,
+            "self_approval_allowed": definition.approval_policy.self_approval_allowed,
+            "read_only": definition.approval_policy.read_only,
+        }
     try:
         append_record(tenant_id, "execution.safety_gate", {
             "decision": "ALLOW" if allowed else "DENY",
-            "agent_id": agent_id, "risk": risk, "reason": reason,
+            "agent_id": agent_id,
+            "specialist_role": instance.role if instance is not None else None,
+            "requested_execution_profile": instance.execution_profile if instance is not None else None,
+            "requested_capability": capability,
+            "availability_status": definition.availability_status if definition is not None else None,
+            "capability_allowlist": list(definition.capability_allowlist) if definition is not None else [],
+            "provider_policy": list(definition.provider_policy.allowed_providers) if definition is not None else [],
+            "approval_policy": approval_policy,
+            "risk": risk, "reason": reason,
             "action": "run_agent_task",
             "task_sha256": hashlib.sha256(canonical_json(task).encode()).hexdigest(),
         })
@@ -704,7 +744,20 @@ def create_agent_run(body: dict, x_api_key: str | None = Header(default=None)):
         raise HTTPException(status_code=403, detail="gate evidence unavailable") from exc
     if not allowed:
         raise HTTPException(status_code=403, detail=reason)
-    return run_agent_task(tenant_id, task)
+
+    result = run_agent_task(tenant_id, task)
+    if isinstance(result, dict):
+        # The selected specialist/profile is only a request label today:
+        # run_agent_task still executes the legacy six-profile in-process path.
+        result["dispatch"] = {
+            "agent_id": instance.agent_id,
+            "specialist_role": instance.role,
+            "requested_profile": instance.execution_profile,
+            "execution_mode": "legacy_six_profile_pipeline",
+            "execution_boundary": "in_process",
+            "requested_profile_individually_dispatched": False,
+        }
+    return result
 
 
 
