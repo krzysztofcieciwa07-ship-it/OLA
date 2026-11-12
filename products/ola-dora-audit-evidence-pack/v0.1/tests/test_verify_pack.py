@@ -236,3 +236,24 @@ def test_role_relationship_check_must_match_the_three_identity_records():
 
     assert result["valid_contract"] is False
     assert any("role relationship check does not match identity records" in error for error in result["errors"])
+
+def test_manifest_builder_cli_runs_from_the_documented_pack_root_command(tmp_path):
+    output = tmp_path / "manifest.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "build_manifest.py"),
+            str(ROOT / "examples" / "unverified-demo-bundle.json"),
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    manifest = json.loads(output.read_text(encoding="utf-8"))
+    assert manifest["evaluation"]["status"] == "NOT_READY"
+    assert manifest["summary"]["control_state_counts"]["UNKNOWN"] == 13
