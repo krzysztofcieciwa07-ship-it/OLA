@@ -2,22 +2,25 @@
 
 > **For agentic workers:** Use the host's available task-by-task implementation workflow. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Produce one immutable OCI image from an exact OLA source commit, attest the registry image digest, and prove both successful verification and fail-closed rejection before any Railway deployment is considered.
+**Goal:** Produce one OCI image from an exact source commit, require the complete exact-source evidence gate, test and scan the published image by digest, attest that digest, and prove fail-closed rejection before any Railway deployment is considered.
 
-**Architecture:** GitHub Actions builds and publishes the Docker image to GHCR only for `main`; PRs build without publishing. GitHub artifact attestations bind the OCI image name and digest to the exact source commit and signer workflow. A small standard-library verifier invokes GitHub CLI and then independently checks the returned SLSA statement's subject. Railway deployment remains a separate, human-authorized stage.
+**Architecture:** GitHub Actions validates pull requests without registry permissions. The main publisher waits for the existing Final Production evidence set and the independent Ollama IGOR job, then pushes one image to GHCR, pulls the resulting digest, checks embedded source binding, runs readiness-contract tests and Trivy, and only then attests and verifies that digest. Railway remains a separate, human-authorized deployment stage.
 
-**Tech Stack:** GitHub Actions, Docker Buildx, GHCR, `actions/attest`, GitHub CLI attestations, Python 3.13 standard library, `unittest`, Railway.
+**Tech Stack:** GitHub Actions, Docker Buildx, GHCR, GitHub artifact attestations, GitHub CLI, Python 3.13 standard library, `unittest`, Trivy, Railway.
 
 ## Global Constraints
 
 - Feature Freeze: only release/supply-chain work is in scope.
-- No Railway service is changed or deployed by this release workflow.
+- No Railway service is changed or deployed by this workflow.
 - No GHCR package is made public automatically.
-- The image is identified by `image@sha256:...`, not by a mutable tag.
-- Verification must bind repository, signer workflow, branch ref, exact source commit and exact OCI digest.
-- Any missing evidence or failed verification must return non-zero.
+- PR jobs never receive registry, attestation-write or OIDC-write permissions.
+- The image identity is `image@sha256:...`; the `sha-<commit>` tag is only a convenience locator.
+- The publisher requires all exact-source Final Production evidence gates, the independent Ollama IGOR job, and the Frontier Baseline reference to pass.
+- The publisher must test and scan the **same digest** that receives the attestation.
+- Any missing, pending, failed, source-mismatched or unavailable required evidence must block publication.
 - Negative controls must reject a changed digest, changed source commit and changed signer workflow.
 - Human Gate remains pending until a separate operator decision.
+- Do not merge to `main` while Railway staging API/Worker are still configured to build automatically from `main`, unless the staging deployment path has been deliberately controlled.
 
 ---
 
@@ -32,46 +35,70 @@
 - Produces: `verify_oci_attestation(...) -> dict` with `status=VERIFIED`, or raises `ValueError` / `VerificationError`.
 
 - [x] Add focused tests for exact image+digest acceptance, signer/source flags, wrong SLSA predicate, wrong subject digest, GitHub CLI failure, mutable tags, malformed digest and malformed source SHA.
-- [x] Observe the behavior tests fail against the empty verifier stub.
-- [x] Regression: observed failure for `sha1:`-prefixed source digest; changed policy to the exact raw source commit SHA.
 - [x] Implement strict input validation, `gh attestation verify` invocation and exact statement-subject enforcement.
-- [x] Run the focused tests and confirm all pass.
+- [x] Run the focused tests and confirm all 7 pass.
+- [x] Correct the source-digest input to the raw full Git SHA expected by GitHub certificate verification.
+- [x] Correct and verify the GHCR name regex.
 
 Command: `python -m unittest discover -s tests -p 'test_oci_attestation.py' -v`
 
-Expected: 7 tests pass; invalid inputs fail before invoking GitHub CLI; all external verification failures fail closed.
-
-### Task 2: Add the GitHub OCI release workflow
+### Task 2: Add the OCI release workflow and exact-source release gate
 
 **Files:**
-- Create: `.github/workflows/ola-oci-release.yml`
+- Create/modify: `.github/workflows/ola-oci-release.yml`
+- Create: `scripts/verify_release_gates.py`
+- Create: `tests/test_release_gates.py`
 
 **Interfaces:**
-- Consumes: exact `github.sha`, Dockerfile build context, `GITHUB_TOKEN` with `packages:write`, OIDC identity.
-- Produces: GHCR immutable digest, GitHub provenance attestation, and a release evidence artifact.
+- `evaluate_release_gates(expected_sha, exact_runs, reference_runs, igor_jobs) -> dict`
+- `verify_release_gates(repository, expected_sha, token, timeout_seconds, poll_seconds) -> dict`
+- Required CI gate state: `VERIFIED`, `PENDING`, or `BLOCKED`.
 
-- [ ] PR: run policy tests and build `linux/amd64` without registry push.
-- [ ] Main push/manual dispatch on `main`: login to GHCR, build and push with exact source SHA label, attest the `build-push-action` digest, and verify it using the exact repository/workflow/ref/commit constraints.
-- [ ] Run negative controls for wrong digest, source commit and signer workflow; each must fail after the positive verification has passed.
-- [ ] Publish a manifest with `deployment=NOT_TRIGGERED` and `human_gate=PENDING`.
+- [x] Keep PR validation to `contents:read`; PR builds must not push to GHCR.
+- [x] Isolate registry and OIDC write permissions to the publisher job.
+- [x] Add the exact-source evidence poll based on the Final Production Gate's required workflow list.
+- [x] Require the nested `igor-independent-ollama / igor-ollama` job to succeed; a skipped OpenAI-only job is not a substitute.
+- [x] Fail closed on missing, pending, source-mismatched, failed or timed-out evidence.
+- [x] Add unit tests for verified, missing, pending, failed, wrong SHA, missing/failed IGOR and newest-run selection; 9 local tests pass.
+- [ ] Confirm the full PR CI run passes for the new branch head.
 
-Expected: PR jobs never publish; only a main release run can publish and attest; no Railway deployment step exists in this workflow.
-
-### Task 3: Document registry and deployment hand-off
+### Task 3: Test and scan the published image by digest before attestation
 
 **Files:**
-- Create: `docs/OCI_RELEASE_CHAIN.md`
-- Create: `docs/plans/2026-11-12-oci-release-chain.md`
+- Modify: `.github/workflows/ola-oci-release.yml`
 
-- [ ] Document the evidence chain and exact trigger behavior.
-- [ ] Document GHCR private-by-default behavior and the Railway Pro + `read:packages` credential prerequisite.
-- [ ] Explicitly leave package-public visibility and all Railway deployment changes outside automatic execution.
+- [x] Pull the registry image using the exact `image@sha256:...` reference.
+- [x] Verify `org.opencontainers.image.revision` and `/app/ola-build-info.json` both equal the source SHA.
+- [x] Run `tests/test_core_readiness.py` inside the pulled image.
+- [x] Run Trivy against the exact published digest with CRITICAL/HIGH blocking.
+- [x] Place attestation creation and positive/negative verification after image checks.
+- [ ] Confirm PR CI accepts the updated workflow syntax and all security checks.
+- [ ] On a controlled main release, confirm real GHCR push, digest pull, exact-image tests, Trivy and attestation verify all pass.
 
-Expected: an operator can identify the exact release digest and prerequisites without guessing or copying a mutable tag.
+### Task 4: Document registry and deployment hand-off
+
+**Files:**
+- Modify: `docs/OCI_RELEASE_CHAIN.md`
+- Modify: `docs/plans/2026-11-12-oci-release-chain.md`
+
+- [x] Document exact-source gate enforcement and polling timeout.
+- [x] Document image source-binding tests and digest-scoped Trivy.
+- [x] Distinguish mutable convenience tags from immutable OCI digests.
+- [x] Document private GHCR and Railway credential prerequisites.
+- [x] Document the staging auto-deploy merge hazard.
+- [ ] Confirm Railway plan and private-registry credential setup before a staging image switch.
+
+## Deployment hand-off
+
+- The publisher job produces no Railway deployment.
+- The release manifest must state `deployment=NOT_TRIGGERED` and `human_gate=PENDING`.
+- A separate operator action must configure staging API and Worker to the same approved digest.
+- Staging must show exact image binding, fresh API readiness, actual Worker activity and 60-minute stability before a production change is considered.
 
 ## Unresolved external prerequisites
 
-- Confirm Railway workspace plan supports private registry pulls (Pro or higher).
-- The owner must configure a GitHub `read:packages` token in Railway's dashboard; the token must never be committed or exposed to CI logs.
-- The first Railway source switch to a private image cannot be done by the connected Railway tool because it does not accept private-registry credentials. It must be configured in the dashboard or through a separately authorized Railway API workflow.
-- The actual deploy-by-digest behavior, running deployment metadata binding, fresh `/readyz` and 60-minute stability window remain NOT VERIFIED until tested against Railway staging.
+- Confirm the Railway workspace plan supports private registry pulls.
+- Configure a GitHub token with `read:packages` in Railway's dashboard; it must never enter Git or CI logs.
+- The current Railway connector cannot attach private-registry credentials to a service. The first private-image source switch must use the dashboard or a separately authorized workflow.
+- The staging API and Worker currently follow `main` via Railpack; control that trigger before merging this PR.
+- Production Worker creation, deploy-by-digest, independent runtime verification, fresh `/readyz`, 60-minute stability and Human Gate remain NOT VERIFIED.
