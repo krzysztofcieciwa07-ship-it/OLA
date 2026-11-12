@@ -4,6 +4,8 @@ import subprocess
 import sys
 import zipfile
 import yaml
+from jsonschema import Draft202012Validator
+from scripts.build_manifest import build_manifest
 from scripts.verify_pack import ROOT, canonical_json, sha256, validate_bundle
 from scripts.build_pack import build_archive
 
@@ -39,6 +41,36 @@ def valid_bundle():
         })
     bundle["evidence"], bundle["control_verdicts"] = evidence, verdicts
     return bundle
+
+
+def test_demo_builds_schema_valid_not_ready_evidence_manifest():
+    manifest = build_manifest(copy.deepcopy(BASE))
+    schema = json.loads((ROOT / "schemas/evidence-manifest.schema.json").read_text(encoding="utf-8"))
+    Draft202012Validator(schema).validate(manifest)
+    assert manifest["schema_version"] == "ola.evidence-manifest.v0.1"
+    assert manifest["evaluation"]["status"] == "NOT_READY"
+    assert manifest["evaluation"]["ready"] is False
+    assert manifest["summary"]["control_state_counts"]["UNKNOWN"] == 12
+    assert manifest["summary"]["evidence_records"] == 0
+    expected = sha256(canonical_json({k: v for k, v in manifest.items() if k != "manifest_digest"}))
+    assert manifest["manifest_digest"] == expected
+
+
+def test_complete_fixture_builds_ready_manifest_but_remains_synthetic():
+    manifest = build_manifest(valid_bundle())
+    schema = json.loads((ROOT / "schemas/evidence-manifest.schema.json").read_text(encoding="utf-8"))
+    Draft202012Validator(schema).validate(manifest)
+    assert manifest["evaluation"]["status"] == "READY"
+    assert manifest["evaluation"]["ready"] is True
+    assert manifest["summary"]["required_controls"] == 12
+    assert manifest["summary"]["evidence_records"] > 0
+    assert "not a legal opinion" in " ".join(manifest["limitations"]).lower()
+
+
+def test_manifest_build_is_deterministic():
+    first = build_manifest(copy.deepcopy(BASE))
+    second = build_manifest(copy.deepcopy(BASE))
+    assert first == second
 
 
 def test_demo_is_valid_but_not_ready():
