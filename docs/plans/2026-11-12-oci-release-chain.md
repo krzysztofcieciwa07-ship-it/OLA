@@ -56,6 +56,8 @@ Command: `python -m unittest discover -s tests -p 'test_oci_attestation.py' -v`
 
 - [x] Keep PR validation to `contents:read`; PR builds must not push to GHCR.
 - [x] Isolate registry and OIDC write permissions to the publisher job.
+- [x] Add a fixed owner-controlled candidate-branch publish path so the first attested digest can be produced without merging into `main` and triggering Railway staging.
+- [x] Recheck the candidate branch head immediately before registry authentication to reject stale queued publish runs.
 - [x] Add the exact-source evidence poll based on the Final Production Gate's required workflow list.
 - [x] Require the nested `igor-independent-ollama / igor-ollama` job to succeed; a skipped OpenAI-only job is not a substitute.
 - [x] Fail closed on missing, pending, source-mismatched, failed or timed-out evidence.
