@@ -36,7 +36,7 @@
       "full_name": "krzysztofcieciwa07-ship-it/OLA",
       "role": "CANONICAL_CORE",
       "fork": false,
-      "status": "SOURCE_PRESENT_NOT_RELEASE_ACCEPTED",
+      "status": "SOURCE_PRESENT_12H_RUNTIME_VERIFIED_NOT_RELEASE_ACCEPTED",
       "main_sha": "c2462b393ec6372e5a48da44a37481a96ae034ba",
       "branches": 196,
       "open_pull_requests": 92
