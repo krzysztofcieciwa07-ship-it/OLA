@@ -21,6 +21,19 @@ def valid_bundle():
         cid, ids = control["id"], []
         for i, item in enumerate(control["required_evidence"]):
             payload = {"fixture": True, "control_id": cid, "evidence_type": item["id"]}
+            if cid == "DORA-CM-04":
+                c04_payloads = {
+                    "requester_identity": {"principal_id": "fixture-requester"},
+                    "implementer_identity": {"principal_id": "fixture-implementer"},
+                    "approver_identity": {"principal_id": "fixture-approver"},
+                    "role_relationship_check": {
+                        "requester_principal_id": "fixture-requester",
+                        "implementer_principal_id": "fixture-implementer",
+                        "approver_principal_id": "fixture-approver",
+                        "independence_status": "INDEPENDENT",
+                    },
+                }
+                payload = c04_payloads[item["id"]]
             eid = f"fixture-{cid.lower()}-{i}"
             ids.append(eid)
             evidence.append({
