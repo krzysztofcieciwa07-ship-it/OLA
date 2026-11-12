@@ -189,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         with open(args.output, "w", encoding="utf-8") as stream:
             json.dump(result, stream, indent=2, sort_keys=True)
-            stream.write("\\n")
+            stream.write("\n")
     except (ValueError, ReleaseGateError, OSError) as exc:
         print("BLOCKED: " + str(exc), file=sys.stderr)
         return 1
