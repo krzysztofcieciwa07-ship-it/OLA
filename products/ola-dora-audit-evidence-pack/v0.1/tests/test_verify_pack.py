@@ -50,7 +50,7 @@ def test_demo_builds_schema_valid_not_ready_evidence_manifest():
     assert manifest["schema_version"] == "ola.evidence-manifest.v0.1"
     assert manifest["evaluation"]["status"] == "NOT_READY"
     assert manifest["evaluation"]["ready"] is False
-    assert manifest["summary"]["control_state_counts"]["UNKNOWN"] == 12
+    assert manifest["summary"]["control_state_counts"]["UNKNOWN"] == 13
     assert manifest["summary"]["evidence_records"] == 0
     expected = sha256(canonical_json({k: v for k, v in manifest.items() if k != "manifest_digest"}))
     assert manifest["manifest_digest"] == expected
@@ -62,7 +62,7 @@ def test_complete_fixture_builds_ready_manifest_but_remains_synthetic():
     Draft202012Validator(schema).validate(manifest)
     assert manifest["evaluation"]["status"] == "READY"
     assert manifest["evaluation"]["ready"] is True
-    assert manifest["summary"]["required_controls"] == 12
+    assert manifest["summary"]["required_controls"] == 13
     assert manifest["summary"]["evidence_records"] > 0
     assert "not a legal opinion" in " ".join(manifest["limitations"]).lower()
 
@@ -76,8 +76,8 @@ def test_manifest_build_is_deterministic():
 def test_demo_is_valid_but_not_ready():
     result = validate_bundle(copy.deepcopy(BASE))
     assert result["valid_contract"] and not result["ready"]
-    assert result["required_controls"] == 12
-    assert result["state_counts"]["UNKNOWN"] == 12
+    assert result["required_controls"] == 13
+    assert result["state_counts"]["UNKNOWN"] == 13
 
 
 def test_complete_synthetic_bundle_satisfies_only_local_contract():
@@ -181,8 +181,8 @@ def test_extracted_pack_runs_outside_repository_tree(tmp_path):
     result = json.loads(completed.stdout)
     assert result["valid_contract"] is True
     assert result["ready"] is False
-    assert result["required_controls"] == 12
-    assert result["state_counts"]["UNKNOWN"] == 12
+    assert result["required_controls"] == 13
+    assert result["state_counts"]["UNKNOWN"] == 13
 
 
 def test_deterministic_zip_excludes_cache_files(tmp_path):
