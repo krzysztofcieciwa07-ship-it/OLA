@@ -79,11 +79,11 @@ def build_manifest(bundle: dict[str, Any]) -> dict[str, Any]:
         required_types = sorted(item["id"] for item in control["required_evidence"])
         verdict = verdict_by_id.get(cid, {})
         raw_status = verdict.get("status", "UNKNOWN")
-        reported_status = raw_status if raw_status in CONTROL_STATES else "UNKNOWN"
+        reported_status = raw_status if isinstance(raw_status, str) and raw_status in CONTROL_STATES else "UNKNOWN"
         integrity = verdict.get("evidence_integrity", "UNVERIFIED")
-        evidence_integrity = integrity if integrity in INTEGRITY_STATES else "UNVERIFIED"
+        evidence_integrity = integrity if isinstance(integrity, str) and integrity in INTEGRITY_STATES else "UNVERIFIED"
         approval = verdict.get("approval_status", "PENDING")
-        approval_status = approval if approval in APPROVAL_STATES else "PENDING"
+        approval_status = approval if isinstance(approval, str) and approval in APPROVAL_STATES else "PENDING"
 
         raw_ids = verdict.get("evidence_ids", [])
         evidence_ids = sorted(set(x for x in raw_ids if isinstance(x, str))) if isinstance(raw_ids, list) else []
@@ -92,7 +92,7 @@ def build_manifest(bundle: dict[str, Any]) -> dict[str, Any]:
             for eid in evidence_ids
             if eid in evidence_by_id and evidence_by_id[eid].get("control_id") == cid
         ]
-        observed_types = {item.get("evidence_type") for item in linked_records}
+        observed_types = {item.get("evidence_type") for item in linked_records if isinstance(item.get("evidence_type"), str)}
         missing_types = sorted(set(required_types) - observed_types)
 
         # Never present an asserted PASS as verified when any contract-level error exists.
