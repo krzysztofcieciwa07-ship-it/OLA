@@ -25,3 +25,4 @@ limitations:
   - draft_product_mapping_not_legal_conclusion
   - evidence_types_define_a_pack_contract_not_proof_of_full_compliance
   - qualified_customer_compliance_and_legal_review_required
+  - {control_id: DORA-CM-13, requirement: "RTS Article 17(1)(h)", evidence_types: [existing_security_measure_impact, additional_security_measures_decision]}
