@@ -9,10 +9,10 @@ This pack does not certify an organisation, establish full DORA compliance, repl
 
 ## Regulatory scope
 - Regulation (EU) 2022/2554 (DORA), Article 9(4)(e): documented policies, procedures and controls for ICT change management, integrated into the overall change process, so changes are recorded, tested, assessed, approved, implemented and verified in a controlled manner.
-- Commission Delegated Regulation (EU) 2024/1774, Article 17(1)(a)–(g): security requirements; independence of approval; roles/responsibilities and planning; transition; testing, controlled finalisation and QA; change purpose/scope/timeline/outcomes; fallback/abort/recovery; emergency-change safeguards; and post-implementation documentation/re-evaluation/assessment/approval for emergency changes, workarounds and patches.
+- Commission Delegated Regulation (EU) 2024/1774, Article 17(1)(a)–(h): security requirements; independence of approval; roles/responsibilities and planning; transition; testing, controlled finalisation and QA; change purpose/scope/timeline/outcomes; fallback/abort/recovery; emergency-change safeguards; and post-implementation documentation/re-evaluation/assessment/approval for emergency changes, workarounds and patches.
 - Article 17(9): ICT systems developed or managed by users outside the ICT function remain subject to risk-based application.
 
-The catalogue contains twelve draft control objectives. v0.1 focuses on software-change evidence; hardware, firmware, system and security-parameter changes require manually supplied evidence. This is a product mapping, not a legal interpretation that every customer can apply unchanged.
+The catalogue contains thirteen draft control objectives. v0.1 focuses on software-change evidence; hardware, firmware, system and security-parameter changes require manually supplied evidence. This is a product mapping, not a legal interpretation that every customer can apply unchanged.
 
 ## Verdict contract
 - Control result: PASS, FAIL, PARTIAL, BLOCKED, UNKNOWN, SKIPPED, NOT_APPLICABLE.
@@ -24,7 +24,7 @@ The catalogue contains twelve draft control objectives. v0.1 focuses on software
 - A local READY result means only that this bundle satisfies this pack's contract. It is not legal compliance, auditor acceptance or certification.
 
 ## Contents
-- controls/dora/ict-change-management.yaml — twelve draft controls mapped to DORA/RTS provisions.
+- controls/dora/ict-change-management.yaml — thirteen draft controls mapped to DORA/RTS provisions.
 - mappings/control-evidence-map.yaml — the minimum flat control-to-evidence mapping needed by the manifest; no Knowledge Graph or graph database.
 - policies/verdict-policy.yaml — independent result, integrity and approval axes.
 - schemas/ — JSON Schemas for evidence and control verdict records.
