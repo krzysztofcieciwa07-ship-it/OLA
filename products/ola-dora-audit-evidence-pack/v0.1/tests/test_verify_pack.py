@@ -21,7 +21,7 @@ def valid_bundle():
             evidence.append({
                 "schema_version":"ola.evidence.v0.1","evidence_id":eid,"control_id":cid,
                 "evidence_type":item["id"],"tenant_id":bundle["tenant_id"],
-                "source":{"system":"fixture","record_id":eid,"uri":"https://example.invalid/fixture"},
+                "source":{"system":item["source_types"][0],"record_id":eid,"uri":"https://example.invalid/fixture"},
                 "collector":{"id":"test-fixture","version":"0.1.0"},
                 "captured_at":"2026-11-12T12:00:00Z","payload":payload,
                 "payload_digest":sha256(canonical_json(payload)),
@@ -68,6 +68,24 @@ def test_tampered_payload_digest_blocks_pass():
     result = validate_bundle(bundle)
     assert not result["ready"]
     assert any("evidence_integrity" in e or "verified digests" in e for e in result["errors"])
+
+
+def test_orphaned_tampered_evidence_blocks_entire_bundle():
+    bundle = valid_bundle()
+    bundle["evidence"].append(copy.deepcopy(bundle["evidence"][0]))
+    bundle["evidence"][-1]["evidence_id"] = "orphaned-tampered-record"
+    bundle["evidence"][-1]["payload"]["tampered"] = True
+    result = validate_bundle(bundle)
+    assert not result["valid_contract"]
+    assert any("payload_digest mismatch" in error for error in result["errors"])
+
+
+def test_unapproved_source_type_blocks_evidence():
+    bundle = valid_bundle()
+    bundle["evidence"][0]["source"]["system"] = "unapproved_connector"
+    result = validate_bundle(bundle)
+    assert not result["ready"]
+    assert any("source.system is not allowed" in error for error in result["errors"])
 
 
 def test_commit_binding_mismatch_blocks_pass():
