@@ -567,6 +567,53 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
     try:
         worker.verify_worker_database_identity(worker_engine, worker_role)
 
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_authenticate_api_key(text) TO "{worker_role}"'
+            )
+        with pytest.raises(RuntimeError, match="API-key authentication function"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'REVOKE EXECUTE ON FUNCTION "{_schema}".ola_authenticate_api_key(text) FROM "{worker_role}"'
+            )
+
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO PUBLIC'
+            )
+        with pytest.raises(RuntimeError, match="claim function ACL"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'REVOKE EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) FROM PUBLIC'
+            )
+
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO "{runtime_role}"'
+            )
+        with pytest.raises(RuntimeError, match="claim function ACL"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'REVOKE EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) FROM "{runtime_role}"'
+            )
+
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO "{worker_role}" WITH GRANT OPTION'
+            )
+        with pytest.raises(RuntimeError, match="claim function ACL"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'REVOKE ALL ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) FROM "{worker_role}"'
+            )
+            conn.exec_driver_sql(
+                f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO "{worker_role}"'
+            )
+
         outsider_role = "ola_worker_outsider_" + uuid.uuid4().hex[:10]
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
