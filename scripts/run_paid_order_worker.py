@@ -185,7 +185,11 @@ def run_once(
                     "job=%s tenant=%s status=%s run_id=%s",
                     claim["job_id"], claim["tenant_id"], status, result.get("run_id"),
                 )
-                if _failed_execution_status(status):
+                if status != "ACCEPTED" or _failed_execution_status(status):
+                    LOG.error(
+                        "job=%s runtime API returned unexpected acceptance status=%s",
+                        claim["job_id"], status,
+                    )
                     exit_code = 1
             except Exception:
                 LOG.exception("job=%s PostgreSQL claim dispatch failed", claim.get("job_id"))
