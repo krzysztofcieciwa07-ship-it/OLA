@@ -1031,3 +1031,49 @@ def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgr
         with admin_engine.begin() as conn:
             conn.exec_driver_sql(f'DROP OWNED BY "{extra_role}"')
             conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{extra_role}"')
+
+
+def test_postgres_runtime_verifier_rejects_nonleast_privilege_schema_acl(postgres_db):
+    database, runtime_engine, _migration_engine, admin_engine, runtime_role, schema, worker_role = postgres_db
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{schema}" TO PUBLIC')
+    with pytest.raises(RuntimeError, match="schema ACL is not least-privilege"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{schema}" FROM PUBLIC')
+
+    outsider_role = "ola_runtime_schema_" + uuid.uuid4().hex[:10]
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'CREATE ROLE "{outsider_role}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS '
+            'NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD \'ola_runtime_schema_test\''
+        )
+        conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{schema}" TO "{outsider_role}"')
+    try:
+        with pytest.raises(RuntimeError, match="schema ACL is not least-privilege"):
+            database.verify_postgres_schema(
+                runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+            )
+    finally:
+        with admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{schema}" FROM "{outsider_role}"')
+            conn.exec_driver_sql(f'DROP ROLE "{outsider_role}"')
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'GRANT USAGE ON SCHEMA "{schema}" TO "{runtime_role}" WITH GRANT OPTION'
+        )
+    with pytest.raises(RuntimeError, match="schema ACL is not least-privilege"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'REVOKE GRANT OPTION FOR USAGE ON SCHEMA "{schema}" FROM "{runtime_role}"'
+        )
+    database.verify_postgres_schema(
+        runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+    )
