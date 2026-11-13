@@ -369,9 +369,16 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             row[0]: tuple(bool(value) for value in row[1:])
             for row in role_rows
         }
-        database_user = conn.execute(text("SELECT current_user")).scalar_one()
-        if enforce_runtime_privileges and database_user != runtime_role:
-            raise RuntimeError("PostgreSQL current_user does not match configured runtime role")
+        database_identity = conn.execute(text("""
+            SELECT current_user AS current_role, session_user AS session_role
+        """)).mappings().one()
+        if enforce_runtime_privileges and (
+            database_identity["current_role"] != runtime_role
+            or database_identity["session_role"] != runtime_role
+        ):
+            raise RuntimeError(
+                "PostgreSQL current_user and session_user must both match the configured runtime role"
+            )
         if set(role_state) != {runtime_role, worker_role}:
             raise RuntimeError("PostgreSQL runtime or worker role is missing")
         if role_memberships:
