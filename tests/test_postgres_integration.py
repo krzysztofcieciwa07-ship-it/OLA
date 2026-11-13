@@ -566,6 +566,21 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
 
     try:
         worker.verify_worker_database_identity(worker_engine, worker_role)
+
+        outsider_role = "ola_worker_outsider_" + uuid.uuid4().hex[:10]
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'CREATE ROLE "{outsider_role}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS '
+                'NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD \'ola_worker_outsider_test\''
+            )
+            conn.exec_driver_sql(f'GRANT "{worker_role}" TO "{outsider_role}"')
+        with pytest.raises(RuntimeError, match="must not participate in any role membership"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'REVOKE "{worker_role}" FROM "{outsider_role}"')
+            conn.exec_driver_sql(f'DROP ROLE "{outsider_role}"')
+        worker.verify_worker_database_identity(worker_engine, worker_role)
+
         with pytest.raises(RuntimeError, match="identity mismatch"):
             worker.verify_worker_database_identity(runtime_engine, worker_role)
 
