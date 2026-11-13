@@ -78,6 +78,94 @@ def claim_postgres_jobs(worker_engine, *, limit: int = 20, stale_after_seconds: 
     return claims
 
 
+def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
+    """Fail closed unless the worker DSN is the isolated, least-privilege role."""
+    if (not isinstance(expected_role, str)
+            or not expected_role.isascii()
+            or not expected_role
+            or len(expected_role) > 63):
+        raise RuntimeError("OLA_DATABASE_WORKER_ROLE is invalid")
+
+    protected_tables = [
+        "tenants",
+        "api_keys",
+        "evidence_records",
+        "stripe_events",
+        "checkout_orders",
+        "checkout_order_controls",
+        "checkout_execution_jobs",
+        "checkout_report_reviews",
+    ]
+    with worker_engine.connect() as conn:
+        identity = conn.execute(
+            text("""
+                SELECT
+                    current_user AS role_name,
+                    r.rolsuper,
+                    r.rolbypassrls,
+                    r.rolinherit,
+                    r.rolcreatedb,
+                    r.rolcreaterole,
+                    r.rolreplication,
+                    r.rolcanlogin,
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_auth_members AS memberships
+                        WHERE memberships.member = r.oid
+                    ) AS has_role_membership,
+                    has_schema_privilege(current_user, current_schema(), 'USAGE') AS schema_usage,
+                    has_schema_privilege(current_user, current_schema(), 'CREATE') AS schema_create,
+                    COALESCE(has_function_privilege(
+                        current_user,
+                        to_regprocedure(format(
+                            '%I.ola_claim_checkout_jobs(integer,integer)',
+                            current_schema()
+                        )),
+                        'EXECUTE'
+                    ), false) AS claim_execute,
+                    COALESCE((
+                        SELECT bool_or(has_table_privilege(
+                            current_user,
+                            format('%I.%I', current_schema(), scoped.table_name),
+                            privilege.privilege
+                        ))
+                        FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
+                        CROSS JOIN unnest(ARRAY[
+                            'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE',
+                            'REFERENCES', 'TRIGGER'
+                        ]) AS privilege(privilege)
+                    ), false) AS has_direct_table_privileges
+                FROM pg_roles AS r
+                WHERE r.rolname = current_user
+            """),
+            {"table_names": protected_tables},
+        ).mappings().one_or_none()
+
+    if identity is None or identity["role_name"] != expected_role:
+        actual = None if identity is None else identity["role_name"]
+        raise RuntimeError(
+            f"PostgreSQL worker DSN identity mismatch: expected {expected_role}, got {actual}"
+        )
+
+    forbidden_flags = (
+        "rolsuper", "rolbypassrls", "rolinherit",
+        "rolcreatedb", "rolcreaterole", "rolreplication",
+    )
+    if any(bool(identity[name]) for name in forbidden_flags) or not identity["rolcanlogin"]:
+        raise RuntimeError(
+            "PostgreSQL worker role must be LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS "
+            "NOCREATEDB NOCREATEROLE NOREPLICATION"
+        )
+    if identity["has_role_membership"]:
+        raise RuntimeError("PostgreSQL worker role must not be a member of another role")
+    if not identity["schema_usage"] or identity["schema_create"]:
+        raise RuntimeError("PostgreSQL worker role requires schema USAGE and must not have schema CREATE")
+    if not identity["claim_execute"]:
+        raise RuntimeError("PostgreSQL worker role cannot execute ola_claim_checkout_jobs")
+    if identity["has_direct_table_privileges"]:
+        raise RuntimeError("PostgreSQL worker role must not have direct privileges on tenant-owned tables")
+
+
 def _validate_dispatch_config(api_url: str, worker_token: str) -> None:
     if not isinstance(api_url, str) or not api_url.strip():
         raise ValueError("OLA_EXECUTION_API_URL is required")
@@ -247,6 +335,7 @@ def main() -> int:
     worker_url = os.getenv("OLA_DATABASE_WORKER_URL", "").strip()
     api_url = os.getenv("OLA_EXECUTION_API_URL", "").strip()
     worker_token = os.getenv("OLA_EXECUTION_WORKER_TOKEN", "")
+    worker_role = os.getenv("OLA_DATABASE_WORKER_ROLE", "ola_worker").strip()
 
     if worker_url:
         try:
@@ -261,6 +350,7 @@ def main() -> int:
             parser.error(str(exc))
         worker_engine = create_engine(normalized_url, pool_pre_ping=True)
         try:
+            verify_worker_database_identity(worker_engine, worker_role)
             LOG.info(
                 "isolated PostgreSQL worker started; poll=%ss stale_after=%ss",
                 args.poll_seconds, args.stale_after_seconds,
