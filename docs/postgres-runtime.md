@@ -39,8 +39,9 @@ used as the runtime credential.
 
 RLS is enabled for `tenants`, `api_keys`, `evidence_records`,
 `stripe_events`, `checkout_orders`, `checkout_order_controls`,
-`checkout_execution_jobs`, and `checkout_report_reviews`. Tenant-owned rows
-are visible only when the transaction-local `ola.tenant_id` setting matches
+`checkout_execution_jobs`, and `checkout_report_reviews`. A permissive base policy is combined with a restrictive tenant policy, so an
+additional permissive policy cannot widen access. Tenant-owned rows are
+visible only when the transaction-local `ola.tenant_id` setting matches
 their `tenant_id` (or `tenants.id`). The API sets this context only after
 API-key authentication; PostgreSQL authentication resolves the key through
 `ola_authenticate_api_key(text)`, not a direct pre-auth table scan. Stripe
