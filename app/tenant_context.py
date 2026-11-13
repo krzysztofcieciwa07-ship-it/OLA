@@ -14,6 +14,12 @@ def worker_mode_enabled():
     return _worker_mode.get() is True
 
 
+def set_worker_mode(enabled):
+    if not isinstance(enabled, bool):
+        raise ValueError("worker mode must be a boolean")
+    return _worker_mode.set(enabled)
+
+
 def set_current_tenant_id(tenant_id):
     if tenant_id is not None and (not isinstance(tenant_id, str) or not tenant_id.strip()):
         raise ValueError("tenant context must be a nonempty string or None")
