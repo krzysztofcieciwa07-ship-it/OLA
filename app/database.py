@@ -297,6 +297,13 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
                          AND acl.grantee <> p.proowner
                          AND pg_get_userbyid(acl.grantee) <> current_user
                    ) AS extra_execute_grantees,
+                   EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+                       WHERE acl.privilege_type = 'EXECUTE'
+                         AND acl.grantee <> p.proowner
+                         AND acl.is_grantable
+                   ) AS execute_grant_option,
                    pg_get_userbyid(p.proowner) AS owner
             FROM pg_proc AS p
             WHERE p.oid = to_regprocedure(
@@ -320,7 +327,14 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
                          AND acl.grantee <> 0
                          AND acl.grantee <> p.proowner
                          AND pg_get_userbyid(acl.grantee) <> :worker_role
-                   ) AS extra_execute_grantees
+                   ) AS extra_execute_grantees,
+                   EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+                       WHERE acl.privilege_type = 'EXECUTE'
+                         AND acl.grantee <> p.proowner
+                         AND acl.is_grantable
+                   ) AS execute_grant_option
             FROM pg_proc AS p
             WHERE p.oid = to_regprocedure(
                 format('%I.ola_claim_checkout_jobs(integer,integer)', current_schema())
@@ -523,6 +537,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
         or auth_function.worker_execute
         or (enforce_runtime_privileges and bool(auth_function.extra_execute_grantees))
         or auth_function.owner == runtime_role
+        or auth_function.execute_grant_option
     ):
         raise RuntimeError(
             "PostgreSQL API-key authentication function must be SECURITY DEFINER, "
@@ -547,6 +562,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
         or not worker_claim_function.worker_execute
         or worker_claim_function.owner in {runtime_role, worker_role}
         or bool(worker_claim_function.extra_execute_grantees)
+        or worker_claim_function.execute_grant_option
     ):
         raise RuntimeError(
             "PostgreSQL worker claim function must be SECURITY DEFINER, use fixed search_path, "
@@ -704,6 +720,9 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
         f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) FROM "{worker_role}"'
     )
     connection.exec_driver_sql(
+        f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) FROM "{runtime_role}"'
+    )
+    connection.exec_driver_sql(
         f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) TO "{runtime_role}"'
     )
     connection.exec_driver_sql(
@@ -782,6 +801,9 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
         f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_claim_checkout_jobs(integer, integer) FROM "{runtime_role}"'
     )
     revoke_unexpected_function_execute("ola_claim_checkout_jobs(integer, integer)", worker_role)
+    connection.exec_driver_sql(
+        f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_claim_checkout_jobs(integer, integer) FROM "{worker_role}"'
+    )
     connection.exec_driver_sql(
         f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_claim_checkout_jobs(integer, integer) TO "{worker_role}"'
     )
