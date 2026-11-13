@@ -879,6 +879,31 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
     for table_name, privileges in runtime_table_grants.items():
         qualified_table = f'{quoted_schema}."{table_name}"'
         connection.exec_driver_sql(
+            f'REVOKE ALL PRIVILEGES ON TABLE {qualified_table} FROM PUBLIC'
+        )
+        unexpected_table_grantees = connection.execute(text("""
+            SELECT DISTINCT pg_get_userbyid(acl.grantee)
+            FROM pg_class AS table_acl
+            JOIN pg_namespace AS table_schema ON table_schema.oid = table_acl.relnamespace
+            CROSS JOIN LATERAL aclexplode(
+                COALESCE(table_acl.relacl, acldefault('r', table_acl.relowner))
+            ) AS acl
+            WHERE table_schema.nspname = :schema_name
+              AND table_acl.relname = :table_name
+              AND acl.grantee <> 0
+              AND acl.grantee <> table_acl.relowner
+              AND pg_get_userbyid(acl.grantee) <> :runtime_role
+        """), {
+            "schema_name": schema_name,
+            "table_name": table_name,
+            "runtime_role": runtime_role,
+        }).all()
+        for (grantee,) in unexpected_table_grantees:
+            quoted_grantee = '"' + grantee.replace('"', '""') + '"'
+            connection.exec_driver_sql(
+                f"REVOKE ALL PRIVILEGES ON TABLE {qualified_table} FROM {quoted_grantee}"
+            )
+        connection.exec_driver_sql(
             f'REVOKE ALL PRIVILEGES ON TABLE {qualified_table} FROM "{runtime_role}"'
         )
         connection.exec_driver_sql(
