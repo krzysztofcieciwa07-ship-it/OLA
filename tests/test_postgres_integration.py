@@ -567,12 +567,39 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
     )
 
     try:
-        worker.verify_worker_database_identity(worker_engine, worker_role)
+        worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+
+        claim_owner = _admin_engine.connect().execute(text("""
+            SELECT pg_get_userbyid(p.proowner)
+            FROM pg_proc AS p
+            WHERE p.oid = to_regprocedure(:function_signature)
+        """), {
+            "function_signature": f"{_schema}.ola_claim_checkout_jobs(integer,integer)",
+        }).scalar_one()
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'ALTER FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) OWNER TO "{runtime_role}"'
+            )
+        with pytest.raises(RuntimeError, match="claim function ACL"):
+            worker.verify_worker_database_identity(
+                worker_engine, worker_role, runtime_role=runtime_role,
+            )
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'ALTER FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) OWNER TO "{claim_owner}"'
+            )
+            conn.exec_driver_sql(
+                f'REVOKE ALL ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) FROM "{worker_role}"'
+            )
+            conn.exec_driver_sql(
+                f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO "{worker_role}"'
+            )
+        worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO PUBLIC')
         with pytest.raises(RuntimeError, match="worker schema ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM PUBLIC')
 
@@ -581,7 +608,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT USAGE ON SCHEMA "{_schema}" TO "{worker_role}" WITH GRANT OPTION'
             )
         with pytest.raises(RuntimeError, match="worker schema ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM "{worker_role}"')
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO "{worker_role}"')
@@ -595,19 +622,19 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO "{schema_outsider}"')
         try:
             with pytest.raises(RuntimeError, match="worker schema ACL"):
-                worker.verify_worker_database_identity(worker_engine, worker_role)
+                worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         finally:
             with _admin_engine.begin() as conn:
                 conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM "{schema_outsider}"')
                 conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{schema_outsider}"')
-        worker.verify_worker_database_identity(worker_engine, worker_role)
+        worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_authenticate_api_key(text) TO "{worker_role}"'
             )
         with pytest.raises(RuntimeError, match="API-key authentication function"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE EXECUTE ON FUNCTION "{_schema}".ola_authenticate_api_key(text) FROM "{worker_role}"'
@@ -618,7 +645,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO PUBLIC'
             )
         with pytest.raises(RuntimeError, match="claim function ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) FROM PUBLIC'
@@ -629,7 +656,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO "{runtime_role}"'
             )
         with pytest.raises(RuntimeError, match="claim function ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) FROM "{runtime_role}"'
@@ -640,7 +667,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO "{worker_role}" WITH GRANT OPTION'
             )
         with pytest.raises(RuntimeError, match="claim function ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE ALL ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) FROM "{worker_role}"'
@@ -658,15 +685,15 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
             conn.exec_driver_sql(f'GRANT "{worker_role}" TO "{outsider_role}"')
         try:
             with pytest.raises(RuntimeError, match="must not participate in any role membership"):
-                worker.verify_worker_database_identity(worker_engine, worker_role)
+                worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         finally:
             with _admin_engine.begin() as conn:
                 conn.exec_driver_sql(f'REVOKE "{worker_role}" FROM "{outsider_role}"')
                 conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{outsider_role}"')
-        worker.verify_worker_database_identity(worker_engine, worker_role)
+        worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
 
         with pytest.raises(RuntimeError, match="identity mismatch"):
-            worker.verify_worker_database_identity(runtime_engine, worker_role)
+            worker.verify_worker_database_identity(runtime_engine, worker_role, runtime_role=runtime_role)
 
         # An administrator that uses SET ROLE must not masquerade as a worker
         # DSN: current_user changes, but session_user remains the administrator.
@@ -685,7 +712,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
 
         try:
             with pytest.raises(RuntimeError, match="session identity mismatch"):
-                worker.verify_worker_database_identity(admin_as_worker_engine, worker_role)
+                worker.verify_worker_database_identity(admin_as_worker_engine, worker_role, runtime_role=runtime_role)
         finally:
             admin_as_worker_engine.dispose()
 
@@ -714,14 +741,14 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
         finally:
             admin_as_runtime_engine.dispose()
         with pytest.raises(RuntimeError, match="identity mismatch"):
-            worker.verify_worker_database_identity(_admin_engine, worker_role)
+            worker.verify_worker_database_identity(_admin_engine, worker_role, runtime_role=runtime_role)
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'GRANT SELECT ON TABLE "{_schema}".checkout_execution_jobs TO "{worker_role}"'
             )
         with pytest.raises(RuntimeError, match="direct privileges"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE SELECT ON TABLE "{_schema}".checkout_execution_jobs FROM "{worker_role}"'
@@ -732,7 +759,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT MAINTAIN ON TABLE "{_schema}".checkout_execution_jobs TO "{worker_role}"'
             )
         with pytest.raises(RuntimeError, match="direct privileges"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE MAINTAIN ON TABLE "{_schema}".checkout_execution_jobs FROM "{worker_role}"'
@@ -743,7 +770,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT SELECT ON TABLE "{_schema}".ola_schema_migrations TO "{worker_role}"'
             )
         with pytest.raises(RuntimeError, match="direct privileges"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE SELECT ON TABLE "{_schema}".ola_schema_migrations FROM "{worker_role}"'
@@ -752,25 +779,25 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT CREATE ON SCHEMA "{_schema}" TO "{worker_role}"')
         with pytest.raises(RuntimeError, match="schema USAGE"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE CREATE ON SCHEMA "{_schema}" FROM "{worker_role}"')
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'ALTER ROLE "{worker_role}" INHERIT')
         with pytest.raises(RuntimeError, match="must be LOGIN NOINHERIT"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'ALTER ROLE "{worker_role}" NOINHERIT')
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT "{runtime_role}" TO "{worker_role}"')
         with pytest.raises(RuntimeError, match="must not participate in any role membership"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE "{runtime_role}" FROM "{worker_role}"')
 
-        worker.verify_worker_database_identity(worker_engine, worker_role)
+        worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
     finally:
         worker_engine.dispose()
 
