@@ -311,11 +311,15 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
                     "reviewer_id": key_b_id, "report_hash": "c" * 64,
                     "tip_hash": "0" * 64,
                 }
-                with pytest.raises(DBAPIError):
-                    db.execute(
-                        text(f"INSERT INTO {table_name} {insert_columns[table_name]} VALUES {values[table_name]}"),
-                        params,
-                    )
+                try:
+                    with pytest.raises(DBAPIError):
+                        db.execute(
+                            text(f"INSERT INTO {table_name} {insert_columns[table_name]} VALUES {values[table_name]}"),
+                            params,
+                        )
+                finally:
+                    # PostgreSQL marks the transaction failed after a rejected
+                    # RLS write; roll it back before testing the next relation.
                     db.rollback()
 
     # Setting the legacy worker GUC must not grant cross-tenant visibility.
