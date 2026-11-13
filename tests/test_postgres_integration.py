@@ -538,13 +538,15 @@ def test_postgres_runtime_and_worker_roles_reject_membership_and_inherit(postgre
             'NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD \'ola_outsider_test_only\''
         )
         conn.exec_driver_sql(f'GRANT "{worker_role}" TO "{outsider_role}"')
-    with pytest.raises(RuntimeError, match="must not participate in any role membership"):
-        database.verify_postgres_schema(
-            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
-        )
-    with admin_engine.begin() as conn:
-        conn.exec_driver_sql(f'REVOKE "{worker_role}" FROM "{outsider_role}"')
-        conn.exec_driver_sql(f'DROP ROLE "{outsider_role}"')
+    try:
+        with pytest.raises(RuntimeError, match="must not participate in any role membership"):
+            database.verify_postgres_schema(
+                runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+            )
+    finally:
+        with admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'REVOKE "{worker_role}" FROM "{outsider_role}"')
+            conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{outsider_role}"')
     database.verify_postgres_schema(
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
@@ -591,11 +593,13 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 'NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD \'ola_schema_outsider_test\''
             )
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO "{schema_outsider}"')
-        with pytest.raises(RuntimeError, match="worker schema ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
-        with _admin_engine.begin() as conn:
-            conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM "{schema_outsider}"')
-            conn.exec_driver_sql(f'DROP ROLE "{schema_outsider}"')
+        try:
+            with pytest.raises(RuntimeError, match="worker schema ACL"):
+                worker.verify_worker_database_identity(worker_engine, worker_role)
+        finally:
+            with _admin_engine.begin() as conn:
+                conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM "{schema_outsider}"')
+                conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{schema_outsider}"')
         worker.verify_worker_database_identity(worker_engine, worker_role)
 
         with _admin_engine.begin() as conn:
@@ -652,11 +656,13 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 'NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD \'ola_worker_outsider_test\''
             )
             conn.exec_driver_sql(f'GRANT "{worker_role}" TO "{outsider_role}"')
-        with pytest.raises(RuntimeError, match="must not participate in any role membership"):
-            worker.verify_worker_database_identity(worker_engine, worker_role)
-        with _admin_engine.begin() as conn:
-            conn.exec_driver_sql(f'REVOKE "{worker_role}" FROM "{outsider_role}"')
-            conn.exec_driver_sql(f'DROP ROLE "{outsider_role}"')
+        try:
+            with pytest.raises(RuntimeError, match="must not participate in any role membership"):
+                worker.verify_worker_database_identity(worker_engine, worker_role)
+        finally:
+            with _admin_engine.begin() as conn:
+                conn.exec_driver_sql(f'REVOKE "{worker_role}" FROM "{outsider_role}"')
+                conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{outsider_role}"')
         worker.verify_worker_database_identity(worker_engine, worker_role)
 
         with pytest.raises(RuntimeError, match="identity mismatch"):
@@ -816,15 +822,17 @@ def test_postgres_runtime_role_rejects_extra_table_grants(postgres_db):
         conn.exec_driver_sql(
             f'GRANT SELECT ON TABLE "{schema}".checkout_orders TO "{extra_role}"'
         )
-    with pytest.raises(RuntimeError, match="runtime table ACL is not least-privilege: checkout_orders"):
-        database.verify_postgres_schema(
-            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
-        )
-    with admin_engine.begin() as conn:
-        conn.exec_driver_sql(
-            f'REVOKE SELECT ON TABLE "{schema}".checkout_orders FROM "{extra_role}"'
-        )
-        conn.exec_driver_sql(f'DROP ROLE "{extra_role}"')
+    try:
+        with pytest.raises(RuntimeError, match="runtime table ACL is not least-privilege: checkout_orders"):
+            database.verify_postgres_schema(
+                runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+            )
+    finally:
+        with admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'REVOKE SELECT ON TABLE "{schema}".checkout_orders FROM "{extra_role}"'
+            )
+            conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{extra_role}"')
 
     with admin_engine.begin() as conn:
         conn.exec_driver_sql(
