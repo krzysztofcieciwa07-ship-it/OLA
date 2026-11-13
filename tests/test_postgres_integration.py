@@ -22,9 +22,11 @@ def postgres_db(monkeypatch):
     admin_engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
     schema = "ola_test_" + uuid.uuid4().hex
     runtime_role = "ola_rt_" + uuid.uuid4().hex[:12]
+    worker_role = "ola_wr_" + uuid.uuid4().hex[:12]
     with admin_engine.begin() as conn:
         conn.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
         conn.exec_driver_sql(f'CREATE ROLE "{runtime_role}" NOLOGIN')
+        conn.exec_driver_sql(f'CREATE ROLE "{worker_role}" NOLOGIN')
 
     search_path = f"-csearch_path={schema}"
     migration_engine = create_engine(
@@ -37,6 +39,7 @@ def postgres_db(monkeypatch):
         database.migrate_postgres_schema(migration_engine, runtime_role=runtime_role)
         with admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{schema}" TO "{runtime_role}"')
+            conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{schema}" TO "{worker_role}"')
             grants = {
                 "tenants": "SELECT, INSERT",
                 "api_keys": "SELECT",
@@ -72,20 +75,23 @@ def postgres_db(monkeypatch):
             bind=runtime_engine, autocommit=False, autoflush=False,
         ))
         database.verify_postgres_schema(runtime_engine)
-        yield database, runtime_engine, migration_engine, admin_engine, runtime_role, schema
+        monkeypatch.setenv("OLA_DATABASE_WORKER_ROLE", worker_role)
+        yield database, runtime_engine, migration_engine, admin_engine, runtime_role, schema, worker_role
     finally:
         if runtime_engine is not None:
             runtime_engine.dispose()
         migration_engine.dispose()
         with admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'DROP OWNED BY "{worker_role}"')
             conn.exec_driver_sql(f'DROP OWNED BY "{runtime_role}"')
+            conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{worker_role}"')
             conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{runtime_role}"')
             conn.exec_driver_sql(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
         admin_engine.dispose()
 
 
 def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postgres_db):
-    database, runtime_engine, migration_engine, _admin_engine, runtime_role, _schema = postgres_db
+    database, runtime_engine, migration_engine, _admin_engine, runtime_role, _schema, _worker_role = postgres_db
     from app.hashchain import verify_chain
     from app.models import EvidenceRecord, Tenant
 
@@ -174,8 +180,133 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
     database.verify_postgres_schema(runtime_engine)
 
 
+def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_db):
+    database, runtime_engine, migration_engine, admin_engine, runtime_role, schema, worker_role = postgres_db
+
+    # A worker login must claim through a narrow function; it must not gain
+    # SELECT/UPDATE access to tenant-owned job rows or reuse the API role.
+    with migration_engine.begin() as conn:
+        columns = {item["name"] for item in database.inspect(migration_engine).get_columns("checkout_execution_jobs")}
+        assert "claimed_at" in columns, "worker claim lease timestamp is missing"
+        claim_oid = conn.execute(text("""
+            SELECT to_regprocedure(
+                format('%I.ola_claim_checkout_jobs(integer,integer)', current_schema())
+            )
+        """)).scalar_one()
+        assert claim_oid is not None, "role-bound PostgreSQL claim function is missing"
+        acl = conn.execute(text("""
+            SELECT p.prosecdef,
+                   p.proconfig,
+                   EXISTS (
+                       SELECT 1 FROM aclexplode(
+                           COALESCE(p.proacl, acldefault('f', p.proowner))
+                       ) AS acl
+                       WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+                   ) AS public_execute,
+                   has_function_privilege(:worker_role, p.oid, 'EXECUTE') AS worker_execute,
+                   has_function_privilege(:runtime_role, p.oid, 'EXECUTE') AS runtime_execute
+            FROM pg_proc AS p
+            WHERE p.oid = :claim_oid
+        """), {
+            "worker_role": worker_role, "runtime_role": runtime_role, "claim_oid": claim_oid,
+        }).one()
+        assert acl.prosecdef is True
+        assert "search_path=pg_catalog" in (acl.proconfig or [])
+        assert acl.public_execute is False
+        assert acl.worker_execute is True
+        assert acl.runtime_execute is False
+        worker_table_privileges = conn.execute(text("""
+            SELECT has_table_privilege(:worker_role, 'checkout_execution_jobs', 'SELECT'),
+                   has_table_privilege(:worker_role, 'checkout_execution_jobs', 'INSERT'),
+                   has_table_privilege(:worker_role, 'checkout_execution_jobs', 'UPDATE'),
+                   has_table_privilege(:worker_role, 'checkout_execution_jobs', 'DELETE'),
+                   has_table_privilege(:worker_role, 'checkout_execution_jobs', 'TRUNCATE')
+        """), {"worker_role": worker_role}).one()
+        assert tuple(worker_table_privileges) == (False, False, False, False, False)
+
+    tenant_id = str(uuid.uuid4())
+    order_ids = [str(uuid.uuid4()) for _ in range(3)]
+    job_ids = [str(uuid.uuid4()) for _ in range(3)]
+    stale_queued_token = str(uuid.uuid4())
+    stale_running_token = str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:id, 'worker-claim-test')"),
+            {"id": tenant_id},
+        )
+        conn.execute(text("""
+            INSERT INTO checkout_orders
+                (id, tenant_id, idempotency_key_hash, request_hash, status, created_at)
+            VALUES
+                (:id0, :tenant_id, :idem0, :request_hash, 'CHECKOUT_CREATED', 1),
+                (:id1, :tenant_id, :idem1, :request_hash, 'CHECKOUT_CREATED', 1),
+                (:id2, :tenant_id, :idem2, :request_hash, 'CHECKOUT_CREATED', 1)
+        """), {
+            "tenant_id": tenant_id, "request_hash": "a" * 64,
+            **{f"id{i}": order_ids[i] for i in range(3)},
+            **{f"idem{i}": uuid.uuid4().hex for i in range(3)},
+        })
+        conn.execute(text("""
+            INSERT INTO checkout_execution_jobs
+                (id, tenant_id, order_id, approval_record_hash, task, status,
+                 attempt_count, claim_token, claimed_at, started_at, created_at)
+            VALUES
+                (:fresh_id, :tenant_id, :fresh_order, :hash, 'fresh task',
+                 'QUEUED', 0, NULL, NULL, NULL, 1),
+                (:stale_queued_id, :tenant_id, :stale_queued_order, :hash, 'stale queued task',
+                 'QUEUED', 0, :stale_queued_token, 1, NULL, 2),
+                (:stale_running_id, :tenant_id, :stale_running_order, :hash, 'stale running task',
+                 'RUNNING', 1, :stale_running_token, 1, 1, 3)
+        """), {
+            "tenant_id": tenant_id, "hash": "b" * 64,
+            "fresh_id": job_ids[0], "fresh_order": order_ids[0],
+            "stale_queued_id": job_ids[1], "stale_queued_order": order_ids[1],
+            "stale_running_id": job_ids[2], "stale_running_order": order_ids[2],
+            "stale_queued_token": stale_queued_token,
+            "stale_running_token": stale_running_token,
+        })
+
+    worker_engine = create_engine(
+        POSTGRES_URL,
+        pool_pre_ping=True,
+        connect_args={"options": f"-csearch_path={schema}"},
+    )
+    try:
+        @event.listens_for(worker_engine, "connect")
+        def assume_worker_role(dbapi_connection, _connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute(f'SET ROLE "{worker_role}"')
+            cursor.close()
+            dbapi_connection.commit()
+
+        with worker_engine.begin() as conn:
+            claims = conn.execute(text("""
+                SELECT job_id, tenant_id, claim_token
+                FROM ola_claim_checkout_jobs(:limit, :stale_after)
+            """), {"limit": 10, "stale_after": 900}).all()
+        by_id = {row.job_id: row for row in claims}
+        assert set(by_id) == set(job_ids)
+        assert all(row.tenant_id == tenant_id for row in claims)
+        assert all(len(row.claim_token) == 36 for row in claims)
+        assert by_id[job_ids[1]].claim_token != stale_queued_token
+        assert by_id[job_ids[2]].claim_token != stale_running_token
+
+        # A live claim lease prevents a second worker from receiving the job.
+        with worker_engine.begin() as conn:
+            assert conn.execute(text("""
+                SELECT count(*) FROM ola_claim_checkout_jobs(:limit, :stale_after)
+            """), {"limit": 10, "stale_after": 900}).scalar_one() == 0
+
+        # The worker role cannot inspect or mutate the outbox directly.
+        with worker_engine.begin() as conn:
+            with pytest.raises(DBAPIError, match="permission denied"):
+                conn.execute(text("SELECT id FROM checkout_execution_jobs")).all()
+    finally:
+        worker_engine.dispose()
+
+
 def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(postgres_db):
-    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
 
     tenant_a = str(uuid.uuid4())
     tenant_b = str(uuid.uuid4())
