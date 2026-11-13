@@ -715,3 +715,52 @@ def test_postgres_runtime_role_rejects_extra_table_grants(postgres_db):
     database.verify_postgres_schema(
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
+
+
+def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgres_db):
+    database, _runtime_engine, migration_engine, admin_engine, runtime_role, schema, worker_role = postgres_db
+    extra_role = "ola_acl_extra_" + uuid.uuid4().hex[:10]
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'CREATE ROLE "{extra_role}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS '
+            'NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD \'ola_acl_extra_test\''
+        )
+        conn.exec_driver_sql(
+            f'GRANT EXECUTE ON FUNCTION "{schema}".ola_authenticate_api_key(text) TO "{extra_role}"'
+        )
+        conn.exec_driver_sql(
+            f'GRANT EXECUTE ON FUNCTION "{schema}".ola_claim_checkout_jobs(integer, integer) TO "{extra_role}"'
+        )
+
+    try:
+        database.migrate_postgres_schema(
+            migration_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+        with admin_engine.begin() as conn:
+            assert conn.execute(text("""
+                SELECT has_function_privilege(
+                    :extra_role,
+                    to_regprocedure(:auth_function),
+                    'EXECUTE'
+                )
+            """), {
+                "extra_role": extra_role,
+                "auth_function": f"{schema}.ola_authenticate_api_key(text)",
+            }).scalar_one() is False
+            assert conn.execute(text("""
+                SELECT has_function_privilege(
+                    :extra_role,
+                    to_regprocedure(:claim_function),
+                    'EXECUTE'
+                )
+            """), {
+                "extra_role": extra_role,
+                "claim_function": f"{schema}.ola_claim_checkout_jobs(integer,integer)",
+            }).scalar_one() is False
+        database.verify_postgres_schema(
+            _runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    finally:
+        with admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'DROP OWNED BY "{extra_role}"')
+            conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{extra_role}"')
