@@ -546,7 +546,7 @@ def test_postgres_runtime_and_worker_roles_reject_membership_and_inherit(postgre
 def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_db):
     import scripts.run_paid_order_worker as worker
 
-    _database, runtime_engine, _migration_engine, _admin_engine, runtime_role, _schema, worker_role = postgres_db
+    database, runtime_engine, _migration_engine, _admin_engine, runtime_role, _schema, worker_role = postgres_db
     worker_url = make_url(POSTGRES_URL).set(
         username=worker_role,
         password="ola_worker_test_only",
@@ -561,6 +561,52 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
         worker.verify_worker_database_identity(worker_engine, worker_role)
         with pytest.raises(RuntimeError, match="identity mismatch"):
             worker.verify_worker_database_identity(runtime_engine, worker_role)
+
+        # An administrator that uses SET ROLE must not masquerade as a worker
+        # DSN: current_user changes, but session_user remains the administrator.
+        admin_as_worker_engine = create_engine(
+            POSTGRES_URL,
+            pool_pre_ping=True,
+            connect_args={"options": f"-csearch_path={_schema}"},
+        )
+
+        @event.listens_for(admin_as_worker_engine, "connect")
+        def assume_worker_from_admin(dbapi_connection, _connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute(f'SET ROLE "{worker_role}"')
+            cursor.close()
+            dbapi_connection.commit()
+
+        try:
+            with pytest.raises(RuntimeError, match="session identity mismatch"):
+                worker.verify_worker_database_identity(admin_as_worker_engine, worker_role)
+        finally:
+            admin_as_worker_engine.dispose()
+
+        # The API's runtime role is subject to the same authenticated-session
+        # check, not merely current_user after an administrative SET ROLE.
+        admin_as_runtime_engine = create_engine(
+            POSTGRES_URL,
+            pool_pre_ping=True,
+            connect_args={"options": f"-csearch_path={_schema}"},
+        )
+
+        @event.listens_for(admin_as_runtime_engine, "connect")
+        def assume_runtime_from_admin(dbapi_connection, _connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute(f'SET ROLE "{runtime_role}"')
+            cursor.close()
+            dbapi_connection.commit()
+
+        try:
+            with pytest.raises(RuntimeError, match="current_user and session_user"):
+                database.verify_postgres_schema(
+                    admin_as_runtime_engine,
+                    runtime_role=runtime_role,
+                    worker_role=worker_role,
+                )
+        finally:
+            admin_as_runtime_engine.dispose()
         with pytest.raises(RuntimeError, match="identity mismatch"):
             worker.verify_worker_database_identity(_admin_engine, worker_role)
 
