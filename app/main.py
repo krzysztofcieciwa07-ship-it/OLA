@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.exc import IntegrityError
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, append_evidence_atomic, prepare_runtime_schema, verify_postgres_schema
@@ -29,8 +29,18 @@ from .stripe_webhook import process_checkout_event
 from .order_approval import approve_paid_order, PaidOrderApprovalRejected
 from .paid_order_execution import execute_paid_order_job, verify_worker_token, PaidOrderExecutionRejected
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
+from .tenant_context import set_current_tenant_id, reset_current_tenant_id
 
 app = FastAPI(title="OLA Execution Gate")
+
+@app.middleware("http")
+async def isolate_request_tenant_context(request: Request, call_next):
+    token = set_current_tenant_id(None)
+    try:
+        return await call_next(request)
+    finally:
+        reset_current_tenant_id(token)
+
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
@@ -46,10 +56,21 @@ def identity_from_key(raw_key):
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="API key verification unavailable") from exc
     with SessionLocal() as db:
-        key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
-        if key is None:
-            raise HTTPException(status_code=401, detail="invalid API key")
-        return key.tenant_id, key.id
+        if db.bind.dialect.name == "postgresql":
+            row = db.execute(
+                text("SELECT tenant_id, api_key_id FROM ola_authenticate_api_key(:key_hash)"),
+                {"key_hash": key_hash},
+            ).one_or_none()
+            if row is None:
+                raise HTTPException(status_code=401, detail="invalid API key")
+            tenant_id, key_id = row.tenant_id, row.api_key_id
+        else:
+            key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
+            if key is None:
+                raise HTTPException(status_code=401, detail="invalid API key")
+            tenant_id, key_id = key.tenant_id, key.id
+    set_current_tenant_id(tenant_id)
+    return tenant_id, key_id
 
 
 def tenant_from_key(raw_key):
