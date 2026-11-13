@@ -732,6 +732,12 @@ def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgr
             f'GRANT EXECUTE ON FUNCTION "{schema}".ola_claim_checkout_jobs(integer, integer) TO "{extra_role}"'
         )
         conn.exec_driver_sql(
+            f'GRANT EXECUTE ON FUNCTION "{schema}".ola_authenticate_api_key(text) TO "{runtime_role}" WITH GRANT OPTION'
+        )
+        conn.exec_driver_sql(
+            f'GRANT EXECUTE ON FUNCTION "{schema}".ola_claim_checkout_jobs(integer, integer) TO "{worker_role}" WITH GRANT OPTION'
+        )
+        conn.exec_driver_sql(
             f'GRANT SELECT ON TABLE "{schema}".checkout_orders TO "{extra_role}"'
         )
         conn.exec_driver_sql(
@@ -765,6 +771,38 @@ def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgr
             """), {
                 "extra_role": extra_role,
                 "claim_function": f"{schema}.ola_claim_checkout_jobs(integer,integer)",
+            }).scalar_one() is False
+            assert conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_proc AS p
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(p.proacl, acldefault('f', p.proowner))
+                    ) AS acl
+                    WHERE p.oid = to_regprocedure(:auth_function)
+                      AND acl.privilege_type = 'EXECUTE'
+                      AND acl.grantee = pg_catalog.to_regrole(:runtime_role)::oid
+                      AND acl.is_grantable
+                )
+            """), {
+                "auth_function": f"{schema}.ola_authenticate_api_key(text)",
+                "runtime_role": runtime_role,
+            }).scalar_one() is False
+            assert conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_proc AS p
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(p.proacl, acldefault('f', p.proowner))
+                    ) AS acl
+                    WHERE p.oid = to_regprocedure(:claim_function)
+                      AND acl.privilege_type = 'EXECUTE'
+                      AND acl.grantee = pg_catalog.to_regrole(:worker_role)::oid
+                      AND acl.is_grantable
+                )
+            """), {
+                "claim_function": f"{schema}.ola_claim_checkout_jobs(integer,integer)",
+                "worker_role": worker_role,
             }).scalar_one() is False
             table_acl = conn.execute(text("""
                 SELECT
