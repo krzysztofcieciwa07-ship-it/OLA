@@ -37,18 +37,21 @@ def postgres_db(monkeypatch):
         database.migrate_postgres_schema(migration_engine, runtime_role=runtime_role)
         with admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{schema}" TO "{runtime_role}"')
-            conn.exec_driver_sql(
-                f'GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA "{schema}" TO "{runtime_role}"'
-            )
-            conn.exec_driver_sql(
-                f'REVOKE UPDATE, DELETE ON TABLE "{schema}".evidence_records FROM "{runtime_role}"'
-            )
-            conn.exec_driver_sql(
-                f'REVOKE ALL ON TABLE "{schema}".ola_schema_migrations FROM "{runtime_role}"'
-            )
-            conn.exec_driver_sql(
-                f'GRANT SELECT ON TABLE "{schema}".ola_schema_migrations TO "{runtime_role}"'
-            )
+            grants = {
+                "tenants": "SELECT, INSERT",
+                "api_keys": "SELECT",
+                "evidence_records": "SELECT, INSERT",
+                "stripe_events": "SELECT, INSERT, UPDATE",
+                "checkout_orders": "SELECT, INSERT, UPDATE",
+                "checkout_order_controls": "SELECT, INSERT, UPDATE",
+                "checkout_execution_jobs": "SELECT, INSERT, UPDATE",
+                "checkout_report_reviews": "SELECT, INSERT, UPDATE",
+                "ola_schema_migrations": "SELECT",
+            }
+            for table_name, privileges in grants.items():
+                conn.exec_driver_sql(
+                    f'GRANT {privileges} ON TABLE "{schema}"."{table_name}" TO "{runtime_role}"'
+                )
 
         runtime_engine = create_engine(
             POSTGRES_URL,
