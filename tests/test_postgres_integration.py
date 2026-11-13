@@ -545,3 +545,30 @@ def test_postgres_runtime_and_worker_roles_reject_membership_and_inherit(postgre
     database.verify_postgres_schema(
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
+
+
+def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_db):
+    import scripts.run_paid_order_worker as worker
+
+    _database, runtime_engine, _migration_engine, _admin_engine, runtime_role, _schema, worker_role = postgres_db
+    worker_engine = create_engine(
+        POSTGRES_URL,
+        pool_pre_ping=True,
+        connect_args={"options": f"-csearch_path={_schema}"},
+    )
+
+    @event.listens_for(worker_engine, "connect")
+    def assume_worker_role(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute(f'SET ROLE "{worker_role}"')
+        cursor.close()
+        dbapi_connection.commit()
+
+    try:
+        worker.verify_worker_database_identity(worker_engine, worker_role)
+        with pytest.raises(RuntimeError, match="identity mismatch"):
+            worker.verify_worker_database_identity(runtime_engine, worker_role)
+        with pytest.raises(RuntimeError, match="identity mismatch"):
+            worker.verify_worker_database_identity(_admin_engine, worker_role)
+    finally:
+        worker_engine.dispose()
