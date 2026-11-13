@@ -3,8 +3,10 @@ import os
 import re
 import uuid
 
-from sqlalchemy import create_engine, inspect, select, text
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import create_engine, event, inspect, select, text
+from sqlalchemy.orm import Session as OrmSession, declarative_base, sessionmaker
+
+from .tenant_context import current_tenant_id, worker_mode_enabled
 
 
 def database_url_from_env(environ=None):
@@ -79,6 +81,21 @@ else:  # pragma: no cover - guarded by database_url_from_env
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
+
+
+@event.listens_for(OrmSession, "after_begin")
+def _apply_postgres_tenant_context(session, transaction, connection):
+    """Set transaction-local RLS context on every PostgreSQL ORM transaction."""
+    if connection.dialect.name != "postgresql":
+        return
+    tenant_id = current_tenant_id()
+    if tenant_id:
+        connection.execute(
+            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
+    if worker_mode_enabled():
+        connection.execute(text("SELECT set_config('ola.worker_mode', 'on', true)"))
 
 
 def create_postgres_append_only_triggers(connection):
