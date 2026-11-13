@@ -232,8 +232,8 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
         )
         conn.execute(
             text("""
-                INSERT INTO checkout_order_controls (id, order_id, tenant_id, requester_id, status)
-                VALUES (:id, :order_id, :tenant_b, :requester_id, 'PENDING')
+                INSERT INTO checkout_order_controls (id, order_id, tenant_id, requester_id, status, created_at)
+                VALUES (:id, :order_id, :tenant_b, :requester_id, 'PENDING', 0)
             """),
             {"id": str(uuid.uuid4()), "order_id": order_ids[0], "tenant_b": tenant_b, "requester_id": key_b_id},
         )
@@ -289,7 +289,7 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
                     "evidence_records": "(id, tenant_id, seq, record_type, payload_json, prev_hash, record_hash)",
                     "stripe_events": "(id, tenant_id, event_id, status)",
                     "checkout_orders": "(id, tenant_id, idempotency_key_hash, request_hash, status, created_at)",
-                    "checkout_order_controls": "(id, order_id, tenant_id, requester_id, status)",
+                    "checkout_order_controls": "(id, order_id, tenant_id, requester_id, status, created_at)",
                     "checkout_execution_jobs": "(id, tenant_id, order_id, approval_record_hash, task, status, attempt_count, created_at)",
                     "checkout_report_reviews": "(id, order_id, tenant_id, reviewer_id, status, report_sha256, reviewed_tip_hash, reason, reviewed_at)",
                 }
@@ -297,7 +297,7 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
                     "evidence_records": "(:id, :tenant_b, 1, 'probe', '{}', :genesis, :digest)",
                     "stripe_events": "(:id, :tenant_b, :event_id, 'PROCESSING')",
                     "checkout_orders": "(:id, :tenant_b, :idem, :request_hash, 'CHECKOUT_CREATED', 0)",
-                    "checkout_order_controls": "(:id, :order_id_control, :tenant_b, :requester_id, 'PENDING')",
+                    "checkout_order_controls": "(:id, :order_id_control, :tenant_b, :requester_id, 'PENDING', 0)",
                     "checkout_execution_jobs": "(:id, :tenant_b, :order_id_job, :approval_hash, 'probe', 'QUEUED', 0, 0)",
                     "checkout_report_reviews": "(:id, :order_id_review, :tenant_b, :reviewer_id, 'PENDING', :report_hash, :tip_hash, 'probe', 0)",
                 }
@@ -312,11 +312,19 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
                     "tip_hash": "0" * 64,
                 }
                 try:
-                    with pytest.raises(DBAPIError):
+                    with pytest.raises(DBAPIError) as exc_info:
                         db.execute(
                             text(f"INSERT INTO {table_name} {insert_columns[table_name]} VALUES {values[table_name]}"),
                             params,
                         )
+                    # SQLSTATE 42501 plus PostgreSQL's RLS-specific diagnostic
+                    # proves the policy rejected the write, not NOT NULL/FK/UNIQUE.
+                    assert getattr(exc_info.value.orig, "sqlstate", None) == "42501", (
+                        table_name, exc_info.value.orig,
+                    )
+                    assert "row-level security policy" in str(exc_info.value.orig).lower(), (
+                        table_name, exc_info.value.orig,
+                    )
                 finally:
                     # PostgreSQL marks the transaction failed after a rejected
                     # RLS write; roll it back before testing the next relation.
