@@ -118,6 +118,7 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
                         SELECT 1
                         FROM pg_auth_members AS memberships
                         WHERE memberships.member = pg_catalog.to_regrole(current_user::text)::oid
+                           OR memberships.roleid = pg_catalog.to_regrole(current_user::text)::oid
                     ) AS has_role_membership,
                     has_schema_privilege(current_user, current_schema(), 'USAGE') AS schema_usage,
                     has_schema_privilege(current_user, current_schema(), 'CREATE') AS schema_create,
@@ -168,7 +169,7 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
             "NOCREATEDB NOCREATEROLE NOREPLICATION"
         )
     if identity["has_role_membership"]:
-        raise RuntimeError("PostgreSQL worker role must not be a member of another role")
+        raise RuntimeError("PostgreSQL worker role must not participate in any role membership")
     if not identity["schema_usage"] or identity["schema_create"]:
         raise RuntimeError("PostgreSQL worker role requires schema USAGE and must not have schema CREATE")
     if not identity["claim_execute"]:
