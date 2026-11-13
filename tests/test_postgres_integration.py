@@ -522,3 +522,26 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
         ).one()
     assert authenticated.tenant_id == tenant_b
     assert authenticated.role == "tenant"
+
+
+def test_postgres_runtime_and_worker_roles_reject_membership_and_inherit(postgres_db):
+    database, runtime_engine, _migration_engine, admin_engine, runtime_role, _schema, worker_role = postgres_db
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'GRANT "{runtime_role}" TO "{worker_role}"')
+    with pytest.raises(RuntimeError, match="must not inherit or switch to other roles"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'REVOKE "{runtime_role}" FROM "{worker_role}"')
+        conn.exec_driver_sql(f'ALTER ROLE "{worker_role}" INHERIT')
+    with pytest.raises(RuntimeError, match="must be LOGIN, NOINHERIT"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'ALTER ROLE "{worker_role}" NOINHERIT')
+    database.verify_postgres_schema(
+        runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+    )
