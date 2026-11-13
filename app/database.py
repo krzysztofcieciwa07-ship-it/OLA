@@ -365,6 +365,24 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             SELECT has_schema_privilege(:worker_role, current_schema(), 'USAGE'),
                    has_schema_privilege(:worker_role, current_schema(), 'CREATE')
         """), {"worker_role": worker_role}).one()
+        runtime_schema_privileges = conn.execute(text("""
+            SELECT has_schema_privilege(:runtime_role, current_schema(), 'USAGE'),
+                   has_schema_privilege(:runtime_role, current_schema(), 'CREATE')
+        """), {"runtime_role": runtime_role}).one()
+        runtime_table_privileges = conn.execute(text("""
+            SELECT scoped.table_name,
+                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'SELECT'),
+                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'INSERT'),
+                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'UPDATE'),
+                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'DELETE'),
+                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'TRUNCATE'),
+                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'REFERENCES'),
+                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'TRIGGER')
+            FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
+        """), {
+            "runtime_role": runtime_role,
+            "table_names": [*rls_tables, "ola_schema_migrations"],
+        }).all()
         role_state = {
             row[0]: tuple(bool(value) for value in row[1:])
             for row in role_rows
@@ -525,6 +543,32 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
         )
     if worker_role_security[0] or worker_role_security[1]:
         raise RuntimeError("PostgreSQL worker role must not be superuser or BYPASSRLS")
+    expected_runtime_privileges = {
+        "tenants": {"SELECT", "INSERT"},
+        "api_keys": {"SELECT"},
+        "evidence_records": {"SELECT", "INSERT"},
+        "stripe_events": {"SELECT", "INSERT", "UPDATE"},
+        "checkout_orders": {"SELECT", "INSERT", "UPDATE"},
+        "checkout_order_controls": {"SELECT", "INSERT", "UPDATE"},
+        "checkout_execution_jobs": {"SELECT", "INSERT", "UPDATE"},
+        "checkout_report_reviews": {"SELECT", "INSERT", "UPDATE"},
+        "ola_schema_migrations": {"SELECT"},
+    }
+    privilege_names = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
+    runtime_privilege_state = {
+        row[0]: {name: bool(value) for name, value in zip(privilege_names, row[1:])}
+        for row in runtime_table_privileges
+    }
+    if set(runtime_privilege_state) != set(expected_runtime_privileges):
+        raise RuntimeError("PostgreSQL runtime table privilege inventory is incomplete")
+    for table_name, allowed in expected_runtime_privileges.items():
+        actual = runtime_privilege_state[table_name]
+        if any(actual[name] != (name in allowed) for name in privilege_names):
+            raise RuntimeError(
+                f"PostgreSQL runtime role table grants are not least-privilege: {table_name}"
+            )
+    if not runtime_schema_privileges[0] or runtime_schema_privileges[1]:
+        raise RuntimeError("PostgreSQL runtime role must have schema USAGE but must not have schema CREATE")
     if any(worker_table_privileges):
         raise RuntimeError("PostgreSQL worker role must not have direct privileges on tenant-owned tables")
     if not worker_schema_privileges[0] or worker_schema_privileges[1]:
@@ -697,6 +741,34 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
     connection.exec_driver_sql(
         f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_claim_checkout_jobs(integer, integer) TO "{worker_role}"'
     )
+
+    # Explicit API runtime grants: test fixtures must not have to repair grants
+    # that the production migration forgot to install.
+    connection.exec_driver_sql(
+        f'GRANT USAGE ON SCHEMA {quoted_schema} TO "{runtime_role}"'
+    )
+    connection.exec_driver_sql(
+        f'REVOKE CREATE ON SCHEMA {quoted_schema} FROM "{runtime_role}"'
+    )
+    runtime_table_grants = {
+        "tenants": "SELECT, INSERT",
+        "api_keys": "SELECT",
+        "evidence_records": "SELECT, INSERT",
+        "stripe_events": "SELECT, INSERT, UPDATE",
+        "checkout_orders": "SELECT, INSERT, UPDATE",
+        "checkout_order_controls": "SELECT, INSERT, UPDATE",
+        "checkout_execution_jobs": "SELECT, INSERT, UPDATE",
+        "checkout_report_reviews": "SELECT, INSERT, UPDATE",
+        "ola_schema_migrations": "SELECT",
+    }
+    for table_name, privileges in runtime_table_grants.items():
+        qualified_table = f'{quoted_schema}."{table_name}"'
+        connection.exec_driver_sql(
+            f'REVOKE ALL PRIVILEGES ON TABLE {qualified_table} FROM "{runtime_role}"'
+        )
+        connection.exec_driver_sql(
+            f'GRANT {privileges} ON TABLE {qualified_table} TO "{runtime_role}"'
+        )
 
     tenant_policies = {
         "tenants": "id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
