@@ -654,6 +654,7 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
             CROSS JOIN claim_settings AS settings
             WHERE (
                 jobs.status = 'QUEUED'
+                AND jobs.attempt_count = 0
                 AND (
                     jobs.claim_token IS NULL
                     OR jobs.claimed_at IS NULL
