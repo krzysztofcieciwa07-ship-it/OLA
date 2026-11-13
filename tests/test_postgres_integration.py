@@ -1272,3 +1272,100 @@ def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_ow
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
 
+
+
+def test_postgres_runtime_cannot_spoof_tenant_guc_to_read_other_tenant(postgres_db):
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    order_a = str(uuid.uuid4())
+    order_b = str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:a, 'tenant-a'), (:b, 'tenant-b')"),
+            {"a": tenant_a, "b": tenant_b},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO checkout_orders
+                    (id, tenant_id, idempotency_key_hash, request_hash, status, created_at)
+                VALUES
+                    (:order_a, :tenant_a, :idem_a, :hash, 'CHECKOUT_CREATED', 0),
+                    (:order_b, :tenant_b, :idem_b, :hash, 'CHECKOUT_CREATED', 0)
+            """),
+            {
+                "order_a": order_a, "tenant_a": tenant_a, "idem_a": uuid.uuid4().hex,
+                "order_b": order_b, "tenant_b": tenant_b, "idem_b": uuid.uuid4().hex,
+                "hash": "d" * 64,
+            },
+        )
+
+    with runtime_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_b},
+        )
+        visible = conn.execute(
+            text("SELECT id FROM checkout_orders ORDER BY id")
+        ).scalars().all()
+
+    assert visible == [], (
+        "ola_runtime must not gain tenant access by setting ola.tenant_id; "
+        f"cross-tenant rows were visible: {visible}"
+    )
+
+
+def test_postgres_trusted_api_key_context_overrides_forged_guc(postgres_db):
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    key_a = "a" * 64
+    key_b = "b" * 64
+    order_a = str(uuid.uuid4())
+    order_b = str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:a, 'tenant-a'), (:b, 'tenant-b')"),
+            {"a": tenant_a, "b": tenant_b},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO api_keys (id, tenant_id, key_hash, role)
+                VALUES (:key_a_id, :tenant_a, :key_a, 'tenant'),
+                       (:key_b_id, :tenant_b, :key_b, 'tenant')
+            """),
+            {
+                "key_a_id": str(uuid.uuid4()), "tenant_a": tenant_a, "key_a": key_a,
+                "key_b_id": str(uuid.uuid4()), "tenant_b": tenant_b, "key_b": key_b,
+            },
+        )
+        conn.execute(
+            text("""
+                INSERT INTO checkout_orders
+                    (id, tenant_id, idempotency_key_hash, request_hash, status, created_at)
+                VALUES
+                    (:order_a, :tenant_a, :idem_a, :hash, 'CHECKOUT_CREATED', 0),
+                    (:order_b, :tenant_b, :idem_b, :hash, 'CHECKOUT_CREATED', 0)
+            """),
+            {
+                "order_a": order_a, "tenant_a": tenant_a, "idem_a": uuid.uuid4().hex,
+                "order_b": order_b, "tenant_b": tenant_b, "idem_b": uuid.uuid4().hex,
+                "hash": "e" * 64,
+            },
+        )
+
+    with runtime_engine.begin() as conn:
+        authenticated_tenant = conn.execute(
+            text("SELECT ola_establish_api_key_context(:key_hash)"),
+            {"key_hash": key_a},
+        ).scalar_one()
+        assert authenticated_tenant == tenant_a
+        conn.execute(
+            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_b},
+        )
+        visible = conn.execute(
+            text("SELECT id FROM checkout_orders ORDER BY id")
+        ).scalars().all()
+
+    assert visible == [order_a]
