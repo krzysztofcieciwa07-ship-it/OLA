@@ -254,14 +254,16 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "checkout_execution_jobs", "checkout_report_reviews",
         )
         rls_rows = conn.execute(text("""
-            SELECT c.relname, c.relrowsecurity, pg_get_userbyid(c.relowner)
+            SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
+                   pg_get_userbyid(c.relowner)
             FROM pg_class AS c
             JOIN pg_namespace AS n ON n.oid = c.relnamespace
             WHERE n.nspname = current_schema()
               AND c.relname = ANY(:table_names)
         """), {"table_names": list(rls_tables)}).all()
         policy_rows = conn.execute(text("""
-            SELECT tablename, policyname, cmd, permissive
+            SELECT tablename, policyname, cmd, permissive, roles,
+                   qual, with_check
             FROM pg_policies
             WHERE schemaname = current_schema()
               AND tablename = ANY(:table_names)
@@ -273,9 +275,18 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
                        FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
                        WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
                    ) AS public_execute,
-                   has_function_privilege(current_user, p.oid, 'EXECUTE') AS runtime_execute
+                   has_function_privilege(current_user, p.oid, 'EXECUTE') AS runtime_execute,
+                   (
+                       SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee))
+                       FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+                       WHERE acl.privilege_type = 'EXECUTE'
+                         AND acl.grantee <> 0
+                         AND acl.grantee <> p.proowner
+                   ) AS extra_execute_grantees
             FROM pg_proc AS p
-            WHERE p.oid = to_regprocedure('ola_authenticate_api_key(text)')
+            WHERE p.oid = to_regprocedure(
+                format('%I.ola_authenticate_api_key(text)', current_schema())
+            )
         """)).one_or_none()
         if enforce_runtime_privileges:
             role_security = conn.execute(text("""
@@ -286,16 +297,55 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             role_security = ("migration_role", False, False)
     if applied is None:
         raise RuntimeError("PostgreSQL schema migration version is missing")
-    rls_state = {row[0]: (bool(row[1]), row[2]) for row in rls_rows}
+    rls_state = {row[0]: (bool(row[1]), bool(row[2]), row[3]) for row in rls_rows}
     if set(rls_state) != set(rls_tables) or any(not state[0] for state in rls_state.values()):
         raise RuntimeError("PostgreSQL tenant RLS is missing or disabled")
-    policy_state = {(row[0], row[1], row[2], row[3]) for row in policy_rows}
-    if any(
-        (table, "ola_tenant_access", "ALL", "PERMISSIVE") not in policy_state
-        or (table, "ola_tenant_isolation", "ALL", "RESTRICTIVE") not in policy_state
-        for table in rls_tables
-    ):
-        raise RuntimeError("PostgreSQL tenant RLS policies are missing or not restrictive")
+    if enforce_runtime_privileges and any(state[2] == role_security[0] for state in rls_state.values()):
+        raise RuntimeError("PostgreSQL runtime role must not own tenant-scoped tables")
+    # Compare actual policy expressions, not just names. A policy can keep its
+    # name while being altered to USING (true), which would silently disable isolation.
+    policy_state = {
+        (row[0], row[1]): {
+            "cmd": row[2],
+            "permissive": row[3],
+            "roles": tuple(row[4] or ()),
+            "qual": re.sub(r"\\s+", " ", row[5] or "").strip(),
+            "with_check": re.sub(r"\\s+", " ", row[6] or "").strip(),
+        }
+        for row in policy_rows
+    }
+    expected_policies = {
+        "tenants": "id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
+        "api_keys": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
+        "evidence_records": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
+        "checkout_orders": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
+        "checkout_order_controls": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
+        "checkout_report_reviews": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
+        "stripe_events": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
+        "checkout_execution_jobs": (
+            "(tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)) "
+            "OR (current_setting('ola.worker_mode'::text, true) = 'on'::text)"
+        ),
+    }
+    all_roles = ("public",)
+    for table in rls_tables:
+        permissive = policy_state.get((table, "ola_tenant_access"))
+        restrictive = policy_state.get((table, "ola_tenant_isolation"))
+        if not permissive or not restrictive:
+            raise RuntimeError("PostgreSQL tenant RLS policies are missing")
+        if (
+            permissive["cmd"] != "ALL"
+            or permissive["permissive"] != "PERMISSIVE"
+            or permissive["roles"] != all_roles
+            or permissive["qual"] != "true"
+            or permissive["with_check"] != "true"
+            or restrictive["cmd"] != "ALL"
+            or restrictive["permissive"] != "RESTRICTIVE"
+            or restrictive["roles"] != all_roles
+            or restrictive["qual"] != expected_policies[table]
+            or restrictive["with_check"] != expected_policies[table]
+        ):
+            raise RuntimeError(f"PostgreSQL tenant RLS policy expression is invalid: {table}")
     if auth_function is None:
         raise RuntimeError("PostgreSQL scoped API-key authentication function is missing")
     auth_function_config = auth_function.proconfig or []
@@ -304,16 +354,16 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         or "search_path=pg_catalog" not in auth_function_config
         or auth_function.public_execute
         or not auth_function.runtime_execute
+        or bool(auth_function.extra_execute_grantees)
     ):
         raise RuntimeError(
             "PostgreSQL API-key authentication function must be SECURITY DEFINER, "
-            "use a fixed search_path, deny PUBLIC execution, and grant the runtime role"
+            "use a fixed search_path, deny PUBLIC execution, grant the current runtime role, "
+            "and have no additional non-owner EXECUTE grantees"
         )
     if enforce_runtime_privileges:
         if role_security[1] or role_security[2]:
             raise RuntimeError("PostgreSQL runtime role must not be superuser or BYPASSRLS")
-        if any(owner == role_security[0] for _enabled, owner in rls_state.values()):
-            raise RuntimeError("PostgreSQL runtime role must not own tenant-scoped tables")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
