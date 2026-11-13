@@ -87,25 +87,28 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
     # The restricted runtime role has only SELECT/INSERT on evidence_records.
     database.verify_postgres_schema(runtime_engine)
     tenant_id = str(uuid.uuid4())
-    with database.SessionLocal() as db:
-        db.add(Tenant(id=tenant_id, name="PostgreSQL integration tenant"))
-        db.commit()
+    with tenant_scope(tenant_id):
+        with database.SessionLocal() as db:
+            db.add(Tenant(id=tenant_id, name="PostgreSQL integration tenant"))
+            db.commit()
 
     def append_event(index):
-        return database.append_evidence_atomic(
-            tenant_id, "integration.append", {"index": index},
-        )
+        with tenant_scope(tenant_id):
+            return database.append_evidence_atomic(
+                tenant_id, "integration.append", {"index": index},
+            )
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(append_event, range(32)))
 
     assert len({item["id"] for item in results}) == 32
-    with database.SessionLocal() as db:
-        rows = db.scalars(
-            select(EvidenceRecord)
-            .where(EvidenceRecord.tenant_id == tenant_id)
-            .order_by(EvidenceRecord.seq.asc())
-        ).all()
+    with tenant_scope(tenant_id):
+        with database.SessionLocal() as db:
+            rows = db.scalars(
+                select(EvidenceRecord)
+                .where(EvidenceRecord.tenant_id == tenant_id)
+                .order_by(EvidenceRecord.seq.asc())
+            ).all()
     assert [row.seq for row in rows] == list(range(32))
     records = [{
         "id": row.id, "tenant_id": row.tenant_id, "seq": row.seq,
@@ -164,23 +167,20 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
         )
 
     # No tenant context is fail-closed: tenant-scoped tables expose no rows.
-    with runtime_engine.begin() as conn:
-        assert conn.execute(text("SELECT id FROM tenants")).all() == []
-        assert conn.execute(text("SELECT id FROM api_keys")).all() == []
+    with database.SessionLocal() as db:
+        assert db.execute(text("SELECT id FROM tenants")).all() == []
+        assert db.execute(text("SELECT id FROM api_keys")).all() == []
 
     # A transaction-local tenant context exposes only that tenant's rows.
-    with runtime_engine.begin() as conn:
-        conn.execute(
-            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
-            {"tenant_id": tenant_a},
-        )
-        assert conn.execute(text("SELECT id FROM tenants")).scalars().all() == [tenant_a]
-        assert conn.execute(text("SELECT tenant_id FROM api_keys")).scalars().all() == [tenant_a]
+    with tenant_scope(tenant_a):
+        with database.SessionLocal() as db:
+            assert db.execute(text("SELECT id FROM tenants")).scalars().all() == [tenant_a]
+            assert db.execute(text("SELECT tenant_id FROM api_keys")).scalars().all() == [tenant_a]
 
     # Authentication is the only pre-tenant lookup and is mediated by a
     # narrowly scoped SECURITY DEFINER function, not direct table access.
-    with runtime_engine.begin() as conn:
-        authenticated = conn.execute(
+    with database.SessionLocal() as db:
+        authenticated = db.execute(
             text("SELECT tenant_id, api_key_id, role FROM ola_authenticate_api_key(:key_hash)"),
             {"key_hash": key_b},
         ).one()
