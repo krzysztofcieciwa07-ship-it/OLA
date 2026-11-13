@@ -88,7 +88,8 @@ def test_worker_rejects_missing_or_wrong_token(monkeypatch):
     assert wrong.status_code == 403
 
 
-def test_stale_running_job_is_marked_interrupted_and_never_replayed(monkeypatch):
+@pytest.mark.parametrize("started_at_offset", [None, 901])
+def test_stale_running_job_is_marked_interrupted_and_never_replayed(monkeypatch, started_at_offset):
     import time
     from sqlalchemy import select
     from fastapi.testclient import TestClient
@@ -102,7 +103,10 @@ def test_stale_running_job_is_marked_interrupted_and_never_replayed(monkeypatch)
         job = db.scalar(select(CheckoutExecutionJob).where(CheckoutExecutionJob.order_id == ctx["order_id"]))
         job.status = "RUNNING"
         job.attempt_count = 1
-        job.started_at = int(time.time()) - 901
+        job.started_at = (
+            None if started_at_offset is None
+            else int(time.time()) - started_at_offset
+        )
         db.commit()
         job_id = job.id
     token = "worker-secret-" + "w" * 40
