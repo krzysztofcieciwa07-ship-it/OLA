@@ -72,6 +72,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import re
           import sys
           from urllib.parse import quote
           from urllib.request import Request, urlopen
@@ -95,10 +96,8 @@ jobs:
           if not isinstance(alerts, list) or len(alerts) >= 100:
               print(json.dumps({"status": "BLOCK", "reason": "ALERT_LIST_INCOMPLETE"}))
               sys.exit(1)
-          # Code scanning can surface pre-existing main-branch findings on
-          # the PR head SHA even when this PR does not modify the affected file.
-          # Gate this PR on alerts in files actually changed by this PR; the
-          # repository-wide alert inventory remains visible in the report below.
+          # Evaluate alerts against added/modified lines, not whole files:
+          # an existing alert elsewhere in a touched file is not PR-introduced.
           files_url = f"https://api.github.com/repos/{repo}/pulls/{os.environ['PR_NUMBER']}/files?per_page=100"
           files_req = Request(files_url, headers={
               "Authorization": "Bearer " + os.environ["GH_TOKEN"],
@@ -115,7 +114,33 @@ jobs:
           if not isinstance(changed_files, list) or len(changed_files) >= 100:
               print(json.dumps({"status": "BLOCK", "reason": "PR_CHANGED_FILES_INCOMPLETE"}))
               sys.exit(1)
-          changed_paths = {item.get("filename") for item in changed_files if item.get("filename")}
+
+          changed_lines_by_path = {}
+          for item in changed_files:
+              path = item.get("filename")
+              if not path:
+                  continue
+              patch = item.get("patch")
+              if not isinstance(patch, str):
+                  # Missing/truncated diffs are not silently treated as clean.
+                  changed_lines_by_path[path] = None
+                  continue
+              changed_lines = set()
+              new_line = None
+              for patch_line in patch.splitlines():
+                  if patch_line.startswith("@@"):
+                      match = re.search(r"\+(\d+)(?:,\d+)?", patch_line)
+                      new_line = int(match.group(1)) if match else None
+                  elif patch_line.startswith(("+++", "---")):
+                      continue
+                  elif new_line is not None and patch_line.startswith("+"):
+                      changed_lines.add(new_line)
+                      new_line += 1
+                  elif new_line is not None and patch_line.startswith("-"):
+                      continue
+                  elif new_line is not None and patch_line.startswith(" "):
+                      new_line += 1
+              changed_lines_by_path[path] = changed_lines
 
           relevant = []
           for alert in alerts:
@@ -130,15 +155,25 @@ jobs:
                   "line": (inst.get("location") or {}).get("start_line"),
                   "url": alert.get("html_url"),
               })
-          current = [
-              a for a in relevant
-              if a["sha"] == expected and a["path"] in changed_paths
-          ]
+          current = []
+          for alert in relevant:
+              if alert["sha"] != expected or alert["path"] not in changed_lines_by_path:
+                  continue
+              changed_lines = changed_lines_by_path[alert["path"]]
+              if changed_lines is None:
+                  alert["diff_status"] = "PATCH_UNAVAILABLE"
+                  current.append(alert)
+              elif alert["line"] is None or alert["line"] in changed_lines:
+                  alert["diff_status"] = "CHANGED_LINE"
+                  current.append(alert)
           high = [a for a in current if a["severity"] in ("critical", "high")]
           print(json.dumps({
               "status": "BLOCK" if high else "INSPECTED",
               "expected_sha": expected,
-              "changed_paths": sorted(changed_paths),
+              "changed_lines_by_path": {
+                  path: None if lines is None else sorted(lines)
+                  for path, lines in sorted(changed_lines_by_path.items())
+              },
               "in_scope_alerts": current,
               "repository_alert_inventory": relevant,
           }, sort_keys=True))

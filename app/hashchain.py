@@ -90,7 +90,6 @@ def compute_record_hash_v2(tenant_id, seq, prev_hash, record_type, producer, pay
     # SHA-256 here is a deterministic, collision-resistant evidence-integrity
     # digest, not a password/API-key verifier. Credential fingerprints use a
     # separate keyed-hashing path; SHA-2 is the appropriate primitive here.
-    # codeql[py/weak-sensitive-data-hashing]
     return hashlib.sha256(material).hexdigest()
 
 
