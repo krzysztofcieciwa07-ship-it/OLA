@@ -117,3 +117,41 @@ def test_postgres_runtime_schema_only_verifies_and_never_runs_ddl(monkeypatch):
 def test_database_url_rejects_unsupported_dialects():
     with pytest.raises(ValueError, match="PostgreSQL/psycopg or SQLite"):
         database.database_url_from_env({"OLA_DATABASE_URL": "mysql://ola:secret@db/ola"})
+
+
+def test_postgres_session_context_always_overwrites_tenant_and_worker_gucs():
+    from app.database import _apply_postgres_tenant_context
+    from app.tenant_context import tenant_scope, worker_scope
+
+    calls = []
+
+    class FakeConnection:
+        dialect = SimpleNamespace(name="postgresql")
+
+        def execute(self, statement, params=None):
+            calls.append((str(statement), params))
+
+    connection = FakeConnection()
+
+    with tenant_scope(None):
+        _apply_postgres_tenant_context(None, None, connection)
+    assert calls == [
+        ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": ""}),
+        ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "off"}),
+    ]
+
+    calls.clear()
+    with tenant_scope("tenant-alpha"):
+        _apply_postgres_tenant_context(None, None, connection)
+    assert calls == [
+        ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": "tenant-alpha"}),
+        ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "off"}),
+    ]
+
+    calls.clear()
+    with worker_scope():
+        _apply_postgres_tenant_context(None, None, connection)
+    assert calls == [
+        ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": ""}),
+        ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "on"}),
+    ]
