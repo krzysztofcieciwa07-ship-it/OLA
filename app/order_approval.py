@@ -44,10 +44,6 @@ def _records_for_tenant(db, tenant_id: str):
 
 
 def _validate_paid_order(db, *, tenant_id, order_id, approver_id, tip_hash):
-    approver = db.get(ApiKey, approver_id)
-    if approver is None or approver.tenant_id != tenant_id or approver.role != "execution_approver":
-        raise PaidOrderApprovalRejected(403, "a tenant-scoped execution_approver API identity is required")
-
     order = db.scalar(
         select(CheckoutOrder)
         .where(CheckoutOrder.id == order_id)
@@ -55,6 +51,10 @@ def _validate_paid_order(db, *, tenant_id, order_id, approver_id, tip_hash):
     )
     if order is None or order.tenant_id != tenant_id:
         raise PaidOrderApprovalRejected(404, "paid order not found")
+
+    approver = db.get(ApiKey, approver_id)
+    if approver is None or approver.tenant_id != tenant_id or approver.role != "execution_approver":
+        raise PaidOrderApprovalRejected(403, "a tenant-scoped execution_approver API identity is required")
 
     control = db.scalar(select(CheckoutOrderControl).where(
         CheckoutOrderControl.order_id == order_id,
