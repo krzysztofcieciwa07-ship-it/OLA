@@ -377,8 +377,8 @@ def test_postgres_worker_batch_claims_and_dispatches_only_claim_coordinates(monk
             return Transaction()
 
     dispatched = []
-    def fake_dispatch(api_url, worker_token, claim):
-        dispatched.append((api_url, worker_token, claim))
+    def fake_dispatch(api_url, worker_token, claim, *, stale_after_seconds=900):
+        dispatched.append((api_url, worker_token, claim, stale_after_seconds))
         return {"status": "EXECUTED_REVIEW_REQUIRED"}
 
     monkeypatch.setattr(worker, "dispatch_claim_to_api", fake_dispatch)
@@ -393,6 +393,7 @@ def test_postgres_worker_batch_claims_and_dispatches_only_claim_coordinates(monk
         "https://ola-internal.example",
         "worker-secret-" + "w" * 40,
         {"job_id": "job-1", "tenant_id": "tenant-1", "claim_token": "claim-1"},
+        900,
     )]
 
 
@@ -452,6 +453,7 @@ def test_postgres_worker_http_dispatch_sends_claim_only_as_headers(monkeypatch):
     assert seen["headers"]["x-ola-worker-token"] == "worker-secret-" + "w" * 40
     assert seen["headers"]["x-ola-tenant-id"] == "tenant-456"
     assert seen["headers"]["x-ola-claim-token"] == "claim-789"
+    assert seen["headers"]["x-ola-claim-stale-after"] == "900"
     assert seen["timeout"] == 20
 
 
@@ -509,8 +511,8 @@ def test_postgres_worker_route_accepts_claim_and_schedules_execution(monkeypatch
     monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", worker_token)
     monkeypatch.setattr(main, "engine", SimpleNamespace(dialect=SimpleNamespace(name="postgresql")))
 
-    def fake_validate(job_id_arg, tenant_id_arg, claim_token_arg):
-        received["validated"] = (job_id_arg, tenant_id_arg, claim_token_arg)
+    def fake_validate(job_id_arg, tenant_id_arg, claim_token_arg, *, stale_after_seconds=900):
+        received["validated"] = (job_id_arg, tenant_id_arg, claim_token_arg, stale_after_seconds)
 
     def fake_execute(job_id_arg, **kwargs):
         received["executed"] = (job_id_arg, kwargs)
@@ -528,7 +530,11 @@ def test_postgres_worker_route_accepts_claim_and_schedules_execution(monkeypatch
 
     assert response.status_code == 202, response.text
     assert response.json() == {"status": "ACCEPTED", "job_id": job_id}
-    assert received["validated"] == (job_id, tenant_id, claim_token)
+    assert received["validated"] == (job_id, tenant_id, claim_token, 900)
     assert received["executed"] == (
-        job_id, {"tenant_id": tenant_id, "claim_token": claim_token},
+        job_id, {
+            "tenant_id": tenant_id,
+            "claim_token": claim_token,
+            "stale_after_seconds": 900,
+        },
     )
