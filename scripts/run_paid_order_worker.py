@@ -56,6 +56,10 @@ def pending_job_ids(*, now: int | None = None, stale_after_seconds: int = 900, l
 
 def claim_postgres_jobs(worker_engine, *, limit: int = 20, stale_after_seconds: int = 900):
     """Claim a bounded batch without granting the worker direct table access."""
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise ValueError("worker claim batch limit must be between 1 and 100")
+    if type(stale_after_seconds) is not int or not 60 <= stale_after_seconds <= 86400:
+        raise ValueError("worker claim lease must be between 60 and 86400 seconds")
     with worker_engine.begin() as conn:
         result = conn.execute(
             text("""
@@ -257,6 +261,10 @@ def run_once(
     limit: int = 20,
 ) -> int:
     if worker_engine is not None:
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("worker claim batch limit must be between 1 and 100")
+        if type(stale_after_seconds) is not int or not 60 <= stale_after_seconds <= 86400:
+            raise ValueError("worker claim lease must be between 60 and 86400 seconds")
         _validate_dispatch_config(api_url, worker_token)
         claims = claim_postgres_jobs(
             worker_engine, limit=limit, stale_after_seconds=stale_after_seconds,
@@ -328,8 +336,8 @@ def main() -> int:
     parser.add_argument("--poll-seconds", type=float, default=float(os.getenv("OLA_EXECUTION_WORKER_POLL_SECONDS", "5")))
     parser.add_argument("--stale-after-seconds", type=int, default=int(os.getenv("OLA_EXECUTION_WORKER_STALE_SECONDS", "900")))
     args = parser.parse_args()
-    if args.poll_seconds < 1 or args.stale_after_seconds < 60:
-        parser.error("poll interval must be >=1s and stale timeout >=60s")
+    if args.poll_seconds < 1 or not 60 <= args.stale_after_seconds <= 86400:
+        parser.error("poll interval must be >=1s and stale timeout must be between 60s and 86400s")
 
     logging.basicConfig(level=os.getenv("OLA_LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(message)s")
     worker_url = os.getenv("OLA_DATABASE_WORKER_URL", "").strip()
