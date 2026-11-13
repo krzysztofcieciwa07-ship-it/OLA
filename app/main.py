@@ -899,10 +899,16 @@ def retrieve_checkout_order_report(
 def run_paid_order_execution_job(
     job_id: str,
     x_ola_worker_token: str | None = Header(default=None),
+    x_ola_tenant_id: str | None = Header(default=None),
+    x_ola_claim_token: str | None = Header(default=None),
 ):
     try:
         verify_worker_token(x_ola_worker_token)
-        return execute_paid_order_job(job_id)
+        return execute_paid_order_job(
+            job_id,
+            tenant_id=x_ola_tenant_id,
+            claim_token=x_ola_claim_token,
+        )
     except PaidOrderExecutionRejected as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
