@@ -57,7 +57,9 @@ def validate_postgres_worker_claim(
     if (not isinstance(tenant_id, str) or not tenant_id.strip()
             or len(tenant_id) > 128 or not tenant_id.isascii()
             or not isinstance(claim_token, str) or not claim_token.isascii()
-            or not 16 <= len(claim_token) <= 128):
+            or not 16 <= len(claim_token) <= 128
+            or not isinstance(stale_after_seconds, int)
+            or not 60 <= stale_after_seconds <= 86400):
         raise PaidOrderExecutionRejected(409, "PostgreSQL worker claim coordinates are invalid")
     run_now = int(time.time())
     with tenant_scope(tenant_id):
@@ -218,7 +220,9 @@ def execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
         if (not isinstance(tenant_id, str) or not tenant_id.strip()
                 or len(tenant_id) > 128 or not tenant_id.isascii()
                 or not isinstance(claim_token, str) or not claim_token.isascii()
-                or not 16 <= len(claim_token) <= 128):
+                or not 16 <= len(claim_token) <= 128
+                or not isinstance(stale_after_seconds, int)
+                or not 60 <= stale_after_seconds <= 86400):
             raise PaidOrderExecutionRejected(
                 409, "PostgreSQL worker requires a tenant ID and an active database claim token",
             )
