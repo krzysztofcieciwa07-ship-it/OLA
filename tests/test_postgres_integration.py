@@ -95,12 +95,12 @@ def postgres_db(monkeypatch):
 
 
 def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postgres_db):
-    database, runtime_engine, migration_engine, _admin_engine, runtime_role, _schema, _worker_role = postgres_db
+    database, runtime_engine, migration_engine, _admin_engine, runtime_role, _schema, worker_role = postgres_db
     from app.hashchain import verify_chain
     from app.models import EvidenceRecord, Tenant
 
     # The restricted runtime role has only SELECT/INSERT on evidence_records.
-    database.verify_postgres_schema(runtime_engine)
+    database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
     tenant_id = str(uuid.uuid4())
     with tenant_scope(tenant_id):
         with database.SessionLocal() as db:
@@ -152,12 +152,12 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
             f'GRANT UPDATE, TRUNCATE ON TABLE "{_schema}".evidence_records TO "{runtime_role}"'
         )
     with pytest.raises(RuntimeError, match="must not have UPDATE, DELETE or TRUNCATE"):
-        database.verify_postgres_schema(runtime_engine)
+        database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
     with _admin_engine.begin() as conn:
         conn.exec_driver_sql(
             f'REVOKE UPDATE, TRUNCATE ON TABLE "{_schema}".evidence_records FROM "{runtime_role}"'
         )
-    database.verify_postgres_schema(runtime_engine)
+    database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
 
     # Startup must fail closed if a policy keeps its name but loses isolation.
     with _admin_engine.begin() as conn:
@@ -165,23 +165,23 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
             f'ALTER POLICY ola_tenant_isolation ON "{_schema}".evidence_records USING (true) WITH CHECK (true)'
         )
     with pytest.raises(RuntimeError, match="policy expression is invalid: evidence_records"):
-        database.verify_postgres_schema(runtime_engine)
+        database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
     with _admin_engine.begin() as conn:
         conn.exec_driver_sql(
             f"ALTER POLICY ola_tenant_isolation ON \"{_schema}\".evidence_records "
             "USING (tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')) "
             "WITH CHECK (tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), ''))"
         )
-    database.verify_postgres_schema(runtime_engine)
+    database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
 
     # Startup must fail closed if a tenant table loses RLS.
     with _admin_engine.begin() as conn:
         conn.exec_driver_sql(f'ALTER TABLE "{_schema}".evidence_records DISABLE ROW LEVEL SECURITY')
     with pytest.raises(RuntimeError, match="tenant RLS is missing or disabled"):
-        database.verify_postgres_schema(runtime_engine)
+        database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
     with _admin_engine.begin() as conn:
         conn.exec_driver_sql(f'ALTER TABLE "{_schema}".evidence_records ENABLE ROW LEVEL SECURITY')
-    database.verify_postgres_schema(runtime_engine)
+    database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
 
 
 def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_db):
@@ -195,7 +195,7 @@ def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_d
         claim_oid = conn.execute(text("""
             SELECT to_regprocedure(
                 format('%I.ola_claim_checkout_jobs(integer,integer)', current_schema())
-            )
+            )::oid
         """)).scalar_one()
         assert claim_oid is not None, "role-bound PostgreSQL claim function is missing"
         acl = conn.execute(text("""
@@ -310,7 +310,7 @@ def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_d
 
 
 def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(postgres_db):
-    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    database, runtime_engine, migration_engine, _admin_engine, runtime_role, _schema, worker_role = postgres_db
 
     tenant_a = str(uuid.uuid4())
     tenant_b = str(uuid.uuid4())
@@ -502,12 +502,12 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
             "GRANT EXECUTE ON FUNCTION ola_authenticate_api_key(text) TO PUBLIC"
         )
     with pytest.raises(RuntimeError, match="deny PUBLIC execution"):
-        database.verify_postgres_schema(runtime_engine)
+        database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
     with migration_engine.begin() as conn:
         conn.exec_driver_sql(
             "REVOKE EXECUTE ON FUNCTION ola_authenticate_api_key(text) FROM PUBLIC"
         )
-    database.verify_postgres_schema(runtime_engine)
+    database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
 
     with database.SessionLocal() as db:
         authenticated = db.execute(
