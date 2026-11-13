@@ -23,9 +23,17 @@ class PaidOrderExecutionRejected(ValueError):
 
 def verify_worker_token(token: str | None) -> None:
     configured = os.getenv("OLA_EXECUTION_WORKER_TOKEN", "")
-    if len(configured) < 32:
-        raise PaidOrderExecutionRejected(503, "execution worker authentication is not configured")
-    if not isinstance(token, str) or not token:
+    configured_valid = (
+        isinstance(configured, str)
+        and len(configured) >= 32
+        and configured.isascii()
+        and all(33 <= ord(char) <= 126 for char in configured)
+    )
+    if not configured_valid:
+        raise PaidOrderExecutionRejected(503, "execution worker authentication is not configured securely")
+    if (not isinstance(token, str) or not token
+            or not token.isascii()
+            or any(ord(char) < 33 or ord(char) > 126 for char in token)):
         raise PaidOrderExecutionRejected(401, "worker authentication required")
     if not hmac.compare_digest(token, configured):
         raise PaidOrderExecutionRejected(403, "worker authentication failed")
