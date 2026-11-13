@@ -339,7 +339,7 @@ def test_checkout_webhook_success_redirect_and_human_approval_form_one_bound_cha
             ApiKey(id=requester_id, tenant_id=tenant_id,
                    key_hash=api_key_fingerprint(requester_key)),
             ApiKey(id=approver_id, tenant_id=tenant_id,
-                   key_hash=api_key_fingerprint(approver_key)),
+                   key_hash=api_key_fingerprint(approver_key), role="execution_approver"),
         ])
         db.commit()
 
