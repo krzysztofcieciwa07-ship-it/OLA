@@ -376,7 +376,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         or "search_path=pg_catalog" not in auth_function_config
         or auth_function.public_execute
         or not auth_function.runtime_execute
-        or bool(auth_function.extra_execute_grantees)
+        or (enforce_runtime_privileges and bool(auth_function.extra_execute_grantees))
     ):
         raise RuntimeError(
             "PostgreSQL API-key authentication function must be SECURITY DEFINER, "
