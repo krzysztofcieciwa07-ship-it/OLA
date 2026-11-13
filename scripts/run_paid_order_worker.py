@@ -115,7 +115,7 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
                     EXISTS (
                         SELECT 1
                         FROM pg_auth_members AS memberships
-                        WHERE memberships.member = r.oid
+                        WHERE memberships.member = pg_catalog.to_regrole(current_user::text)::oid
                     ) AS has_role_membership,
                     has_schema_privilege(current_user, current_schema(), 'USAGE') AS schema_usage,
                     has_schema_privilege(current_user, current_schema(), 'CREATE') AS schema_create,
