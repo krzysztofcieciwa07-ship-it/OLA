@@ -648,6 +648,31 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
         raise ValueError("worker_role must be distinct from runtime_role")
     schema_name = connection.exec_driver_sql("SELECT current_schema()").scalar_one()
     quoted_schema = '"' + schema_name.replace('"', '""') + '"'
+
+    def revoke_unexpected_function_execute(function_signature: str, allowed_role: str) -> None:
+        # Keep only the explicitly allowed runtime identity (or worker identity)
+        # in function ACLs. A prior grant to any other role is removed rather
+        # than leaving migration and startup verification permanently divergent.
+        unexpected_roles = connection.execute(text(f"""
+            SELECT DISTINCT pg_get_userbyid(acl.grantee)
+            FROM pg_proc AS p
+            CROSS JOIN LATERAL aclexplode(
+                COALESCE(p.proacl, acldefault('f', p.proowner))
+            ) AS acl
+            WHERE p.oid = to_regprocedure(
+                format('%I.{function_signature}', current_schema())
+            )
+              AND acl.privilege_type = 'EXECUTE'
+              AND acl.grantee <> 0
+              AND acl.grantee <> p.proowner
+              AND pg_get_userbyid(acl.grantee) <> :allowed_role
+        """), {"allowed_role": allowed_role}).all()
+        for (role_name,) in unexpected_roles:
+            quoted_role = '"' + role_name.replace('"', '""') + '"'
+            connection.exec_driver_sql(
+                f"REVOKE ALL ON FUNCTION {quoted_schema}.{function_signature} FROM {quoted_role}"
+            )
+
     connection.exec_driver_sql(f"""
     CREATE OR REPLACE FUNCTION {quoted_schema}.ola_authenticate_api_key(p_key_hash text)
     RETURNS TABLE (tenant_id text, api_key_id text, role text)
@@ -673,6 +698,10 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
 
     connection.exec_driver_sql(
         f"REVOKE ALL ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) FROM PUBLIC"
+    )
+    revoke_unexpected_function_execute("ola_authenticate_api_key(text)", runtime_role)
+    connection.exec_driver_sql(
+        f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) FROM "{worker_role}"'
     )
     connection.exec_driver_sql(
         f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) TO "{runtime_role}"'
@@ -752,6 +781,7 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
     connection.exec_driver_sql(
         f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_claim_checkout_jobs(integer, integer) FROM "{runtime_role}"'
     )
+    revoke_unexpected_function_execute("ola_claim_checkout_jobs(integer, integer)", worker_role)
     connection.exec_driver_sql(
         f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_claim_checkout_jobs(integer, integer) TO "{worker_role}"'
     )
