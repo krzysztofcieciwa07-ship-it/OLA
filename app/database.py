@@ -85,17 +85,18 @@ Base = declarative_base()
 
 @event.listens_for(OrmSession, "after_begin")
 def _apply_postgres_tenant_context(session, transaction, connection):
-    """Set transaction-local RLS context on every PostgreSQL ORM transaction."""
+    """Overwrite transaction-local RLS context on every PostgreSQL transaction."""
     if connection.dialect.name != "postgresql":
         return
     tenant_id = current_tenant_id()
-    if tenant_id:
-        connection.execute(
-            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
-            {"tenant_id": tenant_id},
-        )
-    if worker_mode_enabled():
-        connection.execute(text("SELECT set_config('ola.worker_mode', 'on', true)"))
+    connection.execute(
+        text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+        {"tenant_id": tenant_id or ""},
+    )
+    connection.execute(
+        text("SELECT set_config('ola.worker_mode', :worker_mode, true)"),
+        {"worker_mode": "on" if worker_mode_enabled() else "off"},
+    )
 
 
 def create_postgres_append_only_triggers(connection):
