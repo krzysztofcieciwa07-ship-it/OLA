@@ -34,7 +34,7 @@ def postgres_db(monkeypatch):
     )
     runtime_engine = None
     try:
-        database.migrate_postgres_schema(migration_engine)
+        database.migrate_postgres_schema(migration_engine, runtime_role=runtime_role)
         with admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{schema}" TO "{runtime_role}"')
             conn.exec_driver_sql(
@@ -190,6 +190,25 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
     # Authentication is the only pre-tenant lookup and is mediated by a
     # narrowly scoped SECURITY DEFINER function, not direct table access.
     with database.SessionLocal() as db:
+        assert db.execute(text("""
+            SELECT has_function_privilege(
+                current_user,
+                to_regprocedure('ola_authenticate_api_key(text)'),
+                'EXECUTE'
+            )
+        """)).scalar_one() is True
+        assert db.execute(text("""
+            SELECT NOT EXISTS (
+                SELECT 1
+                FROM pg_proc AS p
+                CROSS JOIN LATERAL aclexplode(
+                    COALESCE(p.proacl, acldefault('f', p.proowner))
+                ) AS acl
+                WHERE p.oid = to_regprocedure('ola_authenticate_api_key(text)')
+                  AND acl.grantee = 0
+                  AND acl.privilege_type = 'EXECUTE'
+            )
+        """)).scalar_one() is True
         authenticated = db.execute(
             text("SELECT tenant_id, api_key_id, role FROM ola_authenticate_api_key(:key_hash)"),
             {"key_hash": key_b},
