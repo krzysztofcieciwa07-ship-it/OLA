@@ -841,6 +841,9 @@ def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgr
         conn.exec_driver_sql(
             f'GRANT SELECT ON TABLE "{schema}".checkout_orders TO "{runtime_role}" WITH GRANT OPTION'
         )
+        conn.exec_driver_sql(
+            f'GRANT CREATE ON SCHEMA "{schema}" TO PUBLIC'
+        )
 
     try:
         database.migrate_postgres_schema(
@@ -941,6 +944,19 @@ def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgr
                 "runtime_role": runtime_role,
             }).one()
             assert tuple(table_acl) == (False, False, False)
+            public_schema_create = conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_namespace AS n
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                    ) AS acl
+                    WHERE n.nspname = :schema_name
+                      AND acl.grantee = 0
+                      AND acl.privilege_type = 'CREATE'
+                )
+            """), {"schema_name": schema}).scalar_one()
+            assert public_schema_create is False
         database.verify_postgres_schema(
             _runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
         )
