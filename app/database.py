@@ -323,8 +323,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "checkout_report_reviews": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
         "stripe_events": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
         "checkout_execution_jobs": (
-            "(tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)) "
-            "OR (current_setting('ola.worker_mode'::text, true) = 'on'::text)"
+            "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)"
         ),
     }
     all_roles = ("public",)
@@ -461,9 +460,9 @@ def install_postgres_tenant_rls(connection, runtime_role):
         "checkout_order_controls": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
         "checkout_report_reviews": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
         "stripe_events": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
+        # No worker-wide escape hatch: the API runtime role remains tenant-scoped.
         "checkout_execution_jobs": (
-            "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '') "
-            "OR current_setting('ola.worker_mode', true) = 'on'"
+            "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')"
         ),
     }
     for table_name, predicate in tenant_policies.items():
