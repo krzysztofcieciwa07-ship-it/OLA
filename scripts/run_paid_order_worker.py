@@ -138,7 +138,7 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
                         FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
                         CROSS JOIN unnest(ARRAY[
                             'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE',
-                            'REFERENCES', 'TRIGGER'
+                            'REFERENCES', 'TRIGGER', 'MAINTAIN'
                         ]) AS privilege(privilege)
                     ), false) AS has_direct_table_privileges
                 FROM pg_roles AS r
