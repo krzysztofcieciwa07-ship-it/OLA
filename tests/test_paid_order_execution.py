@@ -325,7 +325,7 @@ def test_internal_worker_route_forwards_tenant_and_claim_token(monkeypatch):
 
     worker_token = "worker-secret-" + "w" * 40
     tenant_id = "tenant-claim-123"
-    claim_token = "claim-token-456"
+    claim_token = "claim-token-4567"
     job_id = "job-claim-789"
     monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", worker_token)
     received = {}
@@ -363,7 +363,7 @@ def test_postgres_worker_batch_claims_and_dispatches_only_claim_coordinates(monk
             assert "ola_claim_checkout_jobs" in str(statement)
             assert params == {"limit": 20, "stale_after": 900}
             return [
-                SimpleNamespace(job_id="job-1", tenant_id="tenant-1", claim_token="claim-1"),
+                SimpleNamespace(job_id="job-1", tenant_id="tenant-1", claim_token="claim-token-000000000001"),
             ]
 
     class FakeEngine:
@@ -392,7 +392,7 @@ def test_postgres_worker_batch_claims_and_dispatches_only_claim_coordinates(monk
     assert dispatched == [(
         "https://ola-internal.example",
         "worker-secret-" + "w" * 40,
-        {"job_id": "job-1", "tenant_id": "tenant-1", "claim_token": "claim-1"},
+        {"job_id": "job-1", "tenant_id": "tenant-1", "claim_token": "claim-token-000000000001"},
         900,
     )]
 
@@ -444,15 +444,15 @@ def test_postgres_worker_http_dispatch_sends_claim_only_as_headers(monkeypatch):
     result = worker.dispatch_claim_to_api(
         "https://ola-internal.example",
         "worker-secret-" + "w" * 40,
-        {"job_id": "job-123", "tenant_id": "tenant-456", "claim_token": "claim-789"},
+        {"job_id": "job-123", "tenant_id": "tenant-456", "claim_token": "claim-token-789-123456"},
     )
     assert result == {"status": "ACCEPTED"}
     assert seen["url"] == "https://ola-internal.example/internal/checkout-execution/job-123/run"
     assert "tenant-456" not in seen["url"]
-    assert "claim-789" not in seen["url"]
+    assert "claim-token-789-123456" not in seen["url"]
     assert seen["headers"]["x-ola-worker-token"] == "worker-secret-" + "w" * 40
     assert seen["headers"]["x-ola-tenant-id"] == "tenant-456"
-    assert seen["headers"]["x-ola-claim-token"] == "claim-789"
+    assert seen["headers"]["x-ola-claim-token"] == "claim-token-789-123456"
     assert seen["headers"]["x-ola-claim-stale-after"] == "900"
     assert seen["timeout"] == 20
 
@@ -504,7 +504,7 @@ def test_postgres_worker_route_accepts_claim_and_schedules_execution(monkeypatch
 
     worker_token = "worker-secret-" + "w" * 40
     tenant_id = "tenant-claim-123"
-    claim_token = "claim-token-456"
+    claim_token = "claim-token-4567"
     job_id = "job-claim-789"
     received = {}
 
