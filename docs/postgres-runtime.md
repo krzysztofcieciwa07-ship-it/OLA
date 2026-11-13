@@ -52,13 +52,18 @@ API-key authentication; PostgreSQL authentication resolves the key through
 webhooks bind context only after signature verification and authoritative
 Checkout Session lookup.
 
-The worker uses a narrowly scoped `ola.worker_mode` setting only to locate an
-outbox job after the internal worker token is verified. Immediately after
-claiming the job it drops worker-wide RLS mode and binds the transaction to
-that job's tenant before reading or mutating tenant data. This setting is not
-a tenant-client permission. Legacy Stripe event rows without `tenant_id` are
-intentionally invisible under RLS and require controlled reconciliation; the
-migration does not infer tenant ownership from untrusted event payloads.
+The tenant RLS policy does not grant a worker-wide bypass through
+`ola.worker_mode`. A PostgreSQL custom GUC is transaction configuration, not
+an independent security identity: any process holding the same database
+credential can attempt to set it. The current worker code therefore remains
+tenant-scoped after it resolves the job's tenant. A separate worker database
+role, separate credentials, and a role-bound narrowly scoped policy/function
+are required before the worker can perform cross-tenant outbox discovery.
+Do not treat `OLA_EXECUTION_WORKER_TOKEN` plus a shared runtime DB credential
+as a database privilege boundary. Legacy Stripe event rows without
+`tenant_id` are intentionally invisible under RLS and require controlled
+reconciliation; the migration does not infer tenant ownership from
+untrusted event payloads.
 
 Example minimum grants for the current payment/evidence tables (adapt the
 role name and include other OLA tables when deploying the complete API):
