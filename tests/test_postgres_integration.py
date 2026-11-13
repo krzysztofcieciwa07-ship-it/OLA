@@ -204,6 +204,28 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
         with database.SessionLocal() as db:
             assert db.execute(text("SELECT id FROM tenants")).scalars().all() == [tenant_a]
             assert db.execute(text("SELECT tenant_id FROM api_keys")).scalars().all() == [tenant_a]
+            # Every tenant-owned table must hide tenant B in tenant A's context.
+            tenant_tables = {
+                "evidence_records": "tenant_id",
+                "stripe_events": "tenant_id",
+                "checkout_orders": "tenant_id",
+                "checkout_order_controls": "tenant_id",
+                "checkout_execution_jobs": "tenant_id",
+                "checkout_report_reviews": "tenant_id",
+            }
+            for table_name, tenant_column in tenant_tables.items():
+                visible = db.execute(
+                    text(f"SELECT DISTINCT {tenant_column} FROM {table_name}")
+                ).scalars().all()
+                assert visible == [], (table_name, visible)
+
+    # Setting the legacy worker GUC must not grant cross-tenant visibility.
+    with database.SessionLocal() as db:
+        db.execute(text("SELECT set_config('ola.worker_mode', 'on', true)"))
+        visible = db.execute(
+            text("SELECT DISTINCT tenant_id FROM checkout_execution_jobs")
+        ).scalars().all()
+        assert visible == [], visible
 
     # Authentication is the only pre-tenant lookup and is mediated by a
     # narrowly scoped SECURITY DEFINER function, not direct table access.
