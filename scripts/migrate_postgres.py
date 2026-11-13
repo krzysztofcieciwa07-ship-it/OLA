@@ -26,9 +26,12 @@ def main() -> int:
     url = database_url_from_env({"OLA_DATABASE_URL": raw_url})
     if not url.startswith("postgresql+psycopg://"):
         raise SystemExit("migration URL must use PostgreSQL with Psycopg 3")
+    runtime_role = os.getenv("OLA_DATABASE_RUNTIME_ROLE", "ola_runtime").strip()
+    if not runtime_role:
+        raise SystemExit("OLA_DATABASE_RUNTIME_ROLE is required")
     migration_engine = create_engine(url, pool_pre_ping=True)
     try:
-        migrate_postgres_schema(migration_engine)
+        migrate_postgres_schema(migration_engine, runtime_role=runtime_role)
     finally:
         migration_engine.dispose()
     print("OLA_POSTGRES_SCHEMA=VERIFIED")
