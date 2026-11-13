@@ -99,6 +99,7 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
         "checkout_order_controls",
         "checkout_execution_jobs",
         "checkout_report_reviews",
+        "ola_schema_migrations",
     ]
     with worker_engine.connect() as conn:
         identity = conn.execute(
