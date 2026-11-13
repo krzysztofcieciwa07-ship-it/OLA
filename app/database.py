@@ -402,7 +402,43 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
                    has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'TRUNCATE'),
                    has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'REFERENCES'),
                    has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'TRIGGER'),
-                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'MAINTAIN')
+                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'MAINTAIN'),
+                   EXISTS (
+                       SELECT 1
+                       FROM pg_class AS acl_table
+                       JOIN pg_namespace AS acl_schema ON acl_schema.oid = acl_table.relnamespace
+                       CROSS JOIN LATERAL aclexplode(
+                           COALESCE(acl_table.relacl, acldefault('r', acl_table.relowner))
+                       ) AS acl
+                       WHERE acl_schema.nspname = current_schema()
+                         AND acl_table.relname = scoped.table_name
+                         AND acl.grantee = 0
+                   ) AS has_public_table_acl,
+                   EXISTS (
+                       SELECT 1
+                       FROM pg_class AS acl_table
+                       JOIN pg_namespace AS acl_schema ON acl_schema.oid = acl_table.relnamespace
+                       CROSS JOIN LATERAL aclexplode(
+                           COALESCE(acl_table.relacl, acldefault('r', acl_table.relowner))
+                       ) AS acl
+                       WHERE acl_schema.nspname = current_schema()
+                         AND acl_table.relname = scoped.table_name
+                         AND acl.grantee = pg_catalog.to_regrole(:runtime_role)::oid
+                         AND acl.is_grantable
+                   ) AS runtime_has_grant_option,
+                   COALESCE((
+                       SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee))
+                       FROM pg_class AS acl_table
+                       JOIN pg_namespace AS acl_schema ON acl_schema.oid = acl_table.relnamespace
+                       CROSS JOIN LATERAL aclexplode(
+                           COALESCE(acl_table.relacl, acldefault('r', acl_table.relowner))
+                       ) AS acl
+                       WHERE acl_schema.nspname = current_schema()
+                         AND acl_table.relname = scoped.table_name
+                         AND acl.grantee <> 0
+                         AND acl.grantee <> acl_table.relowner
+                         AND acl.grantee <> pg_catalog.to_regrole(:runtime_role)::oid
+                   ), ARRAY[]::text[]) AS extra_table_grantees
             FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
         """), {
             "runtime_role": runtime_role,
@@ -583,7 +619,15 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
     }
     privilege_names = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN")
     runtime_privilege_state = {
-        row[0]: {name: bool(value) for name, value in zip(privilege_names, row[1:])}
+        row[0]: {name: bool(value) for name, value in zip(privilege_names, row[1:9])}
+        for row in runtime_table_privileges
+    }
+    runtime_table_acl_state = {
+        row[0]: {
+            "public": bool(row[9]),
+            "grant_option": bool(row[10]),
+            "extra_grantees": tuple(row[11] or ()),
+        }
         for row in runtime_table_privileges
     }
     if set(runtime_privilege_state) != set(expected_runtime_privileges):
@@ -593,6 +637,11 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
         if any(actual[name] != (name in allowed) for name in privilege_names):
             raise RuntimeError(
                 f"PostgreSQL runtime role table grants are not least-privilege: {table_name}"
+            )
+        acl_state = runtime_table_acl_state[table_name]
+        if acl_state["public"] or acl_state["grant_option"] or acl_state["extra_grantees"]:
+            raise RuntimeError(
+                f"PostgreSQL runtime table ACL is not least-privilege: {table_name}"
             )
     if not runtime_schema_privileges[0] or runtime_schema_privileges[1]:
         raise RuntimeError("PostgreSQL runtime role must have schema USAGE but must not have schema CREATE")
