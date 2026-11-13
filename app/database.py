@@ -348,6 +348,10 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             "worker_role": worker_role,
             "table_names": list(rls_tables),
         }).one()
+        worker_schema_privileges = conn.execute(text("""
+            SELECT has_schema_privilege(:worker_role, current_schema(), 'USAGE'),
+                   has_schema_privilege(:worker_role, current_schema(), 'CREATE')
+        """), {"worker_role": worker_role}).one()
         role_state = {
             row[0]: (bool(row[1]), bool(row[2]))
             for row in role_rows
@@ -478,6 +482,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
         raise RuntimeError("PostgreSQL worker role must not be superuser or BYPASSRLS")
     if any(worker_table_privileges):
         raise RuntimeError("PostgreSQL worker role must not have direct privileges on tenant-owned tables")
+    if not worker_schema_privileges[0] or worker_schema_privileges[1]:
+        raise RuntimeError("PostgreSQL worker role must have schema USAGE but must not have schema CREATE")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
     expected = {"evidence_no_update": "BEFORE UPDATE", "evidence_no_delete": "BEFORE DELETE"}
     for name, action in expected.items():
@@ -570,6 +576,12 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
     )
     connection.exec_driver_sql(
         f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) TO "{runtime_role}"'
+    )
+    connection.exec_driver_sql(
+        f"GRANT USAGE ON SCHEMA {quoted_schema} TO \"{worker_role}\""
+    )
+    connection.exec_driver_sql(
+        f"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {quoted_schema} FROM \"{worker_role}\""
     )
 
     # Worker discovery is a distinct database capability. Its SECURITY DEFINER
