@@ -309,8 +309,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "cmd": row[2],
             "permissive": row[3],
             "roles": tuple(row[4] or ()),
-            "qual": re.sub(r"\\s+", " ", row[5] or "").strip(),
-            "with_check": re.sub(r"\\s+", " ", row[6] or "").strip(),
+            "qual": re.sub(r"\s+", " ", row[5] or "").strip(),
+            "with_check": re.sub(r"\s+", " ", row[6] or "").strip(),
         }
         for row in policy_rows
     }
