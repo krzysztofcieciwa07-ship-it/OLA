@@ -12,7 +12,7 @@ from .database import SessionLocal, begin_write_transaction, lock_tenant_evidenc
 from .hashchain import GENESIS_HASH, compute_record_hash_v2, sealed_payload_json, trusted_record, verify_chain
 from .models import CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl, EvidenceRecord
 from .runtime_provenance import runtime_source_commit
-from .tenant_context import set_current_tenant_id, worker_scope
+from .tenant_context import set_current_tenant_id, set_worker_mode, worker_scope
 
 
 class PaidOrderExecutionRejected(ValueError):
@@ -181,11 +181,13 @@ def _execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
         if job is None:
             raise PaidOrderExecutionRejected(404, "execution job not found")
         set_current_tenant_id(job.tenant_id)
+        set_worker_mode(False)
         if db.bind.dialect.name == "postgresql":
             db.execute(
                 text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
                 {"tenant_id": job.tenant_id},
             )
+            db.execute(text("SELECT set_config('ola.worker_mode', 'off', true)"))
         lock_tenant_evidence_chain(db, job.tenant_id)
         if job.status in {"EXECUTED_REVIEW_REQUIRED", "EXECUTED_BLOCKED"} and job.result_json:
             return json.loads(job.result_json)
