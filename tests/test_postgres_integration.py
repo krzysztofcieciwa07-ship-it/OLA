@@ -514,7 +514,7 @@ def test_postgres_runtime_and_worker_roles_reject_membership_and_inherit(postgre
 
     with admin_engine.begin() as conn:
         conn.exec_driver_sql(f'GRANT "{runtime_role}" TO "{worker_role}"')
-    with pytest.raises(RuntimeError, match="must not inherit or switch to other roles"):
+    with pytest.raises(RuntimeError, match="must not participate in any role membership"):
         database.verify_postgres_schema(
             runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
         )
@@ -527,6 +527,24 @@ def test_postgres_runtime_and_worker_roles_reject_membership_and_inherit(postgre
         )
     with admin_engine.begin() as conn:
         conn.exec_driver_sql(f'ALTER ROLE "{worker_role}" NOINHERIT')
+    database.verify_postgres_schema(
+        runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+    )
+
+    outsider_role = "ola_outsider_" + uuid.uuid4().hex[:12]
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'CREATE ROLE "{outsider_role}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS '
+            'NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD \'ola_outsider_test_only\''
+        )
+        conn.exec_driver_sql(f'GRANT "{worker_role}" TO "{outsider_role}"')
+    with pytest.raises(RuntimeError, match="must not participate in any role membership"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'REVOKE "{worker_role}" FROM "{outsider_role}"')
+        conn.exec_driver_sql(f'DROP ROLE "{outsider_role}"')
     database.verify_postgres_schema(
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
