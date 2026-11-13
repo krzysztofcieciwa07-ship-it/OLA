@@ -670,6 +670,9 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
         f"GRANT USAGE ON SCHEMA {quoted_schema} TO \"{worker_role}\""
     )
     connection.exec_driver_sql(
+        f"REVOKE CREATE ON SCHEMA {quoted_schema} FROM \"{worker_role}\""
+    )
+    connection.exec_driver_sql(
         f"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {quoted_schema} FROM \"{worker_role}\""
     )
 
