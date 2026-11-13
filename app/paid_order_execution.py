@@ -31,6 +31,21 @@ def verify_worker_token(token: str | None) -> None:
         raise PaidOrderExecutionRejected(403, "worker authentication failed")
 
 
+def _postgres_claim_is_current(job, tenant_id: str, claim_token: str,
+                             *, now: int, stale_after_seconds: int) -> bool:
+    """Validate tenant binding, opaque token, and DB-issued lease interval."""
+    stored_token = getattr(job, "claim_token", None)
+    claimed_at = getattr(job, "claimed_at", None)
+    if (getattr(job, "tenant_id", None) != tenant_id
+            or not isinstance(stored_token, str) or not stored_token.isascii()
+            or not isinstance(claim_token, str) or not claim_token.isascii()
+            or not isinstance(claimed_at, int)):
+        return False
+    if not hmac.compare_digest(stored_token, claim_token):
+        return False
+    return now - stale_after_seconds < claimed_at <= now + 60
+
+
 def _append_locked(db, tenant_id: str, record_type: str, payload: dict) -> dict:
     """Append trusted evidence under the caller's tenant-chain transaction lock."""
     rows = db.scalars(
@@ -156,7 +171,8 @@ def execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
 
     if dialect == "postgresql":
         if (not isinstance(tenant_id, str) or not tenant_id.strip()
-                or not isinstance(claim_token, str)
+                or not isinstance(tenant_id, str) or len(tenant_id) > 128 or not tenant_id.isascii()
+                or not isinstance(claim_token, str) or not claim_token.isascii()
                 or not 16 <= len(claim_token) <= 128):
             raise PaidOrderExecutionRejected(
                 409, "PostgreSQL worker requires a tenant ID and an active database claim token",
@@ -205,13 +221,10 @@ def _execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
         if job is None:
             raise PaidOrderExecutionRejected(404, "execution job not found")
         if is_postgres:
-            lease_is_current = (
-                isinstance(job.claim_token, str)
-                and hmac.compare_digest(job.claim_token, claim_token)
-                and isinstance(job.claimed_at, int)
-                and run_now - stale_after_seconds < job.claimed_at <= run_now + 60
-            )
-            if job.tenant_id != tenant_id or not lease_is_current:
+            if not _postgres_claim_is_current(
+                job, tenant_id, claim_token,
+                now=run_now, stale_after_seconds=stale_after_seconds,
+            ):
                 db.rollback()
                 raise PaidOrderExecutionRejected(
                     409, "PostgreSQL execution claim is expired, mismatched, or no longer owned",
@@ -366,18 +379,13 @@ def _execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
             raise PaidOrderExecutionRejected(409, "execution claim was lost; manual reconciliation is required")
         lock_tenant_evidence_chain(db, job.tenant_id)
         claim_still_owned = (
-            isinstance(job.claim_token, str)
-            and isinstance(claim_token, str)
-            and hmac.compare_digest(job.claim_token, claim_token)
-        )
-        lease_still_current = (
             not is_postgres
-            or (
-                isinstance(job.claimed_at, int)
-                and int(time.time()) - stale_after_seconds < job.claimed_at <= int(time.time()) + 60
+            or _postgres_claim_is_current(
+                job, tenant_id, claim_token,
+                now=int(time.time()), stale_after_seconds=stale_after_seconds,
             )
         )
-        if job.status != "RUNNING" or not claim_still_owned or not lease_still_current:
+        if job.status != "RUNNING" or not claim_still_owned:
             db.rollback()
             raise PaidOrderExecutionRejected(409, "execution claim was lost; manual reconciliation is required")
         job.status = final_status
