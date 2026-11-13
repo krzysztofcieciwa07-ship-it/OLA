@@ -53,9 +53,14 @@ The migration creates missing ORM tables, installs the evidence append-only
 triggers, adds tenant ownership to Stripe event rows, installs transaction-
 local RLS, and creates the scoped `ola_authenticate_api_key(text)` and
 role-bound `ola_claim_checkout_jobs(integer,integer)` functions. Both are
-SECURITY DEFINER with a fixed `pg_catalog` search path and a separate
-migration owner. The auth function is executable only by the runtime role;
-the claim function only by the worker role. The migration revokes schema CREATE from `PUBLIC`, grants the runtime role
+SECURITY DEFINER with a fixed `pg_catalog` search path. The auth
+function must be owned by the `api_keys` table owner; the claim function
+must be owned by the `checkout_execution_jobs` table owner. Those owners
+are the dedicated migration/schema owner, never the runtime or worker role.
+Do not enable `FORCE ROW LEVEL SECURITY` on these tables: it would subject
+the owner-bound definer functions to tenant policies without a tenant
+context. The auth function is executable only by the runtime role; the claim
+function only by the worker role. The migration revokes schema CREATE from `PUBLIC`, grants the runtime role
 its exact application DML matrix (SELECT/INSERT/UPDATE only on the tables it
 uses, SELECT-only on `ola_schema_migrations`) and gives the worker only
 schema USAGE plus claim-function EXECUTE—no direct table privileges,
