@@ -6,12 +6,13 @@ import os
 import time
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from .database import SessionLocal, begin_write_transaction, lock_tenant_evidence_chain
 from .hashchain import GENESIS_HASH, compute_record_hash_v2, sealed_payload_json, trusted_record, verify_chain
 from .models import CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl, EvidenceRecord
 from .runtime_provenance import runtime_source_commit
+from .tenant_context import set_current_tenant_id, worker_scope
 
 
 class PaidOrderExecutionRejected(ValueError):
@@ -147,6 +148,16 @@ def _execution_context(db, job: CheckoutExecutionJob):
 
 def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
                             stale_after_seconds: int = 900) -> dict:
+    """Run the worker under a privileged, request-scoped RLS context."""
+    with worker_scope():
+        return _execute_paid_order_job(
+            job_id, runner=runner, now=now,
+            stale_after_seconds=stale_after_seconds,
+        )
+
+
+def _execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
+                            stale_after_seconds: int = 900) -> dict:
     """Claim and run one approved order once. Stale RUNNING jobs are never auto-replayed."""
     from .nina_execution import run_nina_task
 
@@ -169,6 +180,12 @@ def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
         )
         if job is None:
             raise PaidOrderExecutionRejected(404, "execution job not found")
+        set_current_tenant_id(job.tenant_id)
+        if db.bind.dialect.name == "postgresql":
+            db.execute(
+                text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+                {"tenant_id": job.tenant_id},
+            )
         lock_tenant_evidence_chain(db, job.tenant_id)
         if job.status in {"EXECUTED_REVIEW_REQUIRED", "EXECUTED_BLOCKED"} and job.result_json:
             return json.loads(job.result_json)
