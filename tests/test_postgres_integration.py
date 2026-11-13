@@ -206,18 +206,51 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
             assert db.execute(text("SELECT tenant_id FROM api_keys")).scalars().all() == [tenant_a]
             # Every tenant-owned table must hide tenant B in tenant A's context.
             tenant_tables = {
-                "evidence_records": "tenant_id",
-                "stripe_events": "tenant_id",
-                "checkout_orders": "tenant_id",
-                "checkout_order_controls": "tenant_id",
-                "checkout_execution_jobs": "tenant_id",
-                "checkout_report_reviews": "tenant_id",
+                "evidence_records": ("id", "tenant_id"),
+                "stripe_events": ("id", "tenant_id"),
+                "checkout_orders": ("id", "tenant_id"),
+                "checkout_order_controls": ("id", "tenant_id"),
+                "checkout_execution_jobs": ("id", "tenant_id"),
+                "checkout_report_reviews": ("id", "tenant_id"),
             }
-            for table_name, tenant_column in tenant_tables.items():
+            for table_name, (row_id_column, tenant_column) in tenant_tables.items():
                 visible = db.execute(
-                    text(f"SELECT DISTINCT {tenant_column} FROM {table_name}")
+                    text(f"SELECT {row_id_column} FROM {table_name} WHERE {tenant_column} = :tenant_b"),
+                    {"tenant_b": tenant_b},
                 ).scalars().all()
                 assert visible == [], (table_name, visible)
+                # Prove WITH CHECK also rejects cross-tenant inserts, not just reads.
+                insert_columns = {
+                    "evidence_records": "(id, tenant_id, seq, record_type, payload_json, prev_hash, record_hash)",
+                    "stripe_events": "(id, tenant_id, event_id, status)",
+                    "checkout_orders": "(id, tenant_id, idempotency_key_hash, request_hash, status)",
+                    "checkout_order_controls": "(id, order_id, tenant_id, requester_id, status)",
+                    "checkout_execution_jobs": "(id, tenant_id, order_id, approval_record_hash, task, status, attempt_count, created_at)",
+                    "checkout_report_reviews": "(id, order_id, tenant_id, reviewer_id, status, report_sha256, reviewed_tip_hash, reason, reviewed_at)",
+                }
+                values = {
+                    "evidence_records": "(:id, :tenant_b, 0, 'probe', '{}', :genesis, :genesis)",
+                    "stripe_events": "(:id, :tenant_b, :event_id, 'PROCESSING')",
+                    "checkout_orders": "(:id, :tenant_b, :idem, :request_hash, 'CHECKOUT_CREATED')",
+                    "checkout_order_controls": "(:id, :order_id, :tenant_b, :requester_id, 'PENDING')",
+                    "checkout_execution_jobs": "(:id, :tenant_b, :order_id, :approval_hash, 'probe', 'QUEUED', 0, 0)",
+                    "checkout_report_reviews": "(:id, :order_id, :tenant_b, :reviewer_id, 'PENDING', :report_hash, :tip_hash, 'probe', 0)",
+                }
+                params = {
+                    "id": str(uuid.uuid4()), "tenant_b": tenant_b,
+                    "event_id": "evt_rls_probe_" + uuid.uuid4().hex,
+                    "idem": uuid.uuid4().hex, "request_hash": "a" * 64,
+                    "order_id": str(uuid.uuid4()), "requester_id": str(uuid.uuid4()),
+                    "approval_hash": "b" * 64, "genesis": "0" * 64,
+                    "reviewer_id": str(uuid.uuid4()), "report_hash": "c" * 64,
+                    "tip_hash": "0" * 64,
+                }
+                with pytest.raises(DBAPIError):
+                    db.execute(
+                        text(f"INSERT INTO {table_name} {insert_columns[table_name]} VALUES {values[table_name]}"),
+                        params,
+                    )
+                    db.rollback()
 
     # Setting the legacy worker GUC must not grant cross-tenant visibility.
     with database.SessionLocal() as db:
