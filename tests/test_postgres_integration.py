@@ -36,7 +36,10 @@ def postgres_db(monkeypatch):
     )
     runtime_engine = None
     try:
-        database.migrate_postgres_schema(migration_engine, runtime_role=runtime_role)
+        monkeypatch.setenv("OLA_DATABASE_WORKER_ROLE", worker_role)
+        database.migrate_postgres_schema(
+            migration_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
         with admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{schema}" TO "{runtime_role}"')
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{schema}" TO "{worker_role}"')
@@ -74,8 +77,9 @@ def postgres_db(monkeypatch):
         monkeypatch.setattr(database, "SessionLocal", sessionmaker(
             bind=runtime_engine, autocommit=False, autoflush=False,
         ))
-        database.verify_postgres_schema(runtime_engine)
-        monkeypatch.setenv("OLA_DATABASE_WORKER_ROLE", worker_role)
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
         yield database, runtime_engine, migration_engine, admin_engine, runtime_role, schema, worker_role
     finally:
         if runtime_engine is not None:

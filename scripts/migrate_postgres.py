@@ -27,11 +27,14 @@ def main() -> int:
     if not url.startswith("postgresql+psycopg://"):
         raise SystemExit("migration URL must use PostgreSQL with Psycopg 3")
     runtime_role = os.getenv("OLA_DATABASE_RUNTIME_ROLE", "ola_runtime").strip()
-    if not runtime_role:
-        raise SystemExit("OLA_DATABASE_RUNTIME_ROLE is required")
+    worker_role = os.getenv("OLA_DATABASE_WORKER_ROLE", "ola_worker").strip()
+    if not runtime_role or not worker_role or runtime_role == worker_role:
+        raise SystemExit("OLA_DATABASE_RUNTIME_ROLE and a distinct OLA_DATABASE_WORKER_ROLE are required")
     migration_engine = create_engine(url, pool_pre_ping=True)
     try:
-        migrate_postgres_schema(migration_engine, runtime_role=runtime_role)
+        migrate_postgres_schema(
+            migration_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
     finally:
         migration_engine.dispose()
     print("OLA_POSTGRES_SCHEMA=VERIFIED")

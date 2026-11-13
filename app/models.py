@@ -98,6 +98,7 @@ class CheckoutExecutionJob(Base):
     status = Column(String(40), nullable=False, index=True)
     attempt_count = Column(Integer, nullable=False, default=0)
     claim_token = Column(String(36), nullable=True)
+    claimed_at = Column(Integer, nullable=True)
     started_at = Column(Integer, nullable=True)
     finished_at = Column(Integer, nullable=True)
     run_id = Column(String(36), nullable=True)

@@ -155,8 +155,17 @@ def install_append_only_triggers(bind=None):
     raise RuntimeError(f"no append-only trigger policy for database dialect: {target.dialect.name}")
 
 
-def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
-    """Fail closed unless the migrated schema and immutable evidence controls are present."""
+def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_role=None, worker_role=None):
+    """Fail closed unless runtime RLS and the isolated worker claim boundary are present."""
+    runtime_role = runtime_role or os.getenv("OLA_DATABASE_RUNTIME_ROLE", "ola_runtime").strip()
+    worker_role = worker_role or os.getenv("OLA_DATABASE_WORKER_ROLE", "ola_worker").strip()
+    role_pattern = r"[A-Za-z_][A-Za-z0-9_$]{0,62}"
+    if not isinstance(runtime_role, str) or re.fullmatch(role_pattern, runtime_role) is None:
+        raise RuntimeError("configured PostgreSQL runtime role is invalid")
+    if not isinstance(worker_role, str) or re.fullmatch(role_pattern, worker_role) is None:
+        raise RuntimeError("configured PostgreSQL worker role is invalid")
+    if worker_role == runtime_role:
+        raise RuntimeError("PostgreSQL worker role must be distinct from runtime role")
     required_columns = {
         "tenants": {"id", "name"},
         "api_keys": {"id", "tenant_id", "key_hash", "role"},
@@ -177,7 +186,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         },
         "checkout_execution_jobs": {
             "id", "tenant_id", "order_id", "approval_record_hash", "task", "status",
-            "attempt_count", "claim_token", "started_at", "finished_at", "run_id",
+            "attempt_count", "claim_token", "claimed_at", "started_at", "finished_at", "run_id",
             "result_json", "error_code", "created_at",
         },
         "checkout_report_reviews": {
@@ -229,6 +238,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_tenant_rls_v4"}).first()
+        worker_claim_migration = conn.execute(text(
+            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
+        ), {"version": "ola_tenant_worker_claim_v5"}).first()
         trigger_rows = conn.execute(text("""
             SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -283,26 +295,79 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
                          AND acl.grantee <> 0
                          AND acl.grantee <> p.proowner
                          AND pg_get_userbyid(acl.grantee) <> current_user
-                   ) AS extra_execute_grantees
+                   ) AS extra_execute_grantees,
+                   pg_get_userbyid(p.proowner) AS owner
             FROM pg_proc AS p
             WHERE p.oid = to_regprocedure(
                 format('%I.ola_authenticate_api_key(text)', current_schema())
             )
         """)).one_or_none()
-        if enforce_runtime_privileges:
-            role_security = conn.execute(text("""
-                SELECT current_user, rolsuper, rolbypassrls
-                FROM pg_roles WHERE rolname = current_user
-            """)).one()
-        else:
-            role_security = ("migration_role", False, False)
+        worker_claim_function = conn.execute(text("""
+            SELECT p.oid, p.prosecdef, p.proconfig,
+                   pg_get_userbyid(p.proowner) AS owner,
+                   EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+                       WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+                   ) AS public_execute,
+                   has_function_privilege(:runtime_role, p.oid, 'EXECUTE') AS runtime_execute,
+                   has_function_privilege(:worker_role, p.oid, 'EXECUTE') AS worker_execute,
+                   (
+                       SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee))
+                       FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+                       WHERE acl.privilege_type = 'EXECUTE'
+                         AND acl.grantee <> 0
+                         AND acl.grantee <> p.proowner
+                         AND pg_get_userbyid(acl.grantee) <> :worker_role
+                   ) AS extra_execute_grantees
+            FROM pg_proc AS p
+            WHERE p.oid = to_regprocedure(
+                format('%I.ola_claim_checkout_jobs(integer,integer)', current_schema())
+            )
+        """), {"runtime_role": runtime_role, "worker_role": worker_role}).one_or_none()
+        role_rows = conn.execute(text("""
+            SELECT rolname, rolsuper, rolbypassrls
+            FROM pg_roles
+            WHERE rolname = ANY(:role_names)
+        """), {"role_names": [runtime_role, worker_role]}).all()
+        worker_table_privileges = conn.execute(text("""
+            SELECT
+                COALESCE(bool_or(has_table_privilege(:worker_role,
+                    format('%I.%I', current_schema(), scoped.table_name), 'SELECT')), false),
+                COALESCE(bool_or(has_table_privilege(:worker_role,
+                    format('%I.%I', current_schema(), scoped.table_name), 'INSERT')), false),
+                COALESCE(bool_or(has_table_privilege(:worker_role,
+                    format('%I.%I', current_schema(), scoped.table_name), 'UPDATE')), false),
+                COALESCE(bool_or(has_table_privilege(:worker_role,
+                    format('%I.%I', current_schema(), scoped.table_name), 'DELETE')), false),
+                COALESCE(bool_or(has_table_privilege(:worker_role,
+                    format('%I.%I', current_schema(), scoped.table_name), 'TRUNCATE')), false)
+            FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
+        """), {
+            "worker_role": worker_role,
+            "table_names": list(rls_tables),
+        }).one()
+        role_state = {
+            row[0]: (bool(row[1]), bool(row[2]))
+            for row in role_rows
+        }
+        if enforce_runtime_privileges and current_user != runtime_role:
+            raise RuntimeError("PostgreSQL current_user does not match configured runtime role")
+        if set(role_state) != {runtime_role, worker_role}:
+            raise RuntimeError("PostgreSQL runtime or worker role is missing")
+        role_security = role_state[runtime_role]
+        worker_role_security = role_state[worker_role]
     if applied is None:
         raise RuntimeError("PostgreSQL schema migration version is missing")
+    if worker_claim_migration is None:
+        raise RuntimeError("PostgreSQL worker-claim migration version is missing")
     rls_state = {row[0]: (bool(row[1]), bool(row[2]), row[3]) for row in rls_rows}
     if set(rls_state) != set(rls_tables) or any(not state[0] for state in rls_state.values()):
         raise RuntimeError("PostgreSQL tenant RLS is missing or disabled")
-    if enforce_runtime_privileges and any(state[2] == role_security[0] for state in rls_state.values()):
+    if enforce_runtime_privileges and any(state[2] == runtime_role for state in rls_state.values()):
         raise RuntimeError("PostgreSQL runtime role must not own tenant-scoped tables")
+    if any(state[2] == worker_role for state in rls_state.values()):
+        raise RuntimeError("PostgreSQL worker role must not own tenant-scoped tables")
     def normalize_policy_expression(expression):
         # pg_get_expr adds harmless parentheses around identifiers and the
         # complete predicate. Normalize those presentation details while
@@ -377,6 +442,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         or auth_function.public_execute
         or not auth_function.runtime_execute
         or (enforce_runtime_privileges and bool(auth_function.extra_execute_grantees))
+        or auth_function.owner == runtime_role
     ):
         raise RuntimeError(
             "PostgreSQL API-key authentication function must be SECURITY DEFINER, "
@@ -390,6 +456,26 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             raise RuntimeError("PostgreSQL API-key authentication EXECUTE ACL is not least-privilege")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
+    if worker_claim_function is None:
+        raise RuntimeError("PostgreSQL worker claim function is missing")
+    claim_config = worker_claim_function.proconfig or []
+    if (
+        not worker_claim_function.prosecdef
+        or "search_path=pg_catalog" not in claim_config
+        or worker_claim_function.public_execute
+        or worker_claim_function.runtime_execute
+        or not worker_claim_function.worker_execute
+        or worker_claim_function.owner in {runtime_role, worker_role}
+        or bool(worker_claim_function.extra_execute_grantees)
+    ):
+        raise RuntimeError(
+            "PostgreSQL worker claim function must be SECURITY DEFINER, use fixed search_path, "
+            "deny PUBLIC/runtime execution, grant only the worker role, and be owned by a separate migration role"
+        )
+    if worker_role_security[0] or worker_role_security[1]:
+        raise RuntimeError("PostgreSQL worker role must not be superuser or BYPASSRLS")
+    if any(worker_table_privileges):
+        raise RuntimeError("PostgreSQL worker role must not have direct privileges on tenant-owned tables")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
     expected = {"evidence_no_update": "BEFORE UPDATE", "evidence_no_delete": "BEFORE DELETE"}
     for name, action in expected.items():
@@ -443,10 +529,15 @@ def prepare_runtime_schema():
     raise RuntimeError(f"unsupported runtime database dialect: {engine.dialect.name}")
 
 
-def install_postgres_tenant_rls(connection, runtime_role):
-    """Install fail-closed RLS policies for every tenant-owned PostgreSQL table."""
-    if not isinstance(runtime_role, str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]{0,62}", runtime_role) is None:
+def install_postgres_tenant_rls(connection, runtime_role, worker_role):
+    """Install tenant RLS plus a role-bound, narrowly scoped worker claim capability."""
+    role_pattern = r"[A-Za-z_][A-Za-z0-9_$]{0,62}"
+    if not isinstance(runtime_role, str) or re.fullmatch(role_pattern, runtime_role) is None:
         raise ValueError("runtime_role must be a valid unquoted PostgreSQL role name")
+    if not isinstance(worker_role, str) or re.fullmatch(role_pattern, worker_role) is None:
+        raise ValueError("worker_role must be a valid unquoted PostgreSQL role name")
+    if worker_role == runtime_role:
+        raise ValueError("worker_role must be distinct from runtime_role")
     schema_name = connection.exec_driver_sql("SELECT current_schema()").scalar_one()
     quoted_schema = '"' + schema_name.replace('"', '""') + '"'
     connection.exec_driver_sql(f"""
@@ -462,17 +553,89 @@ def install_postgres_tenant_rls(connection, runtime_role):
         LIMIT 1
     $ola$;
     """)
-    role_exists = connection.execute(
-        text("SELECT 1 FROM pg_roles WHERE rolname = :role_name"),
-        {"role_name": runtime_role},
-    ).first()
-    if role_exists is None:
-        raise RuntimeError(f"PostgreSQL runtime role does not exist: {runtime_role}")
+    existing_roles = {
+        row[0] for row in connection.execute(
+            text("SELECT rolname FROM pg_roles WHERE rolname = ANY(:role_names)"),
+            {"role_names": [runtime_role, worker_role]},
+        ).all()
+    }
+    missing_roles = sorted({runtime_role, worker_role} - existing_roles)
+    if missing_roles:
+        raise RuntimeError("PostgreSQL required role(s) do not exist: " + ", ".join(missing_roles))
+
     connection.exec_driver_sql(
         f"REVOKE ALL ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) FROM PUBLIC"
     )
     connection.exec_driver_sql(
         f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) TO "{runtime_role}"'
+    )
+
+    # Worker discovery is a distinct database capability. Its SECURITY DEFINER
+    # function returns only opaque job coordinates and a rotating lease token.
+    # The worker role receives no direct privilege on any tenant-owned table.
+    connection.exec_driver_sql(f"""
+    CREATE OR REPLACE FUNCTION {quoted_schema}.ola_claim_checkout_jobs(
+        p_limit integer,
+        p_stale_after_seconds integer
+    )
+    RETURNS TABLE (job_id text, tenant_id text, claim_token text)
+    LANGUAGE sql
+    SECURITY DEFINER
+    SET search_path = pg_catalog
+    AS $ola$
+        WITH claim_settings AS (
+            SELECT
+                FLOOR(EXTRACT(EPOCH FROM pg_catalog.clock_timestamp()))::integer AS now_epoch,
+                GREATEST(60, LEAST(COALESCE(p_stale_after_seconds, 900), 86400))::integer AS stale_seconds,
+                GREATEST(1, LEAST(COALESCE(p_limit, 20), 100))::integer AS batch_limit
+        ),
+        candidate_ids AS (
+            SELECT jobs.id
+            FROM {quoted_schema}.checkout_execution_jobs AS jobs
+            CROSS JOIN claim_settings AS settings
+            WHERE (
+                jobs.status = 'QUEUED'
+                AND (
+                    jobs.claim_token IS NULL
+                    OR jobs.claimed_at IS NULL
+                    OR jobs.claimed_at <= settings.now_epoch - settings.stale_seconds
+                )
+            ) OR (
+                jobs.status = 'RUNNING'
+                AND (
+                    jobs.started_at IS NULL
+                    OR jobs.started_at <= settings.now_epoch - settings.stale_seconds
+                )
+                AND (
+                    jobs.claim_token IS NULL
+                    OR jobs.claimed_at IS NULL
+                    OR jobs.claimed_at <= settings.now_epoch - settings.stale_seconds
+                )
+            )
+            ORDER BY jobs.created_at ASC, jobs.id ASC
+            LIMIT (SELECT batch_limit FROM claim_settings)
+            FOR UPDATE OF jobs SKIP LOCKED
+        ),
+        claimed AS (
+            UPDATE {quoted_schema}.checkout_execution_jobs AS jobs
+            SET claim_token = pg_catalog.gen_random_uuid()::text,
+                claimed_at = (SELECT now_epoch FROM claim_settings)
+            FROM candidate_ids
+            WHERE jobs.id = candidate_ids.id
+            RETURNING jobs.id, jobs.tenant_id, jobs.claim_token
+        )
+        SELECT claimed.id::text, claimed.tenant_id::text, claimed.claim_token::text
+        FROM claimed
+    $ola$;
+    """)
+    connection.exec_driver_sql(
+        f"REVOKE ALL ON FUNCTION {quoted_schema}.ola_claim_checkout_jobs(integer, integer) FROM PUBLIC"
+    )
+    connection.exec_driver_sql(
+        f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_claim_checkout_jobs(integer, integer) FROM "{runtime_role}"'
+    )
+    connection.exec_driver_sql(
+        f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_claim_checkout_jobs(integer, integer) TO "{worker_role}"'
     )
 
     tenant_policies = {
@@ -508,12 +671,18 @@ def install_postgres_tenant_rls(connection, runtime_role):
         )
 
 
-def migrate_postgres_schema(target_engine, *, runtime_role):
-    """Apply the additive ORM baseline and append-only triggers with a migration role."""
+def migrate_postgres_schema(target_engine, *, runtime_role, worker_role=None):
+    """Apply the additive ORM baseline, RLS, and isolated worker claim capability."""
     if target_engine.dialect.name != "postgresql":
         raise RuntimeError("PostgreSQL migration URL is required")
-    if not isinstance(runtime_role, str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]{0,62}", runtime_role) is None:
+    worker_role = worker_role or os.getenv("OLA_DATABASE_WORKER_ROLE", "ola_worker").strip()
+    role_pattern = r"[A-Za-z_][A-Za-z0-9_$]{0,62}"
+    if not isinstance(runtime_role, str) or re.fullmatch(role_pattern, runtime_role) is None:
         raise ValueError("runtime_role must be a valid unquoted PostgreSQL role name")
+    if not isinstance(worker_role, str) or re.fullmatch(role_pattern, worker_role) is None:
+        raise ValueError("worker_role must be a valid unquoted PostgreSQL role name")
+    if worker_role == runtime_role:
+        raise ValueError("worker_role must be distinct from runtime_role")
     # Register all ORM tables before create_all.
     from . import models  # noqa: F401
 
@@ -529,6 +698,7 @@ def migrate_postgres_schema(target_engine, *, runtime_role):
         conn.execute(text("ALTER TABLE checkout_orders ADD COLUMN IF NOT EXISTS task TEXT"))
         conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS role VARCHAR(32) NOT NULL DEFAULT 'tenant'"))
         conn.execute(text("ALTER TABLE stripe_events ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(36)"))
+        conn.execute(text("ALTER TABLE checkout_execution_jobs ADD COLUMN IF NOT EXISTS claimed_at INTEGER"))
         conn.execute(text("""
             UPDATE checkout_orders AS orders
             SET task = events.task
@@ -538,7 +708,7 @@ def migrate_postgres_schema(target_engine, *, runtime_role):
         """))
         conn.execute(text("UPDATE stripe_events SET task = NULL WHERE task IS NOT NULL"))
         create_postgres_append_only_triggers(conn)
-        install_postgres_tenant_rls(conn, runtime_role)
+        install_postgres_tenant_rls(conn, runtime_role, worker_role)
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
             VALUES (:version, :description)
@@ -571,7 +741,18 @@ def migrate_postgres_schema(target_engine, *, runtime_role):
             "version": "ola_tenant_rls_v4",
             "description": "Enable transaction-local tenant RLS and scoped API-key authentication",
         })
-    verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_tenant_worker_claim_v5",
+            "description": "Add role-bound SECURITY DEFINER outbox claim function with expiring leases",
+        })
+    verify_postgres_schema(
+        target_engine, enforce_runtime_privileges=False,
+        runtime_role=runtime_role, worker_role=worker_role,
+    )
 
 
 def append_evidence_atomic(tenant_id, record_type, payload, *, producer_id="ola_runtime", deduplicate=False):
