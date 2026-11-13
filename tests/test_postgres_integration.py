@@ -8,6 +8,8 @@ from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
+from app.tenant_context import tenant_scope
+
 POSTGRES_URL = os.getenv("OLA_TEST_POSTGRES_URL", "").strip()
 pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="OLA_TEST_POSTGRES_URL is not configured")
 
@@ -146,8 +148,7 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
 
 
 def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(postgres_db):
-    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
-    from app.models import ApiKey, Tenant
+    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
 
     tenant_a = str(uuid.uuid4())
     tenant_b = str(uuid.uuid4())
