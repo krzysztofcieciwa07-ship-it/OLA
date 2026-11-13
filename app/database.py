@@ -359,7 +359,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
         """), {
             "worker_role": worker_role,
-            "table_names": list(rls_tables),
+            "table_names": [*rls_tables, "ola_schema_migrations"],
         }).one()
         worker_schema_privileges = conn.execute(text("""
             SELECT has_schema_privilege(:worker_role, current_schema(), 'USAGE'),
