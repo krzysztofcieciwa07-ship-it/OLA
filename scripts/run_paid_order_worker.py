@@ -122,6 +122,36 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
                     ) AS has_role_membership,
                     has_schema_privilege(current_user, current_schema(), 'USAGE') AS schema_usage,
                     has_schema_privilege(current_user, current_schema(), 'CREATE') AS schema_create,
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_namespace AS n
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                        ) AS acl
+                        WHERE n.nspname = current_schema()
+                          AND acl.grantee = 0
+                    ) AS schema_public_acl,
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_namespace AS n
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                        ) AS acl
+                        WHERE n.nspname = current_schema()
+                          AND acl.grantee = pg_catalog.to_regrole(current_user::text)::oid
+                          AND acl.is_grantable
+                    ) AS schema_grant_option,
+                    COALESCE((
+                        SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee)::text)
+                        FROM pg_namespace AS n
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                        ) AS acl
+                        WHERE n.nspname = current_schema()
+                          AND acl.grantee <> 0
+                          AND acl.grantee <> n.nspowner
+                          AND acl.grantee <> pg_catalog.to_regrole(current_user::text)::oid
+                    ), ARRAY[]::text[]) AS extra_schema_grantees,
                     COALESCE(has_function_privilege(
                         current_user,
                         to_regprocedure(format(
@@ -261,6 +291,12 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
         raise RuntimeError("PostgreSQL worker role must not participate in any role membership")
     if not identity["schema_usage"] or identity["schema_create"]:
         raise RuntimeError("PostgreSQL worker role requires schema USAGE and must not have schema CREATE")
+    if (
+        identity["schema_public_acl"]
+        or identity["schema_grant_option"]
+        or identity["extra_schema_grantees"]
+    ):
+        raise RuntimeError("PostgreSQL worker schema ACL is not least-privilege")
     if not identity["claim_execute"]:
         raise RuntimeError("PostgreSQL worker role cannot execute ola_claim_checkout_jobs")
     if identity["has_direct_table_privileges"]:
