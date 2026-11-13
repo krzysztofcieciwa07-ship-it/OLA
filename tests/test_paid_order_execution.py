@@ -394,3 +394,62 @@ def test_postgres_worker_batch_claims_and_dispatches_only_claim_coordinates(monk
         "worker-secret-" + "w" * 40,
         {"job_id": "job-1", "tenant_id": "tenant-1", "claim_token": "claim-1"},
     )]
+
+
+def test_postgres_worker_execution_fails_closed_without_claim_coordinates(monkeypatch):
+    from types import SimpleNamespace
+    import app.paid_order_execution as execution
+
+    class ProbeSession:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def get_bind(self):
+            return self.bind
+
+    monkeypatch.setattr(execution, "SessionLocal", ProbeSession)
+    with pytest.raises(execution.PaidOrderExecutionRejected) as exc:
+        execution.execute_paid_order_job("job-without-claim")
+    assert exc.value.code == 409
+    assert "claim token" in str(exc.value)
+
+
+def test_postgres_worker_http_dispatch_sends_claim_only_as_headers(monkeypatch):
+    import scripts.run_paid_order_worker as worker
+
+    seen = {}
+    class FakeResponse:
+        status = 200
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+        def read(self):
+            return b'{"status":"EXECUTED_REVIEW_REQUIRED"}'
+
+    class FakeOpener:
+        def open(self, request, timeout):
+            seen["url"] = request.full_url
+            seen["timeout"] = timeout
+            seen["headers"] = {key.lower(): value for key, value in request.header_items()}
+            return FakeResponse()
+
+    monkeypatch.setattr(worker, "build_opener", lambda handler: FakeOpener())
+    result = worker.dispatch_claim_to_api(
+        "https://ola-internal.example",
+        "worker-secret-" + "w" * 40,
+        {"job_id": "job-123", "tenant_id": "tenant-456", "claim_token": "claim-789"},
+    )
+    assert result == {"status": "EXECUTED_REVIEW_REQUIRED"}
+    assert seen["url"] == "https://ola-internal.example/internal/checkout-execution/job-123/run"
+    assert "tenant-456" not in seen["url"]
+    assert "claim-789" not in seen["url"]
+    assert seen["headers"]["x-ola-worker-token"] == "worker-secret-" + "w" * 40
+    assert seen["headers"]["x-ola-tenant-id"] == "tenant-456"
+    assert seen["headers"]["x-ola-claim-token"] == "claim-789"
+    assert seen["timeout"] == 20
