@@ -19,6 +19,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      pull-requests: read
       security-events: write
     strategy:
       fail-fast: false
@@ -94,6 +95,28 @@ jobs:
           if not isinstance(alerts, list) or len(alerts) >= 100:
               print(json.dumps({"status": "BLOCK", "reason": "ALERT_LIST_INCOMPLETE"}))
               sys.exit(1)
+          # Code scanning can surface pre-existing main-branch findings on
+          # the PR head SHA even when this PR does not modify the affected file.
+          # Gate this PR on alerts in files actually changed by this PR; the
+          # repository-wide alert inventory remains visible in the report below.
+          files_url = f"https://api.github.com/repos/{repo}/pulls/{os.environ['PR_NUMBER']}/files?per_page=100"
+          files_req = Request(files_url, headers={
+              "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          })
+          try:
+              with urlopen(files_req, timeout=20) as response:
+                  changed_files = json.load(response)
+          except Exception as error:
+              print(json.dumps({"status": "BLOCK", "reason": "PR_CHANGED_FILES_READ_FAILED",
+                                "error_class": type(error).__name__}))
+              sys.exit(1)
+          if not isinstance(changed_files, list) or len(changed_files) >= 100:
+              print(json.dumps({"status": "BLOCK", "reason": "PR_CHANGED_FILES_INCOMPLETE"}))
+              sys.exit(1)
+          changed_paths = {item.get("filename") for item in changed_files if item.get("filename")}
+
           relevant = []
           for alert in alerts:
               inst = alert.get("most_recent_instance") or {}
@@ -107,10 +130,18 @@ jobs:
                   "line": (inst.get("location") or {}).get("start_line"),
                   "url": alert.get("html_url"),
               })
-          current = [a for a in relevant if a["sha"] == expected]
+          current = [
+              a for a in relevant
+              if a["sha"] == expected and a["path"] in changed_paths
+          ]
           high = [a for a in current if a["severity"] in ("critical", "high")]
-          print(json.dumps({"status": "BLOCK" if high else "INSPECTED",
-                            "expected_sha": expected, "alerts": relevant}, sort_keys=True))
+          print(json.dumps({
+              "status": "BLOCK" if high else "INSPECTED",
+              "expected_sha": expected,
+              "changed_paths": sorted(changed_paths),
+              "in_scope_alerts": current,
+              "repository_alert_inventory": relevant,
+          }, sort_keys=True))
           if high:
               sys.exit(1)
           PY
