@@ -202,6 +202,13 @@ def verify_worker_database_identity(
                             current_schema()
                         ))
                     ) AS claim_owner,
+                    (
+                        SELECT pg_get_userbyid(c.relowner)::text
+                        FROM pg_class AS c
+                        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+                        WHERE n.nspname = current_schema()
+                          AND c.relname = 'checkout_execution_jobs'
+                    ) AS claim_table_owner,
                     EXISTS (
                         SELECT 1
                         FROM pg_proc AS p
@@ -283,6 +290,7 @@ def verify_worker_database_identity(
         or not identity["claim_security_definer"]
         or not identity["claim_search_path_fixed"]
         or identity["claim_owner"] in {None, expected_role, runtime_role}
+        or identity["claim_owner"] != identity["claim_table_owner"]
         or identity["claim_public_execute"]
         or identity["claim_execute_grant_option"]
         or identity["claim_extra_execute_grantees"]
