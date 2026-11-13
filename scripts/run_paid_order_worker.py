@@ -105,6 +105,7 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
             text("""
                 SELECT
                     current_user AS role_name,
+                    session_user AS session_role,
                     r.rolsuper,
                     r.rolbypassrls,
                     r.rolinherit,
@@ -149,6 +150,11 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
         actual = None if identity is None else identity["role_name"]
         raise RuntimeError(
             f"PostgreSQL worker DSN identity mismatch: expected {expected_role}, got {actual}"
+        )
+    if identity["session_role"] != expected_role:
+        raise RuntimeError(
+            "PostgreSQL worker DSN session identity mismatch: "
+            f"expected {expected_role}, got {identity['session_role']}"
         )
 
     forbidden_flags = (
