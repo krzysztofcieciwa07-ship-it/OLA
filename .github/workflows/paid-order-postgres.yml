@@ -5,8 +5,10 @@ on:
     paths:
       - "app/**"
       - "scripts/migrate_postgres.py"
+      - "scripts/run_paid_order_worker.py"
       - "tests/test_database_postgres_support.py"
       - "tests/test_postgres_integration.py"
+      - "tests/test_paid_order_execution.py"
       - "requirements.txt"
       - ".github/workflows/paid-order-postgres.yml"
   push:
@@ -14,8 +16,10 @@ on:
     paths:
       - "app/**"
       - "scripts/migrate_postgres.py"
+      - "scripts/run_paid_order_worker.py"
       - "tests/test_database_postgres_support.py"
       - "tests/test_postgres_integration.py"
+      - "tests/test_paid_order_execution.py"
       - "requirements.txt"
       - ".github/workflows/paid-order-postgres.yml"
 
