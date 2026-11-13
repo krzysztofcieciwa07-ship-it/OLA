@@ -288,6 +288,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
                        WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
                    ) AS public_execute,
                    has_function_privilege(current_user, p.oid, 'EXECUTE') AS runtime_execute,
+                   has_function_privilege(:worker_role, p.oid, 'EXECUTE') AS worker_execute,
                    (
                        SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee))
                        FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
@@ -301,7 +302,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             WHERE p.oid = to_regprocedure(
                 format('%I.ola_authenticate_api_key(text)', current_schema())
             )
-        """)).one_or_none()
+        """), {"worker_role": worker_role}).one_or_none()
         worker_claim_function = conn.execute(text("""
             SELECT p.oid, p.prosecdef, p.proconfig,
                    pg_get_userbyid(p.proowner) AS owner,
@@ -441,6 +442,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
         or "search_path=pg_catalog" not in auth_function_config
         or auth_function.public_execute
         or not auth_function.runtime_execute
+        or auth_function.worker_execute
         or (enforce_runtime_privileges and bool(auth_function.extra_execute_grantees))
         or auth_function.owner == runtime_role
     ):
@@ -450,7 +452,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             "and have no additional non-owner EXECUTE grantees"
         )
     if enforce_runtime_privileges:
-        if role_security[1] or role_security[2]:
+        if role_security[0] or role_security[1]:
             raise RuntimeError("PostgreSQL runtime role must not be superuser or BYPASSRLS")
         if not auth_function.runtime_execute or auth_function.public_execute or bool(auth_function.extra_execute_grantees):
             raise RuntimeError("PostgreSQL API-key authentication EXECUTE ACL is not least-privilege")
