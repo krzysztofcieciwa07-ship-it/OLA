@@ -272,19 +272,16 @@ def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_d
             "stale_running_token": stale_running_token,
         })
 
+    worker_url = make_url(POSTGRES_URL).set(
+        username=worker_role,
+        password="ola_worker_test_only",
+    )
     worker_engine = create_engine(
-        POSTGRES_URL,
+        worker_url,
         pool_pre_ping=True,
         connect_args={"options": f"-csearch_path={schema}"},
     )
     try:
-        @event.listens_for(worker_engine, "connect")
-        def assume_worker_role(dbapi_connection, _connection_record):
-            cursor = dbapi_connection.cursor()
-            cursor.execute(f'SET ROLE "{worker_role}"')
-            cursor.close()
-            dbapi_connection.commit()
-
         with worker_engine.begin() as conn:
             claims = conn.execute(text("""
                 SELECT job_id, tenant_id, claim_token
