@@ -282,6 +282,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
                        WHERE acl.privilege_type = 'EXECUTE'
                          AND acl.grantee <> 0
                          AND acl.grantee <> p.proowner
+                         AND pg_get_userbyid(acl.grantee) <> current_user
                    ) AS extra_execute_grantees
             FROM pg_proc AS p
             WHERE p.oid = to_regprocedure(
@@ -302,6 +303,28 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         raise RuntimeError("PostgreSQL tenant RLS is missing or disabled")
     if enforce_runtime_privileges and any(state[2] == role_security[0] for state in rls_state.values()):
         raise RuntimeError("PostgreSQL runtime role must not own tenant-scoped tables")
+    def normalize_policy_expression(expression):
+        # pg_get_expr adds harmless parentheses around identifiers and the
+        # complete predicate. Normalize those presentation details while
+        # keeping operators, casts, literals and function arguments intact.
+        value = re.sub(r"\\s+", " ", expression or "").strip()
+        value = re.sub(r"\\(([A-Za-z_][A-Za-z0-9_$]*)\\)(?=::)", r"\\1", value)
+        while value.startswith("(") and value.endswith(")"):
+            depth = 0
+            wraps_all = True
+            for index, char in enumerate(value):
+                if char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                    if depth == 0 and index != len(value) - 1:
+                        wraps_all = False
+                        break
+            if not wraps_all or depth != 0:
+                break
+            value = value[1:-1].strip()
+        return value
+
     # Compare actual policy expressions, not just names. A policy can keep its
     # name while being altered to USING (true), which would silently disable isolation.
     policy_state = {
