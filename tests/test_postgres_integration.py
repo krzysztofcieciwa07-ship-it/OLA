@@ -612,6 +612,17 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
+                f'GRANT MAINTAIN ON TABLE "{_schema}".checkout_execution_jobs TO "{worker_role}"'
+            )
+        with pytest.raises(RuntimeError, match="direct privileges"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'REVOKE MAINTAIN ON TABLE "{_schema}".checkout_execution_jobs FROM "{worker_role}"'
+            )
+
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
                 f'GRANT SELECT ON TABLE "{_schema}".ola_schema_migrations TO "{worker_role}"'
             )
         with pytest.raises(RuntimeError, match="direct privileges"):
