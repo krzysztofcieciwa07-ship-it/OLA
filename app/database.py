@@ -340,6 +340,10 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
                 pg_catalog.to_regrole(:runtime_role)::oid,
                 pg_catalog.to_regrole(:worker_role)::oid
             ])
+               OR roleid = ANY(ARRAY[
+                pg_catalog.to_regrole(:runtime_role)::oid,
+                pg_catalog.to_regrole(:worker_role)::oid
+            ])
         """), {
             "runtime_role": runtime_role,
             "worker_role": worker_role,
@@ -409,7 +413,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
         if role_memberships:
             memberships = ", ".join(f"{row[0]}->{row[1]}" for row in role_memberships)
             raise RuntimeError(
-                "PostgreSQL runtime/worker roles must not inherit or switch to other roles: "
+                "PostgreSQL runtime/worker roles must not participate in any role membership: "
                 + memberships
             )
         for role_name, flags in role_state.items():
