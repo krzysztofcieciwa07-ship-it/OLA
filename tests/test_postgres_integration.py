@@ -628,3 +628,29 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
         worker.verify_worker_database_identity(worker_engine, worker_role)
     finally:
         worker_engine.dispose()
+
+
+def test_postgres_runtime_role_rejects_extra_table_grants(postgres_db):
+    database, runtime_engine, _migration_engine, admin_engine, runtime_role, schema, worker_role = postgres_db
+
+    # Migration grants are installed by migrate_postgres_schema itself; no
+    # fixture-side GRANT is allowed to make the runtime role appear valid.
+    database.verify_postgres_schema(
+        runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+    )
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'GRANT DELETE ON TABLE "{schema}".checkout_orders TO "{runtime_role}"'
+        )
+    with pytest.raises(RuntimeError, match="runtime role table grants are not least-privilege: checkout_orders"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'REVOKE DELETE ON TABLE "{schema}".checkout_orders FROM "{runtime_role}"'
+        )
+    database.verify_postgres_schema(
+        runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+    )
