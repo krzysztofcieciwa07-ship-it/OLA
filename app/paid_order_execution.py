@@ -298,7 +298,7 @@ def _execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
         if job.status in {"EXECUTED_REVIEW_REQUIRED", "EXECUTED_BLOCKED"} and job.result_json:
             return json.loads(job.result_json)
         if job.status == "RUNNING":
-            if job.started_at is not None and job.started_at <= run_now - stale_after_seconds:
+            if job.started_at is None or job.started_at <= run_now - stale_after_seconds:
                 job.status = "INTERRUPTED"
                 job.error_code = "worker_interrupted_manual_reconciliation_required"
                 job.finished_at = run_now
