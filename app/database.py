@@ -261,7 +261,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
               AND c.relname = ANY(:table_names)
         """), {"table_names": list(rls_tables)}).all()
         policy_rows = conn.execute(text("""
-            SELECT tablename, policyname, cmd
+            SELECT tablename, policyname, cmd, permissive
             FROM pg_policies
             WHERE schemaname = current_schema()
               AND tablename = ANY(:table_names)
@@ -281,9 +281,13 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     rls_state = {row[0]: (bool(row[1]), row[2]) for row in rls_rows}
     if set(rls_state) != set(rls_tables) or any(not state[0] for state in rls_state.values()):
         raise RuntimeError("PostgreSQL tenant RLS is missing or disabled")
-    policy_state = {(row[0], row[1], row[2]) for row in policy_rows}
-    if any((table, "ola_tenant_isolation", "ALL") not in policy_state for table in rls_tables):
-        raise RuntimeError("PostgreSQL tenant RLS policy is missing")
+    policy_state = {(row[0], row[1], row[2], row[3]) for row in policy_rows}
+    if any(
+        (table, "ola_tenant_access", "ALL", "PERMISSIVE") not in policy_state
+        or (table, "ola_tenant_isolation", "ALL", "RESTRICTIVE") not in policy_state
+        for table in rls_tables
+    ):
+        raise RuntimeError("PostgreSQL tenant RLS policies are missing or not restrictive")
     if auth_function is None:
         raise RuntimeError("PostgreSQL scoped API-key authentication function is missing")
     if enforce_runtime_privileges:
@@ -385,11 +389,18 @@ def install_postgres_tenant_rls(connection):
             f'ALTER TABLE "{table_name}" ENABLE ROW LEVEL SECURITY'
         )
         connection.exec_driver_sql(
+            f'DROP POLICY IF EXISTS ola_tenant_access ON "{table_name}"'
+        )
+        connection.exec_driver_sql(
             f'DROP POLICY IF EXISTS ola_tenant_isolation ON "{table_name}"'
         )
         connection.exec_driver_sql(
+            f'CREATE POLICY ola_tenant_access ON "{table_name}" '
+            f'AS PERMISSIVE FOR ALL USING (true) WITH CHECK (true)'
+        )
+        connection.exec_driver_sql(
             f'CREATE POLICY ola_tenant_isolation ON "{table_name}" '
-            f'FOR ALL USING ({predicate}) WITH CHECK ({predicate})'
+            f'AS RESTRICTIVE FOR ALL USING ({predicate}) WITH CHECK ({predicate})'
         )
 
 
