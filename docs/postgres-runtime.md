@@ -54,13 +54,13 @@ local RLS, and creates the scoped `ola_authenticate_api_key(text)` and
 role-bound `ola_claim_checkout_jobs(integer,integer)` functions. Both are
 SECURITY DEFINER with a fixed `pg_catalog` search path and a separate
 migration owner. The auth function is executable only by the runtime role;
-the claim function only by the worker role. The migration also grants the
-runtime role its exact application DML matrix (SELECT/INSERT/UPDATE only on
-the tables it uses, SELECT-only on `ola_schema_migrations`) and gives the
-worker only schema USAGE plus claim-function EXECUTE—no direct table
-privileges, including on `ola_schema_migrations`. The verifier checks these
-grants exactly, including denial of PostgreSQL 17 `MAINTAIN`. Migration
-history includes `ola_tenant_worker_claim_v5`.
+the claim function only by the worker role. The migration revokes schema CREATE from `PUBLIC`, grants the runtime role
+its exact application DML matrix (SELECT/INSERT/UPDATE only on the tables it
+uses, SELECT-only on `ola_schema_migrations`) and gives the worker only
+schema USAGE plus claim-function EXECUTE—no direct table privileges,
+including on `ola_schema_migrations`. The verifier checks these grants
+exactly, including denial of PostgreSQL 17 `MAINTAIN`. Migration history
+includes `ola_tenant_worker_claim_v5`.
 
 The migration is additive with respect to the ORM baseline and does not copy
 records from SQLite. It clears task text from the Stripe-event mirror after
