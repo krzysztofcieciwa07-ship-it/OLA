@@ -541,8 +541,18 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
     if worker_claim_migration is None:
         raise RuntimeError("PostgreSQL worker-claim migration version is missing")
     rls_state = {row[0]: (bool(row[1]), bool(row[2]), row[3]) for row in rls_rows}
-    if set(rls_state) != set(rls_tables) or any(not state[0] for state in rls_state.values()):
+    if set(rls_state) != set(rls_tables):
+        raise RuntimeError("PostgreSQL tenant RLS table inventory is incomplete")
+    if any(not state[0] for state in rls_state.values()):
         raise RuntimeError("PostgreSQL tenant RLS is missing or disabled")
+    # SECURITY DEFINER functions deliberately run as the table owner so that
+    # they can perform their narrowly scoped cross-tenant lookup/claim. FORCE
+    # ROW LEVEL SECURITY would subject that owner to the tenant policy and
+    # break these functions unless a broader BYPASSRLS identity were used.
+    if any(state[1] for state in rls_state.values()):
+        raise RuntimeError(
+            "PostgreSQL FORCE ROW LEVEL SECURITY is incompatible with the isolated owner-bound SECURITY DEFINER functions"
+        )
     if enforce_runtime_privileges and any(state[2] == runtime_role for state in rls_state.values()):
         raise RuntimeError("PostgreSQL runtime role must not own tenant-scoped tables")
     if any(state[2] == worker_role for state in rls_state.values()):
@@ -615,6 +625,10 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
     if auth_function is None:
         raise RuntimeError("PostgreSQL scoped API-key authentication function is missing")
     auth_function_config = auth_function.proconfig or []
+    if auth_function.owner != rls_state["api_keys"][2]:
+        raise RuntimeError(
+            "PostgreSQL API-key SECURITY DEFINER owner must match the api_keys table owner"
+        )
     if (
         not auth_function.prosecdef
         or "search_path=pg_catalog" not in auth_function_config
@@ -640,6 +654,10 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
     if worker_claim_function is None:
         raise RuntimeError("PostgreSQL worker claim function is missing")
     claim_config = worker_claim_function.proconfig or []
+    if worker_claim_function.owner != rls_state["checkout_execution_jobs"][2]:
+        raise RuntimeError(
+            "PostgreSQL claim SECURITY DEFINER owner must match the checkout_execution_jobs table owner"
+        )
     if (
         not worker_claim_function.prosecdef
         or "search_path=pg_catalog" not in claim_config
