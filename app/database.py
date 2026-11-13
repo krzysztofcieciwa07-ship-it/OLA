@@ -393,6 +393,55 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             SELECT has_schema_privilege(:runtime_role, current_schema(), 'USAGE'),
                    has_schema_privilege(:runtime_role, current_schema(), 'CREATE')
         """), {"runtime_role": runtime_role}).one()
+        schema_acl_privileges = conn.execute(text("""
+            SELECT
+                EXISTS (
+                    SELECT 1
+                    FROM pg_namespace AS n
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                    ) AS acl
+                    WHERE n.nspname = current_schema()
+                      AND acl.grantee = 0
+                ) AS has_public_acl,
+                EXISTS (
+                    SELECT 1
+                    FROM pg_namespace AS n
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                    ) AS acl
+                    WHERE n.nspname = current_schema()
+                      AND acl.grantee = pg_catalog.to_regrole(:runtime_role)::oid
+                      AND acl.is_grantable
+                ) AS runtime_has_grant_option,
+                EXISTS (
+                    SELECT 1
+                    FROM pg_namespace AS n
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                    ) AS acl
+                    WHERE n.nspname = current_schema()
+                      AND acl.grantee = pg_catalog.to_regrole(:worker_role)::oid
+                      AND acl.is_grantable
+                ) AS worker_has_grant_option,
+                COALESCE((
+                    SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee)::text)
+                    FROM pg_namespace AS n
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                    ) AS acl
+                    WHERE n.nspname = current_schema()
+                      AND acl.grantee <> 0
+                      AND acl.grantee <> n.nspowner
+                      AND acl.grantee NOT IN (
+                          pg_catalog.to_regrole(:runtime_role)::oid,
+                          pg_catalog.to_regrole(:worker_role)::oid
+                      )
+                ), ARRAY[]::text[]) AS extra_schema_grantees
+        """), {
+            "runtime_role": runtime_role,
+            "worker_role": worker_role,
+        }).one()
         runtime_table_privileges = conn.execute(text("""
             SELECT scoped.table_name,
                    has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'SELECT'),
@@ -645,6 +694,13 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             )
     if not runtime_schema_privileges[0] or runtime_schema_privileges[1]:
         raise RuntimeError("PostgreSQL runtime role must have schema USAGE but must not have schema CREATE")
+    if (
+        schema_acl_privileges[0]
+        or schema_acl_privileges[1]
+        or schema_acl_privileges[2]
+        or bool(schema_acl_privileges[3])
+    ):
+        raise RuntimeError("PostgreSQL schema ACL is not least-privilege: PUBLIC, extra roles and grant options are forbidden")
     if any(worker_table_privileges):
         raise RuntimeError("PostgreSQL worker role must not have direct privileges on tenant-owned tables")
     if not worker_schema_privileges[0] or worker_schema_privileges[1]:
@@ -861,13 +917,45 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
         f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_claim_checkout_jobs(integer, integer) TO "{worker_role}"'
     )
 
-    # Explicit API runtime grants: test fixtures must not have to repair grants
-    # that the production migration forgot to install.
+    # Schema ACL is private to the migration owner and two application roles.
+    # Remove PUBLIC and any stale direct grantees before granting USAGE only.
+    connection.exec_driver_sql(
+        f"REVOKE ALL ON SCHEMA {quoted_schema} FROM PUBLIC"
+    )
+    unexpected_schema_grantees = connection.execute(text("""
+        SELECT DISTINCT pg_get_userbyid(acl.grantee)::text
+        FROM pg_namespace AS n
+        CROSS JOIN LATERAL aclexplode(
+            COALESCE(n.nspacl, acldefault('n', n.nspowner))
+        ) AS acl
+        WHERE n.nspname = :schema_name
+          AND acl.grantee <> 0
+          AND acl.grantee <> n.nspowner
+          AND acl.grantee NOT IN (
+              pg_catalog.to_regrole(:runtime_role)::oid,
+              pg_catalog.to_regrole(:worker_role)::oid
+          )
+    """), {
+        "schema_name": schema_name,
+        "runtime_role": runtime_role,
+        "worker_role": worker_role,
+    }).all()
+    for (grantee,) in unexpected_schema_grantees:
+        quoted_grantee = '"' + grantee.replace('"', '""') + '"'
+        connection.exec_driver_sql(
+            f"REVOKE ALL ON SCHEMA {quoted_schema} FROM {quoted_grantee}"
+        )
+    connection.exec_driver_sql(
+        f'REVOKE ALL ON SCHEMA {quoted_schema} FROM "{runtime_role}"'
+    )
+    connection.exec_driver_sql(
+        f'REVOKE ALL ON SCHEMA {quoted_schema} FROM "{worker_role}"'
+    )
     connection.exec_driver_sql(
         f'GRANT USAGE ON SCHEMA {quoted_schema} TO "{runtime_role}"'
     )
     connection.exec_driver_sql(
-        f'REVOKE CREATE ON SCHEMA {quoted_schema} FROM "{runtime_role}"'
+        f'GRANT USAGE ON SCHEMA {quoted_schema} TO "{worker_role}"'
     )
     runtime_table_grants = {
         "tenants": "SELECT, INSERT",
