@@ -113,6 +113,23 @@ def verify_worker_database_identity(
         "ola_schema_migrations",
     ]
     with worker_engine.connect() as conn:
+        # Authenticate the database identity before checking schema state so
+        # a wrong principal is rejected for the right reason, even if its
+        # default search_path points at public.
+        session_identity = conn.execute(text("""
+            SELECT current_user AS role_name, session_user AS session_role
+        """)).mappings().one()
+        if session_identity["role_name"] != expected_role:
+            raise RuntimeError(
+                "PostgreSQL worker DSN identity mismatch: "
+                f"expected {expected_role}, got {session_identity['role_name']}"
+            )
+        if session_identity["session_role"] != expected_role:
+            raise RuntimeError(
+                "PostgreSQL worker DSN session identity mismatch: "
+                f"expected {expected_role}, got {session_identity['session_role']}"
+            )
+
         # Diagnose the actual connection before consulting catalogs. A missing
         # schema USAGE privilege can make PostgreSQL silently skip the intended
         # schema and resolve current_schema() to public.
