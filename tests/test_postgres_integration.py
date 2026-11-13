@@ -4,7 +4,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
@@ -140,3 +140,49 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
             f'REVOKE UPDATE, TRUNCATE ON TABLE "{_schema}".evidence_records FROM "{runtime_role}"'
         )
     database.verify_postgres_schema(runtime_engine)
+
+
+def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(postgres_db):
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    from app.models import ApiKey, Tenant
+
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    key_a = "a" * 64
+    key_b = "b" * 64
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:id, :name)"),
+            [{"id": tenant_a, "name": "tenant-a"}, {"id": tenant_b, "name": "tenant-b"}],
+        )
+        conn.execute(
+            text("INSERT INTO api_keys (id, tenant_id, key_hash, role) VALUES (:id, :tenant_id, :key_hash, 'tenant')"),
+            [
+                {"id": str(uuid.uuid4()), "tenant_id": tenant_a, "key_hash": key_a},
+                {"id": str(uuid.uuid4()), "tenant_id": tenant_b, "key_hash": key_b},
+            ],
+        )
+
+    # No tenant context is fail-closed: tenant-scoped tables expose no rows.
+    with runtime_engine.begin() as conn:
+        assert conn.execute(text("SELECT id FROM tenants")).all() == []
+        assert conn.execute(text("SELECT id FROM api_keys")).all() == []
+
+    # A transaction-local tenant context exposes only that tenant's rows.
+    with runtime_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_a},
+        )
+        assert conn.execute(text("SELECT id FROM tenants")).scalars().all() == [tenant_a]
+        assert conn.execute(text("SELECT tenant_id FROM api_keys")).scalars().all() == [tenant_a]
+
+    # Authentication is the only pre-tenant lookup and is mediated by a
+    # narrowly scoped SECURITY DEFINER function, not direct table access.
+    with runtime_engine.begin() as conn:
+        authenticated = conn.execute(
+            text("SELECT tenant_id, api_key_id, role FROM ola_authenticate_api_key(:key_hash)"),
+            {"key_hash": key_b},
+        ).one()
+    assert authenticated.tenant_id == tenant_b
+    assert authenticated.role == "tenant"
