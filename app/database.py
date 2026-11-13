@@ -164,7 +164,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "id", "tenant_id", "seq", "record_type", "payload_json",
             "prev_hash", "record_hash",
         },
-        "stripe_events": {"id", "event_id", "status", "run_id", "task", "result_json"},
+        "stripe_events": {"id", "tenant_id", "event_id", "status", "run_id", "task", "result_json"},
         "checkout_orders": {
             "id", "tenant_id", "idempotency_key_hash", "request_hash", "task", "status",
             "created_at", "stripe_session_id", "checkout_url", "payment_event_id",
@@ -228,7 +228,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     with bind.connect() as conn:
         applied = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
-        ), {"version": "ola_paid_order_report_review_v3"}).first()
+        ), {"version": "ola_tenant_rls_v4"}).first()
         trigger_rows = conn.execute(text("""
             SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -248,8 +248,49 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             """)).one()
         else:
             evidence_privileges = (False, False)
+        rls_tables = (
+            "tenants", "api_keys", "evidence_records", "stripe_events",
+            "checkout_orders", "checkout_order_controls",
+            "checkout_execution_jobs", "checkout_report_reviews",
+        )
+        rls_rows = conn.execute(text("""
+            SELECT c.relname, c.relrowsecurity, pg_get_userbyid(c.relowner)
+            FROM pg_class AS c
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE n.nspname = current_schema()
+              AND c.relname = ANY(:table_names)
+        """), {"table_names": list(rls_tables)}).all()
+        policy_rows = conn.execute(text("""
+            SELECT tablename, policyname, cmd
+            FROM pg_policies
+            WHERE schemaname = current_schema()
+              AND tablename = ANY(:table_names)
+        """), {"table_names": list(rls_tables)}).all()
+        auth_function = conn.execute(text(
+            "SELECT to_regprocedure('ola_authenticate_api_key(text)')"
+        )).scalar_one()
+        if enforce_runtime_privileges:
+            role_security = conn.execute(text("""
+                SELECT rolsuper, rolbypassrls
+                FROM pg_roles WHERE rolname = current_user
+            """)).one()
+        else:
+            role_security = (False, False)
     if applied is None:
         raise RuntimeError("PostgreSQL schema migration version is missing")
+    rls_state = {row[0]: (bool(row[1]), row[2]) for row in rls_rows}
+    if set(rls_state) != set(rls_tables) or any(not state[0] for state in rls_state.values()):
+        raise RuntimeError("PostgreSQL tenant RLS is missing or disabled")
+    policy_state = {(row[0], row[1], row[2]) for row in policy_rows}
+    if any((table, "ola_tenant_isolation", "ALL") not in policy_state for table in rls_tables):
+        raise RuntimeError("PostgreSQL tenant RLS policy is missing")
+    if auth_function is None:
+        raise RuntimeError("PostgreSQL scoped API-key authentication function is missing")
+    if enforce_runtime_privileges:
+        if role_security[0] or role_security[1]:
+            raise RuntimeError("PostgreSQL runtime role must not be superuser or BYPASSRLS")
+        if any(owner == "current_user" for _enabled, owner in rls_state.values()):
+            raise RuntimeError("PostgreSQL runtime role must not own tenant-scoped tables")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
