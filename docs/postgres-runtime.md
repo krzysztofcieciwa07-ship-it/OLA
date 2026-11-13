@@ -80,7 +80,7 @@ and rejects any direct privileges on tenant-owned tables:
 ```sh
 OLA_DATABASE_WORKER_URL='postgresql://ola_worker:...@host:5432/ola'
 OLA_EXECUTION_API_URL='https://ola-api.example'
-OLA_EXECUTION_WORKER_TOKEN='<at-least-32-printable-ASCII-characters>'
+OLA_EXECUTION_WORKER_TOKEN='<32-to-256-printable-ASCII-characters>'
 OLA_EXECUTION_WORKER_STALE_SECONDS='900'
 python scripts/run_paid_order_worker.py --once
 ```
