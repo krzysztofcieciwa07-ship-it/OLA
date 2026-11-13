@@ -2,9 +2,10 @@
 """Apply the additive OLA PostgreSQL schema using a dedicated migration role.
 
 Set OLA_DATABASE_MIGRATION_URL to a PostgreSQL URL whose role owns the OLA
-schema. The API and worker must use OLA_DATABASE_URL with a separate runtime
-role. This script is an explicit deployment step; application startup never
-runs PostgreSQL DDL.
+schema. The API uses OLA_DATABASE_URL with OLA_DATABASE_RUNTIME_ROLE; the
+isolated outbox worker uses OLA_DATABASE_WORKER_URL with
+OLA_DATABASE_WORKER_ROLE. This script is an explicit deployment step;
+application startup never runs PostgreSQL DDL.
 """
 import os
 from pathlib import Path
