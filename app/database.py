@@ -308,7 +308,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         # complete predicate. Normalize those presentation details while
         # keeping operators, casts, literals and function arguments intact.
         value = re.sub(r"\s+", " ", expression or "").strip()
-        value = re.sub(r"\\(([A-Za-z_][A-Za-z0-9_$]*)\\)(?=::)", r"\\1", value)
+        value = re.sub(r"\(([A-Za-z_][A-Za-z0-9_$]*)\)(?=::)", r"\1", value)
         while value.startswith("(") and value.endswith(")"):
             depth = 0
             wraps_all = True
