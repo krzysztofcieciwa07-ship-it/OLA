@@ -207,9 +207,12 @@ def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_d
                    has_table_privilege(:worker_role, 'checkout_execution_jobs', 'INSERT'),
                    has_table_privilege(:worker_role, 'checkout_execution_jobs', 'UPDATE'),
                    has_table_privilege(:worker_role, 'checkout_execution_jobs', 'DELETE'),
-                   has_table_privilege(:worker_role, 'checkout_execution_jobs', 'TRUNCATE')
+                   has_table_privilege(:worker_role, 'checkout_execution_jobs', 'TRUNCATE'),
+                   has_table_privilege(:worker_role, 'checkout_execution_jobs', 'REFERENCES'),
+                   has_table_privilege(:worker_role, 'checkout_execution_jobs', 'TRIGGER'),
+                   has_table_privilege(:worker_role, 'checkout_execution_jobs', 'MAINTAIN')
         """), {"worker_role": worker_role}).one()
-        assert tuple(worker_table_privileges) == (False, False, False, False, False)
+        assert tuple(worker_table_privileges) == (False, False, False, False, False, False, False, False)
 
     tenant_id = str(uuid.uuid4())
     order_ids = [str(uuid.uuid4()) for _ in range(4)]
