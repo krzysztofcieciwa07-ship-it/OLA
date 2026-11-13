@@ -336,10 +336,14 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             SELECT pg_get_userbyid(member) AS member,
                    pg_get_userbyid(roleid) AS granted_role
             FROM pg_auth_members
-            WHERE member IN (
-                SELECT oid FROM pg_roles WHERE rolname = ANY(:role_names)
-            )
-        """), {"role_names": [runtime_role, worker_role]}).all()
+            WHERE member = ANY(ARRAY[
+                pg_catalog.to_regrole(:runtime_role)::oid,
+                pg_catalog.to_regrole(:worker_role)::oid
+            ])
+        """), {
+            "runtime_role": runtime_role,
+            "worker_role": worker_role,
+        }).all()
         worker_table_privileges = conn.execute(text("""
             SELECT
                 COALESCE(bool_or(has_table_privilege(:worker_role,
