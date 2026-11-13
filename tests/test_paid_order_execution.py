@@ -379,7 +379,7 @@ def test_postgres_worker_batch_claims_and_dispatches_only_claim_coordinates(monk
     dispatched = []
     def fake_dispatch(api_url, worker_token, claim, *, stale_after_seconds=900):
         dispatched.append((api_url, worker_token, claim, stale_after_seconds))
-        return {"status": "EXECUTED_REVIEW_REQUIRED"}
+        return {"status": "ACCEPTED"}
 
     monkeypatch.setattr(worker, "dispatch_claim_to_api", fake_dispatch)
     result = worker.run_once(
@@ -431,7 +431,7 @@ def test_postgres_worker_http_dispatch_sends_claim_only_as_headers(monkeypatch):
         def __exit__(self, exc_type, exc, traceback):
             return False
         def read(self):
-            return b'{"status":"EXECUTED_REVIEW_REQUIRED"}'
+            return b'{"status":"ACCEPTED"}'
 
     class FakeOpener:
         def open(self, request, timeout):
@@ -446,7 +446,7 @@ def test_postgres_worker_http_dispatch_sends_claim_only_as_headers(monkeypatch):
         "worker-secret-" + "w" * 40,
         {"job_id": "job-123", "tenant_id": "tenant-456", "claim_token": "claim-789"},
     )
-    assert result == {"status": "EXECUTED_REVIEW_REQUIRED"}
+    assert result == {"status": "ACCEPTED"}
     assert seen["url"] == "https://ola-internal.example/internal/checkout-execution/job-123/run"
     assert "tenant-456" not in seen["url"]
     assert "claim-789" not in seen["url"]
@@ -538,3 +538,48 @@ def test_postgres_worker_route_accepts_claim_and_schedules_execution(monkeypatch
             "stale_after_seconds": 900,
         },
     )
+
+
+def test_worker_token_rejects_non_ascii_and_invalid_configuration(monkeypatch):
+    from app.paid_order_execution import PaidOrderExecutionRejected, verify_worker_token
+
+    valid_token = "worker-secret-" + "a" * 40
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", valid_token)
+    with pytest.raises(PaidOrderExecutionRejected) as incoming:
+        verify_worker_token("worker-secret-☃" + "a" * 40)
+    assert incoming.value.code == 401
+
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", "worker-secret-☃" + "a" * 40)
+    with pytest.raises(PaidOrderExecutionRejected) as configured:
+        verify_worker_token(valid_token)
+    assert configured.value.code == 503
+
+
+def test_postgres_worker_rejects_non_acceptance_response(monkeypatch):
+    from types import SimpleNamespace
+    import scripts.run_paid_order_worker as worker
+
+    class FakeConnection:
+        def execute(self, statement, params):
+            return [
+                SimpleNamespace(job_id="job-1", tenant_id="tenant-1", claim_token="claim-token-123456"),
+            ]
+
+    class FakeEngine:
+        def begin(self):
+            class Transaction:
+                def __enter__(self):
+                    return FakeConnection()
+                def __exit__(self, exc_type, exc, traceback):
+                    return False
+            return Transaction()
+
+    monkeypatch.setattr(
+        worker, "dispatch_claim_to_api",
+        lambda *args, **kwargs: {"status": "UNEXPECTED"},
+    )
+    assert worker.run_once(
+        worker_engine=FakeEngine(),
+        api_url="https://ola-internal.example",
+        worker_token="worker-secret-" + "w" * 40,
+    ) == 1
