@@ -26,7 +26,8 @@ NOREPLICATION`. Neither role may participate in any role membership: they
 cannot be members of another role, and no other role may be granted either
 application role (which could permit `SET ROLE`). The startup verifier
 checks both directions, authenticated `session_user`, table ownership,
-exact table grants, schema privileges and function ACLs. Do not rely on a
+exact table grants and table ACL provenance, schema ACL provenance (no
+PUBLIC/extra grantees or grant options), and function ACLs. Do not rely on a
 custom GUC or application bearer token as a database privilege boundary.
 
 Example role provisioning (supply passwords using your secret-management
