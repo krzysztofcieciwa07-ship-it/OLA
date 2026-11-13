@@ -568,6 +568,37 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
         worker.verify_worker_database_identity(worker_engine, worker_role)
 
         with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO PUBLIC')
+        with pytest.raises(RuntimeError, match="worker schema ACL"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM PUBLIC')
+
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'GRANT USAGE ON SCHEMA "{_schema}" TO "{worker_role}" WITH GRANT OPTION'
+            )
+        with pytest.raises(RuntimeError, match="worker schema ACL"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM "{worker_role}"')
+            conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO "{worker_role}"')
+
+        schema_outsider = "ola_schema_outsider_" + uuid.uuid4().hex[:10]
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'CREATE ROLE "{schema_outsider}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS '
+                'NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD \'ola_schema_outsider_test\''
+            )
+            conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO "{schema_outsider}"')
+        with pytest.raises(RuntimeError, match="worker schema ACL"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM "{schema_outsider}"')
+            conn.exec_driver_sql(f'DROP ROLE "{schema_outsider}"')
+        worker.verify_worker_database_identity(worker_engine, worker_role)
+
+        with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_authenticate_api_key(text) TO "{worker_role}"'
             )
