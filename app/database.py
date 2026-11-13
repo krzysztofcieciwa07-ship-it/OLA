@@ -307,7 +307,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         # pg_get_expr adds harmless parentheses around identifiers and the
         # complete predicate. Normalize those presentation details while
         # keeping operators, casts, literals and function arguments intact.
-        value = re.sub(r"\\s+", " ", expression or "").strip()
+        value = re.sub(r"\s+", " ", expression or "").strip()
         value = re.sub(r"\\(([A-Za-z_][A-Za-z0-9_$]*)\\)(?=::)", r"\\1", value)
         while value.startswith("(") and value.endswith(")"):
             depth = 0
@@ -332,8 +332,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "cmd": row[2],
             "permissive": row[3],
             "roles": tuple(row[4] or ()),
-            "qual": re.sub(r"\s+", " ", row[5] or "").strip(),
-            "with_check": re.sub(r"\s+", " ", row[6] or "").strip(),
+            "qual": normalize_policy_expression(row[5]),
+            "with_check": normalize_policy_expression(row[6]),
         }
         for row in policy_rows
     }
