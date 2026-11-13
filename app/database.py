@@ -327,9 +327,18 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             )
         """), {"runtime_role": runtime_role, "worker_role": worker_role}).one_or_none()
         role_rows = conn.execute(text("""
-            SELECT rolname, rolsuper, rolbypassrls
+            SELECT rolname, rolsuper, rolbypassrls, rolinherit,
+                   rolcreatedb, rolcreaterole, rolreplication, rolcanlogin
             FROM pg_roles
             WHERE rolname = ANY(:role_names)
+        """), {"role_names": [runtime_role, worker_role]}).all()
+        role_memberships = conn.execute(text("""
+            SELECT pg_get_userbyid(member) AS member,
+                   pg_get_userbyid(roleid) AS granted_role
+            FROM pg_auth_members
+            WHERE member IN (
+                SELECT oid FROM pg_roles WHERE rolname = ANY(:role_names)
+            )
         """), {"role_names": [runtime_role, worker_role]}).all()
         worker_table_privileges = conn.execute(text("""
             SELECT
@@ -353,7 +362,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
                    has_schema_privilege(:worker_role, current_schema(), 'CREATE')
         """), {"worker_role": worker_role}).one()
         role_state = {
-            row[0]: (bool(row[1]), bool(row[2]))
+            row[0]: tuple(bool(value) for value in row[1:])
             for row in role_rows
         }
         database_user = conn.execute(text("SELECT current_user")).scalar_one()
