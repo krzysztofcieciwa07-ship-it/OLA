@@ -355,7 +355,13 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
                 COALESCE(bool_or(has_table_privilege(:worker_role,
                     format('%I.%I', current_schema(), scoped.table_name), 'DELETE')), false),
                 COALESCE(bool_or(has_table_privilege(:worker_role,
-                    format('%I.%I', current_schema(), scoped.table_name), 'TRUNCATE')), false)
+                    format('%I.%I', current_schema(), scoped.table_name), 'TRUNCATE')), false),
+                COALESCE(bool_or(has_table_privilege(:worker_role,
+                    format('%I.%I', current_schema(), scoped.table_name), 'REFERENCES')), false),
+                COALESCE(bool_or(has_table_privilege(:worker_role,
+                    format('%I.%I', current_schema(), scoped.table_name), 'TRIGGER')), false),
+                COALESCE(bool_or(has_table_privilege(:worker_role,
+                    format('%I.%I', current_schema(), scoped.table_name), 'MAINTAIN')), false)
             FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
         """), {
             "worker_role": worker_role,
