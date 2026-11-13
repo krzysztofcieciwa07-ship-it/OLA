@@ -356,7 +356,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             row[0]: (bool(row[1]), bool(row[2]))
             for row in role_rows
         }
-        if enforce_runtime_privileges and current_user != runtime_role:
+        database_user = conn.execute(text("SELECT current_user")).scalar_one()
+        if enforce_runtime_privileges and database_user != runtime_role:
             raise RuntimeError("PostgreSQL current_user does not match configured runtime role")
         if set(role_state) != {runtime_role, worker_role}:
             raise RuntimeError("PostgreSQL runtime or worker role is missing")
