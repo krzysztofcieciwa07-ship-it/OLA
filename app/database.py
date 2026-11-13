@@ -713,6 +713,10 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
         raise ValueError("worker_role must be distinct from runtime_role")
     schema_name = connection.exec_driver_sql("SELECT current_schema()").scalar_one()
     quoted_schema = '"' + schema_name.replace('"', '""') + '"'
+    # PUBLIC must not be able to create objects in the application schema.
+    connection.exec_driver_sql(
+        f"REVOKE CREATE ON SCHEMA {quoted_schema} FROM PUBLIC"
+    )
 
     def revoke_unexpected_function_execute(function_signature: str, allowed_role: str) -> None:
         # Keep only the explicitly allowed runtime identity (or worker identity)
