@@ -14,7 +14,7 @@ import sys
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -117,8 +117,13 @@ def dispatch_claim_to_api(api_url: str, worker_token: str, claim: dict) -> dict:
         },
         method="POST",
     )
+    class RejectRedirects(HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
     try:
-        with urlopen(request, timeout=20) as response:
+        opener = build_opener(RejectRedirects)
+        with opener.open(request, timeout=20) as response:
             body = response.read()
             if not 200 <= response.status < 300:
                 raise RuntimeError(f"runtime API rejected claim with HTTP {response.status}")
