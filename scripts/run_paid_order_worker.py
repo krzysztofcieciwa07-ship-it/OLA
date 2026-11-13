@@ -157,7 +157,10 @@ def verify_worker_database_identity(
                         WHERE n.nspname = current_schema()
                           AND acl.grantee <> 0
                           AND acl.grantee <> n.nspowner
-                          AND acl.grantee <> pg_catalog.to_regrole(current_user::text)::oid
+                          AND acl.grantee NOT IN (
+                              pg_catalog.to_regrole(current_user::text)::oid,
+                              pg_catalog.to_regrole(:runtime_role)::oid
+                          )
                     ), ARRAY[]::text[]) AS extra_schema_grantees,
                     COALESCE(has_function_privilege(
                         current_user,
@@ -256,7 +259,10 @@ def verify_worker_database_identity(
                 FROM pg_roles AS r
                 WHERE r.rolname = current_user
             """),
-            {"table_names": protected_tables},
+            {
+                "table_names": protected_tables,
+                "runtime_role": runtime_role,
+            },
         ).mappings().one_or_none()
 
     if identity is None or identity["role_name"] != expected_role:
