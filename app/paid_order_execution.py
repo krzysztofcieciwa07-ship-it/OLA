@@ -46,6 +46,51 @@ def _postgres_claim_is_current(job, tenant_id: str, claim_token: str,
     return now - stale_after_seconds < claimed_at <= now + 60
 
 
+def validate_postgres_worker_claim(
+    job_id: str,
+    tenant_id: str,
+    claim_token: str,
+    *,
+    stale_after_seconds: int = 900,
+) -> None:
+    """Validate a DB-issued worker lease before accepting asynchronous execution."""
+    if (not isinstance(tenant_id, str) or not tenant_id.strip()
+            or len(tenant_id) > 128 or not tenant_id.isascii()
+            or not isinstance(claim_token, str) or not claim_token.isascii()
+            or not 16 <= len(claim_token) <= 128):
+        raise PaidOrderExecutionRejected(409, "PostgreSQL worker claim coordinates are invalid")
+    run_now = int(time.time())
+    with tenant_scope(tenant_id):
+        with SessionLocal() as db:
+            if db.get_bind().dialect.name != "postgresql":
+                raise PaidOrderExecutionRejected(503, "PostgreSQL worker claims require PostgreSQL runtime storage")
+            job = db.scalar(
+                select(CheckoutExecutionJob)
+                .where(
+                    CheckoutExecutionJob.id == job_id,
+                    CheckoutExecutionJob.tenant_id == tenant_id,
+                )
+                .with_for_update()
+            )
+            if job is None:
+                raise PaidOrderExecutionRejected(404, "execution job not found")
+            if not _postgres_claim_is_current(
+                job, tenant_id, claim_token,
+                now=run_now, stale_after_seconds=stale_after_seconds,
+            ):
+                db.rollback()
+                raise PaidOrderExecutionRejected(409, "PostgreSQL execution claim is expired or no longer owned")
+            queued_once = job.status == "QUEUED" and job.attempt_count == 0
+            stale_running = (
+                job.status == "RUNNING"
+                and (job.started_at is None or job.started_at <= run_now - stale_after_seconds)
+            )
+            if not queued_once and not stale_running:
+                db.rollback()
+                raise PaidOrderExecutionRejected(409, "execution job is not eligible for this worker claim")
+            db.rollback()
+
+
 def _append_locked(db, tenant_id: str, record_type: str, payload: dict) -> dict:
     """Append trusted evidence under the caller's tenant-chain transaction lock."""
     rows = db.scalars(
