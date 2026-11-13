@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from sqlalchemy import create_engine, event, select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
@@ -27,11 +28,11 @@ def postgres_db(monkeypatch):
         conn.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
         conn.exec_driver_sql(
             f'CREATE ROLE "{runtime_role}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS '
-            'NOCREATEDB NOCREATEROLE NOREPLICATION'
+            "NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD 'ola_runtime_test_only'"
         )
         conn.exec_driver_sql(
             f'CREATE ROLE "{worker_role}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS '
-            'NOCREATEDB NOCREATEROLE NOREPLICATION'
+            "NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD 'ola_worker_test_only'"
         )
 
     search_path = f"-csearch_path={schema}"
@@ -65,20 +66,15 @@ def postgres_db(monkeypatch):
                     f'GRANT {privileges} ON TABLE "{schema}"."{table_name}" TO "{runtime_role}"'
                 )
 
+        runtime_url = make_url(POSTGRES_URL).set(
+            username=runtime_role,
+            password="ola_runtime_test_only",
+        )
         runtime_engine = create_engine(
-            POSTGRES_URL,
+            runtime_url,
             pool_pre_ping=True,
             connect_args={"options": search_path},
         )
-
-        @event.listens_for(runtime_engine, "connect")
-        def assume_runtime_role(dbapi_connection, _connection_record):
-            cursor = dbapi_connection.cursor()
-            cursor.execute(f'SET ROLE "{runtime_role}"')
-            cursor.close()
-            # SET ROLE is transactional: persist the session role before the
-            # SQLAlchemy pool can roll back a check-in transaction.
-            dbapi_connection.commit()
 
         monkeypatch.setattr(database, "SessionLocal", sessionmaker(
             bind=runtime_engine, autocommit=False, autoflush=False,
@@ -551,18 +547,15 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
     import scripts.run_paid_order_worker as worker
 
     _database, runtime_engine, _migration_engine, _admin_engine, runtime_role, _schema, worker_role = postgres_db
+    worker_url = make_url(POSTGRES_URL).set(
+        username=worker_role,
+        password="ola_worker_test_only",
+    )
     worker_engine = create_engine(
-        POSTGRES_URL,
+        worker_url,
         pool_pre_ping=True,
         connect_args={"options": f"-csearch_path={_schema}"},
     )
-
-    @event.listens_for(worker_engine, "connect")
-    def assume_worker_role(dbapi_connection, _connection_record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute(f'SET ROLE "{worker_role}"')
-        cursor.close()
-        dbapi_connection.commit()
 
     try:
         worker.verify_worker_database_identity(worker_engine, worker_role)
