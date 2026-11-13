@@ -83,5 +83,5 @@ def test_vat_policy_mismatch_blocks_transfer_and_independent_verifier():
         text=True,
     )
     assert verifier.returncode != 0, verifier.stdout + verifier.stderr
-    proof = json.loads(verifier.stdout.strip())
+    proof = json.loads(verifier.stderr.strip())
     assert proof["status"] == "BLOCK"
