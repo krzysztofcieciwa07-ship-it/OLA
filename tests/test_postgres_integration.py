@@ -681,7 +681,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT "{runtime_role}" TO "{worker_role}"')
-        with pytest.raises(RuntimeError, match="member of another role"):
+        with pytest.raises(RuntimeError, match="must not participate in any role membership"):
             worker.verify_worker_database_identity(worker_engine, worker_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE "{runtime_role}" FROM "{worker_role}"')
