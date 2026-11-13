@@ -181,6 +181,9 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
     tenant_b = str(uuid.uuid4())
     key_a = "a" * 64
     key_b = "b" * 64
+    key_a_id = str(uuid.uuid4())
+    key_b_id = str(uuid.uuid4())
+    order_ids = [str(uuid.uuid4()) for _ in range(6)]
     with migration_engine.begin() as conn:
         conn.execute(
             text("INSERT INTO tenants (id, name) VALUES (:id, :name)"),
@@ -189,9 +192,71 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
         conn.execute(
             text("INSERT INTO api_keys (id, tenant_id, key_hash, role) VALUES (:id, :tenant_id, :key_hash, 'tenant')"),
             [
-                {"id": str(uuid.uuid4()), "tenant_id": tenant_a, "key_hash": key_a},
-                {"id": str(uuid.uuid4()), "tenant_id": tenant_b, "key_hash": key_b},
+                {"id": key_a_id, "tenant_id": tenant_a, "key_hash": key_a},
+                {"id": key_b_id, "tenant_id": tenant_b, "key_hash": key_b},
             ],
+        )
+        # Seed real tenant-B rows so SELECT isolation assertions are meaningful.
+        conn.execute(
+            text("""
+                INSERT INTO checkout_orders
+                    (id, tenant_id, idempotency_key_hash, request_hash, status, created_at)
+                VALUES
+                    (:id0, :tenant_b, :idem0, :request_hash, 'CHECKOUT_CREATED', 0),
+                    (:id1, :tenant_b, :idem1, :request_hash, 'CHECKOUT_CREATED', 0),
+                    (:id2, :tenant_b, :idem2, :request_hash, 'CHECKOUT_CREATED', 0),
+                    (:id3, :tenant_b, :idem3, :request_hash, 'CHECKOUT_CREATED', 0),
+                    (:id4, :tenant_b, :idem4, :request_hash, 'CHECKOUT_CREATED', 0),
+                    (:id5, :tenant_b, :idem5, :request_hash, 'CHECKOUT_CREATED', 0)
+            """),
+            {
+                "tenant_b": tenant_b, "request_hash": "a" * 64,
+                **{f"id{i}": order_ids[i] for i in range(6)},
+                **{f"idem{i}": uuid.uuid4().hex for i in range(6)},
+            },
+        )
+        conn.execute(
+            text("""
+                INSERT INTO evidence_records
+                    (id, tenant_id, seq, record_type, payload_json, prev_hash, record_hash)
+                VALUES (:id, :tenant_b, 0, 'seed', '{}', :genesis, :digest)
+            """),
+            {"id": str(uuid.uuid4()), "tenant_b": tenant_b, "genesis": "0" * 64, "digest": "1" * 64},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO stripe_events (id, tenant_id, event_id, status)
+                VALUES (:id, :tenant_b, :event_id, 'PROCESSING')
+            """),
+            {"id": str(uuid.uuid4()), "tenant_b": tenant_b, "event_id": "evt_rls_seed_" + uuid.uuid4().hex},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO checkout_order_controls (id, order_id, tenant_id, requester_id, status)
+                VALUES (:id, :order_id, :tenant_b, :requester_id, 'PENDING')
+            """),
+            {"id": str(uuid.uuid4()), "order_id": order_ids[0], "tenant_b": tenant_b, "requester_id": key_b_id},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO checkout_execution_jobs
+                    (id, tenant_id, order_id, approval_record_hash, task, status, attempt_count, created_at)
+                VALUES (:id, :tenant_b, :order_id, :approval_hash, 'seed task', 'QUEUED', 0, 0)
+            """),
+            {"id": str(uuid.uuid4()), "tenant_b": tenant_b, "order_id": order_ids[1], "approval_hash": "b" * 64},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO checkout_report_reviews
+                    (id, order_id, tenant_id, reviewer_id, status, report_sha256,
+                     reviewed_tip_hash, reason, reviewed_at)
+                VALUES (:id, :order_id, :tenant_b, :reviewer_id, 'PENDING',
+                        :report_hash, :tip_hash, 'seed review', 0)
+            """),
+            {
+                "id": str(uuid.uuid4()), "order_id": order_ids[2], "tenant_b": tenant_b,
+                "reviewer_id": key_b_id, "report_hash": "c" * 64, "tip_hash": "0" * 64,
+            },
         )
 
     # No tenant context is fail-closed: tenant-scoped tables expose no rows.
@@ -223,26 +288,27 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
                 insert_columns = {
                     "evidence_records": "(id, tenant_id, seq, record_type, payload_json, prev_hash, record_hash)",
                     "stripe_events": "(id, tenant_id, event_id, status)",
-                    "checkout_orders": "(id, tenant_id, idempotency_key_hash, request_hash, status)",
+                    "checkout_orders": "(id, tenant_id, idempotency_key_hash, request_hash, status, created_at)",
                     "checkout_order_controls": "(id, order_id, tenant_id, requester_id, status)",
                     "checkout_execution_jobs": "(id, tenant_id, order_id, approval_record_hash, task, status, attempt_count, created_at)",
                     "checkout_report_reviews": "(id, order_id, tenant_id, reviewer_id, status, report_sha256, reviewed_tip_hash, reason, reviewed_at)",
                 }
                 values = {
-                    "evidence_records": "(:id, :tenant_b, 0, 'probe', '{}', :genesis, :genesis)",
+                    "evidence_records": "(:id, :tenant_b, 1, 'probe', '{}', :genesis, :digest)",
                     "stripe_events": "(:id, :tenant_b, :event_id, 'PROCESSING')",
-                    "checkout_orders": "(:id, :tenant_b, :idem, :request_hash, 'CHECKOUT_CREATED')",
-                    "checkout_order_controls": "(:id, :order_id, :tenant_b, :requester_id, 'PENDING')",
-                    "checkout_execution_jobs": "(:id, :tenant_b, :order_id, :approval_hash, 'probe', 'QUEUED', 0, 0)",
-                    "checkout_report_reviews": "(:id, :order_id, :tenant_b, :reviewer_id, 'PENDING', :report_hash, :tip_hash, 'probe', 0)",
+                    "checkout_orders": "(:id, :tenant_b, :idem, :request_hash, 'CHECKOUT_CREATED', 0)",
+                    "checkout_order_controls": "(:id, :order_id_control, :tenant_b, :requester_id, 'PENDING')",
+                    "checkout_execution_jobs": "(:id, :tenant_b, :order_id_job, :approval_hash, 'probe', 'QUEUED', 0, 0)",
+                    "checkout_report_reviews": "(:id, :order_id_review, :tenant_b, :reviewer_id, 'PENDING', :report_hash, :tip_hash, 'probe', 0)",
                 }
                 params = {
                     "id": str(uuid.uuid4()), "tenant_b": tenant_b,
                     "event_id": "evt_rls_probe_" + uuid.uuid4().hex,
                     "idem": uuid.uuid4().hex, "request_hash": "a" * 64,
-                    "order_id": str(uuid.uuid4()), "requester_id": str(uuid.uuid4()),
-                    "approval_hash": "b" * 64, "genesis": "0" * 64,
-                    "reviewer_id": str(uuid.uuid4()), "report_hash": "c" * 64,
+                    "order_id_control": order_ids[3], "order_id_job": order_ids[4],
+                    "order_id_review": order_ids[5], "requester_id": key_b_id,
+                    "approval_hash": "b" * 64, "genesis": "0" * 64, "digest": "2" * 64,
+                    "reviewer_id": key_b_id, "report_hash": "c" * 64,
                     "tip_hash": "0" * 64,
                 }
                 with pytest.raises(DBAPIError):
