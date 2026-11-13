@@ -84,10 +84,12 @@ def _validate_dispatch_config(api_url: str, worker_token: str) -> None:
     parsed = urlsplit(api_url)
     if (parsed.scheme != "https" or not parsed.hostname
             or parsed.username is not None or parsed.password is not None
-            or parsed.fragment):
+            or parsed.query or parsed.fragment):
         raise ValueError("OLA_EXECUTION_API_URL must be an absolute HTTPS URL without embedded credentials")
-    if not isinstance(worker_token, str) or len(worker_token) < 32:
-        raise ValueError("OLA_EXECUTION_WORKER_TOKEN must contain at least 32 characters")
+    if (not isinstance(worker_token, str) or len(worker_token) < 32
+            or not worker_token.isascii()
+            or any(ord(char) < 33 or ord(char) > 126 for char in worker_token)):
+        raise ValueError("OLA_EXECUTION_WORKER_TOKEN must be at least 32 printable ASCII characters")
 
 
 def dispatch_claim_to_api(api_url: str, worker_token: str, claim: dict) -> dict:
@@ -97,8 +99,12 @@ def dispatch_claim_to_api(api_url: str, worker_token: str, claim: dict) -> dict:
         raise ValueError("worker claim must contain only job_id, tenant_id, and claim_token")
     for field in ("job_id", "tenant_id", "claim_token"):
         value = claim[field]
-        if not isinstance(value, str) or not value or len(value) > 256:
+        if (not isinstance(value, str) or not value or len(value) > 256
+                or not value.isascii()
+                or any(ord(char) < 33 or ord(char) > 126 for char in value)):
             raise ValueError(f"worker claim {field} is invalid")
+    if len(claim["tenant_id"]) > 128 or not 16 <= len(claim["claim_token"]) <= 128:
+        raise ValueError("worker claim tenant ID or claim token length is invalid")
 
     endpoint = (
         api_url.rstrip("/")
