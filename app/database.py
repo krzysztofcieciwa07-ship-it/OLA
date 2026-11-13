@@ -266,9 +266,17 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             WHERE schemaname = current_schema()
               AND tablename = ANY(:table_names)
         """), {"table_names": list(rls_tables)}).all()
-        auth_function = conn.execute(text(
-            "SELECT to_regprocedure('ola_authenticate_api_key(text)')"
-        )).scalar_one()
+        auth_function = conn.execute(text("""
+            SELECT p.oid, p.prosecdef, p.proconfig,
+                   EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+                       WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+                   ) AS public_execute,
+                   has_function_privilege(current_user, p.oid, 'EXECUTE') AS runtime_execute
+            FROM pg_proc AS p
+            WHERE p.oid = to_regprocedure('ola_authenticate_api_key(text)')
+        """)).one_or_none()
         if enforce_runtime_privileges:
             role_security = conn.execute(text("""
                 SELECT current_user, rolsuper, rolbypassrls
@@ -290,6 +298,17 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         raise RuntimeError("PostgreSQL tenant RLS policies are missing or not restrictive")
     if auth_function is None:
         raise RuntimeError("PostgreSQL scoped API-key authentication function is missing")
+    auth_function_config = auth_function.proconfig or []
+    if (
+        not auth_function.prosecdef
+        or "search_path=pg_catalog" not in auth_function_config
+        or auth_function.public_execute
+        or not auth_function.runtime_execute
+    ):
+        raise RuntimeError(
+            "PostgreSQL API-key authentication function must be SECURITY DEFINER, "
+            "use a fixed search_path, deny PUBLIC execution, and grant the runtime role"
+        )
     if enforce_runtime_privileges:
         if role_security[1] or role_security[2]:
             raise RuntimeError("PostgreSQL runtime role must not be superuser or BYPASSRLS")
@@ -350,8 +369,10 @@ def prepare_runtime_schema():
     raise RuntimeError(f"unsupported runtime database dialect: {engine.dialect.name}")
 
 
-def install_postgres_tenant_rls(connection):
+def install_postgres_tenant_rls(connection, runtime_role):
     """Install fail-closed RLS policies for every tenant-owned PostgreSQL table."""
+    if not isinstance(runtime_role, str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]{0,62}", runtime_role) is None:
+        raise ValueError("runtime_role must be a valid unquoted PostgreSQL role name")
     schema_name = connection.exec_driver_sql("SELECT current_schema()").scalar_one()
     quoted_schema = '"' + schema_name.replace('"', '""') + '"'
     connection.exec_driver_sql(f"""
@@ -367,8 +388,17 @@ def install_postgres_tenant_rls(connection):
         LIMIT 1
     $ola$;
     """)
+    role_exists = connection.execute(
+        text("SELECT 1 FROM pg_roles WHERE rolname = :role_name"),
+        {"role_name": runtime_role},
+    ).first()
+    if role_exists is None:
+        raise RuntimeError(f"PostgreSQL runtime role does not exist: {runtime_role}")
     connection.exec_driver_sql(
-        f"GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) TO PUBLIC"
+        f"REVOKE ALL ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) FROM PUBLIC"
+    )
+    connection.exec_driver_sql(
+        f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) TO "{runtime_role}"'
     )
 
     tenant_policies = {
@@ -404,10 +434,12 @@ def install_postgres_tenant_rls(connection):
         )
 
 
-def migrate_postgres_schema(target_engine):
+def migrate_postgres_schema(target_engine, *, runtime_role):
     """Apply the additive ORM baseline and append-only triggers with a migration role."""
     if target_engine.dialect.name != "postgresql":
         raise RuntimeError("PostgreSQL migration URL is required")
+    if not isinstance(runtime_role, str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]{0,62}", runtime_role) is None:
+        raise ValueError("runtime_role must be a valid unquoted PostgreSQL role name")
     # Register all ORM tables before create_all.
     from . import models  # noqa: F401
 
@@ -432,7 +464,7 @@ def migrate_postgres_schema(target_engine):
         """))
         conn.execute(text("UPDATE stripe_events SET task = NULL WHERE task IS NOT NULL"))
         create_postgres_append_only_triggers(conn)
-        install_postgres_tenant_rls(conn)
+        install_postgres_tenant_rls(conn, runtime_role)
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
             VALUES (:version, :description)
