@@ -902,6 +902,7 @@ def run_paid_order_execution_job(
     x_ola_worker_token: str | None = Header(default=None),
     x_ola_tenant_id: str | None = Header(default=None),
     x_ola_claim_token: str | None = Header(default=None),
+    x_ola_claim_stale_after: int = Header(default=900),
 ):
     try:
         verify_worker_token(x_ola_worker_token)
@@ -910,12 +911,14 @@ def run_paid_order_execution_job(
                 job_id,
                 x_ola_tenant_id,
                 x_ola_claim_token,
+                stale_after_seconds=x_ola_claim_stale_after,
             )
             background_tasks.add_task(
                 execute_paid_order_job,
                 job_id,
                 tenant_id=x_ola_tenant_id,
                 claim_token=x_ola_claim_token,
+                stale_after_seconds=x_ola_claim_stale_after,
             )
             return JSONResponse(
                 status_code=202,
