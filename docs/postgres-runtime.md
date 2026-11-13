@@ -132,6 +132,27 @@ worker's cross-tenant discovery is isolated in the SECURITY DEFINER claim
 function, protected by database role ACLs; the worker gets no direct SELECT,
 INSERT, UPDATE, DELETE or TRUNCATE on tenant-owned tables.
 
+### Tenant-context trust boundary
+
+The tenant RLS policies consume the transaction-local `ola.tenant_id` value
+set by the trusted API after API-key authentication (or by a verified,
+tenant-bound internal execution path). This is a defense against accidental
+unscoped ORM queries and application paths that forget to apply a tenant
+filter. It is **not** a cryptographic identity: a process holding the runtime
+database credential can set its own custom GUC values, including
+`ola.tenant_id`. Therefore this RLS design does not claim to contain a
+compromised runtime database credential, arbitrary SQL execution under that
+credential, or malicious code running inside the trusted API process.
+
+The database roles and this PR isolate the worker capability from the API
+runtime role and prevent the worker from directly reading tenant tables.
+They do not make a shared runtime credential safe to expose to tenant-facing
+clients. Runtime database credentials must remain server-side and narrowly
+scoped. Strong isolation against a compromised runtime credential requires a
+separate tenant-authenticated database context mechanism (for example,
+database-verified signed tenant claims or per-tenant database identities);
+that is outside this PR and remains a production threat-model item.
+
 ## Hash-chain digest rationale
 
 The V2 evidence-chain digest uses SHA-256 over a domain-separated canonical
