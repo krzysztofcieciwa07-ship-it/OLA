@@ -271,11 +271,11 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         )).scalar_one()
         if enforce_runtime_privileges:
             role_security = conn.execute(text("""
-                SELECT rolsuper, rolbypassrls
+                SELECT current_user, rolsuper, rolbypassrls
                 FROM pg_roles WHERE rolname = current_user
             """)).one()
         else:
-            role_security = (False, False)
+            role_security = ("migration_role", False, False)
     if applied is None:
         raise RuntimeError("PostgreSQL schema migration version is missing")
     rls_state = {row[0]: (bool(row[1]), row[2]) for row in rls_rows}
@@ -287,9 +287,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     if auth_function is None:
         raise RuntimeError("PostgreSQL scoped API-key authentication function is missing")
     if enforce_runtime_privileges:
-        if role_security[0] or role_security[1]:
+        if role_security[1] or role_security[2]:
             raise RuntimeError("PostgreSQL runtime role must not be superuser or BYPASSRLS")
-        if any(owner == "current_user" for _enabled, owner in rls_state.values()):
+        if any(owner == role_security[0] for _enabled, owner in rls_state.values()):
             raise RuntimeError("PostgreSQL runtime role must not own tenant-scoped tables")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
@@ -348,15 +348,17 @@ def prepare_runtime_schema():
 
 def install_postgres_tenant_rls(connection):
     """Install fail-closed RLS policies for every tenant-owned PostgreSQL table."""
-    connection.exec_driver_sql("""
-    CREATE OR REPLACE FUNCTION ola_authenticate_api_key(p_key_hash text)
+    schema_name = connection.exec_driver_sql("SELECT current_schema()").scalar_one()
+    quoted_schema = '"' + schema_name.replace('"', '""') + '"'
+    connection.exec_driver_sql(f"""
+    CREATE OR REPLACE FUNCTION {quoted_schema}.ola_authenticate_api_key(p_key_hash text)
     RETURNS TABLE (tenant_id text, api_key_id text, role text)
     LANGUAGE sql
     SECURITY DEFINER
-    SET search_path = pg_catalog, public
+    SET search_path = {quoted_schema}, pg_catalog
     AS $ola$
         SELECT k.tenant_id::text, k.id::text, k.role::text
-        FROM public.api_keys AS k
+        FROM {quoted_schema}.api_keys AS k
         WHERE k.key_hash = p_key_hash
         LIMIT 1
     $ola$;
