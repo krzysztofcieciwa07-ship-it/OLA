@@ -71,7 +71,11 @@ The API uses only the runtime credential:
 OLA_DATABASE_URL='postgresql://ola_runtime:...@host:5432/ola'
 ```
 
-The PostgreSQL paid-order worker uses a separate DSN and does not poll tables:
+The PostgreSQL paid-order worker uses a separate DSN and does not poll tables.
+At startup it verifies the actual database `current_user` against
+`OLA_DATABASE_WORKER_ROLE`, checks NOINHERIT/no-membership and role flags,
+requires schema USAGE but no CREATE, requires EXECUTE on the claim function,
+and rejects any direct privileges on tenant-owned tables:
 
 ```sh
 OLA_DATABASE_WORKER_URL='postgresql://ola_worker:...@host:5432/ola'
