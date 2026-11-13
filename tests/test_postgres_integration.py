@@ -25,8 +25,14 @@ def postgres_db(monkeypatch):
     worker_role = "ola_wr_" + uuid.uuid4().hex[:12]
     with admin_engine.begin() as conn:
         conn.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
-        conn.exec_driver_sql(f'CREATE ROLE "{runtime_role}" NOLOGIN')
-        conn.exec_driver_sql(f'CREATE ROLE "{worker_role}" NOLOGIN')
+        conn.exec_driver_sql(
+            f'CREATE ROLE "{runtime_role}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS '
+            'NOCREATEDB NOCREATEROLE NOREPLICATION'
+        )
+        conn.exec_driver_sql(
+            f'CREATE ROLE "{worker_role}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS '
+            'NOCREATEDB NOCREATEROLE NOREPLICATION'
+        )
 
     search_path = f"-csearch_path={schema}"
     migration_engine = create_engine(
