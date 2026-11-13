@@ -583,3 +583,21 @@ def test_postgres_worker_rejects_non_acceptance_response(monkeypatch):
         api_url="https://ola-internal.example",
         worker_token="worker-secret-" + "w" * 40,
     ) == 1
+
+
+@pytest.mark.parametrize(
+    ("limit", "stale_after_seconds"),
+    [
+        (0, 900),
+        (101, 900),
+        (20, 59),
+        (20, 86401),
+    ],
+)
+def test_postgres_worker_rejects_invalid_claim_bounds_before_db_access(limit, stale_after_seconds):
+    import scripts.run_paid_order_worker as worker
+
+    with pytest.raises(ValueError):
+        worker.claim_postgres_jobs(
+            None, limit=limit, stale_after_seconds=stale_after_seconds,
+        )
