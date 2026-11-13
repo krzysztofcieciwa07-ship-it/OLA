@@ -12,7 +12,7 @@ from .database import SessionLocal, begin_write_transaction, lock_tenant_evidenc
 from .hashchain import GENESIS_HASH, compute_record_hash_v2, sealed_payload_json, trusted_record, verify_chain
 from .models import CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl, EvidenceRecord
 from .runtime_provenance import runtime_source_commit
-from .tenant_context import set_current_tenant_id, set_worker_mode, worker_scope
+from .tenant_context import set_current_tenant_id, set_worker_mode, tenant_scope, worker_scope
 
 
 class PaidOrderExecutionRejected(ValueError):
@@ -146,43 +146,79 @@ def _execution_context(db, job: CheckoutExecutionJob):
     return order, control, evidence
 
 
-def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
+def execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
+                            claim_token: str | None = None, runner=None,
+                            now: int | None = None,
                             stale_after_seconds: int = 900) -> dict:
-    """Run the worker under a privileged, request-scoped RLS context."""
+    """Execute SQLite locally or consume a tenant-bound PostgreSQL claim."""
+    with SessionLocal() as probe:
+        dialect = probe.get_bind().dialect.name
+
+    if dialect == "postgresql":
+        if (not isinstance(tenant_id, str) or not tenant_id.strip()
+                or not isinstance(claim_token, str)
+                or not 16 <= len(claim_token) <= 128):
+            raise PaidOrderExecutionRejected(
+                409, "PostgreSQL worker requires a tenant ID and an active database claim token",
+            )
+        with tenant_scope(tenant_id):
+            return _execute_paid_order_job(
+                job_id, tenant_id=tenant_id, claim_token=claim_token,
+                runner=runner, now=now, stale_after_seconds=stale_after_seconds,
+            )
+
     with worker_scope():
         return _execute_paid_order_job(
-            job_id, runner=runner, now=now,
-            stale_after_seconds=stale_after_seconds,
+            job_id, tenant_id=tenant_id, claim_token=claim_token,
+            runner=runner, now=now, stale_after_seconds=stale_after_seconds,
         )
 
 
-def _execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
+def _execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
+                            claim_token: str | None = None, runner=None,
+                            now: int | None = None,
                             stale_after_seconds: int = 900) -> dict:
-    """Claim and run one approved order once. Stale RUNNING jobs are never auto-replayed."""
+    """Execute one approved order; PostgreSQL claims remain tenant and lease bound."""
     from .nina_execution import run_nina_task
 
     run_now = int(time.time()) if now is None else int(now)
     execute = runner or run_nina_task
-    claim_token = str(uuid.uuid4())
+    is_postgres = False
     with SessionLocal() as db:
         if db.bind.dialect.name == "sqlite":
             begin_write_transaction(db)
+            claim_token = str(uuid.uuid4())
         elif db.bind.dialect.name == "postgresql":
-            # Lock the job row first to serialize competing workers, then the
-            # tenant evidence chain before validation and evidence append.
+            is_postgres = True
+            if not tenant_id or not claim_token:
+                raise PaidOrderExecutionRejected(
+                    409, "PostgreSQL worker requires a tenant ID and an active database claim token",
+                )
+            # The API request's tenant_scope has already installed transaction-local RLS.
             db.connection()
         else:
             raise PaidOrderExecutionRejected(503, "no atomic execution-outbox policy for this database")
-        job = db.scalar(
-            select(CheckoutExecutionJob)
-            .where(CheckoutExecutionJob.id == job_id)
-            .with_for_update()
-        )
+        job_query = select(CheckoutExecutionJob).where(CheckoutExecutionJob.id == job_id)
+        if is_postgres:
+            job_query = job_query.where(CheckoutExecutionJob.tenant_id == tenant_id)
+        job = db.scalar(job_query.with_for_update())
         if job is None:
             raise PaidOrderExecutionRejected(404, "execution job not found")
+        if is_postgres:
+            lease_is_current = (
+                isinstance(job.claim_token, str)
+                and hmac.compare_digest(job.claim_token, claim_token)
+                and isinstance(job.claimed_at, int)
+                and run_now - stale_after_seconds < job.claimed_at <= run_now + 60
+            )
+            if job.tenant_id != tenant_id or not lease_is_current:
+                db.rollback()
+                raise PaidOrderExecutionRejected(
+                    409, "PostgreSQL execution claim is expired, mismatched, or no longer owned",
+                )
         set_current_tenant_id(job.tenant_id)
         set_worker_mode(False)
-        if db.bind.dialect.name == "postgresql":
+        if is_postgres:
             db.execute(
                 text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
                 {"tenant_id": job.tenant_id},
@@ -320,15 +356,29 @@ def _execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
             db.connection()
         else:
             raise PaidOrderExecutionRejected(503, "no atomic execution result policy for this database")
-        job = db.scalar(
-            select(CheckoutExecutionJob)
-            .where(CheckoutExecutionJob.id == job_id)
-            .with_for_update()
+        final_query = select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.id == job_id,
         )
+        if is_postgres:
+            final_query = final_query.where(CheckoutExecutionJob.tenant_id == tenant_id)
+        job = db.scalar(final_query.with_for_update())
         if job is None:
             raise PaidOrderExecutionRejected(409, "execution claim was lost; manual reconciliation is required")
         lock_tenant_evidence_chain(db, job.tenant_id)
-        if job.status != "RUNNING" or job.claim_token != claim_token:
+        claim_still_owned = (
+            isinstance(job.claim_token, str)
+            and isinstance(claim_token, str)
+            and hmac.compare_digest(job.claim_token, claim_token)
+        )
+        lease_still_current = (
+            not is_postgres
+            or (
+                isinstance(job.claimed_at, int)
+                and int(time.time()) - stale_after_seconds < job.claimed_at <= int(time.time()) + 60
+            )
+        )
+        if job.status != "RUNNING" or not claim_still_owned or not lease_still_current:
+            db.rollback()
             raise PaidOrderExecutionRejected(409, "execution claim was lost; manual reconciliation is required")
         job.status = final_status
         job.finished_at = int(time.time())
