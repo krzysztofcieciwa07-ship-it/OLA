@@ -146,6 +146,15 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
         )
     database.verify_postgres_schema(runtime_engine)
 
+    # Startup must fail closed if a tenant table loses RLS.
+    with _admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'ALTER TABLE "{_schema}".evidence_records DISABLE ROW LEVEL SECURITY')
+    with pytest.raises(RuntimeError, match="tenant RLS is missing or disabled"):
+        database.verify_postgres_schema(runtime_engine)
+    with _admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'ALTER TABLE "{_schema}".evidence_records ENABLE ROW LEVEL SECURITY')
+    database.verify_postgres_schema(runtime_engine)
+
 
 def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(postgres_db):
     database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
