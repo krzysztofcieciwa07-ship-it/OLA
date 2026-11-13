@@ -171,7 +171,7 @@ def execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
 
     if dialect == "postgresql":
         if (not isinstance(tenant_id, str) or not tenant_id.strip()
-                or not isinstance(tenant_id, str) or len(tenant_id) > 128 or not tenant_id.isascii()
+                or len(tenant_id) > 128 or not tenant_id.isascii()
                 or not isinstance(claim_token, str) or not claim_token.isascii()
                 or not 16 <= len(claim_token) <= 128):
             raise PaidOrderExecutionRejected(
