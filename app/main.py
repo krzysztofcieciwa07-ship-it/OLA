@@ -6,7 +6,7 @@ import uuid
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
 from sqlalchemy import select, func, text
 from sqlalchemy.exc import IntegrityError
@@ -27,7 +27,7 @@ from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
 from .order_approval import approve_paid_order, PaidOrderApprovalRejected
-from .paid_order_execution import execute_paid_order_job, verify_worker_token, PaidOrderExecutionRejected
+from .paid_order_execution import execute_paid_order_job, validate_postgres_worker_claim, verify_worker_token, PaidOrderExecutionRejected
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
 from .tenant_context import set_current_tenant_id, reset_current_tenant_id
 
@@ -898,12 +898,29 @@ def retrieve_checkout_order_report(
 @app.post("/internal/checkout-execution/{job_id}/run")
 def run_paid_order_execution_job(
     job_id: str,
+    background_tasks: BackgroundTasks,
     x_ola_worker_token: str | None = Header(default=None),
     x_ola_tenant_id: str | None = Header(default=None),
     x_ola_claim_token: str | None = Header(default=None),
 ):
     try:
         verify_worker_token(x_ola_worker_token)
+        if engine.dialect.name == "postgresql":
+            validate_postgres_worker_claim(
+                job_id,
+                x_ola_tenant_id,
+                x_ola_claim_token,
+            )
+            background_tasks.add_task(
+                execute_paid_order_job,
+                job_id,
+                tenant_id=x_ola_tenant_id,
+                claim_token=x_ola_claim_token,
+            )
+            return JSONResponse(
+                status_code=202,
+                content={"status": "ACCEPTED", "job_id": job_id},
+            )
         return execute_paid_order_job(
             job_id,
             tenant_id=x_ola_tenant_id,
