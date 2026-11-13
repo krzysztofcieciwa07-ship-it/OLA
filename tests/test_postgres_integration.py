@@ -213,6 +213,9 @@ def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_d
                    has_table_privilege(:worker_role, 'checkout_execution_jobs', 'MAINTAIN')
         """), {"worker_role": worker_role}).one()
         assert tuple(worker_table_privileges) == (False, False, False, False, False, False, False, False)
+        assert conn.execute(text("""
+            SELECT has_table_privilege(:worker_role, 'ola_schema_migrations', 'SELECT')
+        """), {"worker_role": worker_role}).scalar_one() is False
 
     tenant_id = str(uuid.uuid4())
     order_ids = [str(uuid.uuid4()) for _ in range(4)]
@@ -605,6 +608,17 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE SELECT ON TABLE "{_schema}".checkout_execution_jobs FROM "{worker_role}"'
+            )
+
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'GRANT SELECT ON TABLE "{_schema}".ola_schema_migrations TO "{worker_role}"'
+            )
+        with pytest.raises(RuntimeError, match="direct privileges"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'REVOKE SELECT ON TABLE "{_schema}".ola_schema_migrations FROM "{worker_role}"'
             )
 
         with _admin_engine.begin() as conn:
