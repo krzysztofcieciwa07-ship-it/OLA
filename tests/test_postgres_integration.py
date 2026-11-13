@@ -570,5 +570,39 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
             worker.verify_worker_database_identity(runtime_engine, worker_role)
         with pytest.raises(RuntimeError, match="identity mismatch"):
             worker.verify_worker_database_identity(_admin_engine, worker_role)
+
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'GRANT SELECT ON TABLE "{_schema}".checkout_execution_jobs TO "{worker_role}"'
+            )
+        with pytest.raises(RuntimeError, match="direct privileges"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'REVOKE SELECT ON TABLE "{_schema}".checkout_execution_jobs FROM "{worker_role}"'
+            )
+
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'GRANT CREATE ON SCHEMA "{_schema}" TO "{worker_role}"')
+        with pytest.raises(RuntimeError, match="schema USAGE"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'REVOKE CREATE ON SCHEMA "{_schema}" FROM "{worker_role}"')
+
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'ALTER ROLE "{worker_role}" INHERIT')
+        with pytest.raises(RuntimeError, match="must be LOGIN NOINHERIT"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'ALTER ROLE "{worker_role}" NOINHERIT')
+
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'GRANT "{runtime_role}" TO "{worker_role}"')
+        with pytest.raises(RuntimeError, match="member of another role"):
+            worker.verify_worker_database_identity(worker_engine, worker_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'REVOKE "{runtime_role}" FROM "{worker_role}"')
+
+        worker.verify_worker_database_identity(worker_engine, worker_role)
     finally:
         worker_engine.dispose()
