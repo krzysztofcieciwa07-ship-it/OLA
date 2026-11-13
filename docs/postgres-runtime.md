@@ -83,11 +83,14 @@ The PostgreSQL paid-order worker uses a separate DSN and does not poll tables.
 At startup it verifies that both authenticated `session_user` and effective
 `current_user` equal `OLA_DATABASE_WORKER_ROLE` (a privileged DSN followed
 by `SET ROLE` is rejected), and checks NOINHERIT/no-membership and role flags,
-requires schema USAGE but no CREATE, requires EXECUTE on the claim function,
-and rejects any direct privileges on tenant-owned tables:
+requires schema USAGE but no CREATE, rejects PUBLIC/extra schema ACLs and
+grant options, verifies that the claim function is SECURITY DEFINER owned by
+the separate migration role, and rejects any direct privileges on tenant-owned tables:
 
 ```sh
 OLA_DATABASE_WORKER_URL='postgresql://ola_worker:...@host:5432/ola'
+OLA_DATABASE_WORKER_ROLE='ola_worker'
+OLA_DATABASE_RUNTIME_ROLE='ola_runtime'
 OLA_EXECUTION_API_URL='https://ola-api.example'
 OLA_EXECUTION_WORKER_TOKEN='<32-to-256-printable-ASCII-characters>'
 OLA_EXECUTION_WORKER_STALE_SECONDS='900'
