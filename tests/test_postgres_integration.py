@@ -231,8 +231,8 @@ def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_d
         assert tuple(worker_table_privileges) == (False, False, False, False, False)
 
     tenant_id = str(uuid.uuid4())
-    order_ids = [str(uuid.uuid4()) for _ in range(3)]
-    job_ids = [str(uuid.uuid4()) for _ in range(3)]
+    order_ids = [str(uuid.uuid4()) for _ in range(4)]
+    job_ids = [str(uuid.uuid4()) for _ in range(4)]
     stale_queued_token = str(uuid.uuid4())
     stale_running_token = str(uuid.uuid4())
     with migration_engine.begin() as conn:
@@ -246,11 +246,12 @@ def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_d
             VALUES
                 (:id0, :tenant_id, :idem0, :request_hash, 'CHECKOUT_CREATED', 1),
                 (:id1, :tenant_id, :idem1, :request_hash, 'CHECKOUT_CREATED', 1),
-                (:id2, :tenant_id, :idem2, :request_hash, 'CHECKOUT_CREATED', 1)
+                (:id2, :tenant_id, :idem2, :request_hash, 'CHECKOUT_CREATED', 1),
+                (:id3, :tenant_id, :idem3, :request_hash, 'CHECKOUT_CREATED', 1)
         """), {
             "tenant_id": tenant_id, "request_hash": "a" * 64,
-            **{f"id{i}": order_ids[i] for i in range(3)},
-            **{f"idem{i}": uuid.uuid4().hex for i in range(3)},
+            **{f"id{i}": order_ids[i] for i in range(4)},
+            **{f"idem{i}": uuid.uuid4().hex for i in range(4)},
         })
         conn.execute(text("""
             INSERT INTO checkout_execution_jobs
@@ -262,12 +263,15 @@ def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_d
                 (:stale_queued_id, :tenant_id, :stale_queued_order, :hash, 'stale queued task',
                  'QUEUED', 0, :stale_queued_token, 1, NULL, 2),
                 (:stale_running_id, :tenant_id, :stale_running_order, :hash, 'stale running task',
-                 'RUNNING', 1, :stale_running_token, 1, 1, 3)
+                 'RUNNING', 1, :stale_running_token, 1, 1, 3),
+                (:attempted_queued_id, :tenant_id, :attempted_queued_order, :hash, 'already attempted queued task',
+                 'QUEUED', 1, NULL, NULL, NULL, 4)
         """), {
             "tenant_id": tenant_id, "hash": "b" * 64,
             "fresh_id": job_ids[0], "fresh_order": order_ids[0],
             "stale_queued_id": job_ids[1], "stale_queued_order": order_ids[1],
             "stale_running_id": job_ids[2], "stale_running_order": order_ids[2],
+            "attempted_queued_id": job_ids[3], "attempted_queued_order": order_ids[3],
             "stale_queued_token": stale_queued_token,
             "stale_running_token": stale_running_token,
         })
@@ -288,7 +292,8 @@ def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_d
                 FROM ola_claim_checkout_jobs(:limit, :stale_after)
             """), {"limit": 10, "stale_after": 900}).all()
         by_id = {row.job_id: row for row in claims}
-        assert set(by_id) == set(job_ids)
+        assert set(by_id) == set(job_ids[:3])
+        assert job_ids[3] not in by_id, "queued job with attempt_count=1 must not be claimed"
         assert all(row.tenant_id == tenant_id for row in claims)
         assert all(len(row.claim_token) == 36 for row in claims)
         assert by_id[job_ids[1]].claim_token != stale_queued_token
