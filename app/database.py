@@ -305,6 +305,51 @@ def prepare_runtime_schema():
     raise RuntimeError(f"unsupported runtime database dialect: {engine.dialect.name}")
 
 
+def install_postgres_tenant_rls(connection):
+    """Install fail-closed RLS policies for every tenant-owned PostgreSQL table."""
+    connection.exec_driver_sql("""
+    CREATE OR REPLACE FUNCTION ola_authenticate_api_key(p_key_hash text)
+    RETURNS TABLE (tenant_id text, api_key_id text, role text)
+    LANGUAGE sql
+    SECURITY DEFINER
+    SET search_path = pg_catalog, public
+    AS $ola$
+        SELECT k.tenant_id::text, k.id::text, k.role::text
+        FROM public.api_keys AS k
+        WHERE k.key_hash = p_key_hash
+        LIMIT 1
+    $ola$;
+    """)
+    connection.exec_driver_sql(
+        "GRANT EXECUTE ON FUNCTION ola_authenticate_api_key(text) TO PUBLIC"
+    )
+
+    tenant_policies = {
+        "tenants": "id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
+        "api_keys": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
+        "evidence_records": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
+        "checkout_orders": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
+        "checkout_order_controls": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
+        "checkout_report_reviews": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
+        "stripe_events": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
+        "checkout_execution_jobs": (
+            "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '') "
+            "OR current_setting('ola.worker_mode', true) = 'on'"
+        ),
+    }
+    for table_name, predicate in tenant_policies.items():
+        connection.exec_driver_sql(
+            f'ALTER TABLE "{table_name}" ENABLE ROW LEVEL SECURITY'
+        )
+        connection.exec_driver_sql(
+            f'DROP POLICY IF EXISTS ola_tenant_isolation ON "{table_name}"'
+        )
+        connection.exec_driver_sql(
+            f'CREATE POLICY ola_tenant_isolation ON "{table_name}" '
+            f'FOR ALL USING ({predicate}) WITH CHECK ({predicate})'
+        )
+
+
 def migrate_postgres_schema(target_engine):
     """Apply the additive ORM baseline and append-only triggers with a migration role."""
     if target_engine.dialect.name != "postgresql":
@@ -323,6 +368,7 @@ def migrate_postgres_schema(target_engine):
         Base.metadata.create_all(bind=conn)
         conn.execute(text("ALTER TABLE checkout_orders ADD COLUMN IF NOT EXISTS task TEXT"))
         conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS role VARCHAR(32) NOT NULL DEFAULT 'tenant'"))
+        conn.execute(text("ALTER TABLE stripe_events ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(36)"))
         conn.execute(text("""
             UPDATE checkout_orders AS orders
             SET task = events.task
@@ -332,6 +378,7 @@ def migrate_postgres_schema(target_engine):
         """))
         conn.execute(text("UPDATE stripe_events SET task = NULL WHERE task IS NOT NULL"))
         create_postgres_append_only_triggers(conn)
+        install_postgres_tenant_rls(conn)
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
             VALUES (:version, :description)
@@ -355,6 +402,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_paid_order_report_review_v3",
             "description": "Add order-bound independent report review and authenticated customer delivery records",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_tenant_rls_v4",
+            "description": "Enable transaction-local tenant RLS and scoped API-key authentication",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
