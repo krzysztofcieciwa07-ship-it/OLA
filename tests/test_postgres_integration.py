@@ -763,6 +763,54 @@ def test_postgres_runtime_role_rejects_extra_table_grants(postgres_db):
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
 
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'GRANT SELECT ON TABLE "{schema}".checkout_orders TO PUBLIC'
+        )
+    with pytest.raises(RuntimeError, match="runtime table ACL is not least-privilege: checkout_orders"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'REVOKE SELECT ON TABLE "{schema}".checkout_orders FROM PUBLIC'
+        )
+
+    extra_role = "ola_runtime_acl_" + uuid.uuid4().hex[:10]
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'CREATE ROLE "{extra_role}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS '
+            'NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD \'ola_runtime_acl_test\''
+        )
+        conn.exec_driver_sql(
+            f'GRANT SELECT ON TABLE "{schema}".checkout_orders TO "{extra_role}"'
+        )
+    with pytest.raises(RuntimeError, match="runtime table ACL is not least-privilege: checkout_orders"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'REVOKE SELECT ON TABLE "{schema}".checkout_orders FROM "{extra_role}"'
+        )
+        conn.exec_driver_sql(f'DROP ROLE "{extra_role}"')
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'GRANT SELECT ON TABLE "{schema}".checkout_orders TO "{runtime_role}" WITH GRANT OPTION'
+        )
+    with pytest.raises(RuntimeError, match="runtime table ACL is not least-privilege: checkout_orders"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'REVOKE GRANT OPTION FOR SELECT ON TABLE "{schema}".checkout_orders FROM "{runtime_role}"'
+        )
+    database.verify_postgres_schema(
+        runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+    )
+
 
 def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgres_db):
     database, _runtime_engine, migration_engine, admin_engine, runtime_role, schema, worker_role = postgres_db
