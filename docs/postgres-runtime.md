@@ -20,11 +20,14 @@ running the migration:
 - Migration owner: owns the schema and SECURITY DEFINER functions; it must not
   be used by either runtime process.
 
-Both runtime roles must be `LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS
-NOCREATEDB NOCREATEROLE NOREPLICATION`. Neither may be a member of another
-role. The startup verifier checks these properties, table ownership, table
-privileges, schema privileges and function ACLs. Do not rely on a custom GUC
-or application bearer token as a database privilege boundary.
+Both application roles (`ola_runtime` and `ola_worker`) must be
+`LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
+NOREPLICATION`. Neither role may participate in any role membership: they
+cannot be members of another role, and no other role may be granted either
+application role (which could permit `SET ROLE`). The startup verifier
+checks both directions, authenticated `session_user`, table ownership,
+exact table grants, schema privileges and function ACLs. Do not rely on a
+custom GUC or application bearer token as a database privilege boundary.
 
 Example role provisioning (supply passwords using your secret-management
 system, not source control):
@@ -47,13 +50,17 @@ python scripts/migrate_postgres.py
 
 The migration creates missing ORM tables, installs the evidence append-only
 triggers, adds tenant ownership to Stripe event rows, installs transaction-
-local RLS, creates the scoped `ola_authenticate_api_key(text)` function and
-the role-bound `ola_claim_checkout_jobs(integer,integer)` function. The
-latter is SECURITY DEFINER with a fixed `pg_catalog` search path. It can be
-executed only by the worker role and returns only job ID, tenant ID and a
-short-lived claim token. The worker role receives schema USAGE and no direct
-privileges on tenant-owned tables. Migration history includes
-`ola_tenant_worker_claim_v5`.
+local RLS, and creates the scoped `ola_authenticate_api_key(text)` and
+role-bound `ola_claim_checkout_jobs(integer,integer)` functions. Both are
+SECURITY DEFINER with a fixed `pg_catalog` search path and a separate
+migration owner. The auth function is executable only by the runtime role;
+the claim function only by the worker role. The migration also grants the
+runtime role its exact application DML matrix (SELECT/INSERT/UPDATE only on
+the tables it uses, SELECT-only on `ola_schema_migrations`) and gives the
+worker only schema USAGE plus claim-function EXECUTE—no direct table
+privileges, including on `ola_schema_migrations`. The verifier checks these
+grants exactly, including denial of PostgreSQL 17 `MAINTAIN`. Migration
+history includes `ola_tenant_worker_claim_v5`.
 
 The migration is additive with respect to the ORM baseline and does not copy
 records from SQLite. It clears task text from the Stripe-event mirror after
