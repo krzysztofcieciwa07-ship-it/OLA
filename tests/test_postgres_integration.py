@@ -569,13 +569,14 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
     try:
         worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
 
-        claim_owner = _admin_engine.connect().execute(text("""
-            SELECT pg_get_userbyid(p.proowner)
-            FROM pg_proc AS p
-            WHERE p.oid = to_regprocedure(:function_signature)
-        """), {
-            "function_signature": f"{_schema}.ola_claim_checkout_jobs(integer,integer)",
-        }).scalar_one()
+        with _admin_engine.connect() as owner_connection:
+            claim_owner = owner_connection.execute(text("""
+                SELECT pg_get_userbyid(p.proowner)
+                FROM pg_proc AS p
+                WHERE p.oid = to_regprocedure(:function_signature)
+            """), {
+                "function_signature": f"{_schema}.ola_claim_checkout_jobs(integer,integer)",
+            }).scalar_one()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'ALTER FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) OWNER TO "{runtime_role}"'
