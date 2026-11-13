@@ -317,3 +317,80 @@ def test_concurrent_worker_invocations_claim_one_execution_only(monkeypatch):
 
     assert result["status"] == "EXECUTED_REVIEW_REQUIRED"
     assert len(calls) == 1
+
+
+def test_internal_worker_route_forwards_tenant_and_claim_token(monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as main
+
+    worker_token = "worker-secret-" + "w" * 40
+    tenant_id = "tenant-claim-123"
+    claim_token = "claim-token-456"
+    job_id = "job-claim-789"
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", worker_token)
+    received = {}
+
+    def fake_execute(job_id_arg, **kwargs):
+        received["job_id"] = job_id_arg
+        received.update(kwargs)
+        return {"status": "CLAIM_ACCEPTED"}
+
+    monkeypatch.setattr(main, "execute_paid_order_job", fake_execute)
+    response = TestClient(main.app).post(
+        f"/internal/checkout-execution/{job_id}/run",
+        headers={
+            "X-OLA-Worker-Token": worker_token,
+            "X-OLA-Tenant-ID": tenant_id,
+            "X-OLA-Claim-Token": claim_token,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"status": "CLAIM_ACCEPTED"}
+    assert received == {
+        "job_id": job_id,
+        "tenant_id": tenant_id,
+        "claim_token": claim_token,
+    }
+
+
+def test_postgres_worker_batch_claims_and_dispatches_only_claim_coordinates(monkeypatch):
+    from types import SimpleNamespace
+    import scripts.run_paid_order_worker as worker
+
+    class FakeConnection:
+        def execute(self, statement, params):
+            assert "ola_claim_checkout_jobs" in str(statement)
+            assert params == {"limit": 20, "stale_after": 900}
+            return [
+                SimpleNamespace(job_id="job-1", tenant_id="tenant-1", claim_token="claim-1"),
+            ]
+
+    class FakeEngine:
+        def begin(self):
+            class Transaction:
+                def __enter__(self):
+                    return FakeConnection()
+
+                def __exit__(self, exc_type, exc, traceback):
+                    return False
+            return Transaction()
+
+    dispatched = []
+    def fake_dispatch(api_url, worker_token, claim):
+        dispatched.append((api_url, worker_token, claim))
+        return {"status": "EXECUTED_REVIEW_REQUIRED"}
+
+    monkeypatch.setattr(worker, "dispatch_claim_to_api", fake_dispatch)
+    result = worker.run_once(
+        worker_engine=FakeEngine(),
+        api_url="https://ola-internal.example",
+        worker_token="worker-secret-" + "w" * 40,
+    )
+
+    assert result == 0
+    assert dispatched == [(
+        "https://ola-internal.example",
+        "worker-secret-" + "w" * 40,
+        {"job_id": "job-1", "tenant_id": "tenant-1", "claim_token": "claim-1"},
+    )]
