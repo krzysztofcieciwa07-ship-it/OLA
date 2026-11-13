@@ -453,3 +453,43 @@ def test_postgres_worker_http_dispatch_sends_claim_only_as_headers(monkeypatch):
     assert seen["headers"]["x-ola-tenant-id"] == "tenant-456"
     assert seen["headers"]["x-ola-claim-token"] == "claim-789"
     assert seen["timeout"] == 20
+
+
+def test_postgres_claim_validation_binds_tenant_token_and_expiry():
+    from types import SimpleNamespace
+    from app.paid_order_execution import _postgres_claim_is_current
+
+    job = SimpleNamespace(tenant_id="tenant-1", claim_token="claim-token-123456", claimed_at=1_000)
+    assert _postgres_claim_is_current(
+        job, "tenant-1", "claim-token-123456", now=1_100, stale_after_seconds=900,
+    ) is True
+    assert _postgres_claim_is_current(
+        job, "tenant-2", "claim-token-123456", now=1_100, stale_after_seconds=900,
+    ) is False
+    assert _postgres_claim_is_current(
+        job, "tenant-1", "wrong-token-123456", now=1_100, stale_after_seconds=900,
+    ) is False
+    assert _postgres_claim_is_current(
+        job, "tenant-1", "claim-token-123456", now=2_000, stale_after_seconds=900,
+    ) is False
+    assert _postgres_claim_is_current(
+        job, "tenant-1", "claim-token-123456", now=900, stale_after_seconds=900,
+    ) is False
+    assert _postgres_claim_is_current(
+        job, "tenant-1", "claim-token-12☃", now=1_100, stale_after_seconds=900,
+    ) is False
+
+
+def test_postgres_worker_refuses_shared_runtime_database_without_worker_dsn(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import scripts.run_paid_order_worker as worker
+
+    monkeypatch.setattr(
+        worker, "runtime_engine",
+        SimpleNamespace(dialect=SimpleNamespace(name="postgresql")),
+    )
+    monkeypatch.delenv("OLA_DATABASE_WORKER_URL", raising=False)
+    monkeypatch.setattr(sys, "argv", ["run_paid_order_worker.py", "--once"])
+    with pytest.raises(SystemExit, match="OLA_DATABASE_WORKER_URL"):
+        worker.main()
