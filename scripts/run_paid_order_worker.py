@@ -181,7 +181,7 @@ def _validate_dispatch_config(api_url: str, worker_token: str) -> None:
     if (not isinstance(worker_token, str) or not 32 <= len(worker_token) <= 256
             or not worker_token.isascii()
             or any(ord(char) < 33 or ord(char) > 126 for char in worker_token)):
-        raise ValueError("OLA_EXECUTION_WORKER_TOKEN must be at least 32 printable ASCII characters")
+        raise ValueError("OLA_EXECUTION_WORKER_TOKEN must be between 32 and 256 printable ASCII characters")
 
 
 def dispatch_claim_to_api(
