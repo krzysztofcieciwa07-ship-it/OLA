@@ -209,6 +209,21 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
                   AND acl.privilege_type = 'EXECUTE'
             )
         """)).scalar_one() is True
+
+    # Startup must reject a function that has been re-exposed to PUBLIC.
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "GRANT EXECUTE ON FUNCTION ola_authenticate_api_key(text) TO PUBLIC"
+        )
+    with pytest.raises(RuntimeError, match="deny PUBLIC execution"):
+        database.verify_postgres_schema(runtime_engine)
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "REVOKE EXECUTE ON FUNCTION ola_authenticate_api_key(text) FROM PUBLIC"
+        )
+    database.verify_postgres_schema(runtime_engine)
+
+    with database.SessionLocal() as db:
         authenticated = db.execute(
             text("SELECT tenant_id, api_key_id, role FROM ola_authenticate_api_key(:key_hash)"),
             {"key_hash": key_b},
