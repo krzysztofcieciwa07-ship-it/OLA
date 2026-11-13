@@ -554,6 +554,16 @@ def test_worker_token_rejects_non_ascii_and_invalid_configuration(monkeypatch):
         verify_worker_token(valid_token)
     assert configured.value.code == 503
 
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", valid_token + "x" * 300)
+    with pytest.raises(PaidOrderExecutionRejected) as oversized_config:
+        verify_worker_token(valid_token)
+    assert oversized_config.value.code == 503
+
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", valid_token)
+    with pytest.raises(PaidOrderExecutionRejected) as oversized_input:
+        verify_worker_token(valid_token + "x" * 300)
+    assert oversized_input.value.code == 401
+
 
 def test_postgres_worker_rejects_non_acceptance_response(monkeypatch):
     from types import SimpleNamespace
@@ -600,4 +610,14 @@ def test_postgres_worker_rejects_invalid_claim_bounds_before_db_access(limit, st
     with pytest.raises(ValueError):
         worker.claim_postgres_jobs(
             None, limit=limit, stale_after_seconds=stale_after_seconds,
+        )
+
+
+def test_postgres_worker_rejects_oversized_worker_token_before_dispatch():
+    import scripts.run_paid_order_worker as worker
+
+    with pytest.raises(ValueError, match="printable ASCII"):
+        worker._validate_dispatch_config(
+            "https://ola-internal.example",
+            "worker-secret-" + "x" * 300,
         )
