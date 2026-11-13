@@ -19,9 +19,11 @@ export OLA_DATABASE_MIGRATION_URL='postgresql://migration_user:...@host:5432/ola
 python scripts/migrate_postgres.py
 ```
 
-The migration script creates missing ORM tables, installs the two evidence
-append-only triggers, and records `ola_paid_order_outbox_v1` in
-`ola_schema_migrations`. It is additive: it does not alter existing columns,
+The migration script creates missing ORM tables, installs the evidence
+append-only triggers, adds tenant ownership to Stripe event rows, installs
+transaction-local row-level security (RLS) policies, and creates the narrowly
+scoped `ola_authenticate_api_key(text)` SECURITY DEFINER lookup. It records
+`ola_tenant_rls_v4` in `ola_schema_migrations`. It is additive: it does not alter existing columns,
 delete data, or copy records from the SQLite database. Do not point an existing
 production tenant at the new database until a separately reviewed data-transfer
 and reconciliation procedure has been run. Future column changes require a
@@ -30,9 +32,28 @@ new explicit migration.
 The API and worker must use `OLA_DATABASE_URL` with a separate runtime role.
 Grant only the required DML privileges. In particular, `evidence_records`
 should grant `SELECT, INSERT` to the runtime role, not `UPDATE`, `DELETE` or `TRUNCATE`.
-The application verifies required tables and trigger presence on startup and
-fails closed if they are missing. The migration role must not be used as the
-runtime credential.
+The application verifies required tables, triggers, RLS policies, scoped
+authentication function, and runtime-role ownership/BYPASSRLS properties on
+startup. It fails closed if any are missing. The migration role must not be
+used as the runtime credential.
+
+RLS is enabled for `tenants`, `api_keys`, `evidence_records`,
+`stripe_events`, `checkout_orders`, `checkout_order_controls`,
+`checkout_execution_jobs`, and `checkout_report_reviews`. Tenant-owned rows
+are visible only when the transaction-local `ola.tenant_id` setting matches
+their `tenant_id` (or `tenants.id`). The API sets this context only after
+API-key authentication; PostgreSQL authentication resolves the key through
+`ola_authenticate_api_key(text)`, not a direct pre-auth table scan. Stripe
+webhooks bind context only after signature verification and authoritative
+Checkout Session lookup.
+
+The worker uses a narrowly scoped `ola.worker_mode` setting only to locate an
+outbox job after the internal worker token is verified. Immediately after
+claiming the job it drops worker-wide RLS mode and binds the transaction to
+that job's tenant before reading or mutating tenant data. This setting is not
+a tenant-client permission. Legacy Stripe event rows without `tenant_id` are
+intentionally invisible under RLS and require controlled reconciliation; the
+migration does not infer tenant ownership from untrusted event payloads.
 
 Example minimum grants for the current payment/evidence tables (adapt the
 role name and include other OLA tables when deploying the complete API):
