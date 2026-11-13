@@ -130,6 +130,80 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
                         )),
                         'EXECUTE'
                     ), false) AS claim_execute,
+                    COALESCE(has_function_privilege(
+                        current_user,
+                        to_regprocedure(format(
+                            '%I.ola_authenticate_api_key(text)',
+                            current_schema()
+                        )),
+                        'EXECUTE'
+                    ), false) AS auth_execute,
+                    COALESCE((
+                        SELECT p.prosecdef
+                        FROM pg_proc AS p
+                        WHERE p.oid = to_regprocedure(format(
+                            '%I.ola_claim_checkout_jobs(integer,integer)',
+                            current_schema()
+                        ))
+                    ), false) AS claim_security_definer,
+                    COALESCE((
+                        SELECT p.proconfig @> ARRAY['search_path=pg_catalog']::text[]
+                        FROM pg_proc AS p
+                        WHERE p.oid = to_regprocedure(format(
+                            '%I.ola_claim_checkout_jobs(integer,integer)',
+                            current_schema()
+                        ))
+                    ), false) AS claim_search_path_fixed,
+                    (
+                        SELECT pg_get_userbyid(p.proowner)::text
+                        FROM pg_proc AS p
+                        WHERE p.oid = to_regprocedure(format(
+                            '%I.ola_claim_checkout_jobs(integer,integer)',
+                            current_schema()
+                        ))
+                    ) AS claim_owner,
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_proc AS p
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(p.proacl, acldefault('f', p.proowner))
+                        ) AS acl
+                        WHERE p.oid = to_regprocedure(format(
+                            '%I.ola_claim_checkout_jobs(integer,integer)',
+                            current_schema()
+                        ))
+                          AND acl.grantee = 0
+                          AND acl.privilege_type = 'EXECUTE'
+                    ) AS claim_public_execute,
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_proc AS p
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(p.proacl, acldefault('f', p.proowner))
+                        ) AS acl
+                        WHERE p.oid = to_regprocedure(format(
+                            '%I.ola_claim_checkout_jobs(integer,integer)',
+                            current_schema()
+                        ))
+                          AND acl.privilege_type = 'EXECUTE'
+                          AND acl.grantee <> p.proowner
+                          AND acl.is_grantable
+                    ) AS claim_execute_grant_option,
+                    COALESCE((
+                        SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee)::text)
+                        FROM pg_proc AS p
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(p.proacl, acldefault('f', p.proowner))
+                        ) AS acl
+                        WHERE p.oid = to_regprocedure(format(
+                            '%I.ola_claim_checkout_jobs(integer,integer)',
+                            current_schema()
+                        ))
+                          AND acl.privilege_type = 'EXECUTE'
+                          AND acl.grantee <> 0
+                          AND acl.grantee <> p.proowner
+                          AND acl.grantee <> pg_catalog.to_regrole(current_user::text)::oid
+                    ), ARRAY[]::text[]) AS claim_extra_execute_grantees,
                     COALESCE((
                         SELECT bool_or(has_table_privilege(
                             current_user,
@@ -157,6 +231,21 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
         raise RuntimeError(
             "PostgreSQL worker DSN session identity mismatch: "
             f"expected {expected_role}, got {identity['session_role']}"
+        )
+
+    if identity["auth_execute"]:
+        raise RuntimeError("PostgreSQL worker role must not execute the API-key authentication function")
+    if (
+        not identity["claim_execute"]
+        or not identity["claim_security_definer"]
+        or not identity["claim_search_path_fixed"]
+        or identity["claim_owner"] in {None, expected_role}
+        or identity["claim_public_execute"]
+        or identity["claim_execute_grant_option"]
+        or identity["claim_extra_execute_grantees"]
+    ):
+        raise RuntimeError(
+            "PostgreSQL worker claim function ACL/SECURITY DEFINER configuration is not least-privilege"
         )
 
     forbidden_flags = (
