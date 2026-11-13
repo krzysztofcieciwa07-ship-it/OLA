@@ -355,7 +355,7 @@ def install_postgres_tenant_rls(connection):
     RETURNS TABLE (tenant_id text, api_key_id text, role text)
     LANGUAGE sql
     SECURITY DEFINER
-    SET search_path = {quoted_schema}, pg_catalog
+    SET search_path = pg_catalog
     AS $ola$
         SELECT k.tenant_id::text, k.id::text, k.role::text
         FROM {quoted_schema}.api_keys AS k
@@ -364,7 +364,7 @@ def install_postgres_tenant_rls(connection):
     $ola$;
     """)
     connection.exec_driver_sql(
-        "GRANT EXECUTE ON FUNCTION ola_authenticate_api_key(text) TO PUBLIC"
+        f"GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_authenticate_api_key(text) TO PUBLIC"
     )
 
     tenant_policies = {
