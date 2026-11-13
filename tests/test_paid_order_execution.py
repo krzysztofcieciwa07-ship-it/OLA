@@ -493,3 +493,42 @@ def test_postgres_worker_refuses_shared_runtime_database_without_worker_dsn(monk
     monkeypatch.setattr(sys, "argv", ["run_paid_order_worker.py", "--once"])
     with pytest.raises(SystemExit, match="OLA_DATABASE_WORKER_URL"):
         worker.main()
+
+
+def test_postgres_worker_route_accepts_claim_and_schedules_execution(monkeypatch):
+    from types import SimpleNamespace
+    from fastapi.testclient import TestClient
+    import app.main as main
+
+    worker_token = "worker-secret-" + "w" * 40
+    tenant_id = "tenant-claim-123"
+    claim_token = "claim-token-456"
+    job_id = "job-claim-789"
+    received = {}
+
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", worker_token)
+    monkeypatch.setattr(main, "engine", SimpleNamespace(dialect=SimpleNamespace(name="postgresql")))
+
+    def fake_validate(job_id_arg, tenant_id_arg, claim_token_arg):
+        received["validated"] = (job_id_arg, tenant_id_arg, claim_token_arg)
+
+    def fake_execute(job_id_arg, **kwargs):
+        received["executed"] = (job_id_arg, kwargs)
+
+    monkeypatch.setattr(main, "validate_postgres_worker_claim", fake_validate)
+    monkeypatch.setattr(main, "execute_paid_order_job", fake_execute)
+    response = TestClient(main.app).post(
+        f"/internal/checkout-execution/{job_id}/run",
+        headers={
+            "X-OLA-Worker-Token": worker_token,
+            "X-OLA-Tenant-ID": tenant_id,
+            "X-OLA-Claim-Token": claim_token,
+        },
+    )
+
+    assert response.status_code == 202, response.text
+    assert response.json() == {"status": "ACCEPTED", "job_id": job_id}
+    assert received["validated"] == (job_id, tenant_id, claim_token)
+    assert received["executed"] == (
+        job_id, {"tenant_id": tenant_id, "claim_token": claim_token},
+    )
