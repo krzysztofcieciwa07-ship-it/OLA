@@ -149,6 +149,21 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
         )
     database.verify_postgres_schema(runtime_engine)
 
+    # Startup must fail closed if a policy keeps its name but loses isolation.
+    with _admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'ALTER POLICY ola_tenant_isolation ON "{_schema}".evidence_records USING (true) WITH CHECK (true)'
+        )
+    with pytest.raises(RuntimeError, match="policy expression is invalid: evidence_records"):
+        database.verify_postgres_schema(runtime_engine)
+    with _admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f"ALTER POLICY ola_tenant_isolation ON \"{_schema}\".evidence_records "
+            "USING (tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')) "
+            "WITH CHECK (tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), ''))"
+        )
+    database.verify_postgres_schema(runtime_engine)
+
     # Startup must fail closed if a tenant table loses RLS.
     with _admin_engine.begin() as conn:
         conn.exec_driver_sql(f'ALTER TABLE "{_schema}".evidence_records DISABLE ROW LEVEL SECURITY')
