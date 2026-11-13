@@ -377,7 +377,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
                    has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'DELETE'),
                    has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'TRUNCATE'),
                    has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'REFERENCES'),
-                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'TRIGGER')
+                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'TRIGGER'),
+                   has_table_privilege(:runtime_role, format('%I.%I', current_schema(), scoped.table_name), 'MAINTAIN')
             FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
         """), {
             "runtime_role": runtime_role,
@@ -554,7 +555,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
         "checkout_report_reviews": {"SELECT", "INSERT", "UPDATE"},
         "ola_schema_migrations": {"SELECT"},
     }
-    privilege_names = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
+    privilege_names = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN")
     runtime_privilege_state = {
         row[0]: {name: bool(value) for name, value in zip(privilege_names, row[1:])}
         for row in runtime_table_privileges
