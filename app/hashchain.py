@@ -87,9 +87,6 @@ def compute_record_hash_v2(tenant_id, seq, prev_hash, record_type, producer, pay
         "tenant_id": tenant_id, "seq": seq, "prev_hash": prev_hash,
         "record_type": record_type, "producer": producer, "payload_json": payload_json,
     }).encode("utf-8")
-    # SHA-256 here is a deterministic, collision-resistant evidence-integrity
-    # digest, not a password/API-key verifier. Credential fingerprints use a
-    # separate keyed-hashing path; SHA-2 is the appropriate primitive here.
     return hashlib.sha256(material).hexdigest()
 
 

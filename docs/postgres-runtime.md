@@ -83,6 +83,10 @@ The migration grants `EXECUTE` on
 that function to `PUBLIC`; startup verification rejects a public execution
 grant or a runtime role that cannot execute the function.
 
+## Hash-chain digest rationale
+
+The V2 evidence-chain digest uses SHA-256 over a domain-separated canonical record to provide deterministic, collision-resistant integrity linkage. It is not used to store or verify passwords or API keys. API-key fingerprints use a separate bounded scrypt path with a configured pepper. CodeQL's `py/weak-sensitive-data-hashing` guidance recommends SHA-2/SHA-3 for non-password integrity hashing; password and other low-entropy credential storage requires a deliberately slow KDF instead.
+
 ## Transaction policy
 
 - Evidence sequence allocation is serialized per tenant with
