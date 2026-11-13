@@ -92,9 +92,17 @@ def _validate_dispatch_config(api_url: str, worker_token: str) -> None:
         raise ValueError("OLA_EXECUTION_WORKER_TOKEN must be at least 32 printable ASCII characters")
 
 
-def dispatch_claim_to_api(api_url: str, worker_token: str, claim: dict) -> dict:
+def dispatch_claim_to_api(
+    api_url: str,
+    worker_token: str,
+    claim: dict,
+    *,
+    stale_after_seconds: int = 900,
+) -> dict:
     """Dispatch one claim; tenant and token are headers, never query parameters."""
     _validate_dispatch_config(api_url, worker_token)
+    if not isinstance(stale_after_seconds, int) or not 60 <= stale_after_seconds <= 86400:
+        raise ValueError("worker claim lease must be between 60 and 86400 seconds")
     if not isinstance(claim, dict) or set(claim) != {"job_id", "tenant_id", "claim_token"}:
         raise ValueError("worker claim must contain only job_id, tenant_id, and claim_token")
     for field in ("job_id", "tenant_id", "claim_token"):
@@ -120,6 +128,7 @@ def dispatch_claim_to_api(api_url: str, worker_token: str, claim: dict) -> dict:
             "X-OLA-Worker-Token": worker_token,
             "X-OLA-Tenant-ID": claim["tenant_id"],
             "X-OLA-Claim-Token": claim["claim_token"],
+            "X-OLA-Claim-Stale-After": str(stale_after_seconds),
         },
         method="POST",
     )
@@ -167,7 +176,10 @@ def run_once(
         exit_code = 0
         for claim in claims:
             try:
-                result = dispatch_claim_to_api(api_url, worker_token, claim)
+                result = dispatch_claim_to_api(
+                    api_url, worker_token, claim,
+                    stale_after_seconds=stale_after_seconds,
+                )
                 status = result.get("status")
                 LOG.info(
                     "job=%s tenant=%s status=%s run_id=%s",
