@@ -92,11 +92,11 @@ def _execution_context(db, job: CheckoutExecutionJob):
         raise PaidOrderExecutionRejected(409, "Human Gate or payment evidence is invalid") from None
     approver = db.get(ApiKey, control.approver_id) if control.approver_id else None
     current_source = runtime_source_commit()
-    if (approver is None or approver.tenant_id != job.tenant_id
+    if (not isinstance(approval_payload, dict)
+            or approver is None or approver.tenant_id != job.tenant_id
             or approver.role != "execution_approver"
             or approval_payload.get("approver_role") != "execution_approver"
             or not isinstance(current_source, str) or len(current_source) != 40
-            or not isinstance(approval_payload, dict)
             or approval_payload.get("source_commit") != current_source
             or approval_payload.get("order_id") != job.order_id
             or approval_payload.get("tenant_id") != job.tenant_id
