@@ -38,6 +38,7 @@ class EvidenceRecord(Base):
 class StripeEvent(Base):
     __tablename__ = "stripe_events"
     id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
     event_id = Column(String(255), nullable=False, unique=True, index=True)
     status = Column(String(32), nullable=False)
     run_id = Column(String(36), nullable=True)
