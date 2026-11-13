@@ -118,13 +118,17 @@ tenant-scoped transaction and rechecks the tenant, claim token and lease
 before changing job state. SQLite continues to use the local worker path.
 
 The claim lease is bounded to 60–86400 seconds (default 900) and the same
-value is passed from the worker to the API and executor. Claims can be
-re-acquired only after expiry. Stale RUNNING jobs are not replayed: they enter
-INTERRUPTED and require manual reconciliation. There is no heartbeat/lease
-renewal yet; choose a lease longer than the expected maximum execution time.
+value is passed from the worker to the API and executor. An expired lease may
+be re-issued only for a never-started `QUEUED` job (`attempt_count = 0`).
+A job in `RUNNING` is never automatically reclaimed or replayed: the API
+background task is process-local, and without a heartbeat plus a reliable
+cancellation/fencing protocol the system cannot prove that an expired worker
+is dead rather than merely slow. A crashed or disconnected RUNNING job stays
+blocked for manual reconciliation after an operator independently confirms
+that no executor is still active. There is no heartbeat/lease renewal yet.
 A worker/API process restart after HTTP 202 does not transfer task state to
-another process automatically; an expired claim can be reclaimed and the
-executor still enforces the single-attempt state machine.
+another process automatically; the job remains visible for audit and must be
+reconciled manually rather than automatically re-executed.
 
 ## Tenant RLS and least privilege
 

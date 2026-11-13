@@ -279,12 +279,21 @@ def test_postgres_worker_claim_is_role_bound_and_uses_expiring_leases(postgres_d
                 FROM ola_claim_checkout_jobs(:limit, :stale_after)
             """), {"limit": 10, "stale_after": 900}).all()
         by_id = {row.job_id: row for row in claims}
-        assert set(by_id) == set(job_ids[:3])
-        assert job_ids[3] not in by_id, "queued job with attempt_count=1 must not be claimed"
+        assert set(by_id) == set(job_ids[:2])
+        assert job_ids[2] not in by_id, "stale RUNNING jobs require manual reconciliation"
+        assert job_ids[3] not in by_id, "queued jobs with prior attempts must not be claimed"
         assert all(row.tenant_id == tenant_id for row in claims)
         assert all(len(row.claim_token) == 36 for row in claims)
         assert by_id[job_ids[1]].claim_token != stale_queued_token
-        assert by_id[job_ids[2]].claim_token != stale_running_token
+
+        # A stale RUNNING job is left untouched: no automatic takeover is safe
+        # without a heartbeat/cancellation protocol for a possibly live executor.
+        with migration_engine.begin() as conn:
+            stale_running = conn.execute(text("""
+                SELECT status, claim_token, claimed_at, started_at
+                FROM checkout_execution_jobs WHERE id = :job_id
+            """), {"job_id": job_ids[2]}).one()
+        assert tuple(stale_running) == ("RUNNING", stale_running_token, 1, 1)
 
         # A live claim lease prevents a second worker from receiving the job.
         with worker_engine.begin() as conn:

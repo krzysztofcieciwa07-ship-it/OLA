@@ -894,17 +894,6 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
                     OR jobs.claimed_at IS NULL
                     OR jobs.claimed_at <= settings.now_epoch - settings.stale_seconds
                 )
-            ) OR (
-                jobs.status = 'RUNNING'
-                AND (
-                    jobs.started_at IS NULL
-                    OR jobs.started_at <= settings.now_epoch - settings.stale_seconds
-                )
-                AND (
-                    jobs.claim_token IS NULL
-                    OR jobs.claimed_at IS NULL
-                    OR jobs.claimed_at <= settings.now_epoch - settings.stale_seconds
-                )
             )
             ORDER BY jobs.created_at ASC, jobs.id ASC
             LIMIT (SELECT batch_limit FROM claim_settings)

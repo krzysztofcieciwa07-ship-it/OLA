@@ -91,13 +91,12 @@ def validate_postgres_worker_claim(
                 db.rollback()
                 raise PaidOrderExecutionRejected(409, "PostgreSQL execution claim is expired or no longer owned")
             queued_once = job.status == "QUEUED" and job.attempt_count == 0
-            stale_running = (
-                job.status == "RUNNING"
-                and (job.started_at is None or job.started_at <= run_now - stale_after_seconds)
-            )
-            if not queued_once and not stale_running:
+            if not queued_once:
                 db.rollback()
-                raise PaidOrderExecutionRejected(409, "execution job is not eligible for this worker claim")
+                raise PaidOrderExecutionRejected(
+                    409,
+                    "PostgreSQL worker accepts only never-started queued jobs; RUNNING jobs require manual reconciliation",
+                )
             db.rollback()
 
 
