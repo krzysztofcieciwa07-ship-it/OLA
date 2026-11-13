@@ -1113,3 +1113,69 @@ def test_postgres_runtime_verifier_rejects_nonleast_privilege_schema_acl(postgre
     database.verify_postgres_schema(
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
+
+
+def test_postgres_runtime_verifier_rejects_force_rls_on_claim_table(postgres_db):
+    database, runtime_engine, _migration_engine, admin_engine, runtime_role, schema, worker_role = postgres_db
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'ALTER TABLE "{schema}".checkout_execution_jobs FORCE ROW LEVEL SECURITY'
+        )
+    with pytest.raises(RuntimeError, match="FORCE ROW LEVEL SECURITY"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'ALTER TABLE "{schema}".checkout_execution_jobs NO FORCE ROW LEVEL SECURITY'
+        )
+    database.verify_postgres_schema(
+        runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+    )
+
+
+@pytest.mark.parametrize(
+    ("function_name", "signature"),
+    [
+        ("ola_authenticate_api_key", "text"),
+        ("ola_claim_checkout_jobs", "integer, integer"),
+    ],
+)
+def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_owner(
+    postgres_db, function_name, signature,
+):
+    database, runtime_engine, _migration_engine, admin_engine, runtime_role, schema, worker_role = postgres_db
+    table_name = "api_keys" if function_name == "ola_authenticate_api_key" else "checkout_execution_jobs"
+    with admin_engine.connect() as conn:
+        original_owner = conn.execute(text("""
+            SELECT pg_get_userbyid(c.relowner)
+            FROM pg_class AS c
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE n.nspname = :schema_name AND c.relname = :table_name
+        """), {"schema_name": schema, "table_name": table_name}).scalar_one()
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'GRANT CREATE ON SCHEMA "{schema}" TO "{runtime_role}"')
+        conn.exec_driver_sql(
+            f'ALTER FUNCTION "{schema}".{function_name}({signature}) OWNER TO "{runtime_role}"'
+        )
+    try:
+        message = (
+            "API-key SECURITY DEFINER owner must match the api_keys table owner"
+            if function_name == "ola_authenticate_api_key"
+            else "claim SECURITY DEFINER owner must match the checkout_execution_jobs table owner"
+        )
+        with pytest.raises(RuntimeError, match=message):
+            database.verify_postgres_schema(
+                runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+            )
+    finally:
+        with admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'ALTER FUNCTION "{schema}".{function_name}({signature}) OWNER TO "{original_owner}"'
+            )
+            conn.exec_driver_sql(f'REVOKE CREATE ON SCHEMA "{schema}" FROM "{runtime_role}"')
+    database.verify_postgres_schema(
+        runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+    )
