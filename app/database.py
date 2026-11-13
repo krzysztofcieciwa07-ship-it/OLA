@@ -374,6 +374,30 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             raise RuntimeError("PostgreSQL current_user does not match configured runtime role")
         if set(role_state) != {runtime_role, worker_role}:
             raise RuntimeError("PostgreSQL runtime or worker role is missing")
+        if role_memberships:
+            memberships = ", ".join(f"{row[0]}->{row[1]}" for row in role_memberships)
+            raise RuntimeError(
+                "PostgreSQL runtime/worker roles must not inherit or switch to other roles: "
+                + memberships
+            )
+        for role_name, flags in role_state.items():
+            (
+                rolsuper,
+                rolbypassrls,
+                rolinherit,
+                rolcreatedb,
+                rolcreaterole,
+                rolreplication,
+                rolcanlogin,
+            ) = flags
+            if (
+                rolsuper or rolbypassrls or rolinherit or rolcreatedb
+                or rolcreaterole or rolreplication or not rolcanlogin
+            ):
+                raise RuntimeError(
+                    f"PostgreSQL role {role_name} must be LOGIN, NOINHERIT, "
+                    "NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE, and NOREPLICATION"
+                )
         role_security = role_state[runtime_role]
         worker_role_security = role_state[worker_role]
     if applied is None:
