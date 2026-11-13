@@ -427,7 +427,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
                          AND acl.is_grantable
                    ) AS runtime_has_grant_option,
                    COALESCE((
-                       SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee))
+                       SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee)::text)
                        FROM pg_class AS acl_table
                        JOIN pg_namespace AS acl_schema ON acl_schema.oid = acl_table.relnamespace
                        CROSS JOIN LATERAL aclexplode(
