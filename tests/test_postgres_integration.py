@@ -844,6 +844,15 @@ def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgr
         conn.exec_driver_sql(
             f'GRANT CREATE ON SCHEMA "{schema}" TO PUBLIC'
         )
+        conn.exec_driver_sql(
+            f'GRANT USAGE ON SCHEMA "{schema}" TO "{extra_role}"'
+        )
+        conn.exec_driver_sql(
+            f'GRANT USAGE ON SCHEMA "{schema}" TO "{runtime_role}" WITH GRANT OPTION'
+        )
+        conn.exec_driver_sql(
+            f'GRANT USAGE ON SCHEMA "{schema}" TO "{worker_role}" WITH GRANT OPTION'
+        )
 
     try:
         database.migrate_postgres_schema(
@@ -944,19 +953,46 @@ def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgr
                 "runtime_role": runtime_role,
             }).one()
             assert tuple(table_acl) == (False, False, False)
-            public_schema_create = conn.execute(text("""
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM pg_namespace AS n
-                    CROSS JOIN LATERAL aclexplode(
-                        COALESCE(n.nspacl, acldefault('n', n.nspowner))
-                    ) AS acl
-                    WHERE n.nspname = :schema_name
-                      AND acl.grantee = 0
-                      AND acl.privilege_type = 'CREATE'
-                )
-            """), {"schema_name": schema}).scalar_one()
-            assert public_schema_create is False
+            schema_acl = conn.execute(text("""
+                SELECT
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_namespace AS n
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                        ) AS acl
+                        WHERE n.nspname = :schema_name
+                          AND acl.grantee = 0
+                    ) AS public_acl,
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_namespace AS n
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                        ) AS acl
+                        WHERE n.nspname = :schema_name
+                          AND acl.grantee = pg_catalog.to_regrole(:extra_role)::oid
+                    ) AS extra_role_acl,
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_namespace AS n
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(n.nspacl, acldefault('n', n.nspowner))
+                        ) AS acl
+                        WHERE n.nspname = :schema_name
+                          AND acl.grantee IN (
+                              pg_catalog.to_regrole(:runtime_role)::oid,
+                              pg_catalog.to_regrole(:worker_role)::oid
+                          )
+                          AND acl.is_grantable
+                    ) AS application_grant_option
+            """), {
+                "schema_name": schema,
+                "extra_role": extra_role,
+                "runtime_role": runtime_role,
+                "worker_role": worker_role,
+            }).one()
+            assert tuple(schema_acl) == (False, False, False)
         database.verify_postgres_schema(
             _runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
         )
