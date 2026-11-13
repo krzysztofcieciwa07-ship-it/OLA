@@ -364,6 +364,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     if enforce_runtime_privileges:
         if role_security[1] or role_security[2]:
             raise RuntimeError("PostgreSQL runtime role must not be superuser or BYPASSRLS")
+        if not auth_function.runtime_execute or auth_function.public_execute or bool(auth_function.extra_execute_grantees):
+            raise RuntimeError("PostgreSQL API-key authentication EXECUTE ACL is not least-privilege")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
