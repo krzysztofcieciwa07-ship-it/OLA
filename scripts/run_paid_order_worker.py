@@ -9,6 +9,7 @@ import argparse
 import json
 import logging
 import os
+import re
 from pathlib import Path
 import sys
 import time
@@ -82,13 +83,19 @@ def claim_postgres_jobs(worker_engine, *, limit: int = 20, stale_after_seconds: 
     return claims
 
 
-def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
-    """Fail closed unless the worker DSN is the isolated, least-privilege role."""
-    if (not isinstance(expected_role, str)
-            or not expected_role.isascii()
-            or not expected_role
-            or len(expected_role) > 63):
+def verify_worker_database_identity(
+    worker_engine,
+    expected_role: str,
+    runtime_role: str = "ola_runtime",
+) -> None:
+    """Fail closed unless the worker DSN and claim-function owner are isolated."""
+    role_pattern = r"[A-Za-z_][A-Za-z0-9_$]{0,62}"
+    if not isinstance(expected_role, str) or re.fullmatch(role_pattern, expected_role) is None:
         raise RuntimeError("OLA_DATABASE_WORKER_ROLE is invalid")
+    if not isinstance(runtime_role, str) or re.fullmatch(role_pattern, runtime_role) is None:
+        raise RuntimeError("OLA_DATABASE_RUNTIME_ROLE is invalid")
+    if runtime_role == expected_role:
+        raise RuntimeError("OLA_DATABASE_RUNTIME_ROLE and OLA_DATABASE_WORKER_ROLE must be distinct")
 
     protected_tables = [
         "tenants",
@@ -269,7 +276,7 @@ def verify_worker_database_identity(worker_engine, expected_role: str) -> None:
         not identity["claim_execute"]
         or not identity["claim_security_definer"]
         or not identity["claim_search_path_fixed"]
-        or identity["claim_owner"] in {None, expected_role}
+        or identity["claim_owner"] in {None, expected_role, runtime_role}
         or identity["claim_public_execute"]
         or identity["claim_execute_grant_option"]
         or identity["claim_extra_execute_grantees"]
@@ -477,6 +484,7 @@ def main() -> int:
     api_url = os.getenv("OLA_EXECUTION_API_URL", "").strip()
     worker_token = os.getenv("OLA_EXECUTION_WORKER_TOKEN", "")
     worker_role = os.getenv("OLA_DATABASE_WORKER_ROLE", "ola_worker").strip()
+    runtime_role = os.getenv("OLA_DATABASE_RUNTIME_ROLE", "ola_runtime").strip()
 
     if worker_url:
         try:
@@ -491,7 +499,9 @@ def main() -> int:
             parser.error(str(exc))
         worker_engine = create_engine(normalized_url, pool_pre_ping=True)
         try:
-            verify_worker_database_identity(worker_engine, worker_role)
+            verify_worker_database_identity(
+                worker_engine, worker_role, runtime_role=runtime_role,
+            )
             LOG.info(
                 "isolated PostgreSQL worker started; poll=%ss stale_after=%ss",
                 args.poll_seconds, args.stale_after_seconds,
