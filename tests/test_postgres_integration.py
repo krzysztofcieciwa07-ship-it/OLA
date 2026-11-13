@@ -731,6 +731,15 @@ def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgr
         conn.exec_driver_sql(
             f'GRANT EXECUTE ON FUNCTION "{schema}".ola_claim_checkout_jobs(integer, integer) TO "{extra_role}"'
         )
+        conn.exec_driver_sql(
+            f'GRANT SELECT ON TABLE "{schema}".checkout_orders TO "{extra_role}"'
+        )
+        conn.exec_driver_sql(
+            f'GRANT SELECT ON TABLE "{schema}".checkout_orders TO PUBLIC'
+        )
+        conn.exec_driver_sql(
+            f'GRANT SELECT ON TABLE "{schema}".checkout_orders TO "{runtime_role}" WITH GRANT OPTION'
+        )
 
     try:
         database.migrate_postgres_schema(
@@ -757,6 +766,48 @@ def test_postgres_migration_reconciles_unexpected_function_execute_grants(postgr
                 "extra_role": extra_role,
                 "claim_function": f"{schema}.ola_claim_checkout_jobs(integer,integer)",
             }).scalar_one() is False
+            table_acl = conn.execute(text("""
+                SELECT
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_class AS c
+                        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(c.relacl, acldefault('r', c.relowner))
+                        ) AS acl
+                        WHERE n.nspname = :schema_name
+                          AND c.relname = 'checkout_orders'
+                          AND acl.grantee = 0
+                    ) AS public_grant,
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_class AS c
+                        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(c.relacl, acldefault('r', c.relowner))
+                        ) AS acl
+                        WHERE n.nspname = :schema_name
+                          AND c.relname = 'checkout_orders'
+                          AND acl.grantee = pg_catalog.to_regrole(:extra_role)::oid
+                    ) AS extra_role_grant,
+                    EXISTS (
+                        SELECT 1
+                        FROM pg_class AS c
+                        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+                        CROSS JOIN LATERAL aclexplode(
+                            COALESCE(c.relacl, acldefault('r', c.relowner))
+                        ) AS acl
+                        WHERE n.nspname = :schema_name
+                          AND c.relname = 'checkout_orders'
+                          AND acl.grantee = pg_catalog.to_regrole(:runtime_role)::oid
+                          AND acl.is_grantable
+                    ) AS runtime_grant_option
+            """), {
+                "schema_name": schema,
+                "extra_role": extra_role,
+                "runtime_role": runtime_role,
+            }).one()
+            assert tuple(table_acl) == (False, False, False)
         database.verify_postgres_schema(
             _runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
         )
