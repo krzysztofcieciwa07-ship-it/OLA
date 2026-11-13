@@ -16,13 +16,17 @@ this once per deployment using a dedicated schema-owner/migration role:
 
 ```sh
 export OLA_DATABASE_MIGRATION_URL='postgresql://migration_user:...@host:5432/ola'
+export OLA_DATABASE_RUNTIME_ROLE='ola_runtime'
 python scripts/migrate_postgres.py
 ```
 
+The runtime role (default name `ola_runtime`) must exist before migration.
 The migration script creates missing ORM tables, installs the evidence
 append-only triggers, adds tenant ownership to Stripe event rows, installs
 transaction-local row-level security (RLS) policies, and creates the narrowly
-scoped `ola_authenticate_api_key(text)` SECURITY DEFINER lookup. It records
+scoped `ola_authenticate_api_key(text)` SECURITY DEFINER lookup. It revokes
+function execution from `PUBLIC` and grants it only to the configured
+`OLA_DATABASE_RUNTIME_ROLE`. It records
 `ola_tenant_rls_v4` in `ola_schema_migrations`. It is additive: it does not alter existing columns,
 delete data, or copy records from the SQLite database. Do not point an existing
 production tenant at the new database until a separately reviewed data-transfer
@@ -68,6 +72,11 @@ GRANT SELECT, INSERT, UPDATE ON stripe_events, checkout_orders,
     checkout_order_controls, checkout_execution_jobs TO ola_runtime;
 GRANT SELECT ON ola_schema_migrations TO ola_runtime;
 ```
+
+The migration grants `EXECUTE` on
+`public.ola_authenticate_api_key(text)` to `ola_runtime` only. Do not grant
+that function to `PUBLIC`; startup verification rejects a public execution
+grant or a runtime role that cannot execute the function.
 
 ## Transaction policy
 
