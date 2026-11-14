@@ -1,6 +1,9 @@
 """Transaction-local PostgreSQL RLS context for authenticated tenant requests."""
 from contextlib import contextmanager
 from contextvars import ContextVar
+import hashlib
+import hmac
+import os
 
 _tenant_id = ContextVar("ola_tenant_id", default=None)
 _worker_mode = ContextVar("ola_worker_mode", default=False)
@@ -8,6 +11,20 @@ _worker_mode = ContextVar("ola_worker_mode", default=False)
 
 def current_tenant_id():
     return _tenant_id.get()
+
+
+def tenant_context_signature(tenant_id=None, *, secret=None):
+    """Sign a tenant claim so a SQL login cannot forge RLS context with a GUC alone."""
+    tenant_id = current_tenant_id() if tenant_id is None else tenant_id
+    if not isinstance(tenant_id, str) or not tenant_id.strip():
+        return ""
+    if len(tenant_id) > 128 or not tenant_id.isascii():
+        raise ValueError("tenant context must be an ASCII identifier of at most 128 characters")
+    secret = os.getenv("OLA_RLS_CONTEXT_SECRET", "") if secret is None else secret
+    if not isinstance(secret, str) or len(secret.encode("utf-8")) < 32:
+        raise RuntimeError("OLA_RLS_CONTEXT_SECRET must contain at least 32 bytes")
+    message = b"OLA-TENANT-CONTEXT-V1:" + tenant_id.encode("ascii")
+    return hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
 def worker_mode_enabled():
