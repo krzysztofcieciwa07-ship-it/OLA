@@ -375,7 +375,7 @@ def verify_postgres_schema(
                          AND policy_table.relname = policies.tablename
                          AND policy.polname = policies.policyname
                          AND dependency.refobjid = to_regprocedure(
-                             format('%I.ola_current_tenant_id()', :schema_name)
+                             format('%I.ola_current_tenant_id()', CAST(:schema_name AS text))
                          )::oid
                    ) AS uses_expected_tenant_function
             FROM pg_policies AS policies
