@@ -190,7 +190,7 @@ def approve_nina_candidate(*, tenant_id, approver_id, run_id, tip_hash,
         }
         raw = sealed_payload_json("human.approval", payload, version=3)
         next_seq = latest.seq + 1
-        next_hash = compute_record_hash_v2(
+        next_hash = compute_record_hash_v3(
             tenant_id, next_seq, tip_hash, "human.approval", "ola_runtime", raw
         )
         record_id = str(uuid.uuid4())
