@@ -24,6 +24,7 @@ def postgres_db(monkeypatch):
     schema = "ola_test_" + uuid.uuid4().hex
     runtime_role = "ola_rt_" + uuid.uuid4().hex[:12]
     worker_role = "ola_wr_" + uuid.uuid4().hex[:12]
+    monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", uuid.uuid4().hex * 2)
     with admin_engine.begin() as conn:
         conn.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
         conn.exec_driver_sql(
@@ -1229,12 +1230,34 @@ def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgr
             text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
             {"tenant_id": victim_tenant},
         )
-        visible = conn.execute(
+        visible_without_signature = conn.execute(
             text("SELECT id FROM tenants WHERE id = :tenant_id"),
             {"tenant_id": victim_tenant},
         ).scalars().all()
-
-    assert visible == [], (
+    assert visible_without_signature == [], (
         "ola_runtime impersonated a tenant by forging the legacy ola.tenant_id GUC",
-        visible,
+        visible_without_signature,
+    )
+
+    # A captured valid signature for another tenant must not be reusable for
+    # the victim tenant (the claim is cryptographically bound to tenant_id).
+    from app.tenant_context import tenant_context_signature
+    attacker_tenant = str(uuid.uuid4())
+    attacker_signature = tenant_context_signature(attacker_tenant)
+    with runtime_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+            {"tenant_id": victim_tenant},
+        )
+        conn.execute(
+            text("SELECT set_config('ola.tenant_signature', :signature, true)"),
+            {"signature": attacker_signature},
+        )
+        visible_with_replayed_signature = conn.execute(
+            text("SELECT id FROM tenants WHERE id = :tenant_id"),
+            {"tenant_id": victim_tenant},
+        ).scalars().all()
+    assert visible_with_replayed_signature == [], (
+        "ola_runtime reused a tenant-A signature to impersonate tenant B",
+        visible_with_replayed_signature,
     )
