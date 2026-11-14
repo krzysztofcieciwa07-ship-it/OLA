@@ -625,3 +625,24 @@ def test_postgres_worker_rejects_oversized_worker_token_before_dispatch():
             "https://ola-internal.example",
             "worker-secret-" + "x" * 300,
         )
+
+
+def test_railway_worker_rejects_sqlite_and_requires_isolated_postgres_claim_url():
+    import pytest
+    from scripts.run_paid_order_worker import _validate_worker_database_mode
+
+    with pytest.raises(ValueError, match="must not fall back to SQLite"):
+        _validate_worker_database_mode(
+            "sqlite", railway_environment_id="staging-env", worker_url=""
+        )
+    with pytest.raises(ValueError, match="OLA_DATABASE_WORKER_URL"):
+        _validate_worker_database_mode(
+            "postgresql", railway_environment_id="staging-env", worker_url=""
+        )
+    assert _validate_worker_database_mode(
+        "postgresql", railway_environment_id="staging-env",
+        worker_url="postgresql://worker.invalid/worker",
+    ) is None
+    assert _validate_worker_database_mode(
+        "sqlite", railway_environment_id=None, worker_url=""
+    ) is None
