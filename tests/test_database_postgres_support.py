@@ -240,3 +240,17 @@ def test_runtime_refuses_a_migration_dsn_but_migration_mode_can_use_it(monkeypat
 
     monkeypatch.setenv("OLA_DATABASE_MIGRATION_URL", "   ")
     guard(enforce_runtime_privileges=True)
+
+
+def test_postgres_verifier_rejects_role_name_collisions_before_database_access():
+    class UnreachableEngine:
+        def connect(self):
+            raise AssertionError("invalid role configuration must fail before connecting")
+
+    with pytest.raises(RuntimeError, match="must be distinct"):
+        database.verify_postgres_schema(
+            UnreachableEngine(),
+            runtime_role="ola_runtime",
+            worker_role="ola_worker",
+            migration_role="ola_runtime",
+        )
