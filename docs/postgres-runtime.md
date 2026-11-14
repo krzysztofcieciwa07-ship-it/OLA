@@ -38,7 +38,15 @@ The provider-admin/migration credential is highly privileged and must never
 be present in API or worker runtime environments. Runtime startup fails closed
 if `OLA_DATABASE_MIGRATION_URL` is non-empty. Run migrations only in a
 separate one-off job, then rotate the migration credential and discard the
-job's secret. The startup verifier also checks authenticated `session_user`,
+job's secret.
+
+A Railway paid-order worker must use PostgreSQL for both its runtime connection
+(`OLA_DATABASE_URL`) and isolated claim connection
+(`OLA_DATABASE_WORKER_URL`). It must also have the API endpoint,
+`OLA_EXECUTION_WORKER_TOKEN`, and the same `OLA_API_KEY_PEPPER` as the API
+for V3 evidence verification. On Railway, SQLite fallback is rejected at
+startup; a worker without the isolated claim URL or evidence pepper must not
+start. The startup verifier also checks authenticated `session_user`,
 table ownership, exact table grants and table ACL provenance, schema ACL
 provenance (no PUBLIC/extra grantees or grant options), and function ACLs.
 Do not rely on a custom GUC or application bearer token as a database
