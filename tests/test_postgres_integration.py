@@ -1346,3 +1346,36 @@ def test_postgres_runtime_signed_tenant_context_is_bound_and_unforgeable(postgre
                 conn.execute(text("SELECT secret FROM ola_rls_context_secrets")).all()
     finally:
         raw.dispose()
+
+
+def test_postgres_runtime_verifier_rejects_same_named_tenant_function_from_other_schema(postgres_db):
+    """A policy must depend on this schema's tenant function, not a same-named decoy."""
+    database, runtime_engine, _migration_engine, admin_engine, runtime_role, schema, worker_role = postgres_db
+    decoy_schema = schema + "_decoy"
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'CREATE SCHEMA "{decoy_schema}"')
+        conn.exec_driver_sql(
+            f'CREATE FUNCTION "{decoy_schema}".ola_current_tenant_id() '
+            "RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT NULL::text $$"
+        )
+        conn.exec_driver_sql(
+            f'ALTER POLICY ola_tenant_isolation ON "{schema}".tenants '
+            f'USING (id::text = "{decoy_schema}".ola_current_tenant_id()) '
+            f'WITH CHECK (id::text = "{decoy_schema}".ola_current_tenant_id())'
+        )
+    try:
+        with pytest.raises(RuntimeError, match="policy expression is invalid: tenants"):
+            database.verify_postgres_schema(
+                runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+            )
+    finally:
+        with admin_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f'ALTER POLICY ola_tenant_isolation ON "{schema}".tenants '
+                f'USING (id::text = "{schema}".ola_current_tenant_id()) '
+                f'WITH CHECK (id::text = "{schema}".ola_current_tenant_id())'
+            )
+            conn.exec_driver_sql(f'DROP SCHEMA "{decoy_schema}" CASCADE')
+    database.verify_postgres_schema(
+        runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+    )
