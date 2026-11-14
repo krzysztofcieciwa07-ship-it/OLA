@@ -688,9 +688,10 @@ def verify_postgres_schema(
         raise RuntimeError("PostgreSQL runtime role must not own tenant-scoped tables")
     if any(state[2] == worker_role for state in rls_state.values()):
         raise RuntimeError("PostgreSQL worker role must not own tenant-scoped tables")
+    configured_migration_role = os.getenv("OLA_DATABASE_MIGRATION_ROLE", migration_role).strip()
+    if configured_migration_role != migration_role:
+        raise RuntimeError("PostgreSQL configured migration role differs from the verifier migration role")
     if any(state[2] != migration_role for state in rls_state.values()):
-        raise RuntimeError("PostgreSQL tenant tables must be owned by the isolated migration role")
-    if any(state[2] != os.getenv("OLA_DATABASE_MIGRATION_ROLE", migration_role) for state in rls_state.values()):
         raise RuntimeError("PostgreSQL tenant tables must be owned by the configured migration role")
     def normalize_policy_expression(expression):
         # Preserve the schema-qualified verifier identity while normalizing
@@ -769,13 +770,11 @@ def verify_postgres_schema(
         raise RuntimeError("PostgreSQL scoped API-key authentication function is missing")
     if tenant_context_function is None:
         raise RuntimeError("PostgreSQL signed tenant-context verifier function is missing")
-    if tenant_context_function.owner != migration_role:
-        raise RuntimeError("PostgreSQL signed tenant-context verifier must be owned by the migration role")
     context_function_config = tenant_context_function.proconfig or []
     if (
-        tenant_context_function.owner != rls_state["api_keys"][2]
+        tenant_context_function.owner != migration_role
+        or tenant_context_function.owner != rls_state["api_keys"][2]
         or context_secret_owner != tenant_context_function.owner
-        or tenant_context_function.owner != migration_role
     ):
         raise RuntimeError(
             "PostgreSQL tenant-context SECURITY DEFINER owner must match the api_keys table owner"
