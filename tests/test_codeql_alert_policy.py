@@ -43,6 +43,16 @@ class CodeQLAlertPolicyTest(unittest.TestCase):
         self.assertIsNone(source_suppression_reason(root, "../outside.py", 2, "py/weak-sensitive-data-hashing"))
         self.assertIsNone(source_suppression_reason(root, str(root / "app/hashchain.py"), 2, "py/weak-sensitive-data-hashing"))
 
+    def test_marker_text_inside_multiline_string_is_not_a_comment(self):
+        root = self.make_repo(
+            'payload = """\n'
+            '# codeql[py/weak-sensitive-data-hashing] this is string data\n'
+            '"""; value = hmac.new(key, material, hashlib.sha256)\n'
+        )
+        self.assertIsNone(
+            source_suppression_reason(root, "app/hashchain.py", 3, "py/weak-sensitive-data-hashing")
+        )
+
     def test_invalid_line_is_rejected(self):
         root = self.make_repo("# codeql[py/weak-sensitive-data-hashing] justified\nvalue = digest()\n")
         for line in (0, 1, 3, True, "2"):
