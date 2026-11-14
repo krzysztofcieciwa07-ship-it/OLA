@@ -977,8 +977,7 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_s
     connection.execute(text(f"""
         INSERT INTO {quoted_schema}.ola_rls_context_secrets (key_id, secret, active)
         VALUES ('active', decode(:secret_hex, 'hex'), TRUE)
-        ON CONFLICT (key_id) DO UPDATE
-        SET secret = EXCLUDED.secret, active = TRUE
+        ON CONFLICT (key_id) DO NOTHING
     """), {"secret_hex": context_secret.encode("utf-8").hex()})
     connection.exec_driver_sql(
         f"REVOKE ALL PRIVILEGES ON TABLE {quoted_schema}.ola_rls_context_secrets FROM PUBLIC"
