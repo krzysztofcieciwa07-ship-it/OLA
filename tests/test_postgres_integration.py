@@ -25,6 +25,8 @@ def postgres_db(monkeypatch):
     runtime_role = "ola_rt_" + uuid.uuid4().hex[:12]
     worker_role = "ola_wr_" + uuid.uuid4().hex[:12]
     monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", uuid.uuid4().hex * 2)
+    migration_role = make_url(POSTGRES_URL).username
+    monkeypatch.setenv("OLA_DATABASE_MIGRATION_ROLE", migration_role)
     with admin_engine.begin() as conn:
         conn.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
         conn.exec_driver_sql(
