@@ -599,6 +599,14 @@ def _validate_worker_evidence_key(pepper, *, railway_environment_id):
     return None
 
 
+def _verify_worker_connections(worker_engine, *, worker_role, runtime_role):
+    """Verify the runtime DSN and isolated claim DSN before starting the worker."""
+    prepare_runtime_schema()
+    verify_worker_database_identity(
+        worker_engine, worker_role, runtime_role=runtime_role,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="process the current batch and exit")
@@ -642,8 +650,8 @@ def main() -> int:
             parser.error(str(exc))
         worker_engine = create_engine(normalized_url, pool_pre_ping=True)
         try:
-            verify_worker_database_identity(
-                worker_engine, worker_role, runtime_role=runtime_role,
+            _verify_worker_connections(
+                worker_engine, worker_role=worker_role, runtime_role=runtime_role,
             )
             LOG.info(
                 "isolated PostgreSQL worker started; poll=%ss stale_after=%ss",
