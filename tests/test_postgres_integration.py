@@ -786,6 +786,15 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'REVOKE SELECT ON TABLE "{_schema}".ola_schema_migrations FROM "{worker_role}"'
             )
 
+        # Removing USAGE must produce a controlled fail-closed result; it
+        # must not redirect schema discovery to public and raise UndefinedTable.
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'REVOKE USAGE ON SCHEMA "{_schema}" FROM "{worker_role}"')
+        with pytest.raises(RuntimeError, match="schema USAGE"):
+            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+        with _admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO "{worker_role}"')
+
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT CREATE ON SCHEMA "{_schema}" TO "{worker_role}"')
         with pytest.raises(RuntimeError, match="schema USAGE"):
@@ -1183,6 +1192,19 @@ def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_ow
         with admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'ALTER FUNCTION "{schema}".{function_name}({signature}) OWNER TO "{original_owner}"'
+            )
+            # ALTER FUNCTION OWNER may discard the ACL entry for the new
+            # owner. Restore the one intended application grantee explicitly.
+            allowed_grantee = (
+                runtime_role
+                if function_name == "ola_authenticate_api_key"
+                else worker_role
+            )
+            conn.exec_driver_sql(
+                f'REVOKE ALL ON FUNCTION "{schema}".{function_name}({signature}) FROM "{allowed_grantee}"'
+            )
+            conn.exec_driver_sql(
+                f'GRANT EXECUTE ON FUNCTION "{schema}".{function_name}({signature}) TO "{allowed_grantee}"'
             )
             conn.exec_driver_sql(f'REVOKE CREATE ON SCHEMA "{schema}" FROM "{runtime_role}"')
     database.verify_postgres_schema(
