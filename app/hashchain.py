@@ -1,4 +1,4 @@
-"""OLA Evidence Chain v2 with read-only legacy V1 integrity compatibility.
+"""OLA Evidence Chain V3 HMAC with read-only V1/V2 compatibility.
 
 The producer is selected by the authenticated server write boundary.
 It is NOT an external cryptographic identity or a third-party attestation.
@@ -85,12 +85,14 @@ def compute_record_hash(tenant_id, seq, prev_hash, payload_json):
 
 
 def compute_record_hash_v2(tenant_id, seq, prev_hash, record_type, producer, payload_json):
-    """Domain-separated V2: historical V1 digests cannot be reinterpreted."""
+    """Recompute historical unkeyed V2 digests; never use this for new writes."""
     material = canonical_json({
         "domain": "OLA-EVIDENCE-CHAIN-V2",
         "tenant_id": tenant_id, "seq": seq, "prev_hash": prev_hash,
         "record_type": record_type, "producer": producer, "payload_json": payload_json,
     }).encode("utf-8")
+    # codeql[py/weak-sensitive-data-hashing]
+    # V2 is retained only to verify immutable historical records; new writes use keyed V3.
     return hashlib.sha256(material).hexdigest()
 
 
