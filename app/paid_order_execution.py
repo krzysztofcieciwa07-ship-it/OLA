@@ -9,7 +9,7 @@ import uuid
 from sqlalchemy import select, text
 
 from .database import SessionLocal, begin_write_transaction, lock_tenant_evidence_chain
-from .hashchain import GENESIS_HASH, compute_record_hash_v2, sealed_payload_json, trusted_record, verify_chain
+from .hashchain import GENESIS_HASH, compute_record_hash_v3, sealed_payload_json, trusted_record, verify_chain
 from .models import CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl, EvidenceRecord
 from .runtime_provenance import runtime_source_commit
 from .tenant_context import set_current_tenant_id, set_worker_mode, tenant_scope, worker_scope
@@ -109,8 +109,8 @@ def _append_locked(db, tenant_id: str, record_type: str, payload: dict) -> dict:
     latest = rows[0] if rows else None
     seq = latest.seq + 1 if latest else 0
     previous_hash = latest.record_hash if latest else GENESIS_HASH
-    raw = sealed_payload_json(record_type, payload)
-    digest = compute_record_hash_v2(
+    raw = sealed_payload_json(record_type, payload, version=3)
+    digest = compute_record_hash_v3(
         tenant_id, seq, previous_hash, record_type, "ola_runtime", raw,
     )
     row = EvidenceRecord(
