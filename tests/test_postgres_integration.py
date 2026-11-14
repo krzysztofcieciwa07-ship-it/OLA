@@ -524,7 +524,7 @@ def test_postgres_runtime_and_worker_roles_reject_membership_and_inherit(postgre
 
     with admin_engine.begin() as conn:
         conn.exec_driver_sql(f'GRANT "{runtime_role}" TO "{worker_role}"')
-    with pytest.raises(RuntimeError, match="must not participate in any role membership"):
+    with pytest.raises(RuntimeError, match="unauthorized role memberships"):
         database.verify_postgres_schema(
             runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
         )
@@ -549,7 +549,7 @@ def test_postgres_runtime_and_worker_roles_reject_membership_and_inherit(postgre
         )
         conn.exec_driver_sql(f'GRANT "{worker_role}" TO "{outsider_role}"')
     try:
-        with pytest.raises(RuntimeError, match="must not participate in any role membership"):
+        with pytest.raises(RuntimeError, match="unauthorized role memberships"):
             database.verify_postgres_schema(
                 runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
             )
@@ -695,7 +695,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
             )
             conn.exec_driver_sql(f'GRANT "{worker_role}" TO "{outsider_role}"')
         try:
-            with pytest.raises(RuntimeError, match="must not participate in any role membership"):
+            with pytest.raises(RuntimeError, match="unauthorized role memberships"):
                 worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         finally:
             with _admin_engine.begin() as conn:
@@ -812,7 +812,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT "{runtime_role}" TO "{worker_role}"')
-        with pytest.raises(RuntimeError, match="must not participate in any role membership"):
+        with pytest.raises(RuntimeError, match="unauthorized role memberships"):
             worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE "{runtime_role}" FROM "{worker_role}"')
