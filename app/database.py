@@ -1151,14 +1151,14 @@ def append_evidence_atomic(tenant_id, record_type, payload, *, producer_id="ola_
     advisory lock keyed by tenant. Both serialize sequence allocation before
     reading seq/prev_hash. Unique(tenant_id, seq) remains a final guard.
     """
-    from .hashchain import GENESIS_HASH, sealed_payload_json, compute_record_hash_v2
+    from .hashchain import GENESIS_HASH, sealed_payload_json, compute_record_hash_v3
     from .models import EvidenceRecord
 
     if not isinstance(tenant_id, str) or not tenant_id:
         raise ValueError("tenant_id required for evidence append")
     if not isinstance(record_type, str) or not record_type:
         raise ValueError("record_type required for evidence append")
-    payload_json = sealed_payload_json(record_type, payload, producer=producer_id)
+    payload_json = sealed_payload_json(record_type, payload, producer=producer_id, version=3)
     with SessionLocal() as db:
         begin_write_transaction(db, tenant_id=tenant_id)
         if deduplicate:
@@ -1182,7 +1182,7 @@ def append_evidence_atomic(tenant_id, record_type, payload, *, producer_id="ola_
         seq = last.seq + 1 if last is not None else 0
         previous = last.record_hash if last is not None else GENESIS_HASH
         record_id = str(uuid.uuid4())
-        digest = compute_record_hash_v2(tenant_id, seq, previous, record_type,
+        digest = compute_record_hash_v3(tenant_id, seq, previous, record_type,
                                         producer_id, payload_json)
         db.add(EvidenceRecord(
             id=record_id, tenant_id=tenant_id, seq=seq, record_type=record_type,
