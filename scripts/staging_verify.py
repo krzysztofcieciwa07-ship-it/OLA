@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Independent evidence V2 hash-chain verifier, without importing producer code."""
+"""Independent V1/V2/V3 evidence verifier, without importing producer code."""
 import argparse
 import hashlib
 import hmac
 import json
-import os
 import os
 import sqlite3
 import sys
