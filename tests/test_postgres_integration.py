@@ -1293,3 +1293,46 @@ def test_postgres_runtime_verifier_rejects_a_mismatched_context_secret(postgres_
         database.verify_postgres_schema(
             runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
         )
+
+
+def test_postgres_runtime_signed_tenant_context_is_bound_and_unforgeable(postgres_db):
+    """A valid tenant-A signature cannot authorize tenant B under runtime credentials."""
+    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, schema, _worker_role = postgres_db
+    tenant_a, tenant_b = str(uuid.uuid4()), str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:id, 'tenant-a'), (:other, 'tenant-b')"),
+            {"id": tenant_a, "other": tenant_b},
+        )
+
+    from app.tenant_context import tenant_context_signature
+    signature_a = tenant_context_signature(tenant_a)
+    raw = create_engine(
+        runtime_engine.url, pool_pre_ping=True,
+        connect_args={"options": f"-csearch_path={schema}"},
+    )
+    try:
+        with raw.begin() as conn:
+            conn.execute(text("SELECT set_config('ola.tenant_id', :id, true)"),
+                         {"id": tenant_b})
+            conn.execute(text("SELECT set_config('ola.tenant_signature', :sig, true)"),
+                         {"sig": signature_a})
+            replayed = conn.execute(
+                text("SELECT id FROM tenants WHERE id = :id"), {"id": tenant_b}
+            ).scalars().all()
+
+            conn.execute(text("SELECT set_config('ola.tenant_id', :id, true)"),
+                         {"id": tenant_a})
+            conn.execute(text("SELECT set_config('ola.tenant_signature', :sig, true)"),
+                         {"sig": signature_a})
+            own = conn.execute(
+                text("SELECT id FROM tenants WHERE id = :id"), {"id": tenant_a}
+            ).scalars().all()
+        assert replayed == []
+        assert own == [tenant_a]
+
+        with raw.begin() as conn:
+            with pytest.raises(DBAPIError, match="permission denied"):
+                conn.execute(text("SELECT secret FROM ola_rls_context_secrets")).all()
+    finally:
+        raw.dispose()
