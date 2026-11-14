@@ -161,42 +161,41 @@ RLS is enabled for `tenants`, `api_keys`, `evidence_records`,
 `stripe_events`, `checkout_orders`, `checkout_order_controls`,
 `checkout_execution_jobs` and `checkout_report_reviews`. A permissive base
 policy is combined with a restrictive tenant policy, so an additional
-permissive policy cannot widen access. Tenant-owned rows are visible only
-when the transaction-local `ola.tenant_id` setting matches their
-`tenant_id` (or `tenants.id`).
+permissive policy cannot widen access. Every restrictive policy resolves the
+tenant through the SECURITY DEFINER function
+`ola_current_tenant_id()`; it does not trust `ola.tenant_id` by itself.
 
-API-key authentication resolves the key through
-`ola_authenticate_api_key(text)`, not a direct pre-auth table scan. The API
-sets tenant context only after authentication. Stripe webhooks bind context
-only after signature verification and authoritative Checkout Session lookup.
+### Signed tenant-context trust boundary
 
-The `ola.worker_mode` custom GUC does not bypass RLS. A custom PostgreSQL GUC
-is transaction configuration, not an independent security identity: any
-process with the same database credential could attempt to set it. The
-worker's cross-tenant discovery is isolated in the SECURITY DEFINER claim
+The API sets a transaction-local tenant ID and HMAC-SHA-256 signature only
+after API-key authentication or another trusted internal authorization step.
+The signed message is domain-separated as
+`OLA-TENANT-CONTEXT-V1:<tenant_id>`. The verifier reads its active key from
+`ola_rls_context_secrets`, a migration-owned table with no direct runtime,
+worker or PUBLIC privileges. It uses PostgreSQL's built-in SHA-256 primitive;
+no extension is required. Runtime startup independently proves that the
+configured secret matches the database verifier.
+
+A process holding only the `ola_runtime` database login can set arbitrary
+custom GUC values, including `ola.tenant_id`, but cannot forge the matching
+signature or read the verification key. A valid signature for one tenant
+cannot be replayed for another tenant. Missing, malformed or invalid context
+fails closed and exposes no tenant rows.
+
+`OLA_RLS_CONTEXT_SECRET` must contain at least 32 bytes and must be supplied
+to the one-off migration job and trusted API/worker processes. It is a
+high-value application secret: never expose it to clients, logs, support
+bundles or untrusted SQL users. A compromised trusted application process
+that can read this secret remains outside this database-credential-only
+containment guarantee. Key rotation requires a versioned key-ring migration;
+do not rotate the active value ad hoc.
+
+The `ola.worker_mode` custom GUC does not bypass RLS. The worker's
+cross-tenant discovery remains isolated in the SECURITY DEFINER claim
 function, protected by database role ACLs; the worker gets no direct SELECT,
-INSERT, UPDATE, DELETE or TRUNCATE on tenant-owned tables.
-
-### Tenant-context trust boundary
-
-The tenant RLS policies consume the transaction-local `ola.tenant_id` value
-set by the trusted API after API-key authentication (or by a verified,
-tenant-bound internal execution path). This is a defense against accidental
-unscoped ORM queries and application paths that forget to apply a tenant
-filter. It is **not** a cryptographic identity: a process holding the runtime
-database credential can set its own custom GUC values, including
-`ola.tenant_id`. Therefore this RLS design does not claim to contain a
-compromised runtime database credential, arbitrary SQL execution under that
-credential, or malicious code running inside the trusted API process.
-
-The database roles and this PR isolate the worker capability from the API
-runtime role and prevent the worker from directly reading tenant tables.
-They do not make a shared runtime credential safe to expose to tenant-facing
-clients. Runtime database credentials must remain server-side and narrowly
-scoped. Strong isolation against a compromised runtime credential requires a
-separate tenant-authenticated database context mechanism (for example,
-database-verified signed tenant claims or per-tenant database identities);
-that is outside this PR and remains a production threat-model item.
+INSERT, UPDATE, DELETE or TRUNCATE on tenant-owned tables. Stripe webhook
+context is established only after signature verification and authoritative
+Checkout Session lookup.
 
 ## Hash-chain digest rationale
 
