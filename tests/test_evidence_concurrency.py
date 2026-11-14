@@ -158,11 +158,21 @@ def test_v3_evidence_chain_uses_keyed_digest_and_fails_closed(monkeypatch):
         record["record_type"], "ola_runtime", sealed,
     )
     assert hashchain.verify_chain([record]) == (True, "ok")
+    assert hashchain.trusted_record(record) is True
+
+    from scripts.verify_agent_runtime import independent_record_hash
+    assert independent_record_hash(
+        record["tenant_id"], record["seq"], record["record_type"],
+        record["payload_json"], record["prev_hash"],
+    ) == record["record_hash"]
 
     monkeypatch.setenv("OLA_API_KEY_PEPPER", "different-test-key-material-0123456789")
     assert hashchain.verify_chain([record]) == (False, "record hash mismatch")
 
     monkeypatch.delenv("OLA_API_KEY_PEPPER", raising=False)
+    assert hashchain.verify_chain([record]) == (
+        False, "evidence chain key is not configured"
+    )
     with pytest.raises(RuntimeError, match="evidence chain key"):
         digest_fn(
             record["tenant_id"], record["seq"], record["prev_hash"],
