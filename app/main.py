@@ -533,6 +533,9 @@ def payment_success(session_id: str):
     if not request_hash:
         raise HTTPException(status_code=403, detail="payment session has no request hash")
 
+    # Stripe has authenticated the Checkout Session and its tenant/order metadata.
+    # Establish the signed database context before any tenant-scoped read.
+    set_current_tenant_id(tenant_id)
     with SessionLocal() as db:
         order = db.get(CheckoutOrder, order_id)
         if (
