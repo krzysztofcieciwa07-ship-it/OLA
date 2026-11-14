@@ -173,3 +173,59 @@ def test_role_membership_diagnostic_includes_grantor_and_admin_option():
         "ola_migrator->ola_runtime "
         "(grantor=cloud_admin, admin_option=true)"
     )
+
+
+def test_provider_managed_migration_membership_is_narrowly_allowlisted():
+    validator = getattr(database, "_role_membership_violations", None)
+    assert callable(validator), "provider-managed role membership validator is missing"
+
+    allowed = [{
+        "member": "ola_migrator",
+        "granted_role": "ola_runtime",
+        "grantor": "cloud_admin",
+        "admin_option": True,
+        "inherit_option": False,
+        "set_option": False,
+    }, {
+        "member": "ola_migrator",
+        "granted_role": "ola_worker",
+        "grantor": "cloud_admin",
+        "admin_option": True,
+        "inherit_option": False,
+        "set_option": False,
+    }]
+    assert validator(
+        allowed, runtime_role="ola_runtime",
+        worker_role="ola_worker", migration_role="ola_migrator",
+    ) == []
+
+    unsafe_variants = [
+        {**allowed[0], "set_option": True},
+        {**allowed[0], "inherit_option": True},
+        {**allowed[0], "grantor": "untrusted_role"},
+        {**allowed[0], "member": "untrusted_role"},
+        {**allowed[0], "member": "ola_runtime", "granted_role": "ola_migrator"},
+        {**allowed[0], "granted_role": "unrelated_role"},
+    ]
+    for membership in unsafe_variants:
+        assert validator(
+            [membership], runtime_role="ola_runtime",
+            worker_role="ola_worker", migration_role="ola_migrator",
+        ), membership
+
+
+def test_runtime_refuses_a_migration_dsn_but_migration_mode_can_use_it(monkeypatch):
+    guard = getattr(database, "_assert_no_runtime_migration_url", None)
+    assert callable(guard), "runtime migration-credential guard is missing"
+
+    monkeypatch.delenv("OLA_DATABASE_MIGRATION_URL", raising=False)
+    guard(enforce_runtime_privileges=True)
+
+    monkeypatch.setenv(
+        "OLA_DATABASE_MIGRATION_URL",
+        "postgresql://migration.invalid/disabled-test-value",
+    )
+    with pytest.raises(RuntimeError, match="migration URL must not be available"):
+        guard(enforce_runtime_privileges=True)
+
+    guard(enforce_runtime_privileges=False)
