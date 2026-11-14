@@ -156,6 +156,21 @@ def install_append_only_triggers(bind=None):
     raise RuntimeError(f"no append-only trigger policy for database dialect: {target.dialect.name}")
 
 
+def _format_role_membership_violations(rows):
+    """Render role-membership blockers with their grantor and delegation authority."""
+    details = []
+    for row in rows:
+        values = row._mapping if hasattr(row, "_mapping") else row
+        member = values["member"]
+        granted_role = values["granted_role"]
+        grantor = values["grantor"]
+        admin_option = str(bool(values["admin_option"])).lower()
+        details.append(
+            f"{member}->{granted_role} (grantor={grantor}, admin_option={admin_option})"
+        )
+    return ", ".join(sorted(details))
+
+
 def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_role=None, worker_role=None):
     """Fail closed unless runtime RLS and the isolated worker claim boundary are present."""
     runtime_role = runtime_role or os.getenv("OLA_DATABASE_RUNTIME_ROLE", "ola_runtime").strip()
@@ -349,7 +364,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
         """), {"role_names": [runtime_role, worker_role]}).all()
         role_memberships = conn.execute(text("""
             SELECT pg_get_userbyid(member) AS member,
-                   pg_get_userbyid(roleid) AS granted_role
+                   pg_get_userbyid(roleid) AS granted_role,
+                   pg_get_userbyid(grantor) AS grantor,
+                   admin_option
             FROM pg_auth_members
             WHERE member = ANY(ARRAY[
                 pg_catalog.to_regrole(:runtime_role)::oid,
@@ -511,7 +528,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
         if set(role_state) != {runtime_role, worker_role}:
             raise RuntimeError("PostgreSQL runtime or worker role is missing")
         if role_memberships:
-            memberships = ", ".join(f"{row[0]}->{row[1]}" for row in role_memberships)
+            memberships = _format_role_membership_violations(role_memberships)
             raise RuntimeError(
                 "PostgreSQL runtime/worker roles must not participate in any role membership: "
                 + memberships
