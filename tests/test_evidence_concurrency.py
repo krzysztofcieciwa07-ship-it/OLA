@@ -140,11 +140,11 @@ def test_v3_evidence_chain_uses_keyed_digest_and_fails_closed(monkeypatch):
     from app import hashchain
 
     monkeypatch.setenv("OLA_API_KEY_PEPPER", "evidence-test-key-material-0123456789abcdef")
+    digest_fn = getattr(hashchain, "compute_record_hash_v3", None)
+    assert callable(digest_fn), "keyed V3 evidence digest is missing"
     sealed = hashchain.sealed_payload_json(
         "workflow.planned", {"event": "workflow.planned"}, version=3
     )
-    digest_fn = getattr(hashchain, "compute_record_hash_v3", None)
-    assert callable(digest_fn), "keyed V3 evidence digest is missing"
 
     record = {
         "tenant_id": "tenant-v3",
