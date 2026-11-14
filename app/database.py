@@ -1159,6 +1159,7 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_s
             {"role_names": [runtime_role, worker_role]},
         ).all()
     }
+    missing_roles = {runtime_role, worker_role} - existing_roles
 
     if missing_roles:
         raise RuntimeError("PostgreSQL required role(s) do not exist: " + ", ".join(missing_roles))
