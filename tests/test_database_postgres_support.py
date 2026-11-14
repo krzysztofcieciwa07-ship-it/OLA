@@ -167,11 +167,13 @@ def test_role_membership_diagnostic_includes_grantor_and_admin_option():
         "granted_role": "ola_runtime",
         "grantor": "cloud_admin",
         "admin_option": True,
+        "inherit_option": False,
+        "set_option": False,
     }])
 
     assert details == (
         "ola_migrator->ola_runtime "
-        "(grantor=cloud_admin, admin_option=true)"
+        "(grantor=cloud_admin, admin_option=true, inherit_option=false, set_option=false)"
     )
 
 
@@ -205,6 +207,7 @@ def test_provider_managed_migration_membership_is_narrowly_allowlisted():
         {**allowed[0], "grantor": "untrusted_role"},
         {**allowed[0], "member": "untrusted_role"},
         {**allowed[0], "member": "ola_runtime", "granted_role": "ola_migrator"},
+        {**allowed[0], "member": "untrusted_role", "granted_role": "ola_migrator"},
         {**allowed[0], "granted_role": "unrelated_role"},
     ]
     for membership in unsafe_variants:
