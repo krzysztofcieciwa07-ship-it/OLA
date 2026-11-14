@@ -1044,12 +1044,77 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_s
         v_expected TEXT;
         v_index INTEGER;
     BEGIN
-        IF v_tenant_id IS NULL OR v_signature !~ '^[0-9a-f]{{64}}        row[0] for row in connection.execute(
+        IF v_tenant_id IS NULL OR v_signature !~ '^[0-9a-f]{{64}}$' THEN
+            RETURN NULL;
+        END IF;
+
+        SELECT secret INTO v_secret
+        FROM {quoted_schema}.ola_rls_context_secrets
+        WHERE key_id = 'active' AND active = TRUE;
+
+        IF v_secret IS NULL OR pg_catalog.octet_length(v_secret) < 32 THEN
+            RETURN NULL;
+        END IF;
+
+        v_key := CASE
+            WHEN pg_catalog.octet_length(v_secret) > 64
+                THEN pg_catalog.sha256(v_secret)
+            ELSE v_secret
+        END;
+        v_key := v_key || pg_catalog.decode(
+            pg_catalog.repeat('00', 64 - pg_catalog.octet_length(v_key)), 'hex'
+        );
+        v_ipad := pg_catalog.decode(pg_catalog.repeat('36', 64), 'hex');
+        v_opad := pg_catalog.decode(pg_catalog.repeat('5c', 64), 'hex');
+
+        FOR v_index IN 0..63 LOOP
+            v_ipad := pg_catalog.set_byte(
+                v_ipad, v_index,
+                pg_catalog.get_byte(v_ipad, v_index) # pg_catalog.get_byte(v_key, v_index)
+            );
+            v_opad := pg_catalog.set_byte(
+                v_opad, v_index,
+                pg_catalog.get_byte(v_opad, v_index) # pg_catalog.get_byte(v_key, v_index)
+            );
+        END LOOP;
+
+        v_message := pg_catalog.convert_to(
+            'OLA-TENANT-CONTEXT-V1:' || v_tenant_id, 'UTF8'
+        );
+        v_expected := pg_catalog.encode(
+            pg_catalog.sha256(
+                v_opad || pg_catalog.sha256(v_ipad || v_message)
+            ), 'hex'
+        );
+        IF v_expected = v_signature THEN
+            RETURN v_tenant_id;
+        END IF;
+        RETURN NULL;
+    END;
+    $ola$;
+    """)
+
+    connection.exec_driver_sql(
+        f"REVOKE ALL ON FUNCTION {quoted_schema}.ola_current_tenant_id() FROM PUBLIC"
+    )
+    revoke_unexpected_function_execute("ola_current_tenant_id()", runtime_role)
+    connection.exec_driver_sql(
+        f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_current_tenant_id() FROM "{worker_role}"'
+    )
+    connection.exec_driver_sql(
+        f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_current_tenant_id() FROM "{runtime_role}"'
+    )
+    connection.exec_driver_sql(
+        f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_current_tenant_id() TO "{runtime_role}"'
+    )
+
+    existing_roles = {
+        row[0] for row in connection.execute(
             text("SELECT rolname FROM pg_roles WHERE rolname = ANY(:role_names)"),
             {"role_names": [runtime_role, worker_role]},
         ).all()
     }
-    missing_roles = sorted({runtime_role, worker_role} - existing_roles)
+
     if missing_roles:
         raise RuntimeError("PostgreSQL required role(s) do not exist: " + ", ".join(missing_roles))
 
