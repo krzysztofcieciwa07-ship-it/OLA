@@ -694,17 +694,18 @@ def verify_postgres_schema(
     if any(state[2] != migration_role for state in rls_state.values()):
         raise RuntimeError("PostgreSQL tenant tables must be owned by the configured migration role")
     def normalize_policy_expression(expression):
-        # Preserve the schema-qualified verifier identity while normalizing
-        # only PostgreSQL's harmless identifier-parenthesis presentation.
+        # pg_policies deparses expressions using the active search_path and
+        # omits the schema qualifier even when the policy was created with one.
+        # Normalize both displayed identities to the same function name.
         value = re.sub(r"\s+", " ", expression or "").strip()
         value = re.sub(
             rf'"{re.escape(schema_name)}"\.ola_current_tenant_id\(\)',
-            f"{schema_name}.ola_current_tenant_id()",
+            "ola_current_tenant_id()",
             value,
         )
         value = re.sub(
             rf"(?<![A-Za-z0-9_$]){re.escape(schema_name)}\.ola_current_tenant_id\(\)",
-            f"{schema_name}.ola_current_tenant_id()",
+            "ola_current_tenant_id()",
             value,
         )
         value = re.sub(r"\(([A-Za-z_][A-Za-z0-9_$]*)\)(?=::)", r"\1", value)
