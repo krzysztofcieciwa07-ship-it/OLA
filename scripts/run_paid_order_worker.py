@@ -110,8 +110,8 @@ def verify_worker_database_identity(
     ]
     with worker_engine.connect() as conn:
         # Resolve the protected schema from PostgreSQL catalogs, not
-        # :schema_name: PostgreSQL omits schemas without USAGE from
-        # :schema_name, which would make a denied schema look like public.
+        # current_schema(): PostgreSQL omits schemas without USAGE from
+        # current_schema(), which would make a denied schema look like public.
         schema_matches = conn.execute(text("""
             SELECT n.nspname
             FROM pg_proc AS p
