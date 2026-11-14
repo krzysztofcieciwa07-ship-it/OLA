@@ -695,3 +695,23 @@ def test_railway_worker_requires_shared_pepper_for_keyed_evidence():
     assert _validate_worker_evidence_key(
         "", railway_environment_id=None,
     ) is None
+
+
+def test_worker_verifies_runtime_database_before_worker_claim_database(monkeypatch):
+    import scripts.run_paid_order_worker as worker
+
+    calls = []
+    monkeypatch.setattr(worker, "prepare_runtime_schema", lambda: calls.append("runtime"))
+    monkeypatch.setattr(
+        worker, "verify_worker_database_identity",
+        lambda engine, expected, runtime_role="ola_runtime", migration_role=None:
+            calls.append(("worker", engine, expected, runtime_role)),
+    )
+
+    worker._verify_worker_connections(
+        object(), worker_role="ola_worker", runtime_role="ola_runtime"
+    )
+    assert calls == [
+        "runtime",
+        ("worker", calls[1][1], "ola_worker", "ola_runtime"),
+    ]
