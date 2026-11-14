@@ -77,6 +77,7 @@ jobs:
           import os
           import re
           import sys
+          from pathlib import Path
           from urllib.parse import quote
           from urllib.request import Request, urlopen
           from scripts.codeql_alert_policy import source_suppression_reason
