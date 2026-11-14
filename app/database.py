@@ -1136,18 +1136,17 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_s
             f'GRANT {privileges} ON TABLE {qualified_table} TO "{runtime_role}"'
         )
 
+    tenant_context = f"{quoted_schema}.ola_current_tenant_id()"
     tenant_policies = {
-        "tenants": "id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
-        "api_keys": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
-        "evidence_records": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
-        "checkout_orders": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
-        "checkout_order_controls": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
-        "checkout_report_reviews": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
-        "stripe_events": "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')",
-        # No worker-wide escape hatch: the API runtime role remains tenant-scoped.
-        "checkout_execution_jobs": (
-            "tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')"
-        ),
+        "tenants": f"id::text = {tenant_context}",
+        "api_keys": f"tenant_id::text = {tenant_context}",
+        "evidence_records": f"tenant_id::text = {tenant_context}",
+        "checkout_orders": f"tenant_id::text = {tenant_context}",
+        "checkout_order_controls": f"tenant_id::text = {tenant_context}",
+        "checkout_report_reviews": f"tenant_id::text = {tenant_context}",
+        "stripe_events": f"tenant_id::text = {tenant_context}",
+        # No worker-wide escape hatch: only a signed tenant claim unlocks rows.
+        "checkout_execution_jobs": f"tenant_id::text = {tenant_context}",
     }
     for table_name, predicate in tenant_policies.items():
         connection.exec_driver_sql(
