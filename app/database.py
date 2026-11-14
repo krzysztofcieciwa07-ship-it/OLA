@@ -765,7 +765,11 @@ def verify_postgres_schema(
             or restrictive["qual"] != expected_policies[table]
             or restrictive["with_check"] != expected_policies[table]
         ):
-            raise RuntimeError(f"PostgreSQL tenant RLS policy expression is invalid: {table}")
+            raise RuntimeError(
+                "PostgreSQL tenant RLS policy expression is invalid: "
+                f"{table}; permissive={permissive!r}; restrictive={restrictive!r}; "
+                f"expected={expected_policies[table]!r}; schema={schema_name!r}"
+            )
     if auth_function is None:
         raise RuntimeError("PostgreSQL scoped API-key authentication function is missing")
     if tenant_context_function is None:
