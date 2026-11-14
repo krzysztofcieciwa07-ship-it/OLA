@@ -2,7 +2,7 @@
 from pathlib import Path, PurePosixPath
 import re
 
-_SUPPRESSION = re.compile(r"^\\s*#\\s*codeql\\[([A-Za-z0-9_./-]+)\\]\\s+(.+?)\\s*$")
+_SUPPRESSION = re.compile(r"^\s*#\s*codeql\[([A-Za-z0-9_./-]+)\]\s+(.+?)\s*$")
 
 
 def source_suppression_reason(repository_root, path, line, rule):
@@ -13,7 +13,7 @@ def source_suppression_reason(repository_root, path, line, rule):
     """
     if type(line) is not int or line < 2:
         return None
-    if not isinstance(path, str) or not path or "\\\\" in path:
+    if not isinstance(path, str) or not path or "\\" in path:
         return None
     if not isinstance(rule, str) or not rule:
         return None
