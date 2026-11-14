@@ -693,6 +693,8 @@ def verify_postgres_schema(
         # complete predicate. Normalize those presentation details while
         # keeping operators, casts, literals and function arguments intact.
         value = re.sub(r"\s+", " ", expression or "").strip()
+        value = value.replace(f'"{schema_name}".ola_current_tenant_id()', "ola_current_tenant_id()")
+        value = value.replace(f"{schema_name}.ola_current_tenant_id()", "ola_current_tenant_id()")
         value = re.sub(r"\(([A-Za-z_][A-Za-z0-9_$]*)\)(?=::)", r"\1", value)
         while value.startswith("(") and value.endswith(")"):
             depth = 0
@@ -722,7 +724,7 @@ def verify_postgres_schema(
         }
         for row in policy_rows
     }
-    tenant_context = f"{schema_name}.ola_current_tenant_id()"
+    tenant_context = "ola_current_tenant_id()"
     expected_policies = {
         "tenants": f"id::text = {tenant_context}",
         "api_keys": f"tenant_id::text = {tenant_context}",
