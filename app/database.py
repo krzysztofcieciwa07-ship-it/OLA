@@ -1335,6 +1335,9 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_s
             f'ALTER TABLE "{table_name}" ENABLE ROW LEVEL SECURITY'
         )
         connection.exec_driver_sql(
+            f'ALTER TABLE "{table_name}" FORCE ROW LEVEL SECURITY'
+        )
+        connection.exec_driver_sql(
             f'DROP POLICY IF EXISTS ola_tenant_access ON "{table_name}"'
         )
         connection.exec_driver_sql(
@@ -1430,6 +1433,14 @@ def migrate_postgres_schema(target_engine, *, runtime_role, worker_role=None):
         """), {
             "version": "ola_tenant_worker_claim_v5",
             "description": "Add role-bound SECURITY DEFINER outbox claim function with expiring leases",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_signed_tenant_context_v6",
+            "description": "Bind all tenant RLS policies to an HMAC-verified transaction-local tenant claim",
         })
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
