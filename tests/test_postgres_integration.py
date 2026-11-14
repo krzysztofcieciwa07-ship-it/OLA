@@ -1223,17 +1223,26 @@ def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgr
             {"id": victim_tenant},
         )
 
-    # This is an adversarial SQL client using only the configured runtime-role credentials.
-    # A plain custom PostgreSQL GUC is user-settable, so RLS must not trust it.
-    with runtime_engine.begin() as conn:
-        conn.execute(
-            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
-            {"tenant_id": victim_tenant},
-        )
-        visible_without_signature = conn.execute(
-            text("SELECT id FROM tenants WHERE id = :tenant_id"),
-            {"tenant_id": victim_tenant},
-        ).scalars().all()
+    # Use a raw SQLAlchemy Engine with the ola_runtime login. This intentionally
+    # bypasses ORM session hooks that normally attach the signed tenant context.
+    raw_runtime_engine = create_engine(
+        runtime_engine.url,
+        pool_pre_ping=True,
+        connect_args={"options": f"-csearch_path={_schema}"},
+    )
+    try:
+        with raw_runtime_engine.begin() as conn:
+            conn.execute(
+                text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+                {"tenant_id": victim_tenant},
+            )
+            conn.execute(text("SELECT set_config('ola.tenant_signature', '', true)"))
+            visible_without_signature = conn.execute(
+                text("SELECT id FROM tenants WHERE id = :tenant_id"),
+                {"tenant_id": victim_tenant},
+            ).scalars().all()
+    finally:
+        raw_runtime_engine.dispose()
     assert visible_without_signature == [], (
         "runtime role impersonated a tenant by forging the legacy ola.tenant_id GUC",
         visible_without_signature,
