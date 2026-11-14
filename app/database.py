@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.orm import Session as OrmSession, declarative_base, sessionmaker
 
-from .tenant_context import current_tenant_id, worker_mode_enabled
+from .tenant_context import current_tenant_id, tenant_context_signature, worker_mode_enabled
 
 
 def database_url_from_env(environ=None):
@@ -89,9 +89,14 @@ def _apply_postgres_tenant_context(session, transaction, connection):
     if connection.dialect.name != "postgresql":
         return
     tenant_id = current_tenant_id()
+    signature = tenant_context_signature(tenant_id) if tenant_id else ""
     connection.execute(
         text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
         {"tenant_id": tenant_id or ""},
+    )
+    connection.execute(
+        text("SELECT set_config('ola.tenant_signature', :signature, true)"),
+        {"signature": signature},
     )
     connection.execute(
         text("SELECT set_config('ola.worker_mode', :worker_mode, true)"),
