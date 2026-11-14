@@ -34,11 +34,14 @@ but it does allow the provider-admin principal to delegate membership. Any
 different member, grantor, or SET/INHERIT option is rejected. This is a narrow
 Neon compatibility rule, not a general membership exception.
 
-The provider-admin/migration credential is highly privileged and must never
-be present in API or worker runtime environments. Runtime startup fails closed
-if `OLA_DATABASE_MIGRATION_URL` is non-empty. Run migrations only in a
-separate one-off job, then rotate the migration credential and discard the
-job's secret.
+The provider-admin/migration principal currently inherits Neon’s
+`neon_superuser` role and is therefore not a least-privilege application
+identity. Its credential is highly privileged and must never be present in
+API or worker runtime environments. Runtime startup fails closed if
+`OLA_DATABASE_MIGRATION_URL` is non-empty. Run migrations only in a separate
+one-off job, then rotate the migration credential and discard the job's
+secret. A dedicated SQL-created schema-owner/migration-login pair remains the
+preferred long-term replacement for using the provider-admin principal.
 
 A Railway paid-order worker must use PostgreSQL for both its runtime connection
 (`OLA_DATABASE_URL`) and isolated claim connection
