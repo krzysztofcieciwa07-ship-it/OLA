@@ -724,7 +724,7 @@ def verify_postgres_schema(
         }
         for row in policy_rows
     }
-    tenant_context = "ola_current_tenant_id()"
+    tenant_context = f"{schema_name}.ola_current_tenant_id()"
     expected_policies = {
         "tenants": f"id::text = {tenant_context}",
         "api_keys": f"tenant_id::text = {tenant_context}",
@@ -1333,9 +1333,6 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_s
     for table_name, predicate in tenant_policies.items():
         connection.exec_driver_sql(
             f'ALTER TABLE "{table_name}" ENABLE ROW LEVEL SECURITY'
-        )
-        connection.exec_driver_sql(
-            f'ALTER TABLE "{table_name}" FORCE ROW LEVEL SECURITY'
         )
         connection.exec_driver_sql(
             f'DROP POLICY IF EXISTS ola_tenant_access ON "{table_name}"'
