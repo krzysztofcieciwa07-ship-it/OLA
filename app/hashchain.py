@@ -4,7 +4,9 @@ The producer is selected by the authenticated server write boundary.
 It is NOT an external cryptographic identity or a third-party attestation.
 """
 import hashlib
+import hmac
 import json
+import os
 
 GENESIS_HASH = "0" * 64
 EVIDENCE_META_KEY = "__ola_evidence_v2__"
@@ -23,7 +25,7 @@ def is_privileged_type(record_type):
     return isinstance(record_type, str) and record_type.startswith(PRIVILEGED_PREFIXES)
 
 
-def sealed_payload_json(record_type, payload, *, producer=TRUSTED_PRODUCER):
+def sealed_payload_json(record_type, payload, *, producer=TRUSTED_PRODUCER, version=2):
     """Seal type and server-selected producer inside canonical hash material."""
     if not isinstance(record_type, str) or not record_type.strip():
         raise ValueError("evidence record type required")
@@ -31,11 +33,13 @@ def sealed_payload_json(record_type, payload, *, producer=TRUSTED_PRODUCER):
         raise ValueError("evidence must be object without reserved metadata")
     if producer not in (TRUSTED_PRODUCER, PUBLIC_PRODUCER):
         raise ValueError("unknown evidence producer")
+    if type(version) is not int or version not in (2, 3):
+        raise ValueError("unsupported evidence version")
     if is_privileged_type(record_type) and producer != TRUSTED_PRODUCER:
         raise ValueError("public producer may not write privileged evidence")
     value = dict(payload)
     value[EVIDENCE_META_KEY] = {
-        "version": 2, "record_type": record_type, "producer": producer,
+        "version": version, "record_type": record_type, "producer": producer,
     }
     return canonical_json(value)
 
@@ -56,7 +60,7 @@ def _binding(record):
     producer = metadata["producer"]
     record_type = record.get("record_type")
     valid = (
-        type(metadata["version"]) is int and metadata["version"] == 2
+        type(metadata["version"]) is int and metadata["version"] in (2, 3)
         and isinstance(record_type, str) and bool(record_type)
         and metadata["record_type"] == record_type
         and producer in (TRUSTED_PRODUCER, PUBLIC_PRODUCER)
@@ -90,6 +94,24 @@ def compute_record_hash_v2(tenant_id, seq, prev_hash, record_type, producer, pay
     return hashlib.sha256(material).hexdigest()
 
 
+def _evidence_chain_key():
+    """Derive a domain-separated evidence key from the required server-side pepper."""
+    master = os.environ.get("OLA_API_KEY_PEPPER", "").encode("utf-8")
+    if len(master) < 32:
+        raise RuntimeError("evidence chain key is not configured")
+    return hmac.new(master, b"OLA-EVIDENCE-CHAIN-KEY-V3", hashlib.sha256).digest()
+
+
+def compute_record_hash_v3(tenant_id, seq, prev_hash, record_type, producer, payload_json):
+    """Keyed V3 commitment; database readers cannot test payload guesses offline."""
+    material = canonical_json({
+        "domain": "OLA-EVIDENCE-CHAIN-V3",
+        "tenant_id": tenant_id, "seq": seq, "prev_hash": prev_hash,
+        "record_type": record_type, "producer": producer, "payload_json": payload_json,
+    }).encode("utf-8")
+    return hmac.new(_evidence_chain_key(), material, hashlib.sha256).hexdigest()
+
+
 def verify_chain(records):
     expected_prev = GENESIS_HASH
     expected_seq = 0
@@ -101,10 +123,19 @@ def verify_chain(records):
             return False, "record type or producer binding mismatch"
         if bound:
             metadata = json.loads(row["payload_json"])[EVIDENCE_META_KEY]
-            expected = compute_record_hash_v2(
-                row["tenant_id"], row["seq"], row["prev_hash"],
-                row["record_type"], metadata["producer"], row["payload_json"]
-            )
+            if metadata["version"] == 3:
+                try:
+                    expected = compute_record_hash_v3(
+                        row["tenant_id"], row["seq"], row["prev_hash"],
+                        row["record_type"], metadata["producer"], row["payload_json"]
+                    )
+                except RuntimeError:
+                    return False, "evidence chain key is not configured"
+            else:
+                expected = compute_record_hash_v2(
+                    row["tenant_id"], row["seq"], row["prev_hash"],
+                    row["record_type"], metadata["producer"], row["payload_json"]
+                )
         else:
             expected = compute_record_hash(row["tenant_id"], row["seq"],
                                            row["prev_hash"], row["payload_json"])
