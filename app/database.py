@@ -610,8 +610,15 @@ def verify_postgres_schema(
             FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
         """), {
             "runtime_role": runtime_role,
-            "table_names": [*rls_tables, "ola_schema_migrations"],
+            "table_names": [*rls_tables, "ola_schema_migrations", "ola_rls_context_secrets"],
         }).all()
+        context_secret_owner = conn.execute(text("""
+            SELECT pg_get_userbyid(c.relowner)
+            FROM pg_class AS c
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            WHERE n.nspname = current_schema()
+              AND c.relname = 'ola_rls_context_secrets'
+        """)).scalar_one_or_none()
         role_state = {
             row[0]: tuple(bool(value) for value in row[1:])
             for row in role_rows
@@ -750,7 +757,10 @@ def verify_postgres_schema(
     if tenant_context_function is None:
         raise RuntimeError("PostgreSQL signed tenant-context verifier function is missing")
     context_function_config = tenant_context_function.proconfig or []
-    if tenant_context_function.owner != rls_state["api_keys"][2]:
+    if (
+        tenant_context_function.owner != rls_state["api_keys"][2]
+        or context_secret_owner != tenant_context_function.owner
+    ):
         raise RuntimeError(
             "PostgreSQL tenant-context SECURITY DEFINER owner must match the api_keys table owner"
         )
@@ -766,6 +776,23 @@ def verify_postgres_schema(
         raise RuntimeError(
             "PostgreSQL signed tenant-context function must be SECURITY DEFINER, "
             "use fixed search_path, deny PUBLIC/worker execution and grant only runtime EXECUTE"
+        )
+    context_probe_tenant = "__ola_signed_context_verification__"
+    context_probe_signature = tenant_context_signature(
+        context_probe_tenant, secret=context_secret,
+    )
+    conn.execute(text("SELECT set_config('ola.tenant_id', :tenant_id, true)"), {
+        "tenant_id": context_probe_tenant,
+    })
+    conn.execute(text("SELECT set_config('ola.tenant_signature', :signature, true)"), {
+        "signature": context_probe_signature,
+    })
+    context_probe = conn.execute(text("SELECT ola_current_tenant_id()")).scalar_one()
+    conn.execute(text("SELECT set_config('ola.tenant_id', '', true)"))
+    conn.execute(text("SELECT set_config('ola.tenant_signature', '', true)"))
+    if context_probe != context_probe_tenant:
+        raise RuntimeError(
+            "PostgreSQL signed tenant-context secret does not match the runtime configuration"
         )
     auth_function_config = auth_function.proconfig or []
     if auth_function.owner != rls_state["api_keys"][2]:
