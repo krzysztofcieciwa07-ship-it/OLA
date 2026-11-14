@@ -241,6 +241,9 @@ def verify_postgres_schema(
     if worker_role == runtime_role or migration_role in {runtime_role, worker_role}:
         raise RuntimeError("PostgreSQL runtime, worker and migration roles must be distinct")
     _assert_no_runtime_migration_url(enforce_runtime_privileges=enforce_runtime_privileges)
+    context_secret = os.getenv("OLA_RLS_CONTEXT_SECRET", "")
+    if len(context_secret.encode("utf-8")) < 32:
+        raise RuntimeError("OLA_RLS_CONTEXT_SECRET must contain at least 32 bytes")
     required_columns = {
         "tenants": {"id", "name"},
         "api_keys": {"id", "tenant_id", "key_hash", "role"},
@@ -311,12 +314,16 @@ def verify_postgres_schema(
             raise RuntimeError(f"PostgreSQL table {table_name} is missing required unique constraints/indexes")
 
     with bind.connect() as conn:
+        schema_name = conn.execute(text("SELECT current_schema()")).scalar_one()
         applied = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_tenant_rls_v4"}).first()
         worker_claim_migration = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_tenant_worker_claim_v5"}).first()
+        signed_context_migration = conn.execute(text(
+            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
+        ), {"version": "ola_signed_tenant_context_v6"}).first()
         trigger_rows = conn.execute(text("""
             SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -386,6 +393,38 @@ def verify_postgres_schema(
                 format('%I.ola_authenticate_api_key(text)', current_schema())
             )
         """), {"worker_role": worker_role}).one_or_none()
+        tenant_context_function = conn.execute(text("""
+            SELECT p.oid, p.prosecdef, p.proconfig,
+                   pg_get_userbyid(p.proowner) AS owner,
+                   EXISTS (
+                       SELECT 1 FROM aclexplode(
+                           COALESCE(p.proacl, acldefault('f', p.proowner))
+                       ) AS acl
+                       WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+                   ) AS public_execute,
+                   has_function_privilege(:runtime_role, p.oid, 'EXECUTE') AS runtime_execute,
+                   has_function_privilege(:worker_role, p.oid, 'EXECUTE') AS worker_execute,
+                   (
+                       SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee))
+                       FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+                       WHERE acl.privilege_type = 'EXECUTE'
+                         AND acl.grantee <> 0
+                         AND acl.grantee <> p.proowner
+                         AND pg_get_userbyid(acl.grantee) <> :runtime_role
+                   ) AS extra_execute_grantees,
+                   EXISTS (
+                       SELECT 1 FROM aclexplode(
+                           COALESCE(p.proacl, acldefault('f', p.proowner))
+                       ) AS acl
+                       WHERE acl.privilege_type = 'EXECUTE'
+                         AND acl.grantee <> p.proowner
+                         AND acl.is_grantable
+                   ) AS execute_grant_option
+            FROM pg_proc AS p
+            WHERE p.oid = to_regprocedure(
+                format('%I.ola_current_tenant_id()', current_schema())
+            )
+        """), {"runtime_role": runtime_role, "worker_role": worker_role}).one_or_none()
         worker_claim_function = conn.execute(text("""
             SELECT p.oid, p.prosecdef, p.proconfig,
                    pg_get_userbyid(p.proowner) AS owner,
@@ -463,7 +502,7 @@ def verify_postgres_schema(
             FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
         """), {
             "worker_role": worker_role,
-            "table_names": [*rls_tables, "ola_schema_migrations"],
+            "table_names": [*rls_tables, "ola_schema_migrations", "ola_rls_context_secrets"],
         }).one()
         worker_schema_privileges = conn.execute(text("""
             SELECT has_schema_privilege(:worker_role, current_schema(), 'USAGE'),
@@ -623,6 +662,8 @@ def verify_postgres_schema(
         raise RuntimeError("PostgreSQL schema migration version is missing")
     if worker_claim_migration is None:
         raise RuntimeError("PostgreSQL worker-claim migration version is missing")
+    if signed_context_migration is None:
+        raise RuntimeError("PostgreSQL signed tenant-context migration version is missing")
     rls_state = {row[0]: (bool(row[1]), bool(row[2]), row[3]) for row in rls_rows}
     if set(rls_state) != set(rls_tables):
         raise RuntimeError("PostgreSQL tenant RLS table inventory is incomplete")
@@ -674,17 +715,16 @@ def verify_postgres_schema(
         }
         for row in policy_rows
     }
+    tenant_context = f"{schema_name}.ola_current_tenant_id()"
     expected_policies = {
-        "tenants": "id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
-        "api_keys": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
-        "evidence_records": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
-        "checkout_orders": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
-        "checkout_order_controls": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
-        "checkout_report_reviews": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
-        "stripe_events": "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)",
-        "checkout_execution_jobs": (
-            "tenant_id::text = NULLIF(current_setting('ola.tenant_id'::text, true), ''::text)"
-        ),
+        "tenants": f"id::text = {tenant_context}",
+        "api_keys": f"tenant_id::text = {tenant_context}",
+        "evidence_records": f"tenant_id::text = {tenant_context}",
+        "checkout_orders": f"tenant_id::text = {tenant_context}",
+        "checkout_order_controls": f"tenant_id::text = {tenant_context}",
+        "checkout_report_reviews": f"tenant_id::text = {tenant_context}",
+        "stripe_events": f"tenant_id::text = {tenant_context}",
+        "checkout_execution_jobs": f"tenant_id::text = {tenant_context}",
     }
     all_roles = ("public",)
     for table in rls_tables:
@@ -707,6 +747,26 @@ def verify_postgres_schema(
             raise RuntimeError(f"PostgreSQL tenant RLS policy expression is invalid: {table}")
     if auth_function is None:
         raise RuntimeError("PostgreSQL scoped API-key authentication function is missing")
+    if tenant_context_function is None:
+        raise RuntimeError("PostgreSQL signed tenant-context verifier function is missing")
+    context_function_config = tenant_context_function.proconfig or []
+    if tenant_context_function.owner != rls_state["api_keys"][2]:
+        raise RuntimeError(
+            "PostgreSQL tenant-context SECURITY DEFINER owner must match the api_keys table owner"
+        )
+    if (
+        not tenant_context_function.prosecdef
+        or "search_path=pg_catalog" not in context_function_config
+        or tenant_context_function.public_execute
+        or not tenant_context_function.runtime_execute
+        or tenant_context_function.worker_execute
+        or bool(tenant_context_function.extra_execute_grantees)
+        or tenant_context_function.execute_grant_option
+    ):
+        raise RuntimeError(
+            "PostgreSQL signed tenant-context function must be SECURITY DEFINER, "
+            "use fixed search_path, deny PUBLIC/worker execution and grant only runtime EXECUTE"
+        )
     auth_function_config = auth_function.proconfig or []
     if auth_function.owner != rls_state["api_keys"][2]:
         raise RuntimeError(
@@ -767,6 +827,7 @@ def verify_postgres_schema(
         "checkout_execution_jobs": {"SELECT", "INSERT", "UPDATE"},
         "checkout_report_reviews": {"SELECT", "INSERT", "UPDATE"},
         "ola_schema_migrations": {"SELECT"},
+        "ola_rls_context_secrets": set(),
     }
     privilege_names = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN")
     runtime_privilege_state = {
@@ -1248,6 +1309,14 @@ def migrate_postgres_schema(target_engine, *, runtime_role, worker_role=None):
         """), {
             "version": "ola_tenant_worker_claim_v5",
             "description": "Add role-bound SECURITY DEFINER outbox claim function with expiring leases",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_signed_tenant_context_v6",
+            "description": "Require database-verified HMAC tenant context for runtime RLS",
         })
     verify_postgres_schema(
         target_engine, enforce_runtime_privileges=False,
