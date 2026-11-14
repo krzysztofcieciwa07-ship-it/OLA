@@ -1215,7 +1215,7 @@ def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_ow
 
 def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgres_db):
     """A runtime SQL login must not select a tenant merely by forging ola.tenant_id."""
-    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
     victim_tenant = str(uuid.uuid4())
     with migration_engine.begin() as conn:
         conn.execute(
@@ -1261,3 +1261,26 @@ def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgr
         "ola_runtime reused a tenant-A signature to impersonate tenant B",
         visible_with_replayed_signature,
     )
+
+    # The legitimate application path signs the tenant only after trusted
+    # authentication and therefore still sees its own tenant.
+    with tenant_scope(victim_tenant):
+        with database.SessionLocal() as db:
+            assert db.execute(
+                text("SELECT id FROM tenants WHERE id = :tenant_id"),
+                {"tenant_id": victim_tenant},
+            ).scalars().all() == [victim_tenant]
+
+    # The runtime login cannot read the verification key from its private table.
+    with runtime_engine.begin() as conn:
+        with pytest.raises(DBAPIError, match="permission denied"):
+            conn.execute(text("SELECT secret FROM ola_rls_context_secrets")).all()
+
+
+def test_postgres_runtime_verifier_rejects_a_mismatched_context_secret(postgres_db, monkeypatch):
+    database, runtime_engine, _migration_engine, _admin_engine, runtime_role, _schema, worker_role = postgres_db
+    monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", "different-secret-material-that-is-not-the-database-key")
+    with pytest.raises(RuntimeError, match="secret does not match"):
+        database.verify_postgres_schema(
+            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
+        )
