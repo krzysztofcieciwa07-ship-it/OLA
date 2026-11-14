@@ -2,7 +2,9 @@
 """Apply the additive OLA PostgreSQL schema using a dedicated migration role.
 
 Set OLA_DATABASE_MIGRATION_URL to a PostgreSQL URL whose role owns the OLA
-schema. The API uses OLA_DATABASE_URL with OLA_DATABASE_RUNTIME_ROLE; the
+schema, and set OLA_RLS_CONTEXT_SECRET to the same high-entropy value used by
+the API runtime (at least 32 bytes). The migration stores a protected verifier
+copy; runtime startup checks key parity. The API uses OLA_DATABASE_URL with OLA_DATABASE_RUNTIME_ROLE; the
 isolated outbox worker uses OLA_DATABASE_WORKER_URL with
 OLA_DATABASE_WORKER_ROLE. This script is an explicit deployment step;
 application startup never runs PostgreSQL DDL.
@@ -24,6 +26,8 @@ def main() -> int:
     raw_url = os.getenv("OLA_DATABASE_MIGRATION_URL", "").strip()
     if not raw_url:
         raise SystemExit("OLA_DATABASE_MIGRATION_URL is required")
+    if len(os.getenv("OLA_RLS_CONTEXT_SECRET", "").encode("utf-8")) < 32:
+        raise SystemExit("OLA_RLS_CONTEXT_SECRET must contain at least 32 bytes")
     url = database_url_from_env({"OLA_DATABASE_URL": raw_url})
     if not url.startswith("postgresql+psycopg://"):
         raise SystemExit("migration URL must use PostgreSQL with Psycopg 3")
