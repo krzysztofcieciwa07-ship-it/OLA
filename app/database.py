@@ -696,18 +696,18 @@ def verify_postgres_schema(
     def normalize_policy_expression(expression):
         # Preserve the schema-qualified verifier identity while normalizing
         # only PostgreSQL's harmless identifier-parenthesis presentation.
-        value = re.sub(r"\\s+", " ", expression or "").strip()
+        value = re.sub(r"\s+", " ", expression or "").strip()
         value = re.sub(
-            rf'"{re.escape(schema_name)}"\\.ola_current_tenant_id\\(\\)',
+            rf'"{re.escape(schema_name)}"\.ola_current_tenant_id\(\)',
             f"{schema_name}.ola_current_tenant_id()",
             value,
         )
         value = re.sub(
-            rf"(?<![A-Za-z0-9_$]){re.escape(schema_name)}\\.ola_current_tenant_id\\(\\)",
+            rf"(?<![A-Za-z0-9_$]){re.escape(schema_name)}\.ola_current_tenant_id\(\)",
             f"{schema_name}.ola_current_tenant_id()",
             value,
         )
-        value = re.sub(r"\\(([A-Za-z_][A-Za-z0-9_$]*)\\)(?=::)", r"\\1", value)
+        value = re.sub(r"\(([A-Za-z_][A-Za-z0-9_$]*)\)(?=::)", r"\1", value)
         while value.startswith("(") and value.endswith(")"):
             depth = 0
             wraps_all = True
