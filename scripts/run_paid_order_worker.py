@@ -514,6 +514,23 @@ def _run_loop(args, *, worker_engine=None, api_url=None, worker_token=None) -> i
         time.sleep(args.poll_seconds)
 
 
+def _validate_worker_database_mode(runtime_dialect, *, railway_environment_id, worker_url):
+    """Prevent a deployed Railway worker from silently using an isolated SQLite file."""
+    if not railway_environment_id:
+        return None
+    if runtime_dialect != "postgresql":
+        raise ValueError(
+            "Railway paid-order worker must not fall back to SQLite; "
+            "configure the PostgreSQL runtime database URL"
+        )
+    if not isinstance(worker_url, str) or not worker_url.strip():
+        raise ValueError(
+            "Railway paid-order worker requires OLA_DATABASE_WORKER_URL "
+            "for isolated PostgreSQL claims"
+        )
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="process the current batch and exit")
@@ -529,6 +546,15 @@ def main() -> int:
     worker_token = os.getenv("OLA_EXECUTION_WORKER_TOKEN", "")
     worker_role = os.getenv("OLA_DATABASE_WORKER_ROLE", "ola_worker").strip()
     runtime_role = os.getenv("OLA_DATABASE_RUNTIME_ROLE", "ola_runtime").strip()
+
+    try:
+        _validate_worker_database_mode(
+            runtime_engine.dialect.name,
+            railway_environment_id=os.getenv("RAILWAY_ENVIRONMENT_ID"),
+            worker_url=worker_url,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if worker_url:
         try:
