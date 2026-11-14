@@ -286,3 +286,15 @@ def test_tenant_context_signature_is_tenant_bound_and_fails_closed(monkeypatch):
     monkeypatch.delenv("OLA_RLS_CONTEXT_SECRET")
     with pytest.raises(RuntimeError, match="OLA_RLS_CONTEXT_SECRET"):
         tenant_context_signature("tenant-alpha")
+
+
+def test_signed_tenant_rls_sql_validates_signature_format_and_fails_closed():
+    import inspect
+
+    source = inspect.getsource(database.install_postgres_tenant_rls)
+    assert "v_signature !~ '^[0-9a-f]{64}$' THEN" in source
+    assert "RETURN NULL;" in source
+    assert "END IF;" in source
+    assert "SECURITY DEFINER" in source
+    assert "SET search_path = pg_catalog" in source
+    assert "ola_current_tenant_id()" in source
