@@ -155,3 +155,21 @@ def test_postgres_session_context_always_overwrites_tenant_and_worker_gucs():
         ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": ""}),
         ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "on"}),
     ]
+
+
+
+def test_role_membership_diagnostic_includes_grantor_and_admin_option():
+    formatter = getattr(database, "_format_role_membership_violations", None)
+    assert callable(formatter), "role membership diagnostic formatter is missing"
+
+    details = formatter([{
+        "member": "ola_migrator",
+        "granted_role": "ola_runtime",
+        "grantor": "cloud_admin",
+        "admin_option": True,
+    }])
+
+    assert details == (
+        "ola_migrator->ola_runtime "
+        "(grantor=cloud_admin, admin_option=true)"
+    )
