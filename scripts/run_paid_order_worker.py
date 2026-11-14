@@ -587,6 +587,18 @@ def _validate_worker_database_mode(runtime_dialect, *, railway_environment_id, w
     return None
 
 
+def _validate_worker_evidence_key(pepper, *, railway_environment_id):
+    """Require the shared V3 evidence key material in deployed Railway workers."""
+    if not railway_environment_id:
+        return None
+    if not isinstance(pepper, str) or len(pepper.encode("utf-8")) < 32:
+        raise ValueError(
+            "Railway worker requires OLA_API_KEY_PEPPER (at least 32 bytes) "
+            "to write and verify keyed V3 evidence"
+        )
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="process the current batch and exit")
@@ -603,11 +615,16 @@ def main() -> int:
     worker_role = os.getenv("OLA_DATABASE_WORKER_ROLE", "ola_worker").strip()
     runtime_role = os.getenv("OLA_DATABASE_RUNTIME_ROLE", "ola_runtime").strip()
 
+    railway_environment_id = os.getenv("RAILWAY_ENVIRONMENT_ID")
     try:
         _validate_worker_database_mode(
             runtime_engine.dialect.name,
-            railway_environment_id=os.getenv("RAILWAY_ENVIRONMENT_ID"),
+            railway_environment_id=railway_environment_id,
             worker_url=worker_url,
+        )
+        _validate_worker_evidence_key(
+            os.getenv("OLA_API_KEY_PEPPER", ""),
+            railway_environment_id=railway_environment_id,
         )
     except ValueError as exc:
         parser.error(str(exc))
