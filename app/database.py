@@ -156,6 +156,43 @@ def install_append_only_triggers(bind=None):
     raise RuntimeError(f"no append-only trigger policy for database dialect: {target.dialect.name}")
 
 
+def _role_membership_violations(rows, *, runtime_role, worker_role, migration_role):
+    """Allow only Neon’s non-inheriting, non-SET provider admin edge to app roles."""
+    protected_roles = {runtime_role, worker_role}
+    violations = []
+    for row in rows:
+        values = row._mapping if hasattr(row, "_mapping") else row
+        member = values["member"]
+        granted_role = values["granted_role"]
+        grantor = values["grantor"]
+        admin_option = bool(values["admin_option"])
+        inherit_option = bool(values["inherit_option"])
+        set_option = bool(values["set_option"])
+
+        # Runtime and worker may never inherit or assume any other role.
+        if member in protected_roles:
+            violations.append(row)
+            continue
+        # No principal may become a member of the privileged migration role.
+        if granted_role == migration_role:
+            violations.append(row)
+            continue
+        if granted_role not in protected_roles:
+            violations.append(row)
+            continue
+
+        provider_managed_edge = (
+            member == migration_role
+            and grantor == "cloud_admin"
+            and admin_option is True
+            and inherit_option is False
+            and set_option is False
+        )
+        if not provider_managed_edge:
+            violations.append(row)
+    return violations
+
+
 def _format_role_membership_violations(rows):
     """Render role-membership blockers with their grantor and delegation authority."""
     details = []
@@ -165,23 +202,40 @@ def _format_role_membership_violations(rows):
         granted_role = values["granted_role"]
         grantor = values["grantor"]
         admin_option = str(bool(values["admin_option"])).lower()
+        inherit_option = str(bool(values["inherit_option"])).lower()
+        set_option = str(bool(values["set_option"])).lower()
         details.append(
-            f"{member}->{granted_role} (grantor={grantor}, admin_option={admin_option})"
+            f"{member}->{granted_role} (grantor={grantor}, admin_option={admin_option}, "
+            f"inherit_option={inherit_option}, set_option={set_option})"
         )
     return ", ".join(sorted(details))
 
 
-def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_role=None, worker_role=None):
+def _assert_no_runtime_migration_url(*, enforce_runtime_privileges):
+    if enforce_runtime_privileges and os.getenv("OLA_DATABASE_MIGRATION_URL", "").strip():
+        raise RuntimeError(
+            "migration URL must not be available in the PostgreSQL runtime process"
+        )
+
+
+def verify_postgres_schema(
+    bind, *, enforce_runtime_privileges=True, runtime_role=None,
+    worker_role=None, migration_role=None,
+):
     """Fail closed unless runtime RLS and the isolated worker claim boundary are present."""
     runtime_role = runtime_role or os.getenv("OLA_DATABASE_RUNTIME_ROLE", "ola_runtime").strip()
     worker_role = worker_role or os.getenv("OLA_DATABASE_WORKER_ROLE", "ola_worker").strip()
+    migration_role = migration_role or os.getenv("OLA_DATABASE_MIGRATION_ROLE", "ola_migrator").strip()
     role_pattern = r"[A-Za-z_][A-Za-z0-9_$]{0,62}"
     if not isinstance(runtime_role, str) or re.fullmatch(role_pattern, runtime_role) is None:
         raise RuntimeError("configured PostgreSQL runtime role is invalid")
     if not isinstance(worker_role, str) or re.fullmatch(role_pattern, worker_role) is None:
         raise RuntimeError("configured PostgreSQL worker role is invalid")
-    if worker_role == runtime_role:
-        raise RuntimeError("PostgreSQL worker role must be distinct from runtime role")
+    if not isinstance(migration_role, str) or re.fullmatch(role_pattern, migration_role) is None:
+        raise RuntimeError("configured PostgreSQL migration role is invalid")
+    if worker_role == runtime_role or migration_role in {runtime_role, worker_role}:
+        raise RuntimeError("PostgreSQL runtime, worker and migration roles must be distinct")
+    _assert_no_runtime_migration_url(enforce_runtime_privileges=enforce_runtime_privileges)
     required_columns = {
         "tenants": {"id", "name"},
         "api_keys": {"id", "tenant_id", "key_hash", "role"},
@@ -366,7 +420,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             SELECT pg_get_userbyid(member) AS member,
                    pg_get_userbyid(roleid) AS granted_role,
                    pg_get_userbyid(grantor) AS grantor,
-                   admin_option
+                   admin_option, inherit_option, set_option
             FROM pg_auth_members
             WHERE member = ANY(ARRAY[
                 pg_catalog.to_regrole(:runtime_role)::oid,
@@ -374,11 +428,13 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             ])
                OR roleid = ANY(ARRAY[
                 pg_catalog.to_regrole(:runtime_role)::oid,
-                pg_catalog.to_regrole(:worker_role)::oid
+                pg_catalog.to_regrole(:worker_role)::oid,
+                pg_catalog.to_regrole(:migration_role)::oid
             ])
         """), {
             "runtime_role": runtime_role,
             "worker_role": worker_role,
+            "migration_role": migration_role,
         }).all()
         worker_table_privileges = conn.execute(text("""
             SELECT
@@ -527,10 +583,14 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
             )
         if set(role_state) != {runtime_role, worker_role}:
             raise RuntimeError("PostgreSQL runtime or worker role is missing")
-        if role_memberships:
-            memberships = _format_role_membership_violations(role_memberships)
+        membership_violations = _role_membership_violations(
+            role_memberships, runtime_role=runtime_role,
+            worker_role=worker_role, migration_role=migration_role,
+        )
+        if membership_violations:
+            memberships = _format_role_membership_violations(membership_violations)
             raise RuntimeError(
-                "PostgreSQL runtime/worker roles must not participate in any role membership: "
+                "PostgreSQL runtime/worker/migration roles have unauthorized role memberships: "
                 + memberships
             )
         for role_name, flags in role_state.items():
