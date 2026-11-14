@@ -22,13 +22,27 @@ running the migration:
 
 Both application roles (`ola_runtime` and `ola_worker`) must be
 `LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
-NOREPLICATION`. Neither role may participate in any role membership: they
-cannot be members of another role, and no other role may be granted either
-application role (which could permit `SET ROLE`). The startup verifier
-checks both directions, authenticated `session_user`, table ownership,
-exact table grants and table ACL provenance, schema ACL provenance (no
-PUBLIC/extra grantees or grant options), and function ACLs. Do not rely on a
-custom GUC or application bearer token as a database privilege boundary.
+NOREPLICATION`. Neither application role may be a member of another role,
+and no untrusted principal may be granted either application role.
+
+Neon automatically grants its project-admin principal (currently
+`ola_migrator`, grantor `cloud_admin`) an administrative membership in
+newly-created roles. The verifier permits only this exact provider-managed
+edge to `ola_runtime` and `ola_worker`: `ADMIN TRUE INHERIT FALSE SET FALSE`.
+That edge cannot be used to inherit or `SET ROLE` into application privileges,
+but it does allow the provider-admin principal to delegate membership. Any
+different member, grantor, or SET/INHERIT option is rejected. This is a narrow
+Neon compatibility rule, not a general membership exception.
+
+The provider-admin/migration credential is highly privileged and must never
+be present in API or worker runtime environments. Runtime startup fails closed
+if `OLA_DATABASE_MIGRATION_URL` is non-empty. Run migrations only in a
+separate one-off job, then rotate the migration credential and discard the
+job's secret. The startup verifier also checks authenticated `session_user`,
+table ownership, exact table grants and table ACL provenance, schema ACL
+provenance (no PUBLIC/extra grantees or grant options), and function ACLs.
+Do not rely on a custom GUC or application bearer token as a database
+privilege boundary.
 
 Example role provisioning (supply passwords using your secret-management
 system, not source control):
