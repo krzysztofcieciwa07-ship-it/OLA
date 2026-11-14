@@ -769,6 +769,8 @@ def verify_postgres_schema(
         raise RuntimeError("PostgreSQL scoped API-key authentication function is missing")
     if tenant_context_function is None:
         raise RuntimeError("PostgreSQL signed tenant-context verifier function is missing")
+    if tenant_context_function.owner != migration_role:
+        raise RuntimeError("PostgreSQL signed tenant-context verifier must be owned by the migration role")
     context_function_config = tenant_context_function.proconfig or []
     if (
         tenant_context_function.owner != rls_state["api_keys"][2]
