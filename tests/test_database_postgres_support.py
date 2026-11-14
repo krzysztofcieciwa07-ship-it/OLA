@@ -200,8 +200,13 @@ def test_provider_managed_migration_membership_is_narrowly_allowlisted():
         allowed, runtime_role="ola_runtime",
         worker_role="ola_worker", migration_role="ola_migrator",
     ) == []
+    assert validator(
+        [], runtime_role="ola_runtime",
+        worker_role="ola_worker", migration_role="ola_migrator",
+    ) == []
 
     unsafe_variants = [
+        {**allowed[0], "admin_option": False},
         {**allowed[0], "set_option": True},
         {**allowed[0], "inherit_option": True},
         {**allowed[0], "grantor": "untrusted_role"},
@@ -232,3 +237,6 @@ def test_runtime_refuses_a_migration_dsn_but_migration_mode_can_use_it(monkeypat
         guard(enforce_runtime_privileges=True)
 
     guard(enforce_runtime_privileges=False)
+
+    monkeypatch.setenv("OLA_DATABASE_MIGRATION_URL", "   ")
+    guard(enforce_runtime_privileges=True)
