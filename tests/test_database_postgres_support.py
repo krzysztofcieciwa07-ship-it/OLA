@@ -119,9 +119,18 @@ def test_database_url_rejects_unsupported_dialects():
         database.database_url_from_env({"OLA_DATABASE_URL": "mysql://ola:secret@db/ola"})
 
 
-def test_postgres_session_context_always_overwrites_tenant_and_worker_gucs():
+def test_postgres_session_context_always_overwrites_tenant_and_worker_gucs(monkeypatch):
+    import hashlib
+    import hmac
     from app.database import _apply_postgres_tenant_context
     from app.tenant_context import tenant_scope, worker_scope
+    secret = "signed-context-test-secret-material-0123456789abcdef"
+    monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", secret)
+    expected_signature = hmac.new(
+        secret.encode("utf-8"),
+        b"OLA-TENANT-CONTEXT-V1:tenant-alpha",
+        hashlib.sha256,
+    ).hexdigest()
 
     calls = []
 
@@ -137,6 +146,7 @@ def test_postgres_session_context_always_overwrites_tenant_and_worker_gucs():
         _apply_postgres_tenant_context(None, None, connection)
     assert calls == [
         ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": ""}),
+        ("SELECT set_config('ola.tenant_signature', :signature, true)", {"signature": ""}),
         ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "off"}),
     ]
 
@@ -145,6 +155,7 @@ def test_postgres_session_context_always_overwrites_tenant_and_worker_gucs():
         _apply_postgres_tenant_context(None, None, connection)
     assert calls == [
         ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": "tenant-alpha"}),
+        ("SELECT set_config('ola.tenant_signature', :signature, true)", {"signature": expected_signature}),
         ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "off"}),
     ]
 
@@ -153,6 +164,7 @@ def test_postgres_session_context_always_overwrites_tenant_and_worker_gucs():
         _apply_postgres_tenant_context(None, None, connection)
     assert calls == [
         ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": ""}),
+        ("SELECT set_config('ola.tenant_signature', :signature, true)", {"signature": ""}),
         ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "on"}),
     ]
 
