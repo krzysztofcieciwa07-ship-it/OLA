@@ -25,6 +25,8 @@ jobs:
       NINA_RUN_ID: ${{ github.run_id }}
       NINA_ARTIFACT_NAME: ${{ inputs.nina_artifact_name }}
       OLLAMA_MODEL: qwen2.5:0.5b-instruct
+      # Must match the source-bound CI fixture used by NINA when creating V3 evidence.
+      OLA_API_KEY_PEPPER: ${{ inputs.source_commit }}
     steps:
       - name: Checkout exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
