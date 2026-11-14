@@ -781,15 +781,14 @@ def verify_postgres_schema(
     context_probe_signature = tenant_context_signature(
         context_probe_tenant, secret=context_secret,
     )
-    conn.execute(text("SELECT set_config('ola.tenant_id', :tenant_id, true)"), {
-        "tenant_id": context_probe_tenant,
-    })
-    conn.execute(text("SELECT set_config('ola.tenant_signature', :signature, true)"), {
-        "signature": context_probe_signature,
-    })
-    context_probe = conn.execute(text("SELECT ola_current_tenant_id()")).scalar_one()
-    conn.execute(text("SELECT set_config('ola.tenant_id', '', true)"))
-    conn.execute(text("SELECT set_config('ola.tenant_signature', '', true)"))
+    with bind.connect() as context_conn:
+        context_conn.execute(text("SELECT set_config('ola.tenant_id', :tenant_id, true)"), {
+            "tenant_id": context_probe_tenant,
+        })
+        context_conn.execute(text("SELECT set_config('ola.tenant_signature', :signature, true)"), {
+            "signature": context_probe_signature,
+        })
+        context_probe = context_conn.execute(text("SELECT ola_current_tenant_id()")).scalar_one()
     if context_probe != context_probe_tenant:
         raise RuntimeError(
             "PostgreSQL signed tenant-context secret does not match the runtime configuration"
