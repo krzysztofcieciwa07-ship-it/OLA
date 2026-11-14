@@ -189,9 +189,13 @@ verification does not retroactively provide confidentiality or keyed
 authenticity. The independent runtime, staging and invoice verifiers implement
 the V3 calculation separately and fail closed when the pepper is absent.
 The chain is still not a third-party signature or proof against compromise of
-the trusted application process or its secret. API-key fingerprints continue
-to use a separate bounded scrypt path with the configured pepper. Passwords
-and other low-entropy credentials require a deliberately slow KDF.
+the trusted application process or its secret. The current V3 implementation
+uses one active root pepper: rotating `OLA_API_KEY_PEPPER` without first
+introducing a versioned evidence-key ring would invalidate historical V3
+verification. Do not rotate that pepper until a key-ring migration is designed
+and tested. API-key fingerprints continue to use a separate bounded scrypt
+path with the configured pepper. Passwords and other low-entropy credentials
+require a deliberately slow KDF.
 
 ## Transaction policy
 
