@@ -10,7 +10,7 @@ from sqlalchemy import select
 from .database import SessionLocal, begin_write_transaction
 from .hashchain import (
     GENESIS_HASH,
-    compute_record_hash_v2,
+    compute_record_hash_v3,
     sealed_payload_json,
     trusted_record,
     verify_chain,
@@ -60,8 +60,8 @@ def _append_locked(db, tenant_id, record_type, payload):
     latest = rows[0] if rows else None
     seq = latest.seq + 1 if latest else 0
     prev_hash = latest.record_hash if latest else GENESIS_HASH
-    payload_json = sealed_payload_json(record_type, payload)
-    digest = compute_record_hash_v2(
+    payload_json = sealed_payload_json(record_type, payload, version=3)
+    digest = compute_record_hash_v3(
         tenant_id, seq, prev_hash, record_type, "ola_runtime", payload_json,
     )
     record = EvidenceRecord(
