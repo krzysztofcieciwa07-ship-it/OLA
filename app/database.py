@@ -357,12 +357,34 @@ def verify_postgres_schema(
               AND c.relname = ANY(:table_names)
         """), {"table_names": list(rls_tables)}).all()
         policy_rows = conn.execute(text("""
-            SELECT tablename, policyname, cmd, permissive, roles,
-                   qual, with_check
-            FROM pg_policies
-            WHERE schemaname = current_schema()
-              AND tablename = ANY(:table_names)
-        """), {"table_names": list(rls_tables)}).all()
+            SELECT policies.tablename, policies.policyname, policies.cmd,
+                   policies.permissive, policies.roles, policies.qual,
+                   policies.with_check,
+                   EXISTS (
+                       SELECT 1
+                       FROM pg_policy AS policy
+                       JOIN pg_class AS policy_table
+                         ON policy_table.oid = policy.polrelid
+                       JOIN pg_namespace AS policy_schema
+                         ON policy_schema.oid = policy_table.relnamespace
+                       JOIN pg_depend AS dependency
+                         ON dependency.classid = 'pg_policy'::regclass
+                        AND dependency.objid = policy.oid
+                        AND dependency.refclassid = 'pg_proc'::regclass
+                       WHERE policy_schema.nspname = policies.schemaname
+                         AND policy_table.relname = policies.tablename
+                         AND policy.polname = policies.policyname
+                         AND dependency.refobjid = to_regprocedure(
+                             format('%I.ola_current_tenant_id()', :schema_name)
+                         )::oid
+                   ) AS uses_expected_tenant_function
+            FROM pg_policies AS policies
+            WHERE policies.schemaname = :schema_name
+              AND policies.tablename = ANY(:table_names)
+        """), {
+            "schema_name": schema_name,
+            "table_names": list(rls_tables),
+        }).all()
         auth_function = conn.execute(text("""
             SELECT p.oid, p.prosecdef, p.proconfig,
                    EXISTS (
@@ -734,10 +756,14 @@ def verify_postgres_schema(
             "roles": tuple(row[4] or ()),
             "qual": normalize_policy_expression(row[5]),
             "with_check": normalize_policy_expression(row[6]),
+            "uses_expected_tenant_function": bool(row[7]),
         }
         for row in policy_rows
     }
-    tenant_context = f"{schema_name}.ola_current_tenant_id()"
+    # pg_policies uses pg_get_expr(), which deparses the call unqualified
+    # under this connection's search_path. Verify the referenced function OID
+    # independently above so a same-named function in another schema is rejected.
+    tenant_context = "ola_current_tenant_id()"
     expected_policies = {
         "tenants": f"id::text = {tenant_context}",
         "api_keys": f"tenant_id::text = {tenant_context}",
@@ -765,6 +791,7 @@ def verify_postgres_schema(
             or restrictive["roles"] != all_roles
             or restrictive["qual"] != expected_policies[table]
             or restrictive["with_check"] != expected_policies[table]
+            or not restrictive["uses_expected_tenant_function"]
         ):
             raise RuntimeError(
                 "PostgreSQL tenant RLS policy expression is invalid: "
