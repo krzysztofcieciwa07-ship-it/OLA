@@ -1250,24 +1250,32 @@ def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgr
         visible_without_signature,
     )
 
-    # A captured valid signature for another tenant must not be reusable for
-    # the victim tenant (the claim is cryptographically bound to tenant_id).
+    # A captured valid signature for tenant A must not authorize tenant B.
+    # Use the raw role connection to prevent ORM hooks from replacing attacker GUCs.
     from app.tenant_context import tenant_context_signature
     attacker_tenant = str(uuid.uuid4())
     attacker_signature = tenant_context_signature(attacker_tenant)
-    with runtime_engine.begin() as conn:
-        conn.execute(
-            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
-            {"tenant_id": victim_tenant},
-        )
-        conn.execute(
-            text("SELECT set_config('ola.tenant_signature', :signature, true)"),
-            {"signature": attacker_signature},
-        )
-        visible_with_replayed_signature = conn.execute(
-            text("SELECT id FROM tenants WHERE id = :tenant_id"),
-            {"tenant_id": victim_tenant},
-        ).scalars().all()
+    replay_engine = create_engine(
+        runtime_engine.url,
+        pool_pre_ping=True,
+        connect_args={"options": f"-csearch_path={_schema}"},
+    )
+    try:
+        with replay_engine.begin() as conn:
+            conn.execute(
+                text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+                {"tenant_id": victim_tenant},
+            )
+            conn.execute(
+                text("SELECT set_config('ola.tenant_signature', :signature, true)"),
+                {"signature": attacker_signature},
+            )
+            visible_with_replayed_signature = conn.execute(
+                text("SELECT id FROM tenants WHERE id = :tenant_id"),
+                {"tenant_id": victim_tenant},
+            ).scalars().all()
+    finally:
+        replay_engine.dispose()
     assert visible_with_replayed_signature == [], (
         "runtime role reused a tenant-A signature to impersonate tenant B",
         visible_with_replayed_signature,
