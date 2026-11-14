@@ -83,10 +83,41 @@ def claim_postgres_jobs(worker_engine, *, limit: int = 20, stale_after_seconds: 
     return claims
 
 
+def _worker_role_membership_violations(rows, *, worker_role, migration_role):
+    """Independently enforce the Neon provider-admin edge for the worker role."""
+    violations = []
+    for row in rows:
+        values = row._mapping if hasattr(row, "_mapping") else row
+        member = values["member"]
+        granted_role = values["granted_role"]
+        grantor = values["grantor"]
+        admin_option = bool(values["admin_option"])
+        inherit_option = bool(values["inherit_option"])
+        set_option = bool(values["set_option"])
+
+        if member == worker_role or granted_role == migration_role:
+            violations.append(row)
+            continue
+        if granted_role != worker_role:
+            violations.append(row)
+            continue
+        provider_managed_edge = (
+            member == migration_role
+            and grantor == "cloud_admin"
+            and admin_option is True
+            and inherit_option is False
+            and set_option is False
+        )
+        if not provider_managed_edge:
+            violations.append(row)
+    return violations
+
+
 def verify_worker_database_identity(
     worker_engine,
     expected_role: str,
     runtime_role: str = "ola_runtime",
+    migration_role: str | None = None,
 ) -> None:
     """Fail closed unless the worker DSN and claim-function owner are isolated."""
     role_pattern = r"[A-Za-z_][A-Za-z0-9_$]{0,62}"
@@ -94,8 +125,11 @@ def verify_worker_database_identity(
         raise RuntimeError("OLA_DATABASE_WORKER_ROLE is invalid")
     if not isinstance(runtime_role, str) or re.fullmatch(role_pattern, runtime_role) is None:
         raise RuntimeError("OLA_DATABASE_RUNTIME_ROLE is invalid")
-    if runtime_role == expected_role:
-        raise RuntimeError("OLA_DATABASE_RUNTIME_ROLE and OLA_DATABASE_WORKER_ROLE must be distinct")
+    migration_role = migration_role or os.getenv("OLA_DATABASE_MIGRATION_ROLE", "ola_migrator").strip()
+    if not isinstance(migration_role, str) or re.fullmatch(role_pattern, migration_role) is None:
+        raise RuntimeError("OLA_DATABASE_MIGRATION_ROLE is invalid")
+    if runtime_role == expected_role or migration_role in {runtime_role, expected_role}:
+        raise RuntimeError("PostgreSQL runtime, worker and migration roles must be distinct")
 
     protected_tables = [
         "tenants",
@@ -138,6 +172,19 @@ def verify_worker_database_identity(
             raise RuntimeError(
                 "PostgreSQL worker role requires schema USAGE and must not have schema CREATE"
             )
+        role_memberships = conn.execute(text("""
+            SELECT pg_get_userbyid(member) AS member,
+                   pg_get_userbyid(roleid) AS granted_role,
+                   pg_get_userbyid(grantor) AS grantor,
+                   admin_option, inherit_option, set_option
+            FROM pg_auth_members
+            WHERE member = pg_catalog.to_regrole(:worker_role)::oid
+               OR roleid = pg_catalog.to_regrole(:worker_role)::oid
+               OR roleid = pg_catalog.to_regrole(:migration_role)::oid
+        """), {
+            "worker_role": expected_role,
+            "migration_role": migration_role,
+        }).all()
         identity = conn.execute(
             text("""
                 SELECT
@@ -150,12 +197,6 @@ def verify_worker_database_identity(
                     r.rolcreaterole,
                     r.rolreplication,
                     r.rolcanlogin,
-                    EXISTS (
-                        SELECT 1
-                        FROM pg_auth_members AS memberships
-                        WHERE memberships.member = pg_catalog.to_regrole(current_user::text)::oid
-                           OR memberships.roleid = pg_catalog.to_regrole(current_user::text)::oid
-                    ) AS has_role_membership,
                     has_schema_privilege(current_user, :schema_name, 'USAGE') AS schema_usage,
                     has_schema_privilege(current_user, :schema_name, 'CREATE') AS schema_create,
                     EXISTS (
@@ -338,8 +379,23 @@ def verify_worker_database_identity(
             "PostgreSQL worker role must be LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS "
             "NOCREATEDB NOCREATEROLE NOREPLICATION"
         )
-    if identity["has_role_membership"]:
-        raise RuntimeError("PostgreSQL worker role must not participate in any role membership")
+    membership_violations = _worker_role_membership_violations(
+        role_memberships, worker_role=expected_role, migration_role=migration_role,
+    )
+    if membership_violations:
+        details = []
+        for row in membership_violations:
+            values = row._mapping if hasattr(row, "_mapping") else row
+            details.append(
+                f"{values['member']}->{values['granted_role']} "
+                f"(grantor={values['grantor']}, admin_option={str(bool(values['admin_option'])).lower()}, "
+                f"inherit_option={str(bool(values['inherit_option'])).lower()}, "
+                f"set_option={str(bool(values['set_option'])).lower()})"
+            )
+        raise RuntimeError(
+            "PostgreSQL worker role has unauthorized role memberships: "
+            + ", ".join(sorted(details))
+        )
     if not identity["schema_usage"] or identity["schema_create"]:
         raise RuntimeError("PostgreSQL worker role requires schema USAGE and must not have schema CREATE")
     if (
