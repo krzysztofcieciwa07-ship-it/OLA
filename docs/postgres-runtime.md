@@ -183,7 +183,8 @@ cannot be replayed for another tenant. Missing, malformed or invalid context
 fails closed and exposes no tenant rows.
 
 `OLA_RLS_CONTEXT_SECRET` must contain at least 32 bytes and must be supplied
-to the one-off migration job and trusted API/worker processes. It is a
+to the one-off migration job and API runtime process. The isolated claim
+worker does not receive this secret because it has no direct tenant-table access. It is a
 high-value application secret: never expose it to clients, logs, support
 bundles or untrusted SQL users. A compromised trusted application process
 that can read this secret remains outside this database-credential-only
