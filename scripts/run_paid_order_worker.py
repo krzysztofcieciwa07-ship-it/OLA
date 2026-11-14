@@ -130,6 +130,14 @@ def verify_worker_database_identity(
                 "from ola_claim_checkout_jobs and checkout_execution_jobs"
             )
         schema_name = schema_matches[0]
+        schema_usage = conn.execute(
+            text("SELECT has_schema_privilege(current_user, :schema_name, 'USAGE')"),
+            {"schema_name": schema_name},
+        ).scalar_one()
+        if not schema_usage:
+            raise RuntimeError(
+                "PostgreSQL worker role requires schema USAGE and must not have schema CREATE"
+            )
         identity = conn.execute(
             text("""
                 SELECT
