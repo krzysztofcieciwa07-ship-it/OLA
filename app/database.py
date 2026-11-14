@@ -688,13 +688,13 @@ def verify_postgres_schema(
         raise RuntimeError("PostgreSQL runtime role must not own tenant-scoped tables")
     if any(state[2] == worker_role for state in rls_state.values()):
         raise RuntimeError("PostgreSQL worker role must not own tenant-scoped tables")
+    if any(state[2] != migration_role for state in rls_state.values()):
+        raise RuntimeError("PostgreSQL tenant tables must be owned by the isolated migration role")
     def normalize_policy_expression(expression):
         # pg_get_expr adds harmless parentheses around identifiers and the
         # complete predicate. Normalize those presentation details while
         # keeping operators, casts, literals and function arguments intact.
         value = re.sub(r"\s+", " ", expression or "").strip()
-        value = value.replace(f'"{schema_name}".ola_current_tenant_id()', "ola_current_tenant_id()")
-        value = value.replace(f"{schema_name}.ola_current_tenant_id()", "ola_current_tenant_id()")
         value = re.sub(r"\(([A-Za-z_][A-Za-z0-9_$]*)\)(?=::)", r"\1", value)
         while value.startswith("(") and value.endswith(")"):
             depth = 0
