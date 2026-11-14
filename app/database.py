@@ -795,6 +795,33 @@ def verify_postgres_schema(
         raise RuntimeError(
             "PostgreSQL signed tenant-context secret does not match the runtime configuration"
         )
+    replay_tenant = "__ola_signed_context_replay__"
+    replay_signature = tenant_context_signature(replay_tenant, secret=context_secret)
+    with bind.connect() as context_conn:
+        context_conn.execute(text("SELECT set_config('ola.tenant_id', :tenant_id, true)"), {
+            "tenant_id": context_probe_tenant,
+        })
+        context_conn.execute(text("SELECT set_config('ola.tenant_signature', :signature, true)"), {
+            "signature": "0" * 64,
+        })
+        invalid_context_probe = context_conn.execute(
+            text("SELECT ola_current_tenant_id()")
+        ).scalar_one()
+    if invalid_context_probe is not None:
+        raise RuntimeError("PostgreSQL signed tenant-context verifier accepted an invalid signature")
+
+    with bind.connect() as context_conn:
+        context_conn.execute(text("SELECT set_config('ola.tenant_id', :tenant_id, true)"), {
+            "tenant_id": context_probe_tenant,
+        })
+        context_conn.execute(text("SELECT set_config('ola.tenant_signature', :signature, true)"), {
+            "signature": replay_signature,
+        })
+        replay_context_probe = context_conn.execute(
+            text("SELECT ola_current_tenant_id()")
+        ).scalar_one()
+    if replay_context_probe is not None:
+        raise RuntimeError("PostgreSQL signed tenant-context verifier accepted a cross-tenant replay")
     auth_function_config = auth_function.proconfig or []
     if auth_function.owner != rls_state["api_keys"][2]:
         raise RuntimeError(
