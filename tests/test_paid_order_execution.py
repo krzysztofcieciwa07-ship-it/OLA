@@ -708,10 +708,11 @@ def test_worker_verifies_runtime_database_before_worker_claim_database(monkeypat
             calls.append(("worker", engine, expected, runtime_role)),
     )
 
+    worker_engine = object()
     worker._verify_worker_connections(
-        object(), worker_role="ola_worker", runtime_role="ola_runtime"
+        worker_engine, worker_role="ola_worker", runtime_role="ola_runtime"
     )
     assert calls == [
         "runtime",
-        ("worker", calls[1][1], "ola_worker", "ola_runtime"),
+        ("worker", worker_engine, "ola_worker", "ola_runtime"),
     ]
