@@ -646,3 +646,35 @@ def test_railway_worker_rejects_sqlite_and_requires_isolated_postgres_claim_url(
     assert _validate_worker_database_mode(
         "sqlite", railway_environment_id=None, worker_url=""
     ) is None
+
+
+def test_worker_identity_allows_only_neon_non_settable_admin_membership():
+    import pytest
+    from scripts.run_paid_order_worker import _worker_role_membership_violations
+
+    allowed = {
+        "member": "ola_migrator",
+        "granted_role": "ola_worker",
+        "grantor": "cloud_admin",
+        "admin_option": True,
+        "inherit_option": False,
+        "set_option": False,
+    }
+    assert _worker_role_membership_violations(
+        [allowed], worker_role="ola_worker", migration_role="ola_migrator",
+    ) == []
+    assert _worker_role_membership_violations(
+        [], worker_role="ola_worker", migration_role="ola_migrator",
+    ) == []
+
+    for unsafe in (
+        {**allowed, "set_option": True},
+        {**allowed, "inherit_option": True},
+        {**allowed, "grantor": "untrusted_role"},
+        {**allowed, "member": "untrusted_role"},
+        {**allowed, "member": "ola_worker", "granted_role": "ola_migrator"},
+        {**allowed, "member": "untrusted_role", "granted_role": "ola_migrator"},
+    ):
+        assert _worker_role_membership_violations(
+            [unsafe], worker_role="ola_worker", migration_role="ola_migrator",
+        ), unsafe
