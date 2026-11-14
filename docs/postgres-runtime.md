@@ -175,11 +175,23 @@ that is outside this PR and remains a production threat-model item.
 
 ## Hash-chain digest rationale
 
-The V2 evidence-chain digest uses SHA-256 over a domain-separated canonical
-record to provide deterministic, collision-resistant integrity linkage. It
-is not used to store or verify passwords or API keys. API-key fingerprints
-use a separate bounded scrypt path with a configured pepper. Password and
-other low-entropy credential storage requires a deliberately slow KDF.
+New evidence records use V3 HMAC-SHA-256 over a domain-separated canonical
+record. The HMAC key is derived with a dedicated context string from the
+server-side `OLA_API_KEY_PEPPER`; the pepper must contain at least 32 bytes
+and must be identical across all API replicas and independent verifiers.
+This prevents a database-only reader from testing guessed payload values
+against published record digests and prevents a database-only writer from
+recomputing valid V3 links without the server secret.
+
+V1 and V2 records remain readable for historical integrity verification only;
+new writes must never use their unkeyed SHA-256 functions. Historical V1/V2
+verification does not retroactively provide confidentiality or keyed
+authenticity. The independent runtime, staging and invoice verifiers implement
+the V3 calculation separately and fail closed when the pepper is absent.
+The chain is still not a third-party signature or proof against compromise of
+the trusted application process or its secret. API-key fingerprints continue
+to use a separate bounded scrypt path with the configured pepper. Passwords
+and other low-entropy credentials require a deliberately slow KDF.
 
 ## Transaction policy
 
