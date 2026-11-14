@@ -266,3 +266,23 @@ def test_postgres_verifier_rejects_role_name_collisions_before_database_access()
             worker_role="ola_worker",
             migration_role="ola_runtime",
         )
+
+
+def test_tenant_context_signature_is_tenant_bound_and_fails_closed(monkeypatch):
+    import hashlib
+    import hmac
+    from app.tenant_context import tenant_context_signature
+
+    secret = "unit-test-tenant-context-secret-material-0123456789"
+    monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", secret)
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        b"OLA-TENANT-CONTEXT-V1:tenant-alpha",
+        hashlib.sha256,
+    ).hexdigest()
+    assert tenant_context_signature("tenant-alpha") == expected
+    assert tenant_context_signature("tenant-beta") != expected
+
+    monkeypatch.delenv("OLA_RLS_CONTEXT_SECRET")
+    with pytest.raises(RuntimeError, match="OLA_RLS_CONTEXT_SECRET"):
+        tenant_context_signature("tenant-alpha")
