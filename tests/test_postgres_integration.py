@@ -1210,3 +1210,31 @@ def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_ow
     database.verify_postgres_schema(
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
+
+
+def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgres_db):
+    """A runtime SQL login must not select a tenant merely by forging ola.tenant_id."""
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    victim_tenant = str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:id, 'victim-tenant')"),
+            {"id": victim_tenant},
+        )
+
+    # This is an adversarial SQL client using only the ola_runtime credentials.
+    # A plain custom PostgreSQL GUC is user-settable, so RLS must not trust it.
+    with runtime_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+            {"tenant_id": victim_tenant},
+        )
+        visible = conn.execute(
+            text("SELECT id FROM tenants WHERE id = :tenant_id"),
+            {"tenant_id": victim_tenant},
+        ).scalars().all()
+
+    assert visible == [], (
+        "ola_runtime impersonated a tenant by forging the legacy ola.tenant_id GUC",
+        visible,
+    )
