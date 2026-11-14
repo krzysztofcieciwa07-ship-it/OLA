@@ -690,12 +690,23 @@ def verify_postgres_schema(
         raise RuntimeError("PostgreSQL worker role must not own tenant-scoped tables")
     if any(state[2] != migration_role for state in rls_state.values()):
         raise RuntimeError("PostgreSQL tenant tables must be owned by the isolated migration role")
+    if any(state[2] != os.getenv("OLA_DATABASE_MIGRATION_ROLE", migration_role) for state in rls_state.values()):
+        raise RuntimeError("PostgreSQL tenant tables must be owned by the configured migration role")
     def normalize_policy_expression(expression):
-        # pg_get_expr adds harmless parentheses around identifiers and the
-        # complete predicate. Normalize those presentation details while
-        # keeping operators, casts, literals and function arguments intact.
-        value = re.sub(r"\s+", " ", expression or "").strip()
-        value = re.sub(r"\(([A-Za-z_][A-Za-z0-9_$]*)\)(?=::)", r"\1", value)
+        # Preserve the schema-qualified verifier identity while normalizing
+        # only PostgreSQL's harmless identifier-parenthesis presentation.
+        value = re.sub(r"\\s+", " ", expression or "").strip()
+        value = re.sub(
+            rf'"{re.escape(schema_name)}"\\.ola_current_tenant_id\\(\\)',
+            f"{schema_name}.ola_current_tenant_id()",
+            value,
+        )
+        value = re.sub(
+            rf"(?<![A-Za-z0-9_$]){re.escape(schema_name)}\\.ola_current_tenant_id\\(\\)",
+            f"{schema_name}.ola_current_tenant_id()",
+            value,
+        )
+        value = re.sub(r"\\(([A-Za-z_][A-Za-z0-9_$]*)\\)(?=::)", r"\\1", value)
         while value.startswith("(") and value.endswith(")"):
             depth = 0
             wraps_all = True
@@ -762,6 +773,7 @@ def verify_postgres_schema(
     if (
         tenant_context_function.owner != rls_state["api_keys"][2]
         or context_secret_owner != tenant_context_function.owner
+        or tenant_context_function.owner != migration_role
     ):
         raise RuntimeError(
             "PostgreSQL tenant-context SECURITY DEFINER owner must match the api_keys table owner"
