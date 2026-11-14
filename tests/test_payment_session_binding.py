@@ -67,8 +67,11 @@ def test_payment_success_returns_status_without_durable_order_details(monkeypatc
         main, "retrieve_checkout",
         lambda sid: paid_session(sid, task, second_order_id),
     )
+    established_contexts = []
+    monkeypatch.setattr(main, "set_current_tenant_id", established_contexts.append)
 
     result = main.payment_success("cs_test_second")
+    assert established_contexts == [TENANT_ID]
 
     assert result["status"] == "COMPLETED"
     assert result["customer_delivery"] == "NOT_DELIVERED"
