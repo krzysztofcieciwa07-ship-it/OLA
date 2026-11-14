@@ -1223,7 +1223,7 @@ def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgr
             {"id": victim_tenant},
         )
 
-    # This is an adversarial SQL client using only the ola_runtime credentials.
+    # This is an adversarial SQL client using only the configured runtime-role credentials.
     # A plain custom PostgreSQL GUC is user-settable, so RLS must not trust it.
     with runtime_engine.begin() as conn:
         conn.execute(
@@ -1235,7 +1235,7 @@ def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgr
             {"tenant_id": victim_tenant},
         ).scalars().all()
     assert visible_without_signature == [], (
-        "ola_runtime impersonated a tenant by forging the legacy ola.tenant_id GUC",
+        "runtime role impersonated a tenant by forging the legacy ola.tenant_id GUC",
         visible_without_signature,
     )
 
@@ -1258,7 +1258,7 @@ def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgr
             {"tenant_id": victim_tenant},
         ).scalars().all()
     assert visible_with_replayed_signature == [], (
-        "ola_runtime reused a tenant-A signature to impersonate tenant B",
+        "runtime role reused a tenant-A signature to impersonate tenant B",
         visible_with_replayed_signature,
     )
 
@@ -1271,7 +1271,7 @@ def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgr
                 {"tenant_id": victim_tenant},
             ).scalars().all() == [victim_tenant]
 
-    # The runtime login cannot read the verification key from its private table.
+    # The runtime role cannot read the verification key from its private table.
     with runtime_engine.begin() as conn:
         with pytest.raises(DBAPIError, match="permission denied"):
             conn.execute(text("SELECT secret FROM ola_rls_context_secrets")).all()
