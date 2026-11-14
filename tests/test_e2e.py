@@ -62,7 +62,7 @@ def test_ola_e2e_closed_environment():
     assert owned.status_code == 200
     assert owned.json()["payload"]["x"] == 1
     assert owned.json()["payload"]["__ola_evidence_v2__"] == {
-        "version": 2, "record_type": "generic", "producer": "tenant_api"
+        "version": 3, "record_type": "generic", "producer": "tenant_api"
     }
 
     cross_tenant = client.get(
