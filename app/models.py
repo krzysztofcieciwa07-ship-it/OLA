@@ -38,6 +38,7 @@ class EvidenceRecord(Base):
 class StripeEvent(Base):
     __tablename__ = "stripe_events"
     id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=True, index=True)
     event_id = Column(String(255), nullable=False, unique=True, index=True)
     status = Column(String(32), nullable=False)
     run_id = Column(String(36), nullable=True)
@@ -97,6 +98,7 @@ class CheckoutExecutionJob(Base):
     status = Column(String(40), nullable=False, index=True)
     attempt_count = Column(Integer, nullable=False, default=0)
     claim_token = Column(String(36), nullable=True)
+    claimed_at = Column(Integer, nullable=True)
     started_at = Column(Integer, nullable=True)
     finished_at = Column(Integer, nullable=True)
     run_id = Column(String(36), nullable=True)

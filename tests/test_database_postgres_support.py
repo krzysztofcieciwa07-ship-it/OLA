@@ -117,3 +117,172 @@ def test_postgres_runtime_schema_only_verifies_and_never_runs_ddl(monkeypatch):
 def test_database_url_rejects_unsupported_dialects():
     with pytest.raises(ValueError, match="PostgreSQL/psycopg or SQLite"):
         database.database_url_from_env({"OLA_DATABASE_URL": "mysql://ola:secret@db/ola"})
+
+
+def test_postgres_session_context_always_overwrites_tenant_and_worker_gucs(monkeypatch):
+    import hashlib
+    import hmac
+    from app.database import _apply_postgres_tenant_context
+    from app.tenant_context import tenant_scope, worker_scope
+    secret = "signed-context-test-secret-material-0123456789abcdef"
+    monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", secret)
+    expected_signature = hmac.new(
+        secret.encode("utf-8"),
+        b"OLA-TENANT-CONTEXT-V1:tenant-alpha",
+        hashlib.sha256,
+    ).hexdigest()
+
+    calls = []
+
+    class FakeConnection:
+        dialect = SimpleNamespace(name="postgresql")
+
+        def execute(self, statement, params=None):
+            calls.append((str(statement), params))
+
+    connection = FakeConnection()
+
+    with tenant_scope(None):
+        _apply_postgres_tenant_context(None, None, connection)
+    assert calls == [
+        ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": ""}),
+        ("SELECT set_config('ola.tenant_signature', :signature, true)", {"signature": ""}),
+        ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "off"}),
+    ]
+
+    calls.clear()
+    with tenant_scope("tenant-alpha"):
+        _apply_postgres_tenant_context(None, None, connection)
+    assert calls == [
+        ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": "tenant-alpha"}),
+        ("SELECT set_config('ola.tenant_signature', :signature, true)", {"signature": expected_signature}),
+        ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "off"}),
+    ]
+
+    calls.clear()
+    with worker_scope():
+        _apply_postgres_tenant_context(None, None, connection)
+    assert calls == [
+        ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": ""}),
+        ("SELECT set_config('ola.tenant_signature', :signature, true)", {"signature": ""}),
+        ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "on"}),
+    ]
+
+
+
+def test_role_membership_diagnostic_includes_grantor_and_admin_option():
+    formatter = getattr(database, "_format_role_membership_violations", None)
+    assert callable(formatter), "role membership diagnostic formatter is missing"
+
+    details = formatter([{
+        "member": "ola_migrator",
+        "granted_role": "ola_runtime",
+        "grantor": "cloud_admin",
+        "admin_option": True,
+        "inherit_option": False,
+        "set_option": False,
+    }])
+
+    assert details == (
+        "ola_migrator->ola_runtime "
+        "(grantor=cloud_admin, admin_option=true, inherit_option=false, set_option=false)"
+    )
+
+
+def test_provider_managed_migration_membership_is_narrowly_allowlisted():
+    validator = getattr(database, "_role_membership_violations", None)
+    assert callable(validator), "provider-managed role membership validator is missing"
+
+    allowed = [{
+        "member": "ola_migrator",
+        "granted_role": "ola_runtime",
+        "grantor": "cloud_admin",
+        "admin_option": True,
+        "inherit_option": False,
+        "set_option": False,
+    }, {
+        "member": "ola_migrator",
+        "granted_role": "ola_worker",
+        "grantor": "cloud_admin",
+        "admin_option": True,
+        "inherit_option": False,
+        "set_option": False,
+    }]
+    assert validator(
+        allowed, runtime_role="ola_runtime",
+        worker_role="ola_worker", migration_role="ola_migrator",
+    ) == []
+    assert validator(
+        [], runtime_role="ola_runtime",
+        worker_role="ola_worker", migration_role="ola_migrator",
+    ) == []
+
+    unsafe_variants = [
+        {**allowed[0], "admin_option": False},
+        {**allowed[0], "set_option": True},
+        {**allowed[0], "inherit_option": True},
+        {**allowed[0], "grantor": "untrusted_role"},
+        {**allowed[0], "member": "untrusted_role"},
+        {**allowed[0], "member": "ola_runtime", "granted_role": "ola_migrator"},
+        {**allowed[0], "member": "untrusted_role", "granted_role": "ola_migrator"},
+        {**allowed[0], "granted_role": "unrelated_role"},
+    ]
+    for membership in unsafe_variants:
+        assert validator(
+            [membership], runtime_role="ola_runtime",
+            worker_role="ola_worker", migration_role="ola_migrator",
+        ), membership
+
+
+def test_runtime_refuses_a_migration_dsn_but_migration_mode_can_use_it(monkeypatch):
+    guard = getattr(database, "_assert_no_runtime_migration_url", None)
+    assert callable(guard), "runtime migration-credential guard is missing"
+
+    monkeypatch.delenv("OLA_DATABASE_MIGRATION_URL", raising=False)
+    guard(enforce_runtime_privileges=True)
+
+    monkeypatch.setenv(
+        "OLA_DATABASE_MIGRATION_URL",
+        "postgresql://migration.invalid/disabled-test-value",
+    )
+    with pytest.raises(RuntimeError, match="migration URL must not be available"):
+        guard(enforce_runtime_privileges=True)
+
+    guard(enforce_runtime_privileges=False)
+
+    monkeypatch.setenv("OLA_DATABASE_MIGRATION_URL", "   ")
+    guard(enforce_runtime_privileges=True)
+
+
+def test_postgres_verifier_rejects_role_name_collisions_before_database_access():
+    class UnreachableEngine:
+        def connect(self):
+            raise AssertionError("invalid role configuration must fail before connecting")
+
+    with pytest.raises(RuntimeError, match="must be distinct"):
+        database.verify_postgres_schema(
+            UnreachableEngine(),
+            runtime_role="ola_runtime",
+            worker_role="ola_worker",
+            migration_role="ola_runtime",
+        )
+
+
+def test_tenant_context_signature_is_tenant_bound_and_fails_closed(monkeypatch):
+    import hashlib
+    import hmac
+    from app.tenant_context import tenant_context_signature
+
+    secret = "unit-test-tenant-context-secret-material-0123456789"
+    monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", secret)
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        b"OLA-TENANT-CONTEXT-V1:tenant-alpha",
+        hashlib.sha256,
+    ).hexdigest()
+    assert tenant_context_signature("tenant-alpha") == expected
+    assert tenant_context_signature("tenant-beta") != expected
+
+    monkeypatch.delenv("OLA_RLS_CONTEXT_SECRET")
+    with pytest.raises(RuntimeError, match="OLA_RLS_CONTEXT_SECRET"):
+        tenant_context_signature("tenant-alpha")

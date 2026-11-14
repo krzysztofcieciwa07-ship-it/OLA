@@ -10,7 +10,7 @@ from sqlalchemy import select
 from .database import SessionLocal, begin_write_transaction
 from .runtime_provenance import runtime_source_commit
 from .models import EvidenceRecord
-from .hashchain import sealed_payload_json, compute_record_hash_v2, verify_chain, trusted_record
+from .hashchain import sealed_payload_json, compute_record_hash_v3, verify_chain, trusted_record
 from .igor_workflow import verify_dag_records
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain, STATUS_FIELDS
@@ -84,9 +84,9 @@ def approve_workflow(*, tenant_id, approver_id, run_id, tip_hash, report_digest,
             "commit": expected_commit,
             "decision": "APPROVED_FOR_REVIEW_ONLY",
         }
-        raw = sealed_payload_json("human.workflow_approval", payload)
+        raw = sealed_payload_json("human.workflow_approval", payload, version=3)
         next_seq = latest.seq + 1
-        next_hash = compute_record_hash_v2(
+        next_hash = compute_record_hash_v3(
             tenant_id, next_seq, tip_hash, "human.workflow_approval", "ola_runtime", raw
         )
         db.add(EvidenceRecord(
@@ -188,9 +188,9 @@ def approve_nina_candidate(*, tenant_id, approver_id, run_id, tip_hash,
             "decision": "APPROVED_FOR_REVIEW_ONLY",
             "production_authorized": False,
         }
-        raw = sealed_payload_json("human.approval", payload)
+        raw = sealed_payload_json("human.approval", payload, version=3)
         next_seq = latest.seq + 1
-        next_hash = compute_record_hash_v2(
+        next_hash = compute_record_hash_v3(
             tenant_id, next_seq, tip_hash, "human.approval", "ola_runtime", raw
         )
         record_id = str(uuid.uuid4())

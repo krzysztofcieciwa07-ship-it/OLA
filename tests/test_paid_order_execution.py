@@ -88,7 +88,8 @@ def test_worker_rejects_missing_or_wrong_token(monkeypatch):
     assert wrong.status_code == 403
 
 
-def test_stale_running_job_is_marked_interrupted_and_never_replayed(monkeypatch):
+@pytest.mark.parametrize("started_at_offset", [None, 901])
+def test_stale_running_job_is_marked_interrupted_and_never_replayed(monkeypatch, started_at_offset):
     import time
     from sqlalchemy import select
     from fastapi.testclient import TestClient
@@ -102,7 +103,10 @@ def test_stale_running_job_is_marked_interrupted_and_never_replayed(monkeypatch)
         job = db.scalar(select(CheckoutExecutionJob).where(CheckoutExecutionJob.order_id == ctx["order_id"]))
         job.status = "RUNNING"
         job.attempt_count = 1
-        job.started_at = int(time.time()) - 901
+        job.started_at = (
+            None if started_at_offset is None
+            else int(time.time()) - started_at_offset
+        )
         db.commit()
         job_id = job.id
     token = "worker-secret-" + "w" * 40
@@ -317,3 +321,398 @@ def test_concurrent_worker_invocations_claim_one_execution_only(monkeypatch):
 
     assert result["status"] == "EXECUTED_REVIEW_REQUIRED"
     assert len(calls) == 1
+
+
+def test_internal_worker_route_forwards_tenant_and_claim_token(monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as main
+
+    worker_token = "worker-secret-" + "w" * 40
+    tenant_id = "tenant-claim-123"
+    claim_token = "claim-token-4567"
+    job_id = "job-claim-789"
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", worker_token)
+    received = {}
+
+    def fake_execute(job_id_arg, **kwargs):
+        received["job_id"] = job_id_arg
+        received.update(kwargs)
+        return {"status": "CLAIM_ACCEPTED"}
+
+    monkeypatch.setattr(main, "execute_paid_order_job", fake_execute)
+    response = TestClient(main.app).post(
+        f"/internal/checkout-execution/{job_id}/run",
+        headers={
+            "X-OLA-Worker-Token": worker_token,
+            "X-OLA-Tenant-ID": tenant_id,
+            "X-OLA-Claim-Token": claim_token,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"status": "CLAIM_ACCEPTED"}
+    assert received == {
+        "job_id": job_id,
+        "tenant_id": tenant_id,
+        "claim_token": claim_token,
+    }
+
+
+def test_postgres_worker_batch_claims_and_dispatches_only_claim_coordinates(monkeypatch):
+    from types import SimpleNamespace
+    import scripts.run_paid_order_worker as worker
+
+    class FakeConnection:
+        def execute(self, statement, params):
+            assert "ola_claim_checkout_jobs" in str(statement)
+            assert params == {"limit": 20, "stale_after": 900}
+            return [
+                SimpleNamespace(job_id="job-1", tenant_id="tenant-1", claim_token="claim-token-000000000001"),
+            ]
+
+    class FakeEngine:
+        def begin(self):
+            class Transaction:
+                def __enter__(self):
+                    return FakeConnection()
+
+                def __exit__(self, exc_type, exc, traceback):
+                    return False
+            return Transaction()
+
+    dispatched = []
+    def fake_dispatch(api_url, worker_token, claim, *, stale_after_seconds=900):
+        dispatched.append((api_url, worker_token, claim, stale_after_seconds))
+        return {"status": "ACCEPTED"}
+
+    monkeypatch.setattr(worker, "dispatch_claim_to_api", fake_dispatch)
+    result = worker.run_once(
+        worker_engine=FakeEngine(),
+        api_url="https://ola-internal.example",
+        worker_token="worker-secret-" + "w" * 40,
+    )
+
+    assert result == 0
+    assert dispatched == [(
+        "https://ola-internal.example",
+        "worker-secret-" + "w" * 40,
+        {"job_id": "job-1", "tenant_id": "tenant-1", "claim_token": "claim-token-000000000001"},
+        900,
+    )]
+
+
+def test_postgres_worker_execution_fails_closed_without_claim_coordinates(monkeypatch):
+    from types import SimpleNamespace
+    import app.paid_order_execution as execution
+
+    class ProbeSession:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def get_bind(self):
+            return self.bind
+
+    monkeypatch.setattr(execution, "SessionLocal", ProbeSession)
+    with pytest.raises(execution.PaidOrderExecutionRejected) as exc:
+        execution.execute_paid_order_job("job-without-claim")
+    assert exc.value.code == 409
+    assert "claim token" in str(exc.value)
+
+
+def test_postgres_worker_http_dispatch_sends_claim_only_as_headers(monkeypatch):
+    import scripts.run_paid_order_worker as worker
+
+    seen = {}
+    class FakeResponse:
+        status = 200
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+        def read(self):
+            return b'{"status":"ACCEPTED"}'
+
+    class FakeOpener:
+        def open(self, request, timeout):
+            seen["url"] = request.full_url
+            seen["timeout"] = timeout
+            seen["headers"] = {key.lower(): value for key, value in request.header_items()}
+            return FakeResponse()
+
+    monkeypatch.setattr(worker, "build_opener", lambda handler: FakeOpener())
+    result = worker.dispatch_claim_to_api(
+        "https://ola-internal.example",
+        "worker-secret-" + "w" * 40,
+        {"job_id": "job-123", "tenant_id": "tenant-456", "claim_token": "claim-token-789-123456"},
+    )
+    assert result == {"status": "ACCEPTED"}
+    assert seen["url"] == "https://ola-internal.example/internal/checkout-execution/job-123/run"
+    assert "tenant-456" not in seen["url"]
+    assert "claim-token-789-123456" not in seen["url"]
+    assert seen["headers"]["x-ola-worker-token"] == "worker-secret-" + "w" * 40
+    assert seen["headers"]["x-ola-tenant-id"] == "tenant-456"
+    assert seen["headers"]["x-ola-claim-token"] == "claim-token-789-123456"
+    assert seen["headers"]["x-ola-claim-stale-after"] == "900"
+    assert seen["timeout"] == 20
+
+
+def test_postgres_claim_validation_binds_tenant_token_and_expiry():
+    from types import SimpleNamespace
+    from app.paid_order_execution import _postgres_claim_is_current
+
+    job = SimpleNamespace(tenant_id="tenant-1", claim_token="claim-token-123456", claimed_at=1_000)
+    assert _postgres_claim_is_current(
+        job, "tenant-1", "claim-token-123456", now=1_100, stale_after_seconds=900,
+    ) is True
+    assert _postgres_claim_is_current(
+        job, "tenant-2", "claim-token-123456", now=1_100, stale_after_seconds=900,
+    ) is False
+    assert _postgres_claim_is_current(
+        job, "tenant-1", "wrong-token-123456", now=1_100, stale_after_seconds=900,
+    ) is False
+    assert _postgres_claim_is_current(
+        job, "tenant-1", "claim-token-123456", now=2_000, stale_after_seconds=900,
+    ) is False
+    assert _postgres_claim_is_current(
+        job, "tenant-1", "claim-token-123456", now=900, stale_after_seconds=900,
+    ) is False
+    assert _postgres_claim_is_current(
+        job, "tenant-1", "claim-token-12☃", now=1_100, stale_after_seconds=900,
+    ) is False
+
+
+def test_postgres_worker_refuses_shared_runtime_database_without_worker_dsn(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import scripts.run_paid_order_worker as worker
+
+    monkeypatch.setattr(
+        worker, "runtime_engine",
+        SimpleNamespace(dialect=SimpleNamespace(name="postgresql")),
+    )
+    monkeypatch.delenv("OLA_DATABASE_WORKER_URL", raising=False)
+    monkeypatch.setattr(sys, "argv", ["run_paid_order_worker.py", "--once"])
+    with pytest.raises(SystemExit, match="OLA_DATABASE_WORKER_URL"):
+        worker.main()
+
+
+def test_postgres_worker_route_accepts_claim_and_schedules_execution(monkeypatch):
+    from types import SimpleNamespace
+    from fastapi.testclient import TestClient
+    import app.main as main
+
+    worker_token = "worker-secret-" + "w" * 40
+    tenant_id = "tenant-claim-123"
+    claim_token = "claim-token-4567"
+    job_id = "job-claim-789"
+    received = {}
+
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", worker_token)
+    monkeypatch.setattr(main, "engine", SimpleNamespace(dialect=SimpleNamespace(name="postgresql")))
+
+    def fake_validate(job_id_arg, tenant_id_arg, claim_token_arg, *, stale_after_seconds=900):
+        received["validated"] = (job_id_arg, tenant_id_arg, claim_token_arg, stale_after_seconds)
+
+    def fake_execute(job_id_arg, **kwargs):
+        received["executed"] = (job_id_arg, kwargs)
+
+    monkeypatch.setattr(main, "validate_postgres_worker_claim", fake_validate)
+    monkeypatch.setattr(main, "execute_paid_order_job", fake_execute)
+    response = TestClient(main.app).post(
+        f"/internal/checkout-execution/{job_id}/run",
+        headers={
+            "X-OLA-Worker-Token": worker_token,
+            "X-OLA-Tenant-ID": tenant_id,
+            "X-OLA-Claim-Token": claim_token,
+        },
+    )
+
+    assert response.status_code == 202, response.text
+    assert response.json() == {"status": "ACCEPTED", "job_id": job_id}
+    assert received["validated"] == (job_id, tenant_id, claim_token, 900)
+    assert received["executed"] == (
+        job_id, {
+            "tenant_id": tenant_id,
+            "claim_token": claim_token,
+            "stale_after_seconds": 900,
+        },
+    )
+
+
+def test_worker_token_rejects_non_ascii_and_invalid_configuration(monkeypatch):
+    from app.paid_order_execution import PaidOrderExecutionRejected, verify_worker_token
+
+    valid_token = "worker-secret-" + "a" * 40
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", valid_token)
+    with pytest.raises(PaidOrderExecutionRejected) as incoming:
+        verify_worker_token("worker-secret-☃" + "a" * 40)
+    assert incoming.value.code == 401
+
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", "worker-secret-☃" + "a" * 40)
+    with pytest.raises(PaidOrderExecutionRejected) as configured:
+        verify_worker_token(valid_token)
+    assert configured.value.code == 503
+
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", valid_token + "x" * 300)
+    with pytest.raises(PaidOrderExecutionRejected) as oversized_config:
+        verify_worker_token(valid_token)
+    assert oversized_config.value.code == 503
+
+    monkeypatch.setenv("OLA_EXECUTION_WORKER_TOKEN", valid_token)
+    with pytest.raises(PaidOrderExecutionRejected) as oversized_input:
+        verify_worker_token(valid_token + "x" * 300)
+    assert oversized_input.value.code == 401
+
+
+def test_postgres_worker_rejects_non_acceptance_response(monkeypatch):
+    from types import SimpleNamespace
+    import scripts.run_paid_order_worker as worker
+
+    class FakeConnection:
+        def execute(self, statement, params):
+            return [
+                SimpleNamespace(job_id="job-1", tenant_id="tenant-1", claim_token="claim-token-123456"),
+            ]
+
+    class FakeEngine:
+        def begin(self):
+            class Transaction:
+                def __enter__(self):
+                    return FakeConnection()
+                def __exit__(self, exc_type, exc, traceback):
+                    return False
+            return Transaction()
+
+    monkeypatch.setattr(
+        worker, "dispatch_claim_to_api",
+        lambda *args, **kwargs: {"status": "UNEXPECTED"},
+    )
+    assert worker.run_once(
+        worker_engine=FakeEngine(),
+        api_url="https://ola-internal.example",
+        worker_token="worker-secret-" + "w" * 40,
+    ) == 1
+
+
+@pytest.mark.parametrize(
+    ("limit", "stale_after_seconds"),
+    [
+        (0, 900),
+        (101, 900),
+        (20, 59),
+        (20, 86401),
+    ],
+)
+def test_postgres_worker_rejects_invalid_claim_bounds_before_db_access(limit, stale_after_seconds):
+    import scripts.run_paid_order_worker as worker
+
+    with pytest.raises(ValueError):
+        worker.claim_postgres_jobs(
+            None, limit=limit, stale_after_seconds=stale_after_seconds,
+        )
+
+
+def test_postgres_worker_rejects_oversized_worker_token_before_dispatch():
+    import scripts.run_paid_order_worker as worker
+
+    with pytest.raises(ValueError, match="printable ASCII"):
+        worker._validate_dispatch_config(
+            "https://ola-internal.example",
+            "worker-secret-" + "x" * 300,
+        )
+
+
+def test_railway_worker_rejects_sqlite_and_requires_isolated_postgres_claim_url():
+    import pytest
+    from scripts.run_paid_order_worker import _validate_worker_database_mode
+
+    with pytest.raises(ValueError, match="must not fall back to SQLite"):
+        _validate_worker_database_mode(
+            "sqlite", railway_environment_id="staging-env", worker_url=""
+        )
+    with pytest.raises(ValueError, match="OLA_DATABASE_WORKER_URL"):
+        _validate_worker_database_mode(
+            "postgresql", railway_environment_id="staging-env", worker_url=""
+        )
+    assert _validate_worker_database_mode(
+        "postgresql", railway_environment_id="staging-env",
+        worker_url="postgresql://worker.invalid/worker",
+    ) is None
+    assert _validate_worker_database_mode(
+        "sqlite", railway_environment_id=None, worker_url=""
+    ) is None
+
+
+def test_worker_identity_allows_only_neon_non_settable_admin_membership():
+    import pytest
+    from scripts.run_paid_order_worker import _worker_role_membership_violations
+
+    allowed = {
+        "member": "ola_migrator",
+        "granted_role": "ola_worker",
+        "grantor": "cloud_admin",
+        "admin_option": True,
+        "inherit_option": False,
+        "set_option": False,
+    }
+    assert _worker_role_membership_violations(
+        [allowed], worker_role="ola_worker", migration_role="ola_migrator",
+    ) == []
+    assert _worker_role_membership_violations(
+        [], worker_role="ola_worker", migration_role="ola_migrator",
+    ) == []
+
+    for unsafe in (
+        {**allowed, "set_option": True},
+        {**allowed, "inherit_option": True},
+        {**allowed, "grantor": "untrusted_role"},
+        {**allowed, "member": "untrusted_role"},
+        {**allowed, "member": "ola_worker", "granted_role": "ola_migrator"},
+        {**allowed, "member": "untrusted_role", "granted_role": "ola_migrator"},
+    ):
+        assert _worker_role_membership_violations(
+            [unsafe], worker_role="ola_worker", migration_role="ola_migrator",
+        ), unsafe
+
+
+def test_railway_worker_requires_shared_pepper_for_keyed_evidence():
+    import pytest
+    from scripts.run_paid_order_worker import _validate_worker_evidence_key
+
+    with pytest.raises(ValueError, match="OLA_API_KEY_PEPPER"):
+        _validate_worker_evidence_key(
+            "", railway_environment_id="staging-env"
+        )
+    assert _validate_worker_evidence_key(
+        "worker-test-pepper-material-0123456789",
+        railway_environment_id="staging-env",
+    ) is None
+    assert _validate_worker_evidence_key(
+        "", railway_environment_id=None,
+    ) is None
+
+
+def test_worker_verifies_runtime_database_before_worker_claim_database(monkeypatch):
+    import scripts.run_paid_order_worker as worker
+
+    calls = []
+    monkeypatch.setattr(worker, "prepare_runtime_schema", lambda: calls.append("runtime"))
+    monkeypatch.setattr(
+        worker, "verify_worker_database_identity",
+        lambda engine, expected, runtime_role="ola_runtime", migration_role=None:
+            calls.append(("worker", engine, expected, runtime_role)),
+    )
+
+    worker_engine = object()
+    worker._verify_worker_connections(
+        worker_engine, worker_role="ola_worker", runtime_role="ola_runtime"
+    )
+    assert calls == [
+        "runtime",
+        ("worker", worker_engine, "ola_worker", "ola_runtime"),
+    ]

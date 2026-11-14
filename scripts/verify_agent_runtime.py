@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import sqlite3
@@ -40,19 +41,27 @@ def independent_record_hash(tenant_id, seq, record_type, payload_json, prev_hash
     if metadata is None:
         return compute_record_hash(tenant_id, seq, prev_hash, payload_json)
     if (not isinstance(metadata, dict)
-            or metadata != {"version": 2, "record_type": record_type,
-                            "producer": metadata.get("producer")}
+            or set(metadata) != {"version", "record_type", "producer"}
+            or metadata.get("version") not in (2, 3)
+            or metadata.get("record_type") != record_type
             or metadata.get("producer") not in ("ola_runtime", "tenant_api")
             or (record_type.startswith(("agent.", "workflow.", "task.", "human.",
                                         "provenance.", "decision.", "execution.", "verification."))
                 and metadata.get("producer") != "ola_runtime")):
         return None
+    domain = "OLA-EVIDENCE-CHAIN-V3" if metadata["version"] == 3 else "OLA-EVIDENCE-CHAIN-V2"
     material = json.dumps({
-        "domain": "OLA-EVIDENCE-CHAIN-V2",
+        "domain": domain,
         "tenant_id": tenant_id, "seq": seq, "prev_hash": prev_hash,
         "record_type": record_type, "producer": metadata["producer"],
         "payload_json": payload_json,
     }, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    if metadata["version"] == 3:
+        master = os.environ.get("OLA_API_KEY_PEPPER", "").encode("utf-8")
+        if len(master) < 32:
+            return None
+        key = hmac.new(master, b"OLA-EVIDENCE-CHAIN-KEY-V3", hashlib.sha256).digest()
+        return hmac.new(key, material, hashlib.sha256).hexdigest()
     return hashlib.sha256(material).hexdigest()
 
 
@@ -121,8 +130,11 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
     for row in run_rows:
         payload = json.loads(row[3])
         payloads.append(payload)
-        if payload.get(V2_KEY) != {"version": 2, "record_type": row[2],
-                                   "producer": "ola_runtime"}:
+        metadata = payload.get(V2_KEY)
+        if (not isinstance(metadata, dict)
+                or metadata.get("version") not in (2, 3)
+                or metadata.get("record_type") != row[2]
+                or metadata.get("producer") != "ola_runtime"):
             return fail("legacy or unbound agent evidence")
         agent = payload.get("agent")
         required = {

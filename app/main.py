@@ -6,9 +6,9 @@ import uuid
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.exc import IntegrityError
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, append_evidence_atomic, prepare_runtime_schema, verify_postgres_schema
@@ -27,10 +27,20 @@ from .chat_runtime import chat
 from .revenue import create_checkout, retrieve_checkout, payment_verified
 from .stripe_webhook import process_checkout_event
 from .order_approval import approve_paid_order, PaidOrderApprovalRejected
-from .paid_order_execution import execute_paid_order_job, verify_worker_token, PaidOrderExecutionRejected
+from .paid_order_execution import execute_paid_order_job, validate_postgres_worker_claim, verify_worker_token, PaidOrderExecutionRejected
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
+from .tenant_context import set_current_tenant_id, reset_current_tenant_id
 
 app = FastAPI(title="OLA Execution Gate")
+
+@app.middleware("http")
+async def isolate_request_tenant_context(request: Request, call_next):
+    token = set_current_tenant_id(None)
+    try:
+        return await call_next(request)
+    finally:
+        reset_current_tenant_id(token)
+
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
@@ -46,10 +56,21 @@ def identity_from_key(raw_key):
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="API key verification unavailable") from exc
     with SessionLocal() as db:
-        key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
-        if key is None:
-            raise HTTPException(status_code=401, detail="invalid API key")
-        return key.tenant_id, key.id
+        if db.bind.dialect.name == "postgresql":
+            row = db.execute(
+                text("SELECT tenant_id, api_key_id FROM ola_authenticate_api_key(:key_hash)"),
+                {"key_hash": key_hash},
+            ).one_or_none()
+            if row is None:
+                raise HTTPException(status_code=401, detail="invalid API key")
+            tenant_id, key_id = row.tenant_id, row.api_key_id
+        else:
+            key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
+            if key is None:
+                raise HTTPException(status_code=401, detail="invalid API key")
+            tenant_id, key_id = key.tenant_id, key.id
+    set_current_tenant_id(tenant_id)
+    return tenant_id, key_id
 
 
 def tenant_from_key(raw_key):
@@ -512,6 +533,9 @@ def payment_success(session_id: str):
     if not request_hash:
         raise HTTPException(status_code=403, detail="payment session has no request hash")
 
+    # Stripe has authenticated the Checkout Session and its tenant/order metadata.
+    # Establish the signed database context before any tenant-scoped read.
+    set_current_tenant_id(tenant_id)
     with SessionLocal() as db:
         order = db.get(CheckoutOrder, order_id)
         if (
@@ -877,11 +901,37 @@ def retrieve_checkout_order_report(
 @app.post("/internal/checkout-execution/{job_id}/run")
 def run_paid_order_execution_job(
     job_id: str,
+    background_tasks: BackgroundTasks,
     x_ola_worker_token: str | None = Header(default=None),
+    x_ola_tenant_id: str | None = Header(default=None),
+    x_ola_claim_token: str | None = Header(default=None),
+    x_ola_claim_stale_after: int = Header(default=900),
 ):
     try:
         verify_worker_token(x_ola_worker_token)
-        return execute_paid_order_job(job_id)
+        if engine.dialect.name == "postgresql":
+            validate_postgres_worker_claim(
+                job_id,
+                x_ola_tenant_id,
+                x_ola_claim_token,
+                stale_after_seconds=x_ola_claim_stale_after,
+            )
+            background_tasks.add_task(
+                execute_paid_order_job,
+                job_id,
+                tenant_id=x_ola_tenant_id,
+                claim_token=x_ola_claim_token,
+                stale_after_seconds=x_ola_claim_stale_after,
+            )
+            return JSONResponse(
+                status_code=202,
+                content={"status": "ACCEPTED", "job_id": job_id},
+            )
+        return execute_paid_order_job(
+            job_id,
+            tenant_id=x_ola_tenant_id,
+            claim_token=x_ola_claim_token,
+        )
     except PaidOrderExecutionRejected as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 

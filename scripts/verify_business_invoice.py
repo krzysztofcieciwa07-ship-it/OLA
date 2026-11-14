@@ -1,6 +1,8 @@
 import argparse
 import hashlib
+import hmac
 import json
+import os
 import sqlite3
 
 ROLES = ["codeact", "react", "agentic_rag", "mcp_tool_use", "self_reflection", "multi_agent"]
@@ -67,16 +69,28 @@ def main():
         if prev_hash != expected_prev:
             fail("hash-chain predecessor mismatch")
         payload = json.loads(payload_json)
-        # Independent V2 verification binds the producer and record type.
-        if payload.get("__ola_evidence_v2__") != {
-                "version": 2, "record_type": record_type, "producer": "ola_runtime"}:
+        # Independent V2/V3 verification binds producer and record type.
+        metadata = payload.get("__ola_evidence_v2__")
+        if (not isinstance(metadata, dict)
+                or set(metadata) != {"version", "record_type", "producer"}
+                or metadata.get("version") not in (2, 3)
+                or metadata.get("record_type") != record_type
+                or metadata.get("producer") != "ola_runtime"):
             fail("legacy or unauthenticated agent evidence")
+        domain = "OLA-EVIDENCE-CHAIN-V3" if metadata["version"] == 3 else "OLA-EVIDENCE-CHAIN-V2"
         material = canonical({
-            "domain": "OLA-EVIDENCE-CHAIN-V2", "tenant_id": tenant_id,
+            "domain": domain, "tenant_id": tenant_id,
             "seq": seq, "prev_hash": prev_hash, "record_type": record_type,
             "producer": "ola_runtime", "payload_json": payload_json,
-        })
-        expected_hash = hashlib.sha256(material.encode("utf-8")).hexdigest()
+        }).encode("utf-8")
+        if metadata["version"] == 3:
+            master = os.environ.get("OLA_API_KEY_PEPPER", "").encode("utf-8")
+            if len(master) < 32:
+                fail("evidence chain key is not configured")
+            key = hmac.new(master, b"OLA-EVIDENCE-CHAIN-KEY-V3", hashlib.sha256).digest()
+            expected_hash = hmac.new(key, material, hashlib.sha256).hexdigest()
+        else:
+            expected_hash = hashlib.sha256(material).hexdigest()
         if record_hash != expected_hash:
             fail("hash-chain record hash mismatch")
         expected_prev = record_hash

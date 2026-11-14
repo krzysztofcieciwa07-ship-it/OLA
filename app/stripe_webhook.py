@@ -14,6 +14,7 @@ from .database import SessionLocal, append_evidence_atomic
 from .hashchain import canonical_json
 from .models import StripeEvent, CheckoutOrder, CheckoutOrderControl
 from .revenue import retrieve_checkout
+from .tenant_context import set_current_tenant_id
 
 
 STRIPE_SIGNATURE_TOLERANCE_SECONDS = 300
@@ -172,6 +173,8 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     if not isinstance(order_id, str) or not order_id.strip():
         raise HTTPException(status_code=400, detail="Stripe session has no OLA order binding")
 
+    set_current_tenant_id(tenant_id)
+
     # Claim the order with a conditional update. Only one Stripe event may own
     # the transition from CHECKOUT_CREATED to PAYMENT_PROCESSING.
     with SessionLocal() as db:
@@ -238,6 +241,7 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
         else:
             db.add(StripeEvent(
                 id=str(uuid.uuid4()),
+                tenant_id=tenant_id,
                 event_id=event_id,
                 status="PROCESSING",
                 task=None,

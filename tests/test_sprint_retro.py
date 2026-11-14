@@ -131,7 +131,7 @@ def test_document_never_promoted_when_igor_rejects_trace(monkeypatch):
 def test_igor_rejects_rehashed_evidence_with_invented_citation(monkeypatch):
     """A recomputed local chain alone cannot authorize a fabricated link."""
     import json
-    from app.hashchain import canonical_json, compute_record_hash_v2, EVIDENCE_META_KEY
+    from app.hashchain import canonical_json, compute_record_hash_v3, EVIDENCE_META_KEY
     from app.workflow_engine import _digest
     from app.igor_sprint_retro import verify_sprint_retro_records
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", "retro-ci-head")
@@ -170,7 +170,7 @@ def test_igor_rejects_rehashed_evidence_with_invented_citation(monkeypatch):
     for seq, event in enumerate(events):
         raw = canonical_json(event)
         meta = event[EVIDENCE_META_KEY]
-        digest = compute_record_hash_v2(tenant, seq, previous, meta["record_type"], meta["producer"], raw)
+        digest = compute_record_hash_v3(tenant, seq, previous, meta["record_type"], meta["producer"], raw)
         forged.append({"tenant_id": tenant, "seq": seq, "prev_hash": previous,
                        "record_hash": digest, "payload_json": raw,
                        "record_type": event["event"]})
@@ -196,7 +196,7 @@ def test_igor_accepts_fast_nonoverlapping_parallel_reads(monkeypatch):
     # topology is parallel, but instant reads do not guarantee clock overlap.
     from app.igor_sprint_retro import verify_sprint_retro_records
     import json
-    from app.hashchain import canonical_json, compute_record_hash_v2, EVIDENCE_META_KEY
+    from app.hashchain import canonical_json, compute_record_hash_v3, EVIDENCE_META_KEY
     import app.sprint_retro as retro
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", "retro-ci-head")
     tickets, messages = source_items()
@@ -218,7 +218,7 @@ def test_igor_accepts_fast_nonoverlapping_parallel_reads(monkeypatch):
     for seq, event in enumerate(events):
         raw = canonical_json(event)
         meta = event[EVIDENCE_META_KEY]
-        digest = compute_record_hash_v2(tenant, seq, prev, meta["record_type"], meta["producer"], raw)
+        digest = compute_record_hash_v3(tenant, seq, prev, meta["record_type"], meta["producer"], raw)
         forged.append({"tenant_id": tenant, "seq": seq, "prev_hash": prev,
                        "record_hash": digest, "record_type": event["event"],
                        "payload_json": raw})
@@ -234,7 +234,7 @@ def test_igor_accepts_fast_nonoverlapping_parallel_reads(monkeypatch):
 def test_rehashed_retrospective_document_must_match_recorded_synthesis(monkeypatch):
     from app.igor_sprint_retro import verify_sprint_retro_records
     from app.workflow_engine import _digest
-    from app.hashchain import canonical_json, compute_record_hash_v2, EVIDENCE_META_KEY
+    from app.hashchain import canonical_json, compute_record_hash_v3, EVIDENCE_META_KEY
     import hashlib
     import json
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", "retro-ci-head")
@@ -259,7 +259,7 @@ def test_rehashed_retrospective_document_must_match_recorded_synthesis(monkeypat
     for seq, event in enumerate(events):
         raw = canonical_json(event)
         meta = event[EVIDENCE_META_KEY]
-        digest = compute_record_hash_v2(tenant, seq, prev, meta["record_type"], meta["producer"], raw)
+        digest = compute_record_hash_v3(tenant, seq, prev, meta["record_type"], meta["producer"], raw)
         records.append({"tenant_id": tenant, "seq": seq, "prev_hash": prev,
                         "record_hash": digest, "record_type": event["event"],
                         "payload_json": raw})

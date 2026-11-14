@@ -132,3 +132,49 @@ def test_old_hash_with_forged_v2_metadata_cannot_be_promoted():
            "record_type": "workflow.planned", "payload_json": fake,
            "record_hash": legacy_hash}
     assert verify_chain([old]) == (False, "record hash mismatch")
+
+
+
+def test_v3_evidence_chain_uses_keyed_digest_and_fails_closed(monkeypatch):
+    import pytest
+    from app import hashchain
+
+    monkeypatch.setenv("OLA_API_KEY_PEPPER", "evidence-test-key-material-0123456789abcdef")
+    digest_fn = getattr(hashchain, "compute_record_hash_v3", None)
+    assert callable(digest_fn), "keyed V3 evidence digest is missing"
+    sealed = hashchain.sealed_payload_json(
+        "workflow.planned", {"event": "workflow.planned"}, version=3
+    )
+
+    record = {
+        "tenant_id": "tenant-v3",
+        "seq": 0,
+        "prev_hash": hashchain.GENESIS_HASH,
+        "record_type": "workflow.planned",
+        "payload_json": sealed,
+    }
+    record["record_hash"] = digest_fn(
+        record["tenant_id"], record["seq"], record["prev_hash"],
+        record["record_type"], "ola_runtime", sealed,
+    )
+    assert hashchain.verify_chain([record]) == (True, "ok")
+    assert hashchain.trusted_record(record) is True
+
+    from scripts.verify_agent_runtime import independent_record_hash
+    assert independent_record_hash(
+        record["tenant_id"], record["seq"], record["record_type"],
+        record["payload_json"], record["prev_hash"],
+    ) == record["record_hash"]
+
+    monkeypatch.setenv("OLA_API_KEY_PEPPER", "different-test-key-material-0123456789")
+    assert hashchain.verify_chain([record]) == (False, "record hash mismatch")
+
+    monkeypatch.delenv("OLA_API_KEY_PEPPER", raising=False)
+    assert hashchain.verify_chain([record]) == (
+        False, "evidence chain key is not configured"
+    )
+    with pytest.raises(RuntimeError, match="evidence chain key"):
+        digest_fn(
+            record["tenant_id"], record["seq"], record["prev_hash"],
+            record["record_type"], "ola_runtime", sealed,
+        )
