@@ -2,7 +2,9 @@
 """Independent evidence V2 hash-chain verifier, without importing producer code."""
 import argparse
 import hashlib
+import hmac
 import json
+import os
 import os
 import sqlite3
 import sys
@@ -21,16 +23,28 @@ def verify_chain(db_path, tenant_id, expected_count, *, tamper=False):
             if tenant != tenant_id or seq != expected_seq or prev != previous:
                 raise ValueError("sequence or predecessor mismatch")
             value = json.loads(payload)
-            if value.get("__ola_evidence_v2__") != {
-                "version": 2, "record_type": record_type, "producer": "ola_runtime"
-            }:
+            metadata = value.get("__ola_evidence_v2__")
+            if (not isinstance(metadata, dict)
+                    or set(metadata) != {"version", "record_type", "producer"}
+                    or metadata.get("version") not in (2, 3)
+                    or metadata.get("record_type") != record_type
+                    or metadata.get("producer") != "ola_runtime"):
                 raise ValueError("untrusted record type or producer binding")
+            domain = "OLA-EVIDENCE-CHAIN-V3" if metadata["version"] == 3 else "OLA-EVIDENCE-CHAIN-V2"
             material = json.dumps({
-                "domain": "OLA-EVIDENCE-CHAIN-V2", "tenant_id": tenant,
+                "domain": domain, "tenant_id": tenant,
                 "seq": seq, "prev_hash": prev, "record_type": record_type,
                 "producer": "ola_runtime", "payload_json": payload,
-            }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-            if hashlib.sha256(material.encode("utf-8")).hexdigest() != digest:
+            }, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            if metadata["version"] == 3:
+                master = os.environ.get("OLA_API_KEY_PEPPER", "").encode("utf-8")
+                if len(master) < 32:
+                    raise ValueError("evidence chain key is not configured")
+                key = hmac.new(master, b"OLA-EVIDENCE-CHAIN-KEY-V3", hashlib.sha256).digest()
+                expected = hmac.new(key, material, hashlib.sha256).hexdigest()
+            else:
+                expected = hashlib.sha256(material).hexdigest()
+            if expected != digest:
                 raise ValueError("record hash mismatch")
             previous = digest
         if tamper:
