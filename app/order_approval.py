@@ -10,7 +10,7 @@ from sqlalchemy import select
 from .database import SessionLocal, begin_write_transaction
 from .hashchain import (
     GENESIS_HASH,
-    compute_record_hash_v2,
+    compute_record_hash_v3,
     sealed_payload_json,
     verify_chain,
     trusted_record,
@@ -206,8 +206,8 @@ def approve_paid_order(*, tenant_id: str, approver_id: str, order_id: str,
             "deployment_authorized": False,
             "production_authorized": False,
         }
-        raw = sealed_payload_json("human.revenue_execution_approval", approval_payload)
-        record_hash = compute_record_hash_v2(
+        raw = sealed_payload_json("human.revenue_execution_approval", approval_payload, version=3)
+        record_hash = compute_record_hash_v3(
             tenant_id, next_seq, previous_hash,
             "human.revenue_execution_approval", "ola_runtime", raw,
         )
