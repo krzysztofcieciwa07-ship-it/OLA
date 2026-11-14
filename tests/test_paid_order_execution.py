@@ -678,3 +678,20 @@ def test_worker_identity_allows_only_neon_non_settable_admin_membership():
         assert _worker_role_membership_violations(
             [unsafe], worker_role="ola_worker", migration_role="ola_migrator",
         ), unsafe
+
+
+def test_railway_worker_requires_shared_pepper_for_keyed_evidence():
+    import pytest
+    from scripts.run_paid_order_worker import _validate_worker_evidence_key
+
+    with pytest.raises(ValueError, match="OLA_API_KEY_PEPPER"):
+        _validate_worker_evidence_key(
+            "", railway_environment_id="staging-env"
+        )
+    assert _validate_worker_evidence_key(
+        "worker-test-pepper-material-0123456789",
+        railway_environment_id="staging-env",
+    ) is None
+    assert _validate_worker_evidence_key(
+        "", railway_environment_id=None,
+    ) is None
