@@ -109,6 +109,27 @@ def verify_worker_database_identity(
         "ola_schema_migrations",
     ]
     with worker_engine.connect() as conn:
+        # Resolve the protected schema from PostgreSQL catalogs, not
+        # :schema_name: PostgreSQL omits schemas without USAGE from
+        # :schema_name, which would make a denied schema look like public.
+        schema_matches = conn.execute(text("""
+            SELECT n.nspname
+            FROM pg_proc AS p
+            JOIN pg_namespace AS n ON n.oid = p.pronamespace
+            JOIN pg_class AS c
+              ON c.relnamespace = n.oid
+             AND c.relname = 'checkout_execution_jobs'
+             AND c.relkind IN ('r', 'p')
+            WHERE p.proname = 'ola_claim_checkout_jobs'
+              AND p.pronargs = 2
+              AND p.proargtypes = '23 23'::oidvector
+        """)).scalars().all()
+        if len(schema_matches) != 1:
+            raise RuntimeError(
+                "PostgreSQL worker schema could not be uniquely identified "
+                "from ola_claim_checkout_jobs and checkout_execution_jobs"
+            )
+        schema_name = schema_matches[0]
         identity = conn.execute(
             text("""
                 SELECT
@@ -127,15 +148,15 @@ def verify_worker_database_identity(
                         WHERE memberships.member = pg_catalog.to_regrole(current_user::text)::oid
                            OR memberships.roleid = pg_catalog.to_regrole(current_user::text)::oid
                     ) AS has_role_membership,
-                    has_schema_privilege(current_user, current_schema(), 'USAGE') AS schema_usage,
-                    has_schema_privilege(current_user, current_schema(), 'CREATE') AS schema_create,
+                    has_schema_privilege(current_user, :schema_name, 'USAGE') AS schema_usage,
+                    has_schema_privilege(current_user, :schema_name, 'CREATE') AS schema_create,
                     EXISTS (
                         SELECT 1
                         FROM pg_namespace AS n
                         CROSS JOIN LATERAL aclexplode(
                             COALESCE(n.nspacl, acldefault('n', n.nspowner))
                         ) AS acl
-                        WHERE n.nspname = current_schema()
+                        WHERE n.nspname = :schema_name
                           AND acl.grantee = 0
                     ) AS schema_public_acl,
                     EXISTS (
@@ -144,7 +165,7 @@ def verify_worker_database_identity(
                         CROSS JOIN LATERAL aclexplode(
                             COALESCE(n.nspacl, acldefault('n', n.nspowner))
                         ) AS acl
-                        WHERE n.nspname = current_schema()
+                        WHERE n.nspname = :schema_name
                           AND acl.grantee = pg_catalog.to_regrole(current_user::text)::oid
                           AND acl.is_grantable
                     ) AS schema_grant_option,
@@ -154,7 +175,7 @@ def verify_worker_database_identity(
                         CROSS JOIN LATERAL aclexplode(
                             COALESCE(n.nspacl, acldefault('n', n.nspowner))
                         ) AS acl
-                        WHERE n.nspname = current_schema()
+                        WHERE n.nspname = :schema_name
                           AND acl.grantee <> 0
                           AND acl.grantee <> n.nspowner
                           AND acl.grantee NOT IN (
@@ -166,7 +187,7 @@ def verify_worker_database_identity(
                         current_user,
                         to_regprocedure(format(
                             '%I.ola_claim_checkout_jobs(integer,integer)',
-                            current_schema()
+                            :schema_name
                         )),
                         'EXECUTE'
                     ), false) AS claim_execute,
@@ -174,7 +195,7 @@ def verify_worker_database_identity(
                         current_user,
                         to_regprocedure(format(
                             '%I.ola_authenticate_api_key(text)',
-                            current_schema()
+                            :schema_name
                         )),
                         'EXECUTE'
                     ), false) AS auth_execute,
@@ -183,7 +204,7 @@ def verify_worker_database_identity(
                         FROM pg_proc AS p
                         WHERE p.oid = to_regprocedure(format(
                             '%I.ola_claim_checkout_jobs(integer,integer)',
-                            current_schema()
+                            :schema_name
                         ))
                     ), false) AS claim_security_definer,
                     COALESCE((
@@ -191,7 +212,7 @@ def verify_worker_database_identity(
                         FROM pg_proc AS p
                         WHERE p.oid = to_regprocedure(format(
                             '%I.ola_claim_checkout_jobs(integer,integer)',
-                            current_schema()
+                            :schema_name
                         ))
                     ), false) AS claim_search_path_fixed,
                     (
@@ -199,14 +220,14 @@ def verify_worker_database_identity(
                         FROM pg_proc AS p
                         WHERE p.oid = to_regprocedure(format(
                             '%I.ola_claim_checkout_jobs(integer,integer)',
-                            current_schema()
+                            :schema_name
                         ))
                     ) AS claim_owner,
                     (
                         SELECT pg_get_userbyid(c.relowner)::text
                         FROM pg_class AS c
                         JOIN pg_namespace AS n ON n.oid = c.relnamespace
-                        WHERE n.nspname = current_schema()
+                        WHERE n.nspname = :schema_name
                           AND c.relname = 'checkout_execution_jobs'
                     ) AS claim_table_owner,
                     EXISTS (
@@ -217,7 +238,7 @@ def verify_worker_database_identity(
                         ) AS acl
                         WHERE p.oid = to_regprocedure(format(
                             '%I.ola_claim_checkout_jobs(integer,integer)',
-                            current_schema()
+                            :schema_name
                         ))
                           AND acl.grantee = 0
                           AND acl.privilege_type = 'EXECUTE'
@@ -230,7 +251,7 @@ def verify_worker_database_identity(
                         ) AS acl
                         WHERE p.oid = to_regprocedure(format(
                             '%I.ola_claim_checkout_jobs(integer,integer)',
-                            current_schema()
+                            :schema_name
                         ))
                           AND acl.privilege_type = 'EXECUTE'
                           AND acl.grantee <> p.proowner
@@ -244,7 +265,7 @@ def verify_worker_database_identity(
                         ) AS acl
                         WHERE p.oid = to_regprocedure(format(
                             '%I.ola_claim_checkout_jobs(integer,integer)',
-                            current_schema()
+                            :schema_name
                         ))
                           AND acl.privilege_type = 'EXECUTE'
                           AND acl.grantee <> 0
@@ -254,7 +275,7 @@ def verify_worker_database_identity(
                     COALESCE((
                         SELECT bool_or(has_table_privilege(
                             current_user,
-                            format('%I.%I', current_schema(), scoped.table_name),
+                            format('%I.%I', :schema_name, scoped.table_name),
                             privilege.privilege
                         ))
                         FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
@@ -269,6 +290,7 @@ def verify_worker_database_identity(
             {
                 "table_names": protected_tables,
                 "runtime_role": runtime_role,
+                "schema_name": schema_name,
             },
         ).mappings().one_or_none()
 
