@@ -292,7 +292,7 @@ def test_signed_tenant_rls_sql_validates_signature_format_and_fails_closed():
     import inspect
 
     source = inspect.getsource(database.install_postgres_tenant_rls)
-    assert "v_signature !~ '^[0-9a-f]{64}$' THEN" in source
+    assert "v_signature !~ '^[0-9a-f]{{64}}$' THEN" in source
     assert "RETURN NULL;" in source
     assert "END IF;" in source
     assert "SECURITY DEFINER" in source
