@@ -153,8 +153,8 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
     with _admin_engine.begin() as conn:
         conn.exec_driver_sql(
             f"ALTER POLICY ola_tenant_isolation ON \"{_schema}\".evidence_records "
-            "USING (tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')) "
-            "WITH CHECK (tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), ''))"
+            f"USING (tenant_id::text = \"{_schema}\".ola_current_tenant_id()) "
+            f"WITH CHECK (tenant_id::text = \"{_schema}\".ola_current_tenant_id())"
         )
     database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
 
