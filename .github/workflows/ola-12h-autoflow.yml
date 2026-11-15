@@ -1,5 +1,10 @@
 name: OLA 12h Autonomous Evidence Flow
 
+# On pull_request, github.sha is the synthetic merge commit while the reusable
+# Ollama workflow checks out the PR head. Bind every evidence stage to one SHA.
+env:
+  OLA_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 on:
   schedule:
     - cron: '17 0,12 * * *'
@@ -39,18 +44,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout exact scheduled source
+      - name: Checkout exact source commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.OLA_SOURCE_SHA }}
           persist-credentials: false
           fetch-depth: 0
 
       - name: Record source provenance
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$OLA_SOURCE_SHA"
           {
-            echo "SOURCE_COMMIT=$GITHUB_SHA"
+            echo "SOURCE_COMMIT=$OLA_SOURCE_SHA"
             echo "SOURCE_BRANCH=$GITHUB_REF_NAME"
             echo "TRIGGER=$GITHUB_EVENT_NAME"
             echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -79,7 +85,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ola-preflight-evidence-${{ github.sha }}
+          name: ola-preflight-evidence-${{ env.OLA_SOURCE_SHA }}
           path: |
             source-provenance.txt
             nina-gate.log
@@ -106,6 +112,7 @@ jobs:
       - name: Checkout exact source for classification
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.OLA_SOURCE_SHA }}
           persist-credentials: false
           fetch-depth: 1
 
@@ -114,7 +121,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: ola-preflight-evidence-${{ github.sha }}
+          name: ola-preflight-evidence-${{ env.OLA_SOURCE_SHA }}
           path: downloaded/preflight
 
       - name: Download real Ollama evidence from this run
@@ -137,7 +144,7 @@ jobs:
         env:
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           OLLAMA_RESULT: ${{ needs.real_ollama_flow.result }}
-          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_COMMIT: ${{ env.OLA_SOURCE_SHA }}
         run: |
           set -euo pipefail
           status="BLOCKED"
@@ -150,7 +157,7 @@ jobs:
             if test -s downloaded/preflight/source-provenance.txt \
               && test -s downloaded/preflight/nina-gate.log \
               && test -s downloaded/preflight/igor-replay-gate.log \
-              && grep -Fxq "SOURCE_COMMIT=$GITHUB_SHA" downloaded/preflight/source-provenance.txt; then
+              && grep -Fxq "SOURCE_COMMIT=$OLA_SOURCE_SHA" downloaded/preflight/source-provenance.txt; then
               preflight_evidence="VERIFIED"
             else
               reason="preflight_artifact_missing_or_source_mismatch"
@@ -162,8 +169,8 @@ jobs:
           if [ "$OLLAMA_RESULT" = "success" ]; then
             if test -s downloaded/ollama/evidence-files.sha256 \
               && (cd downloaded/ollama && sha256sum --check --strict evidence-files.sha256) \
-              && grep -Fxq "commit=$GITHUB_SHA" downloaded/ollama/provenance.txt \
-              && test "$(cat downloaded/ollama/runtime-image-revision.txt)" = "$GITHUB_SHA" \
+              && grep -Fxq "commit=$OLA_SOURCE_SHA" downloaded/ollama/provenance.txt \
+              && test "$(cat downloaded/ollama/runtime-image-revision.txt)" = "$OLA_SOURCE_SHA" \
               && test -s downloaded/ollama/nina-igor-ollama-proof.json \
               && test -s downloaded/ollama/nina-ollama-evidence.sqlite3; then
               ollama_evidence="VERIFIED"
@@ -212,7 +219,7 @@ jobs:
           cat > ola-auto-evidence.json <<EOF
           {
             "schema": "ola-auto-evidence-v3",
-            "source_commit": "$GITHUB_SHA",
+            "source_commit": "$OLA_SOURCE_SHA",
             "trigger": "$GITHUB_EVENT_NAME",
             "provider": "ollama",
             "model": "qwen2.5:0.5b-instruct",
@@ -235,7 +242,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ola-auto-evidence-${{ github.sha }}
+          name: ola-auto-evidence-${{ env.OLA_SOURCE_SHA }}
           path: |
             downloaded/preflight/
             downloaded/ollama/
