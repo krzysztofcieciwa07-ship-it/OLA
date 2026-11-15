@@ -136,41 +136,38 @@ jobs:
           independent_igor_evidence="MISSING"
 
           if [ "$PREFLIGHT_RESULT" = "success" ]; then
-            test -s downloaded/preflight/source-provenance.txt
-            test -s downloaded/preflight/nina-gate.log
-            test -s downloaded/preflight/igor-replay-gate.log
-            grep -Fx "SOURCE_COMMIT=$GITHUB_SHA" downloaded/preflight/source-provenance.txt
-            preflight_evidence="VERIFIED"
+            if test -s downloaded/preflight/source-provenance.txt \
+              && test -s downloaded/preflight/nina-gate.log \
+              && test -s downloaded/preflight/igor-replay-gate.log \
+              && grep -Fxq "SOURCE_COMMIT=$GITHUB_SHA" downloaded/preflight/source-provenance.txt; then
+              preflight_evidence="VERIFIED"
+            else
+              reason="preflight_artifact_missing_or_source_mismatch"
+            fi
           else
             reason="preflight_failed"
           fi
 
           if [ "$OLLAMA_RESULT" = "success" ]; then
-            test -s downloaded/ollama/evidence-files.sha256
-            (
-              cd downloaded/ollama
-              sha256sum --check --strict evidence-files.sha256
-            )
-            grep -Fx "commit=$GITHUB_SHA" downloaded/ollama/provenance.txt
-            test "$(cat downloaded/ollama/runtime-image-revision.txt)" = "$GITHUB_SHA"
-            test -s downloaded/ollama/nina-igor-ollama-proof.json
-            test -s downloaded/ollama/nina-ollama-evidence.sqlite3
-            ollama_evidence="VERIFIED"
+            if test -s downloaded/ollama/evidence-files.sha256 \
+              && (cd downloaded/ollama && sha256sum --check --strict evidence-files.sha256) \
+              && grep -Fxq "commit=$GITHUB_SHA" downloaded/ollama/provenance.txt \
+              && test "$(cat downloaded/ollama/runtime-image-revision.txt)" = "$GITHUB_SHA" \
+              && test -s downloaded/ollama/nina-igor-ollama-proof.json \
+              && test -s downloaded/ollama/nina-ollama-evidence.sqlite3; then
+              ollama_evidence="VERIFIED"
+            else
+              reason="ollama_artifact_missing_hash_failure_or_source_mismatch"
+            fi
 
-            test -s downloaded/independent-igor/igor-ollama-evidence-bundle.tar.gz
-            test -s downloaded/independent-igor/igor-ollama-evidence-bundle.sha256
-            (
-              cd downloaded/independent-igor
-              sha256sum --check --strict igor-ollama-evidence-bundle.sha256
-            )
-            test -s downloaded/independent-igor/evidence-bundle/MANIFEST.json
-            test -s downloaded/independent-igor/evidence-bundle/verification/igor-result.json
-            test -s downloaded/independent-igor/evidence-bundle/integrity/bundle-files.sha256
-            (
-              cd downloaded/independent-igor
-              sha256sum --check --strict evidence-bundle/integrity/bundle-files.sha256
-            )
-            python - <<'PY'
+            if test -s downloaded/independent-igor/igor-ollama-evidence-bundle.tar.gz \
+              && test -s downloaded/independent-igor/igor-ollama-evidence-bundle.sha256 \
+              && (cd downloaded/independent-igor && sha256sum --check --strict igor-ollama-evidence-bundle.sha256) \
+              && test -s downloaded/independent-igor/evidence-bundle/MANIFEST.json \
+              && test -s downloaded/independent-igor/evidence-bundle/verification/igor-result.json \
+              && test -s downloaded/independent-igor/evidence-bundle/integrity/bundle-files.sha256 \
+              && (cd downloaded/independent-igor && sha256sum --check --strict evidence-bundle/integrity/bundle-files.sha256) \
+              && python - <<'PY'
           import json, os
           from pathlib import Path
           root = Path("downloaded/independent-igor/evidence-bundle")
@@ -185,7 +182,11 @@ jobs:
           assert result["tamper"] == "BLOCK"
           assert result["human_gate"] == "PENDING"
           PY
-            independent_igor_evidence="VERIFIED"
+            then
+              independent_igor_evidence="VERIFIED"
+            else
+              reason="independent_igor_artifact_missing_integrity_or_source_check_failed"
+            fi
           elif [ "$PREFLIGHT_RESULT" = "success" ]; then
             reason="real_ollama_full_flow_failed"
           fi
