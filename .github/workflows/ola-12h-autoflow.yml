@@ -126,6 +126,7 @@ jobs:
         env:
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           OLLAMA_RESULT: ${{ needs.real_ollama_flow.result }}
+          SOURCE_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
           status="BLOCKED"
@@ -170,16 +171,16 @@ jobs:
               sha256sum --check --strict evidence-bundle/integrity/bundle-files.sha256
             )
             python - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
           root = Path("downloaded/independent-igor/evidence-bundle")
           manifest = json.loads((root / "MANIFEST.json").read_text())
           result = json.loads((root / "verification/igor-result.json").read_text())
-          assert manifest["source_commit"] == "$GITHUB_SHA"
+          assert manifest["source_commit"] == os.environ["SOURCE_COMMIT"]
           assert manifest["igor"] == "VERIFIED"
           assert manifest["tamper"] == "BLOCK"
           assert manifest["human_gate"] == "PENDING"
-          assert result["source_commit"] == "$GITHUB_SHA"
+          assert result["source_commit"] == os.environ["SOURCE_COMMIT"]
           assert result["status"] == "VERIFIED"
           assert result["tamper"] == "BLOCK"
           assert result["human_gate"] == "PENDING"
