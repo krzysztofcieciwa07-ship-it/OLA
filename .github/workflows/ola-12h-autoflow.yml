@@ -106,13 +106,21 @@ jobs:
           name: ola-preflight-evidence-${{ github.sha }}
           path: downloaded/preflight
 
-      - name: Download real Ollama and independent IGOR evidence from this run
+      - name: Download real Ollama evidence from this run
         if: ${{ always() && needs.real_ollama_flow.result == 'success' }}
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: nina-igor-ollama-full-flow-${{ github.sha }}
           path: downloaded/ollama
+
+      - name: Download independent IGOR evidence from this run
+        if: ${{ always() && needs.real_ollama_flow.result == 'success' }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: igor-independent-ollama-evidence-${{ github.sha }}
+          path: downloaded/independent-igor
 
       - name: Classify and verify collected evidence
         env:
@@ -124,6 +132,7 @@ jobs:
           reason="unknown"
           preflight_evidence="MISSING"
           ollama_evidence="MISSING"
+          independent_igor_evidence="MISSING"
 
           if [ "$PREFLIGHT_RESULT" = "success" ]; then
             test -s downloaded/preflight/source-provenance.txt
@@ -146,11 +155,41 @@ jobs:
             test -s downloaded/ollama/nina-igor-ollama-proof.json
             test -s downloaded/ollama/nina-ollama-evidence.sqlite3
             ollama_evidence="VERIFIED"
+
+            test -s downloaded/independent-igor/igor-ollama-evidence-bundle.tar.gz
+            test -s downloaded/independent-igor/igor-ollama-evidence-bundle.sha256
+            (
+              cd downloaded/independent-igor
+              sha256sum --check --strict igor-ollama-evidence-bundle.sha256
+            )
+            test -s downloaded/independent-igor/evidence-bundle/MANIFEST.json
+            test -s downloaded/independent-igor/evidence-bundle/verification/igor-result.json
+            test -s downloaded/independent-igor/evidence-bundle/integrity/bundle-files.sha256
+            (
+              cd downloaded/independent-igor
+              sha256sum --check --strict evidence-bundle/integrity/bundle-files.sha256
+            )
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("downloaded/independent-igor/evidence-bundle")
+          manifest = json.loads((root / "MANIFEST.json").read_text())
+          result = json.loads((root / "verification/igor-result.json").read_text())
+          assert manifest["source_commit"] == "$GITHUB_SHA"
+          assert manifest["igor"] == "VERIFIED"
+          assert manifest["tamper"] == "BLOCK"
+          assert manifest["human_gate"] == "PENDING"
+          assert result["source_commit"] == "$GITHUB_SHA"
+          assert result["status"] == "VERIFIED"
+          assert result["tamper"] == "BLOCK"
+          assert result["human_gate"] == "PENDING"
+          PY
+            independent_igor_evidence="VERIFIED"
           elif [ "$PREFLIGHT_RESULT" = "success" ]; then
             reason="real_ollama_full_flow_failed"
           fi
 
-          if [ "$PREFLIGHT_RESULT" = "success" ] && [ "$OLLAMA_RESULT" = "success" ] && [ "$preflight_evidence" = "VERIFIED" ] && [ "$ollama_evidence" = "VERIFIED" ]; then
+          if [ "$PREFLIGHT_RESULT" = "success" ] && [ "$OLLAMA_RESULT" = "success" ] && [ "$preflight_evidence" = "VERIFIED" ] && [ "$ollama_evidence" = "VERIFIED" ] && [ "$independent_igor_evidence" = "VERIFIED" ]; then
             status="RUNTIME_CHAIN_VERIFIED"
             reason="PREFLIGHT_REAL_OLLAMA_INDEPENDENT_IGOR_PROVENANCE_AND_REPLAY_EVIDENCE_VERIFIED"
           elif [ "$reason" = "unknown" ]; then
@@ -168,6 +207,7 @@ jobs:
             "real_ollama_full_flow": "$OLLAMA_RESULT",
             "preflight_artifact_integrity": "$preflight_evidence",
             "ollama_artifact_integrity": "$ollama_evidence",
+            "independent_igor_artifact_integrity": "$independent_igor_evidence",
             "status": "$status",
             "reason": "$reason",
             "openai_required": false,
@@ -186,6 +226,7 @@ jobs:
           path: |
             downloaded/preflight/
             downloaded/ollama/
+            downloaded/independent-igor/
             ola-auto-evidence.json
             ola-auto-evidence.sha256
           if-no-files-found: warn
