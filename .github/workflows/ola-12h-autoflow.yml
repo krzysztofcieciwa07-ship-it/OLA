@@ -64,6 +64,17 @@ jobs:
           set -o pipefail
           pytest -q tests/test_igor.py tests/test_independent_verifier_tamper.py tests/test_contradiction_replay.py tests/test_replay.py 2>&1 | tee igor-replay-gate.log
 
+      - name: Upload preflight evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-preflight-evidence-${{ github.sha }}
+          path: |
+            source-provenance.txt
+            nina-gate.log
+            igor-replay-gate.log
+          if-no-files-found: warn
+
   real_ollama_flow:
     needs: preflight
     permissions:
@@ -77,6 +88,9 @@ jobs:
     needs: [preflight, real_ollama_flow]
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Checkout exact source for classification
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,7 +98,23 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Classify AUTO evidence
+      - name: Download preflight evidence from this run
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ola-preflight-evidence-${{ github.sha }}
+          path: downloaded/preflight
+
+      - name: Download real Ollama and independent IGOR evidence from this run
+        if: ${{ always() && needs.real_ollama_flow.result == 'success' }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: nina-igor-ollama-full-flow-${{ github.sha }}
+          path: downloaded/ollama
+
+      - name: Classify and verify collected evidence
         env:
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           OLLAMA_RESULT: ${{ needs.real_ollama_flow.result }}
@@ -92,23 +122,52 @@ jobs:
           set -euo pipefail
           status="BLOCKED"
           reason="unknown"
-          if [ "$PREFLIGHT_RESULT" != "success" ]; then
-            reason="preflight_failed"
-          elif [ "$OLLAMA_RESULT" != "success" ]; then
-            reason="real_ollama_full_flow_failed"
+          preflight_evidence="MISSING"
+          ollama_evidence="MISSING"
+
+          if [ "$PREFLIGHT_RESULT" = "success" ]; then
+            test -s downloaded/preflight/source-provenance.txt
+            test -s downloaded/preflight/nina-gate.log
+            test -s downloaded/preflight/igor-replay-gate.log
+            grep -Fx "SOURCE_COMMIT=$GITHUB_SHA" downloaded/preflight/source-provenance.txt
+            preflight_evidence="VERIFIED"
           else
-            status="RUNTIME_CHAIN_VERIFIED"
-            reason="NINA_TO_IGOR_PROVENANCE_REPLAY_PASSED"
+            reason="preflight_failed"
           fi
+
+          if [ "$OLLAMA_RESULT" = "success" ]; then
+            test -s downloaded/ollama/evidence-files.sha256
+            (
+              cd downloaded/ollama
+              sha256sum --check --strict evidence-files.sha256
+            )
+            grep -Fx "commit=$GITHUB_SHA" downloaded/ollama/provenance.txt
+            test "$(cat downloaded/ollama/runtime-image-revision.txt)" = "$GITHUB_SHA"
+            test -s downloaded/ollama/nina-igor-ollama-proof.json
+            test -s downloaded/ollama/nina-ollama-evidence.sqlite3
+            ollama_evidence="VERIFIED"
+          elif [ "$PREFLIGHT_RESULT" = "success" ]; then
+            reason="real_ollama_full_flow_failed"
+          fi
+
+          if [ "$PREFLIGHT_RESULT" = "success" ] && [ "$OLLAMA_RESULT" = "success" ] && [ "$preflight_evidence" = "VERIFIED" ] && [ "$ollama_evidence" = "VERIFIED" ]; then
+            status="RUNTIME_CHAIN_VERIFIED"
+            reason="PREFLIGHT_REAL_OLLAMA_INDEPENDENT_IGOR_PROVENANCE_AND_REPLAY_EVIDENCE_VERIFIED"
+          elif [ "$reason" = "unknown" ]; then
+            reason="evidence_missing_or_integrity_check_failed"
+          fi
+
           cat > ola-auto-evidence.json <<EOF
           {
-            "schema": "ola-auto-evidence-v2",
+            "schema": "ola-auto-evidence-v3",
             "source_commit": "$GITHUB_SHA",
             "trigger": "$GITHUB_EVENT_NAME",
             "provider": "ollama",
             "model": "qwen2.5:0.5b-instruct",
             "preflight": "$PREFLIGHT_RESULT",
             "real_ollama_full_flow": "$OLLAMA_RESULT",
+            "preflight_artifact_integrity": "$preflight_evidence",
+            "ollama_artifact_integrity": "$ollama_evidence",
             "status": "$status",
             "reason": "$reason",
             "openai_required": false,
@@ -119,15 +178,14 @@ jobs:
           EOF
           sha256sum ola-auto-evidence.json | tee ola-auto-evidence.sha256
 
-      - name: Upload AUTO evidence bundle
+      - name: Upload complete AUTO evidence bundle
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ola-auto-evidence-${{ github.sha }}
           path: |
-            source-provenance.txt
-            nina-gate.log
-            igor-replay-gate.log
+            downloaded/preflight/
+            downloaded/ollama/
             ola-auto-evidence.json
             ola-auto-evidence.sha256
           if-no-files-found: warn
