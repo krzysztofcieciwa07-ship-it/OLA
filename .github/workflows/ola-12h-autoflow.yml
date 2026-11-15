@@ -122,7 +122,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: nina-igor-ollama-full-flow-${{ github.sha }}
+          name: nina-igor-ollama-full-flow-${{ github.event.pull_request.head.sha || github.sha }}
           path: downloaded/ollama
 
       - name: Download independent IGOR evidence from this run
@@ -130,7 +130,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: igor-independent-ollama-evidence-${{ github.sha }}
+          name: igor-independent-ollama-evidence-${{ github.event.pull_request.head.sha || github.sha }}
           path: downloaded/independent-igor
 
       - name: Classify and verify collected evidence
