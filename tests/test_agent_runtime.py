@@ -421,3 +421,37 @@ def test_omniroute_provider_requires_own_gateway_key(monkeypatch):
 
     with pytest.raises(RuntimeError, match="requires OMNIROUTE_API_KEY"):
         _invoke_llm("codeact", "test", {})
+
+
+def test_omniroute_provider_allows_only_explicitly_allowlisted_https_host(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"id": "resp-remote-gateway", "output_text": "remote gateway response"}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "omniroute")
+    monkeypatch.setenv("OLA_LLM_MODEL", "auto/coding")
+    monkeypatch.setenv("OMNIROUTE_BASE_URL", "https://gateway.example.internal/v1")
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "dedicated-gateway-key")
+    monkeypatch.setenv("OLA_OMNIROUTE_ALLOWED_HOSTS", "gateway.example.internal")
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = _invoke_llm("codeact", "verify remote gateway", {})
+
+    assert captured["url"] == "https://gateway.example.internal/v1/responses"
+    assert captured["headers"]["Authorization"] == "Bearer dedicated-gateway-key"
+    assert result["provider"] == "omniroute"
+    assert result["response_id"] == "resp-remote-gateway"
