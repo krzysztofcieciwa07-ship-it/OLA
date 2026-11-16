@@ -29,6 +29,17 @@ class DockerEventObserver:
         self.runtime_binary = runtime_binary
         self.runner = runner or subprocess.run
 
+    @classmethod
+    def _canonical_event_value(cls, value):
+        """Preserve exact Docker integer timestamps outside JCS safe-number range."""
+        if isinstance(value, dict):
+            return {key: cls._canonical_event_value(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [cls._canonical_event_value(item) for item in value]
+        if type(value) is int and abs(value) > (2**53 - 1):
+            return str(value)
+        return value
+
     @staticmethod
     def _event_time(event):
         value = event.get("timeNano")
@@ -158,12 +169,11 @@ class DockerEventObserver:
         else:
             reason = None
 
-        digest = hashlib.sha256(
-            canonical_json(sorted(
-                matched,
-                key=lambda item: self._event_time(item) or 0,
-            )).encode("utf-8")
-        ).hexdigest()
+        digest_events = [
+            self._canonical_event_value(event)
+            for event in sorted(matched, key=lambda item: self._event_time(item) or 0)
+        ]
+        digest = hashlib.sha256(canonical_json(digest_events).encode("utf-8")).hexdigest()
         return DockerEventProof(
             "VERIFIED" if reason is None else "BLOCKED",
             reason,
