@@ -156,7 +156,8 @@ def test_supervisor_launches_a_fresh_hardened_worker_with_no_host_mounts(tmp_pat
     assert cidfile_path is not None
 
 
-def test_supervisor_rejects_mutable_or_missing_worker_image_before_docker():
+def test_supervisor_rejects_mutable_or_missing_worker_image_before_docker(monkeypatch):
+    monkeypatch.delenv("OLA_AGENT_WORKER_IMAGE_DIGEST", raising=False)
     supervisor_module = _supervisor_module()
     agent, request = _request_and_agent()
     calls = []
