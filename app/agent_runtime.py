@@ -236,7 +236,7 @@ def _invoke_llm(agent, task, context):
                         parts.append(content["text"])
             output = "\n".join(parts)
         if not output:
-            raise RuntimeError("OpenAI response contained no output text")
+            raise RuntimeError("LLM gateway response contained no output text")
         return {
             "provider": provider,
             "model": model,
