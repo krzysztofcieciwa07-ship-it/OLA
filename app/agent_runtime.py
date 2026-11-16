@@ -62,6 +62,35 @@ def _validate_ollama_base_url(base_url):
     return base_url
 
 
+def _validate_omniroute_base_url(base_url):
+    """Allow only loopback HTTP or explicitly allowlisted HTTPS OmniRoute gateways."""
+    try:
+        parsed = urlsplit(base_url)
+        host = (parsed.hostname or "").rstrip(".").lower()
+        parsed.port
+    except ValueError:
+        raise RuntimeError("OMNIROUTE_BASE_URL is not an approved gateway endpoint") from None
+    if (not host or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or parsed.scheme not in {"http", "https"}):
+        raise RuntimeError("OMNIROUTE_BASE_URL is not an approved gateway endpoint")
+    try:
+        is_loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loopback = host == "localhost"
+    allowed_hosts = {
+        item.strip().lower().rstrip(".")
+        for item in os.getenv("OLA_OMNIROUTE_ALLOWED_HOSTS", "").split(",")
+        if item.strip()
+    }
+    if parsed.scheme == "http" and not is_loopback:
+        raise RuntimeError("OMNIROUTE_BASE_URL requires loopback HTTP or an allowlisted HTTPS host")
+    if parsed.scheme == "https" and not is_loopback and host not in allowed_hosts:
+        raise RuntimeError("OMNIROUTE_BASE_URL requires loopback HTTP or an allowlisted HTTPS host")
+    if not parsed.path.rstrip("/").endswith("/v1"):
+        raise RuntimeError("OMNIROUTE_BASE_URL must end in /v1")
+    return base_url.rstrip("/")
+
+
 MAX_AGENT_TASK_CHARS = 4096
 MAX_EXPRESSION_NODES = 128
 MAX_EXPRESSION_DEPTH = 24
@@ -155,22 +184,33 @@ def _invoke_llm(agent, task, context):
     )
     import httpx
 
-    if provider == "openai":
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            if mode == "required":
-                raise RuntimeError("OLA_LLM_MODE=required but OPENAI_API_KEY is missing")
-            return None
-        model = os.getenv("OLA_LLM_MODEL", "").strip()
-        if not model:
-            raise RuntimeError("OLA_LLM_MODEL must be explicitly configured when LLM mode is required")
-        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-        parsed_url = urlsplit(base_url)
-        allowed_hosts = {host.strip().lower() for host in os.getenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com").split(",") if host.strip()}
-        if (parsed_url.scheme != "https" or not parsed_url.hostname
-                or parsed_url.hostname.lower() not in allowed_hosts
-                or parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment):
-            raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint")
+    if provider in {"openai", "omniroute"}:
+        if provider == "omniroute":
+            api_key = os.getenv("OMNIROUTE_API_KEY")
+            if not api_key:
+                raise RuntimeError("OLA_LLM_PROVIDER=omniroute requires OMNIROUTE_API_KEY")
+            model = os.getenv("OLA_LLM_MODEL", "").strip()
+            if not model:
+                raise RuntimeError("OLA_LLM_MODEL must be explicitly configured when LLM mode is required")
+            base_url = _validate_omniroute_base_url(
+                os.getenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:20128/v1").strip()
+            )
+        else:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                if mode == "required":
+                    raise RuntimeError("OLA_LLM_MODE=required but OPENAI_API_KEY is missing")
+                return None
+            model = os.getenv("OLA_LLM_MODEL", "").strip()
+            if not model:
+                raise RuntimeError("OLA_LLM_MODEL must be explicitly configured when LLM mode is required")
+            base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+            parsed_url = urlsplit(base_url)
+            allowed_hosts = {host.strip().lower() for host in os.getenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com").split(",") if host.strip()}
+            if (parsed_url.scheme != "https" or not parsed_url.hostname
+                    or parsed_url.hostname.lower() not in allowed_hosts
+                    or parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment):
+                raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint")
         endpoint = base_url + "/responses"
         payload = {
             "model": model,
@@ -198,7 +238,7 @@ def _invoke_llm(agent, task, context):
         if not output:
             raise RuntimeError("OpenAI response contained no output text")
         return {
-            "provider": "openai",
+            "provider": provider,
             "model": model,
             "invocation_type": "real_llm",
             "prompt_digest": _digest(prompt),
