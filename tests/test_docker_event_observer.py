@@ -63,6 +63,31 @@ def test_docker_event_observer_verifies_actual_container_lifecycle_and_exit_code
     assert len(proof.events_digest) == 64
 
 
+def test_docker_event_digest_preserves_nanosecond_precision_outside_jcs_safe_integer_range():
+    base_time = 1_700_000_100
+    events = [
+        _event("create", base_time + 1, LABELS),
+        _event("start", base_time + 2),
+        _event("die", base_time + 3, {"exitCode": "0"}),
+        _event("destroy", base_time + 4),
+    ]
+    assert events[0]["timeNano"] > 2**53 - 1
+    observer = DockerEventObserver(runner=_runner_for(events))
+
+    proof = observer.verify_lifecycle(
+        container_id=CONTAINER_ID,
+        image_digest=IMAGE_DIGEST,
+        supervisor_started_at=base_time,
+        supervisor_finished_at=base_time + 5,
+        expected_exit_code=0,
+        expected_labels=LABELS,
+    )
+
+    assert proof.status == "VERIFIED"
+    assert len(proof.events_digest) == 64
+    assert proof.events[0]["timeNano"] > 2**53 - 1
+
+
 def test_docker_event_observer_blocks_missing_lifecycle_events():
     events = [
         _event("create", 101, LABELS),
