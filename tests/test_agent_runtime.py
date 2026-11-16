@@ -324,3 +324,100 @@ def test_ollama_remote_https_uses_explicitly_allowlisted_host(monkeypatch):
     result = _invoke_llm("codeact", "calculate 1+1", {})
     assert calls == ["https://ollama.internal.example/api/chat"]
     assert result["output"] == "advisory output"
+
+
+
+def test_omniroute_provider_uses_loopback_gateway_and_openai_responses_api(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"id": "resp-omniroute-test", "output_text": "gateway response"}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "omniroute")
+    monkeypatch.setenv("OLA_LLM_MODEL", "auto/coding")
+    monkeypatch.setenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:20128/v1")
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "test-omniroute-key")
+    monkeypatch.delenv("OLA_OMNIROUTE_ALLOWED_HOSTS", raising=False)
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = _invoke_llm("codeact", "verify gateway routing", {})
+
+    assert captured["url"] == "http://127.0.0.1:20128/v1/responses"
+    assert captured["headers"]["Authorization"] == "Bearer test-omniroute-key"
+    assert captured["json"]["model"] == "auto/coding"
+    assert result["provider"] == "omniroute"
+    assert result["model"] == "auto/coding"
+    assert result["invocation_type"] == "real_llm"
+    assert result["response_id"] == "resp-omniroute-test"
+    assert result["output"] == "gateway response"
+
+
+def test_omniroute_provider_rejects_remote_plain_http(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "omniroute")
+    monkeypatch.setenv("OLA_LLM_MODEL", "auto/coding")
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "test-key")
+    monkeypatch.setenv("OMNIROUTE_BASE_URL", "http://gateway.example:20128/v1")
+    monkeypatch.delenv("OLA_OMNIROUTE_ALLOWED_HOSTS", raising=False)
+
+    with pytest.raises(RuntimeError, match="loopback HTTP or an allowlisted HTTPS host"):
+        _invoke_llm("codeact", "test", {})
+
+
+def test_omniroute_provider_requires_allowlisted_remote_https(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "omniroute")
+    monkeypatch.setenv("OLA_LLM_MODEL", "auto/coding")
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "test-key")
+    monkeypatch.setenv("OMNIROUTE_BASE_URL", "https://gateway.example/v1")
+    monkeypatch.delenv("OLA_OMNIROUTE_ALLOWED_HOSTS", raising=False)
+
+    with pytest.raises(RuntimeError, match="allowlisted HTTPS host"):
+        _invoke_llm("codeact", "test", {})
+
+
+def test_omniroute_provider_requires_v1_base_path(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "omniroute")
+    monkeypatch.setenv("OLA_LLM_MODEL", "auto/coding")
+    monkeypatch.setenv("OMNIROUTE_API_KEY", "test-key")
+    monkeypatch.setenv("OMNIROUTE_BASE_URL", "http://127.0.0.1:20128")
+    monkeypatch.delenv("OLA_OMNIROUTE_ALLOWED_HOSTS", raising=False)
+
+    with pytest.raises(RuntimeError, match="must end in /v1"):
+        _invoke_llm("codeact", "test", {})
+
+
+def test_omniroute_provider_requires_own_gateway_key(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "omniroute")
+    monkeypatch.setenv("OLA_LLM_MODEL", "auto/coding")
+    monkeypatch.delenv("OMNIROUTE_API_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="requires OMNIROUTE_API_KEY"):
+        _invoke_llm("codeact", "test", {})
