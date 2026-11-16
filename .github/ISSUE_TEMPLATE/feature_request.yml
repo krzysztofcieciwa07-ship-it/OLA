@@ -1,5 +1,5 @@
-name: Feature request
-description: Propose a focused improvement to OLA.
+name: Focused feature request
+description: Propose a change only when it tests a critical product hypothesis or addresses security/reliability.
 title: "[FEATURE] "
 labels: ["enhancement"]
 body:
@@ -7,12 +7,49 @@ body:
     id: problem
     attributes:
       label: Problem to solve
+      description: Who experiences this problem and in which concrete workflow?
+    validations:
+      required: true
+  - type: dropdown
+    id: hypothesis
+    attributes:
+      label: Which Decision Charter hypothesis does this test?
+      description: Select strategic backlog if this does not directly test H1-H4; it is not MVP work.
+      options:
+        - H1 — Auditor can understand and judge the Evidence Manifest
+        - H2 — Manual evidence collection is costly and painful
+        - H3 — A named budget owner will pay for the outcome
+        - H4 — SHA-bound evidence adds value beyond a readable report
+        - Security or reliability maintenance (not product scope)
+        - Strategic backlog — no direct H1-H4 test
     validations:
       required: true
   - type: textarea
-    id: outcome
+    id: observable-signal
     attributes:
-      label: Desired outcome
+      label: Observable result
+      description: What measurable observation would validate or falsify the hypothesis?
+    validations:
+      required: true
+  - type: textarea
+    id: manual-alternative
+    attributes:
+      label: Why cannot the pilot obtain this evidence manually?
+      description: State the smallest manual workaround and why it is insufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: smallest-scope
+    attributes:
+      label: Smallest implementation
+      description: What is the narrowest change that produces the required evidence?
+    validations:
+      required: true
+  - type: textarea
+    id: stop-condition
+    attributes:
+      label: Stop condition
+      description: What result would cause us to reject the idea or stop building it?
     validations:
       required: true
   - type: textarea
@@ -25,6 +62,6 @@ body:
     id: acceptance
     attributes:
       label: Acceptance criteria
-      description: Make the outcome objectively testable.
+      description: Make the outcome objectively testable. Keep SKIPPED != PASS and UNKNOWN fail-closed.
     validations:
       required: true

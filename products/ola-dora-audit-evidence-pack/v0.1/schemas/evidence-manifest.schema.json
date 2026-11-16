@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ola.example/schemas/evidence-manifest-v0.1.json",
+  "type": "object",
+  "required": ["schema_version","pack","evaluation","source_binding","summary","controls","evidence_references","limitations","manifest_digest"],
+  "properties": {
+    "schema_version": {"const":"ola.evidence-manifest.v0.1"},
+    "pack": {
+      "type":"object",
+      "required":["id","version","status"],
+      "properties":{"id":{"type":"string"},"version":{"type":"string"},"status":{"const":"DRAFT"}},
+      "additionalProperties":false
+    },
+    "evaluation": {
+      "type":"object",
+      "required":["status","valid_contract","ready","scope","policy","errors"],
+      "properties":{
+        "status":{"enum":["READY","NOT_READY"]},
+        "valid_contract":{"type":"boolean"},
+        "ready":{"type":"boolean"},
+        "scope":{"type":"string"},
+        "policy":{"type":"string"},
+        "errors":{"type":"array","items":{"type":"string"}}
+      },
+      "additionalProperties":false
+    },
+    "source_binding": {
+      "type":"object",
+      "required":["tenant_id","repository","change_id","commit_sha","artifact_digest","input_bundle_digest"],
+      "properties":{
+        "tenant_id":{"type":["string","null"]},
+        "repository":{"type":["string","null"]},
+        "change_id":{"type":["string","null"]},
+        "commit_sha":{"type":["string","null"],"pattern":"^([a-f0-9]{40})?$"},
+        "artifact_digest":{"type":["string","null"],"pattern":"^(sha256:[a-f0-9]{64})?$"},
+        "input_bundle_digest":{"type":"string","pattern":"^sha256:[a-f0-9]{64}$"}
+      },
+      "additionalProperties":false
+    },
+    "summary": {
+      "type":"object",
+      "required":["required_controls","control_verdicts_received","evidence_records","control_state_counts"],
+      "properties":{
+        "required_controls":{"type":"integer","minimum":0},
+        "control_verdicts_received":{"type":"integer","minimum":0},
+        "evidence_records":{"type":"integer","minimum":0},
+        "control_state_counts":{"type":"object","additionalProperties":{"type":"integer","minimum":0}}
+      },
+      "additionalProperties":false
+    },
+    "controls": {
+      "type":"array",
+      "items":{
+        "type":"object",
+        "required":["control_id","status","reported_status","evidence_integrity","approval_status","required_evidence_types","missing_evidence_types","evidence_ids","reason","reviewer"],
+        "properties":{
+          "control_id":{"type":"string"},
+          "required_evidence_types":{"type":"array","items":{"type":"string"}},
+          "missing_evidence_types":{"type":"array","items":{"type":"string"}},
+          "status":{"enum":["PASS","FAIL","PARTIAL","BLOCKED","UNKNOWN","SKIPPED","NOT_APPLICABLE"]},
+          "reported_status":{"enum":["PASS","FAIL","PARTIAL","BLOCKED","UNKNOWN","SKIPPED","NOT_APPLICABLE"]},
+          "evidence_integrity":{"enum":["VERIFIED","INVALID","UNVERIFIED"]},
+          "approval_status":{"enum":["APPROVED","PENDING","REJECTED"]},
+          "evidence_ids":{"type":"array","items":{"type":"string"}},
+          "reason":{"type":"string"},
+          "reviewer":{"type":"object"}
+        },
+        "additionalProperties":false
+      }
+    },
+    "evidence_references": {
+      "type":"array",
+      "items":{
+        "type":"object",
+        "required":["evidence_id","tenant_id","control_id","evidence_type","source_system","source_record_id","source_uri","captured_at","payload_digest","binding"],
+        "properties":{
+          "evidence_id":{"type":["string","null"]},
+          "tenant_id":{"type":["string","null"]},
+          "control_id":{"type":["string","null"]},
+          "evidence_type":{"type":["string","null"]},
+          "source_system":{"type":["string","null"]},
+          "source_record_id":{"type":["string","null"]},
+          "source_uri":{"type":["string","null"]},
+          "captured_at":{"type":["string","null"]},
+          "payload_digest":{"type":["string","null"]},
+          "payload_digest_status":{"enum":["VERIFIED","INVALID","UNVERIFIED"]},
+          "binding":{"type":"object","required":["repository","change_id","commit_sha","artifact_digest"],"properties":{"repository":{"type":["string","null"]},"change_id":{"type":["string","null"]},"commit_sha":{"type":["string","null"],"pattern":"^([a-f0-9]{40})?$"},"artifact_digest":{"type":["string","null"],"pattern":"^(sha256:[a-f0-9]{64})?$"}},"additionalProperties":false}
+        },
+        "additionalProperties":false
+      }
+    },
+    "attestation":{"type":"object","required":["customer_manifest_status","pack_archive_attestation"],"properties":{"customer_manifest_status":{"const":"NOT_IMPLEMENTED_IN_V0.1"},"pack_archive_attestation":{"const":"SEPARATE_BUILD_PROVENANCE_ONLY"}},"additionalProperties":false},
+    "limitations":{"type":"array","items":{"type":"string"}},
+    "manifest_digest":{"type":"string","pattern":"^sha256:[a-f0-9]{64}$"}
+  },
+  "additionalProperties":false
+}

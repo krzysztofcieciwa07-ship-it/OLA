@@ -1,0 +1,28 @@
+mapping_id: ola.dora.ict-change-management.control-evidence-map.v0.1
+status: DRAFT
+purpose: minimal versioned mapping needed to produce one ICT-change Evidence Manifest
+representation: flat_control_to_evidence_catalogue
+no_graph_database: true
+legal_basis:
+  - id: DORA-2022-2554-9-4-e
+    uri: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32022R2554"
+  - id: RTS-2024-1774-17
+    uri: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1774"
+mappings:
+  - {control_id: DORA-CM-01, requirement: "DORA Article 9(4)(e), RTS Article 17 chapeau", evidence_types: [approved_policy, management_approval, operating_protocol]}
+  - {control_id: DORA-CM-02, requirement: "DORA Article 9(4)(e)", evidence_types: [change_record, risk_assessment, change_approval]}
+  - {control_id: DORA-CM-03, requirement: "RTS Article 17(1)(a)", evidence_types: [security_requirements, security_test_results]}
+  - {control_id: DORA-CM-04, requirement: "RTS Article 17(1)(b)", evidence_types: [requester_identity, implementer_identity, approver_identity, role_relationship_check]}
+  - {control_id: DORA-CM-05, requirement: "RTS Article 17(1)(c)(i)", evidence_types: [roles_responsibilities, change_plan]}
+  - {control_id: DORA-CM-06, requirement: "RTS Article 17(1)(c)(ii)", evidence_types: [transition_plan]}
+  - {control_id: DORA-CM-07, requirement: "RTS Article 17(1)(c)(iii)-(iv)", evidence_types: [test_plan, test_results, quality_assurance]}
+  - {control_id: DORA-CM-08, requirement: "RTS Article 17(1)(d)(i)-(iii)", evidence_types: [purpose_scope, implementation_timeline, expected_outcomes, change_communication]}
+  - {control_id: DORA-CM-09, requirement: "RTS Article 17(1)(e)", evidence_types: [fallback_procedure, abort_criteria, recovery_responsibility]}
+  - {control_id: DORA-CM-10, requirement: "RTS Article 17(1)(f)", evidence_types: [emergency_change_policy, emergency_safeguards]}
+  - {control_id: DORA-CM-11, requirement: "RTS Article 17(1)(g)", evidence_types: [emergency_change_record, post_implementation_reevaluation, post_implementation_assessment, post_implementation_approval]}
+  - {control_id: DORA-CM-12, requirement: "DORA Article 9(4)(e)", evidence_types: [source_commit, released_artifact, deployment_record, post_deployment_verification]}
+limitations:
+  - draft_product_mapping_not_legal_conclusion
+  - evidence_types_define_a_pack_contract_not_proof_of_full_compliance
+  - qualified_customer_compliance_and_legal_review_required
+  - {control_id: DORA-CM-13, requirement: "RTS Article 17(1)(h)", evidence_types: [existing_security_measure_impact, additional_security_measures_decision]}
