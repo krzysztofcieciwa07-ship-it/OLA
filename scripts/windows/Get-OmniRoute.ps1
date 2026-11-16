@@ -35,6 +35,17 @@ if (Test-Path -LiteralPath $destination) {
 
 Write-Host "Artifact ready: $destination"
 if ($Install) {
+    $signature = Get-AuthenticodeSignature -FilePath $destination
+    if ($signature.Status -ne "Valid" -or -not $signature.SignerCertificate) {
+        throw "Authenticode signature is not valid ($($signature.Status)). Installer was NOT executed."
+    }
+    Write-Host "Authenticode signer: $($signature.SignerCertificate.Subject)"
+    Write-Host "Signer thumbprint: $($signature.SignerCertificate.Thumbprint)"
+    Write-Warning "The release tag is unsigned. Independently confirm this signer identity with the publisher before proceeding."
+    $confirmation = Read-Host "Type INSTALL only after confirming the signer identity"
+    if ($confirmation -cne "INSTALL") {
+        throw "Operator did not confirm publisher identity. Installer was NOT executed."
+    }
     Write-Warning "Starting the OmniRoute installer. Review the Windows/UAC prompt before approving."
     $process = Start-Process -FilePath $destination -Wait -PassThru
     if ($process.ExitCode -ne 0) {
