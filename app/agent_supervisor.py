@@ -31,6 +31,8 @@ from .agent_registry import (
 _IMAGE_DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
 _CONTAINER_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 _SECRET_ENV_MARKERS = ("key", "secret", "token", "password", "credential")
+# Python slim images expose this public APT signing fingerprint; it is not a private credential.
+_SAFE_BASE_IMAGE_ENV_NAMES = frozenset({"gpg_key"})
 _FIXED_ENTRYPOINT = ["python", "-m", "app.agent_worker"]
 
 
@@ -239,6 +241,8 @@ class AgentSupervisor:
             return "worker_agent_instance_label_mismatch"
         for env_item in config.get("Env") or []:
             env_name = str(env_item).split("=", 1)[0].lower()
+            if env_name in _SAFE_BASE_IMAGE_ENV_NAMES:
+                continue
             if any(marker in env_name for marker in _SECRET_ENV_MARKERS):
                 return "worker_secret_environment_not_allowed"
 
