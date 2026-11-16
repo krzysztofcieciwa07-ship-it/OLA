@@ -3,7 +3,8 @@
 **Status:** adapter implemented on a feature branch; gateway installation and live-provider acceptance are pending.
 **Pinned upstream release:** OmniRoute `v3.8.53`
 **Upstream tag object:** `599a2d832522badb1ee74b101caf966f131e8024`
-**Upstream main commit observed:** `094a1aa1c0b2c54a4c4e3065948b3d4e9c1d0165`
+**Upstream release commit:** `191dce8d534ceb56c28a08e71381284a9a87838f` (GitHub signature verified)
+**Tag status:** annotated tag object is unsigned; do not treat the tag as a signed provenance statement.
 **Windows installer:** `OmniRoute.Setup.3.8.53.exe`
 **Expected SHA-256:** `757bc68dff73e9680d18fe1d2d1a8ad3b78318de5948c8218bf02a46ea69ccfe`
 
@@ -49,7 +50,7 @@ Run the repository script on the Windows workstation:
 powershell -NoProfile -File .\scripts\windows\Get-OmniRoute.ps1
 ```
 
-It downloads the pinned official GitHub release asset and verifies the SHA-256 before keeping the file. It does not install or launch the executable by default. After reviewing the downloaded artifact, an operator may explicitly run:
+It downloads the pinned official GitHub release asset and verifies the SHA-256 before keeping the file. The release commit is signed, but the annotated tag itself is unsigned and the release notes report a failed/cancelled `unit-6` Release-Green check on the exact release head. Therefore v3.8.53 is a staging candidate, not production-approved. The optional install path additionally requires a valid Authenticode signature and explicit operator confirmation; verify the signer identity before approving it. It does not install or launch the executable by default. After reviewing the downloaded artifact, an operator may explicitly run:
 
 ```powershell
 powershell -NoProfile -File .\scripts\windows\Get-OmniRoute.ps1 -Install
@@ -73,6 +74,8 @@ Official release: https://github.com/cheaper-inference/OmniRoute/releases/tag/v3
 The following must be proven before enabling this provider for production traffic:
 
 - [ ] Downloaded Windows installer SHA-256 matches the pinned digest.
+- [ ] Authenticode signature is valid and signer identity is independently confirmed against the publisher's official identity.
+- [ ] Release-Green failure/cancelled `unit-6` is investigated or a later release with a complete green release gate is selected.
 - [ ] OmniRoute version and build provenance match the pinned release.
 - [ ] Dashboard/API listener is loopback-only; no public port is reachable.
 - [ ] Unique secrets are configured; storage encryption is enabled; default password is replaced.
