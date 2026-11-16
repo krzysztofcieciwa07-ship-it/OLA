@@ -46,13 +46,13 @@ Loopback HTTP is accepted only for a local gateway. The adapter never reads or f
 Run the repository script on the Windows workstation:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\Get-OmniRoute.ps1
+powershell -NoProfile -File .\scripts\windows\Get-OmniRoute.ps1
 ```
 
 It downloads the pinned official GitHub release asset and verifies the SHA-256 before keeping the file. It does not install or launch the executable by default. After reviewing the downloaded artifact, an operator may explicitly run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\Get-OmniRoute.ps1 -Install
+powershell -NoProfile -File .\scripts\windows\Get-OmniRoute.ps1 -Install
 ```
 
 Official release: https://github.com/cheaper-inference/OmniRoute/releases/tag/v3.8.53
