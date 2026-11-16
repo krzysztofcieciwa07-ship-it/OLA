@@ -366,6 +366,33 @@ def test_supervisor_blocks_request_from_a_different_source_commit(tmp_path):
     assert calls == []
 
 
+def test_supervisor_allows_public_base_image_gpg_fingerprint_but_rejects_api_keys():
+    supervisor_module = _supervisor_module()
+    inspect = _docker_inspect()
+    expected = {
+        "container_id": CONTAINER_ID,
+        "image_digest": IMAGE_DIGEST,
+        "memory_mb": 512,
+        "cpu_millis": 1000,
+        "pids_limit": 16,
+        "source_commit": "a" * 40,
+        "run_id": "00000000-0000-4000-8000-000000000011",
+        "agent_id": "hermes-supervisor-01",
+        "agent_instance_id": "00000000-0000-4000-8000-000000000012",
+    }
+
+    inspect["Config"]["Env"] = ["GPG_KEY=0123456789abcdef"]
+    assert supervisor_module.AgentSupervisor._verify_container(inspect, **expected) is None
+
+    inspect["Config"]["Env"] = [
+        "GPG_KEY=0123456789abcdef",
+        "OPENAI_API_KEY=must-never-enter-worker",
+    ]
+    assert supervisor_module.AgentSupervisor._verify_container(inspect, **expected) == (
+        "worker_secret_environment_not_allowed"
+    )
+
+
 def test_supervisor_blocks_malformed_worker_response_and_cleans_container(tmp_path):
     supervisor_module = _supervisor_module()
     agent, request = _request_and_agent()
