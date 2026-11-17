@@ -2,6 +2,7 @@
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 
 import pytest
 from sqlalchemy import create_engine, event, select, text
@@ -9,7 +10,17 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
-from app.tenant_context import tenant_scope
+from app.tenant_context import (
+    set_api_key_context, reset_database_auth_context,
+)
+ 
+@contextmanager
+def authenticated_tenant_scope(key_fingerprint):
+    token = set_api_key_context(key_fingerprint)
+    try:
+        yield
+    finally:
+        reset_database_auth_context(token)
 
 POSTGRES_URL = os.getenv("OLA_TEST_POSTGRES_URL", "").strip()
 pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="OLA_TEST_POSTGRES_URL is not configured")
@@ -85,13 +96,19 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
     # The restricted runtime role has only SELECT/INSERT on evidence_records.
     database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
     tenant_id = str(uuid.uuid4())
-    with tenant_scope(tenant_id):
-        with database.SessionLocal() as db:
-            db.add(Tenant(id=tenant_id, name="PostgreSQL integration tenant"))
-            db.commit()
+    key_hash = uuid.uuid4().hex + uuid.uuid4().hex
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:id, :name)"),
+            {"id": tenant_id, "name": "PostgreSQL integration tenant"},
+        )
+        conn.execute(
+            text("INSERT INTO api_keys (id, tenant_id, key_hash, role) VALUES (:id, :tenant_id, :key_hash, 'tenant')"),
+            {"id": str(uuid.uuid4()), "tenant_id": tenant_id, "key_hash": key_hash},
+        )
 
     def append_event(index):
-        with tenant_scope(tenant_id):
+        with authenticated_tenant_scope(key_hash):
             return database.append_evidence_atomic(
                 tenant_id, "integration.append", {"index": index},
             )
@@ -100,7 +117,7 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
         results = list(pool.map(append_event, range(32)))
 
     assert len({item["id"] for item in results}) == 32
-    with tenant_scope(tenant_id):
+    with authenticated_tenant_scope(key_hash):
         with database.SessionLocal() as db:
             rows = db.scalars(
                 select(EvidenceRecord)
@@ -400,7 +417,7 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
         assert db.execute(text("SELECT id FROM api_keys")).all() == []
 
     # A transaction-local tenant context exposes only that tenant's rows.
-    with tenant_scope(tenant_a):
+    with authenticated_tenant_scope(key_a):
         with database.SessionLocal() as db:
             assert db.execute(text("SELECT id FROM tenants")).scalars().all() == [tenant_a]
             assert db.execute(text("SELECT tenant_id FROM api_keys")).scalars().all() == [tenant_a]
