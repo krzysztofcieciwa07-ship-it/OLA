@@ -1,5 +1,8 @@
 import base64
+import hashlib
+import hmac
 import json
+from pathlib import Path
 
 import pytest
 
@@ -234,3 +237,56 @@ def test_legacy_verifier_exceptions_fail_closed():
     )
     assert not ok
     assert reason == "legacy verifier raised an exception"
+
+
+
+def test_provenance_labelled_historical_v1_v2_v3_fixture_and_v4_transition():
+    fixture_path = Path(__file__).parent / "fixtures" / "evidence_legacy_v1_v2_v3.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    assert fixture["fixture_schema"] == "ola-evidence-legacy-compatibility-fixture-v1"
+    provenance = fixture["provenance"]
+    assert provenance["v3_algorithm_source_commit"] == "c46b469836fc841638654850158c82d728164f3c"
+    assert provenance["v3_algorithm_source_blob"] == "60f12f96bcb0291201b432747cfd16b12921d2c3"
+    pepper = provenance["v3_test_pepper"]
+    legacy = fixture["records"]
+
+    def verify_historical(segment, *, start_seq, start_prev_hash):
+        expected_seq = start_seq
+        expected_prev = start_prev_hash
+        for row in segment:
+            if row["seq"] != expected_seq or row["prev_hash"] != expected_prev:
+                return False, "legacy continuity mismatch"
+            payload = json.loads(row["payload_json"])
+            metadata = payload.get(V2_META_KEY)
+            if metadata is None:
+                material = f'{row["tenant_id"]}|{row["seq"]}|{row["prev_hash"]}|{row["payload_json"]}'.encode()
+                expected = hashlib.sha256(material).hexdigest()
+            else:
+                version = metadata["version"]
+                common = {
+                    "tenant_id": row["tenant_id"], "seq": row["seq"],
+                    "prev_hash": row["prev_hash"], "record_type": row["record_type"],
+                    "producer": metadata["producer"], "payload_json": row["payload_json"],
+                }
+                if metadata["record_type"] != row["record_type"]:
+                    return False, "legacy type binding mismatch"
+                if version == 2:
+                    material = canonical_json({"domain": "OLA-EVIDENCE-CHAIN-V2", **common}).encode()
+                    expected = hashlib.sha256(material).hexdigest()
+                elif version == 3:
+                    material = canonical_json({"domain": "OLA-EVIDENCE-CHAIN-V3", **common}).encode()
+                    derived = hmac.new(
+                        pepper.encode("utf-8"), b"OLA-EVIDENCE-CHAIN-KEY-V3", hashlib.sha256
+                    ).digest()
+                    expected = hmac.new(derived, material, hashlib.sha256).hexdigest()
+                else:
+                    return False, "unsupported fixture version"
+            if not hmac.compare_digest(expected, row["record_hash"]):
+                return False, "legacy hash mismatch"
+            expected_seq += 1
+            expected_prev = row["record_hash"]
+        return True, "historical fixture verified"
+
+    v4 = _record(3, legacy[-1]["record_hash"])
+    ok, reason = verify_mixed_chain(legacy + [v4], _ring(), legacy_verifier=verify_historical)
+    assert ok, reason
