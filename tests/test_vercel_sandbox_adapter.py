@@ -3,7 +3,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.vercel_sandbox_adapter import SandboxAdapterError, execute_python_source
+import app.vercel_sandbox_adapter as adapter_module
+from app.vercel_sandbox_adapter import (
+    SandboxAdapterError,
+    SandboxOutputLimitExceeded,
+    execute_python_source,
+)
 
 
 class FakeNetworkPolicy:
@@ -186,3 +191,35 @@ def test_default_adapter_uses_official_sdk_policy_and_resource_types(monkeypatch
     assert isinstance(fake_client.create_options["network_policy"], sandbox_sdk.NetworkPolicy)
     assert isinstance(fake_client.create_options["resources"], sandbox_sdk.SandboxResources)
     assert fake_client.closed is True
+
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_adapter_aborts_sandbox_when_output_budget_is_exceeded(stream):
+    box = FakeSandbox(
+        stdout="x" * 8193 if stream == "stdout" else "",
+        stderr="y" * 8193 if stream == "stderr" else "",
+    )
+    sdk = FakeSDK(box)
+
+    with pytest.raises(SandboxOutputLimitExceeded, match="output budget"):
+        execute_python_source("print('large')", sdk=sdk, client=sdk)
+
+    # Exiting the ephemeral sandbox context destroys the remote process.
+    assert box.exited is True
+    assert sdk.closed is True
+
+
+def test_adapter_rejects_new_sandbox_when_global_capacity_is_exhausted(monkeypatch):
+    class BusySlots:
+        def acquire(self, blocking=False):
+            return False
+
+    monkeypatch.setattr(adapter_module, "_SANDBOX_SLOTS", BusySlots())
+    sdk = FakeSDK(FakeSandbox())
+
+    with pytest.raises(SandboxAdapterError, match="concurrency limit"):
+        execute_python_source("print(42)", sdk=sdk, client=sdk)
+
+    assert sdk.create_options is None
+    assert sdk.closed is False
