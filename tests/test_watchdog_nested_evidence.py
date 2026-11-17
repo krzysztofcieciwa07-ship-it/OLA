@@ -7,8 +7,10 @@ import sqlite3
 import tarfile
 from pathlib import Path
 
+import scripts.ola_watchdog_evidence as evidence
 from scripts.ola_watchdog_evidence import (
     IGOR_BUNDLE_FILES,
+    _verify_tar,
     NINA_FILES,
     verify_nested_artifact_copies,
     verify_nested_evidence,
@@ -268,3 +270,20 @@ def test_nested_artifact_copies_require_exact_original_artifact_trees(tmp_path):
     )
     assert ok is False
     assert reason == "nina_artifact_copy_mismatch"
+
+
+def test_igor_tar_enforces_decompressed_stream_limit_before_full_scan(tmp_path, monkeypatch):
+    bundle = tmp_path / "evidence-bundle"
+    bundle.mkdir()
+    payload_path = bundle / "payload.bin"
+    payload_path.write_bytes(b"\\0" * (2 * 1024 * 1024))
+    archive_path = tmp_path / "oversized.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(payload_path, arcname="evidence-bundle/payload.bin")
+
+    monkeypatch.setattr(evidence, "MAX_TAR_UNCOMPRESSED_BYTES", 64 * 1024)
+
+    ok, reason = _verify_tar(archive_path, bundle)
+
+    assert ok is False
+    assert reason == "igor_tar_size_limit"
