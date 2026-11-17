@@ -98,6 +98,10 @@ def test_igor_requires_exactly_one_ordered_execution_lifecycle():
     events.insert(2, end)
     assert check(rehash(events))["status"] == "BLOCK"
 
+    events = [json.loads(row["payload_json"]) for row in proof()]
+    events.insert(1, dict(events[0]))
+    assert check(rehash(events))["status"] == "BLOCK"
+
 
 def test_fake_timing_rejected_even_after_rehash():
     events = [json.loads(row["payload_json"]) for row in proof()]
