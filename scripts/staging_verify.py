@@ -6,6 +6,9 @@ import json
 import os
 import sqlite3
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.igor_evidence_verifier import verify_chain as verify_evidence_chain
 
