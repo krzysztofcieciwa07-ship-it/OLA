@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from app.evidence_v4 import (
-    ACTIVE_KEY_ENV, KEYRING_ENV, GENESIS_HASH, V2_META_KEY, V4_META_KEY,
+    ACTIVE_KEY_ENV, KEYRING_ENV, GENESIS_HASH, MAX_JSON_DEPTH, MAX_PAYLOAD_BYTES,
+    V2_META_KEY, V4_META_KEY,
     Keyring, MissingKeyError, InvalidKeyringError, UnknownKeyError,
     canonical_json, load_keyring, seal_payload_v4, sign_record, verify_record,
     verify_mixed_chain,
@@ -324,3 +325,14 @@ def test_v4_rejects_ambiguous_v2_and_v4_metadata():
     row["payload_json"] = canonical_json(payload)
     with pytest.raises(ValueError, match="legacy V2 metadata"):
         verify_record(row, _ring())
+
+
+
+def test_payload_depth_and_size_limits_are_enforced():
+    nested = {"leaf": True}
+    for _ in range(MAX_JSON_DEPTH + 2):
+        nested = {"nested": nested}
+    with pytest.raises(ValueError, match="nesting limit"):
+        canonical_json(nested)
+    with pytest.raises(ValueError, match="size limit"):
+        canonical_json({"blob": "x" * MAX_PAYLOAD_BYTES})
