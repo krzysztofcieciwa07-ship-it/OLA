@@ -313,3 +313,25 @@ def test_adapter_releases_global_slot_after_output_abort(monkeypatch):
 
     assert slots.acquire(blocking=False) is True
     slots.release()
+
+
+def test_default_stream_limits_fit_inside_workflow_engine_output_budget():
+    from app.vercel_sandbox_adapter import MAX_OUTPUT_BYTES
+    from app.workflow_engine import WorkflowEngine, WorkflowNode
+
+    assert MAX_OUTPUT_BYTES == 3072
+    box = FakeSandbox(stdout="x" * MAX_OUTPUT_BYTES, stderr="y" * MAX_OUTPUT_BYTES)
+    sdk = FakeSDK(box)
+    result = execute_python_source(
+        "print('bounded')", sdk=sdk, client=sdk,
+        output_limit_bytes=MAX_OUTPUT_BYTES,
+    )
+    assert result["stdout_truncated"] is False
+    assert result["stderr_truncated"] is False
+
+    workflow = WorkflowEngine(max_workers=1, deadline_seconds=5).run(
+        [WorkflowNode("sandbox", "vercel_sandbox", "bounded task", ())],
+        lambda node, deps: result,
+    )
+    assert workflow["status"] == "COMPLETED_UNVERIFIED"
+    assert "sandbox" in workflow["results"]
