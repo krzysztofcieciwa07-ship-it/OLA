@@ -137,11 +137,13 @@ def test_product_e2e_customer_audit():
 
     assert response.status_code == 200
     result = response.json()
-    assert result["status"] == "VERIFIED"
-    assert result["outcome"] == "recovered_and_verified"
+    assert result["status"] == "PARTIAL"
+    assert result["outcome"] == "simulated_only"
+    assert result["runtime_status"] == "NOT_EXECUTED"
+    assert result["evidence_integrity"] == "VERIFIED"
     assert result["evidence_count"] == 5
     assert len(result["evidence_ids"]) == 5
-    assert result["reason"] == "ok"
+    assert "no external runtime recovery" in result["reason"]
     assert result["audit_id"]
 
     db = SessionLocal()
@@ -155,11 +157,11 @@ def test_product_e2e_customer_audit():
     audit_rows = [row for row in rows if row.id in result["evidence_ids"]]
     assert len(audit_rows) == 5
     assert [row.record_type for row in audit_rows] == [
-        "task.received",
-        "execution.started",
-        "fault.detected",
-        "recovery.applied",
-        "verification.passed",
+        "simulation.requested",
+        "simulation.started",
+        "simulation.fault_modelled",
+        "simulation.recovery_modelled",
+        "simulation.completed",
     ]
     assert verify_chain(
         [

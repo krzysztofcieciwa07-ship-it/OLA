@@ -44,8 +44,10 @@ def test_product_e2e_task_fault_recovery_verification():
 
     assert response.status_code == 200
     result = response.json()
-    assert result["status"] == "VERIFIED"
-    assert result["outcome"] == "recovered_and_verified"
+    assert result["status"] == "PARTIAL"
+    assert result["outcome"] == "simulated_only"
+    assert result["runtime_status"] == "NOT_EXECUTED"
+    assert result["evidence_integrity"] == "VERIFIED"
     assert result["evidence_count"] == 5
 
     db = SessionLocal()
@@ -57,11 +59,11 @@ def test_product_e2e_task_fault_recovery_verification():
     db.close()
 
     assert [row.record_type for row in rows] == [
-        "task.received",
-        "execution.started",
-        "fault.detected",
-        "recovery.applied",
-        "verification.passed",
+        "simulation.requested",
+        "simulation.started",
+        "simulation.fault_modelled",
+        "simulation.recovery_modelled",
+        "simulation.completed",
     ]
     chain = [
         {

@@ -86,16 +86,21 @@ def read_tenant_evidence(tenant_id):
 
 
 def run_controlled_audit(tenant_id, task, scenario):
+    """Record a synthetic exercise; it cannot establish live recovery.
+
+    The evidence chain proves integrity of the recorded simulation events,
+    not that an external service failed, recovered or stayed healthy.
+    """
     if scenario != "fault_then_recovery":
         raise HTTPException(status_code=400, detail="unsupported scenario")
 
     audit_id = str(uuid.uuid4())
     events = [
-        ("task.received", {"audit_id": audit_id, "task": task}),
-        ("execution.started", {"audit_id": audit_id, "mode": "controlled"}),
-        ("fault.detected", {"audit_id": audit_id, "fault": "controlled_fault"}),
-        ("recovery.applied", {"audit_id": audit_id, "action": "controlled_recovery"}),
-        ("verification.passed", {"audit_id": audit_id, "assertion": "recovered_and_verified"}),
+        ("simulation.requested", {"audit_id": audit_id, "task": task}),
+        ("simulation.started", {"audit_id": audit_id, "scenario": scenario}),
+        ("simulation.fault_modelled", {"audit_id": audit_id, "fault": "controlled_fault", "observed": False}),
+        ("simulation.recovery_modelled", {"audit_id": audit_id, "action": "controlled_recovery", "observed": False}),
+        ("simulation.completed", {"audit_id": audit_id, "runtime_verified": False}),
     ]
     evidence_ids = []
     for record_type, payload in events:
@@ -126,8 +131,10 @@ def run_controlled_audit(tenant_id, task, scenario):
     if not chain_ok:
         return {
             "audit_id": audit_id,
-            "status": "FAILED",
+            "status": "BLOCK",
             "outcome": "evidence_chain_invalid",
+            "runtime_status": "NOT_EXECUTED",
+            "evidence_integrity": "BLOCK",
             "evidence_count": len(rows),
             "evidence_ids": evidence_ids,
             "reason": reason,
@@ -135,11 +142,13 @@ def run_controlled_audit(tenant_id, task, scenario):
 
     return {
         "audit_id": audit_id,
-        "status": "VERIFIED",
-        "outcome": "recovered_and_verified",
+        "status": "PARTIAL",
+        "outcome": "simulated_only",
+        "runtime_status": "NOT_EXECUTED",
+        "evidence_integrity": "VERIFIED",
         "evidence_count": len(rows),
         "evidence_ids": evidence_ids,
-        "reason": reason,
+        "reason": "simulation events are intact; no external runtime recovery was observed",
     }
 
 
