@@ -14,6 +14,9 @@ permissions:
 env:
   # CI fixture only; NEVER use as a production secret.
   OLA_API_KEY_PEPPER: ${{ github.sha }}
+  # Public test-only key; never use this value for production.
+  OLA_EVIDENCE_V4_KEYRING_JSON: '{"ci-v4-2026":"cHl0ZXN0LW9ubHktdjQta2V5LW1hdGVyaWFsLTMyYnl0ZXMhIQ=="}'
+  OLA_EVIDENCE_V4_ACTIVE_KEY_ID: ci-v4-2026
 
 jobs:
   provenance-mutation:
@@ -30,7 +33,7 @@ jobs:
       - name: Start deployment image with source provenance
         run: |
           set -euo pipefail
-          docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" --name ola-provenance -p 8000:8000 \
+          docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" -e OLA_EVIDENCE_V4_KEYRING_JSON='{"ci-v4-2026":"cHl0ZXN0LW9ubHktdjQta2V5LW1hdGVyaWFsLTMyYnl0ZXMhIQ=="}' -e OLA_EVIDENCE_V4_ACTIVE_KEY_ID=ci-v4-2026 --name ola-provenance -p 8000:8000 \
             -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" \
             ola:${GITHUB_SHA}
           for i in $(seq 1 30); do
