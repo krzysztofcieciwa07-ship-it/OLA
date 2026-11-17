@@ -275,7 +275,8 @@ def _execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
                 raise PaidOrderExecutionRejected(
                     409, "PostgreSQL worker requires a tenant ID and an active database claim token",
                 )
-            # The API request's tenant_scope has already installed transaction-local RLS.
+            # The transaction hook establishes RLS from the DB-verified claim.
+            # No caller-supplied tenant ID or custom GUC authorizes the query.
             db.connection()
         else:
             raise PaidOrderExecutionRejected(503, "no atomic execution-outbox policy for this database")
