@@ -221,23 +221,49 @@ def download_and_verify_artifact_archive(
             if total_uncompressed > 256 * 1024 * 1024:
                 return False, "aggregator_artifact_archive_size_limit"
 
-            seen: set[str] = set()
+            seen_paths: set[str] = set()
+            file_paths: set[str] = set()
             for info in infos:
                 name = info.filename
                 path = PurePosixPath(name)
                 mode = (info.external_attr >> 16) & 0o170000
+                raw_name = name[:-1] if name.endswith("/") else name
+                raw_parts = raw_name.split("/") if raw_name else []
                 if (
                     not name
                     or "\\" in name
                     or path.is_absolute()
+                    or not path.parts
+                    or any(part in {"", "."} for part in raw_parts)
                     or ".." in path.parts
                     or (path.parts and ":" in path.parts[0])
-                    or name in seen
                     or mode == stat.S_IFLNK
                     or info.file_size > 128 * 1024 * 1024
                 ):
                     return False, "aggregator_artifact_archive_unsafe_entry"
-                seen.add(name)
+
+                # ZIP names such as "a/./b" and "a//b" normalize to the
+                # same extraction path as "a/b". Reject aliases and file/
+                # parent collisions before extractall can overwrite evidence.
+                normalized = path.as_posix()
+                if normalized in seen_paths:
+                    return False, "aggregator_artifact_archive_unsafe_entry"
+                if any(
+                    parent.as_posix() in file_paths
+                    for parent in path.parents
+                    if parent.parts
+                ):
+                    return False, "aggregator_artifact_archive_unsafe_entry"
+                is_directory = info.is_dir()
+                if not is_directory and any(
+                    existing.startswith(normalized + "/")
+                    for existing in seen_paths
+                ):
+                    return False, "aggregator_artifact_archive_unsafe_entry"
+
+                seen_paths.add(normalized)
+                if not is_directory:
+                    file_paths.add(normalized)
             bundle.extractall(target)
     except (zipfile.BadZipFile, RuntimeError, ValueError):
         return False, "aggregator_artifact_archive_invalid"

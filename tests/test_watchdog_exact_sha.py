@@ -204,6 +204,54 @@ def test_artifact_archive_rejects_path_traversal(tmp_path, monkeypatch):
     assert not (tmp_path / "escape.txt").exists()
 
 
+def test_artifact_archive_rejects_normalized_path_collisions(tmp_path, monkeypatch):
+    import io
+    import zipfile
+
+    from scripts.ola_watchdog import download_and_verify_artifact_archive
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("evidence/manifest.json", "first")
+        bundle.writestr("evidence/./manifest.json", "shadow")
+    archive_bytes = archive.getvalue()
+    archive_digest = "sha256:" + hashlib.sha256(archive_bytes).hexdigest()
+
+    install_fake_gh(tmp_path, monkeypatch, archive_bytes)
+    destination = tmp_path / "extracted"
+    ok, reason = download_and_verify_artifact_archive(
+        "example/OLA", 42, archive_digest, len(archive_bytes), destination
+    )
+
+    assert ok is False
+    assert reason == "aggregator_artifact_archive_unsafe_entry"
+    assert not (destination / "evidence" / "manifest.json").exists()
+
+
+def test_artifact_archive_rejects_file_parent_collisions(tmp_path, monkeypatch):
+    import io
+    import zipfile
+
+    from scripts.ola_watchdog import download_and_verify_artifact_archive
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("evidence", "not-a-directory")
+        bundle.writestr("evidence/manifest.json", "child")
+    archive_bytes = archive.getvalue()
+    archive_digest = "sha256:" + hashlib.sha256(archive_bytes).hexdigest()
+
+    install_fake_gh(tmp_path, monkeypatch, archive_bytes)
+    destination = tmp_path / "extracted"
+    ok, reason = download_and_verify_artifact_archive(
+        "example/OLA", 42, archive_digest, len(archive_bytes), destination
+    )
+
+    assert ok is False
+    assert reason == "aggregator_artifact_archive_unsafe_entry"
+    assert not (destination / "evidence").exists()
+
+
 def test_aggregator_bundle_requires_checksum_exact_sha_and_all_evidence(tmp_path):
     write_bundle(tmp_path, valid_summary())
 
