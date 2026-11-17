@@ -188,7 +188,7 @@ def execute_python_source(
         return {
             "executor": "vercel_sandbox",
             "operation": "python_exec",
-            "runtime": "python3.14",
+            "runtime": "python3",
             "sandbox_name": sandbox_name,
             "image": image,
             "region": actual_region,
