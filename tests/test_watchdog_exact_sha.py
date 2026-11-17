@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 from scripts.ola_watchdog import (
     choose_flow_action,
@@ -10,6 +11,7 @@ from scripts.ola_watchdog import (
 )
 
 
+ROOT = Path(__file__).resolve().parents[1]
 SOURCE_SHA = "a" * 40
 OLD_SHA = "b" * 40
 
@@ -98,6 +100,7 @@ def valid_summary(source_sha: str = SOURCE_SHA) -> dict:
         "schema": "ola-auto-evidence-v3",
         "source_commit": source_sha,
         "provider": "ollama",
+        "openai_required": False,
         "preflight": "success",
         "real_ollama_full_flow": "success",
         "preflight_artifact_integrity": "VERIFIED",
@@ -154,3 +157,19 @@ def test_aggregator_bundle_rejects_unverified_or_non_fail_closed_claims(tmp_path
 
     assert ok is False
     assert reason == "evidence_not_verified"
+
+
+def test_watchdog_workflow_persists_lifecycle_evidence_and_never_cancels_active_run():
+    workflow = (
+        ROOT / ".github" / "workflows" / "ola-24x7-watchdog.yml"
+    ).read_text(encoding="utf-8")
+    script = (ROOT / "scripts" / "ola_watchdog.py").read_text(encoding="utf-8")
+
+    assert "cancel-in-progress: false" in workflow
+    assert "upload-artifact@" in workflow
+    assert "scripts/ola_watchdog.py" in workflow
+    assert '"run.start"' in script
+    assert '"run.end"' in script
+    assert "headSha" in script
+    assert "gh run download" in script
+    assert "classify" in script

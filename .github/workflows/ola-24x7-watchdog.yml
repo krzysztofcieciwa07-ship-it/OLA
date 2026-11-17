@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: ola-24x7-watchdog
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -19,74 +19,42 @@ jobs:
     permissions:
       actions: write
       contents: read
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
-      - name: Checkout
+      - name: Checkout exact main source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Inspect runtime health
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh run list --workflow ola-12h-autoflow.yml --branch main --limit 5 --json databaseId,status,conclusion,createdAt,updatedAt > autoflow-runs.json
-          python - <<'PY'
-          import json
-          rows=json.load(open("autoflow-runs.json"))
-          print("AUTOFLOW_RECENT_RUNS")
-          for r in rows:
-              print(r)
-          PY
-
-      - name: Run local quality smoke gate
+      - name: Run bounded watchdog regression suite
         run: |
           set -euo pipefail
           python -m pip install -r requirements.txt
-          pytest -q tests/test_decision_report.py tests/test_igor.py tests/test_independent_verifier_tamper.py tests/test_contradiction_replay.py
+          pytest -q tests/test_watchdog_exact_sha.py tests/test_autoflow_workflow_contract.py tests/test_decision_report.py tests/test_igor.py tests/test_independent_verifier_tamper.py tests/test_contradiction_replay.py
 
-      - name: Dispatch full evidence flow when healthy and stale
+      - name: Evaluate exact-source evidence and dispatch once
+        id: watchdog
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python scripts/ola_watchdog.py
+
+      - name: Enforce watchdog decision
+        if: always()
+        env:
+          DECISION: ${{ steps.watchdog.outputs.decision }}
         run: |
           set -euo pipefail
-          set +e
-          python - <<'PY'
-          import json, time, datetime
-          rows=json.load(open("autoflow-runs.json"))
-          now=time.time()
-          active=any(r.get("status") in {"queued","in_progress","waiting","requested"} for r in rows)
-          recent=any(
-              r.get("createdAt") and
-              now-datetime.datetime.fromisoformat(r["createdAt"].replace("Z","+00:00")).timestamp() < 900
-              for r in rows
-          )
-          if active or recent:
-              print("FULL_FLOW=NOT_DISPATCHED reason=active_or_recent")
-              raise SystemExit(2)
-          print("FULL_FLOW=DISPATCH")
-          PY
-          status=$?
-          set -e
-          if [ "$status" -eq 0 ]; then
-            gh workflow run ola-12h-autoflow.yml --ref main
-          elif [ "$status" -eq 2 ]; then
-            exit 0
-          else
-            exit "$status"
-          fi
+          test -s watchdog-evidence.json
+          cat watchdog-evidence.json
+          test "$DECISION" = "CONTINUE"
 
-      - name: Record provider policy
-        run: |
-          echo "24x7 watchdog active"
-          echo "AUTO_PROVIDER=ollama"
-          echo "OPENAI_REQUIRED_FOR_AUTO_FLOW=false"
-          echo "OpenAI remains an optional separate verification lane."
-
-      - name: Watchdog result
-        if: ${{ always() }}
-        run: |
-          echo "OLA_24X7_WATCHDOG=ACTIVE"
-          echo "No UNKNOWN/BLOCKED result is promoted to VERIFIED."
+      - name: Upload watchdog lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-24x7-watchdog-${{ github.run_id }}
+          path: watchdog-evidence.json
+          if-no-files-found: error
