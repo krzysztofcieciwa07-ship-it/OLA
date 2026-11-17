@@ -245,7 +245,12 @@ def test_adapter_releases_global_slot_after_output_abort(monkeypatch):
     sdk = FakeSDK(FakeSandbox(stdout="x" * 20))
 
     with pytest.raises(SandboxOutputLimitExceeded):
-        execute_python_source("print('large')", sdk=sdk, client=sdk)
+        execute_python_source(
+            "print('large')",
+            sdk=sdk,
+            client=sdk,
+            output_limit_bytes=5,
+        )
 
     assert slots.acquire(blocking=False) is True
     slots.release()
