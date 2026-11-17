@@ -80,7 +80,7 @@ def _json_object(raw, *, strict=False):
             value = json.loads(raw, object_pairs_hook=_reject_duplicate_members)
         else:
             value = json.loads(raw)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, RecursionError) as exc:
         raise IndependentEvidenceError("invalid payload_json") from exc
     if not isinstance(value, dict):
         raise IndependentEvidenceError("payload must be an object")
@@ -268,7 +268,7 @@ def verify_chain(records, environ=None):
             expected_prev = supplied
             expected_seq += 1
         return True, "ok"
-    except (IndependentEvidenceError, TypeError, KeyError, ValueError, OverflowError):
+    except (IndependentEvidenceError, TypeError, KeyError, ValueError, OverflowError, RecursionError):
         return False, "evidence verification failed closed"
 
 
