@@ -85,6 +85,7 @@ class ReleaseSourceBindingTest(unittest.TestCase):
             ".github/workflows/nina-real-runtime-provenance.yml": "ref: ${{ env.EXPECTED_COMMIT }}",
             ".github/workflows/ollama-real-runtime.yml": "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
             ".github/workflows/igor-independent-evidence.yml": "ref: ${{ env.SOURCE_COMMIT }}",
+            ".github/workflows/nina-igor-ollama.yml": "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
         }
         for filename, checkout_ref in contracts.items():
             with self.subTest(workflow=filename):
@@ -101,6 +102,17 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn("SOURCE_COMMIT: ${{ inputs.source_commit }}", igor)
         self.assertIn("OLA_API_KEY_PEPPER: ${{ inputs.source_commit }}", igor)
         self.assertNotIn("OLA_API_KEY_PEPPER: ${{ github.sha }}", igor)
+        ollama_igor = (ROOT / ".github/workflows/igor-independent-ollama-evidence.yml").read_text(encoding="utf-8")
+        self.assertIn("OLA_API_KEY_PEPPER: ${{ inputs.source_commit }}", ollama_igor)
+        self.assertIn("ref: ${{ inputs.source_commit }}", ollama_igor)
+
+    def test_nina_ollama_exports_runtime_image_revision_for_igor(self):
+        workflow = (ROOT / ".github/workflows/nina-igor-ollama.yml").read_text(encoding="utf-8")
+        self.assertIn("EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        self.assertIn("docker image inspect --format", workflow)
+        self.assertIn('test "$(cat runtime-image-revision.txt)" = "$EXPECTED_SOURCE_SHA"', workflow)
+        self.assertIn('OLA_BUILD_EXPECTED_SHA="$EXPECTED_SOURCE_SHA"', workflow)
+        self.assertIn("source_commit: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
     def test_pull_request_manifest_never_claims_attestation(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main' && success()", content)
