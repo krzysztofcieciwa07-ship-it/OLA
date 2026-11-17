@@ -200,7 +200,7 @@ def test_mixed_v3_v4_requires_explicit_legacy_verifier():
     v4 = _record(1, "1" * 64)
     assert verify_mixed_chain([v3, v4], _ring())[0] is False
     ok, _ = verify_mixed_chain(
-        [v3, v4], _ring(), legacy_verifier=lambda segment: (segment == [v3], "legacy-fixture-ok")
+        [v3, v4], _ring(), legacy_verifier=lambda segment, **_anchor: (segment == [v3], "legacy-fixture-ok")
     )
     assert ok
 
@@ -212,12 +212,12 @@ def test_mixed_v1_v2_v3_v4_keeps_continuity_across_legacy_boundary():
     v4 = _record(3, "3" * 64)
     seen = []
 
-    def verify_legacy(segment):
-        seen.append([_version(item) for item in segment])
+    def verify_legacy(segment, *, start_seq, start_prev_hash):
+        seen.append(([ _version(item) for item in segment ], start_seq, start_prev_hash))
         return True, "verified-by-test-legacy-adapter"
 
     assert verify_mixed_chain([v1, v2, v3, v4], _ring(), legacy_verifier=verify_legacy)[0]
-    assert seen == [[1, 2, 3]]
+    assert seen == [([1, 2, 3], 0, GENESIS_HASH)]
 
 
 def _version(row):
@@ -230,7 +230,7 @@ def _version(row):
 def test_legacy_verifier_exceptions_fail_closed():
     v3 = _legacy(3, 0, GENESIS_HASH, "1" * 64)
     ok, reason = verify_mixed_chain(
-        [v3], _ring(), legacy_verifier=lambda _segment: (_ for _ in ()).throw(RuntimeError("boom"))
+        [v3], _ring(), legacy_verifier=lambda _segment, **_anchor: (_ for _ in ()).throw(RuntimeError("boom"))
     )
     assert not ok
     assert reason == "legacy verifier raised an exception"
