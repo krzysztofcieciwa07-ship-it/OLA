@@ -71,7 +71,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert result["executor"] == "vercel_sandbox"
     assert result["operation"] == "python_exec"
     assert result["runtime"] == "python3.14"
-    assert result["sandbox_name"] == box.name
+    assert result["sandbox_name"] == box.name\n    assert result["image"] == box.image
     assert result["exit_code"] == 0
     assert result["stdout"] == "42\n"
     assert result["source_sha256"]
@@ -97,6 +97,18 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert box.exited is True
     assert sdk.closed is True
     assert options["destroy"] is True
+
+
+def test_adapter_rejects_unpinned_resolved_image_before_execution():
+    box = FakeSandbox()
+    box.image = "vercel/sandbox/python:3.14"
+    sdk = FakeSDK(box)
+
+    with pytest.raises(SandboxAdapterError, match="digest-pinned image"):
+        execute_python_source("print(42)", sdk=sdk, client=sdk)
+
+    assert box.calls == []
+    assert sdk.closed is True
 
 
 def test_adapter_caps_retained_output_and_marks_truncation():
