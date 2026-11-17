@@ -265,6 +265,8 @@ def run_support_escalation(*, tenant_id, requester_id, conversation_id,
         conversation_id=conversation_id,
         expected_commit=commit if commit != "UNKNOWN" else None,
     )
+    if result["status"] != "COMPLETED_UNVERIFIED":
+        raise EscalationBlocked("DAG blocked: " + str(result["failed"]))
     if igor["status"] != "VERIFIED":
         raise EscalationBlocked("IGOR rejected escalation: " + igor["reason"])
     draft = result["results"]["draft"]
