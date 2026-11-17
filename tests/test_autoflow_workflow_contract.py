@@ -29,12 +29,15 @@ def test_nina_ollama_workflow_is_reusable_not_a_second_pr_or_main_push_trigger()
 
 def test_12h_flow_is_the_single_full_flow_for_pr_and_main_push():
     triggers = trigger_block(workflow("ola-12h-autoflow.yml"), "concurrency")
+    watchdog_triggers = trigger_block(workflow("ola-24x7-watchdog.yml"), "concurrency")
 
-    assert "  schedule:" in triggers
+    assert "  schedule:" not in triggers
     assert "  workflow_dispatch:" in triggers
     assert "  pull_request:" in triggers
     assert "  push:" in triggers
     assert "paths:" not in triggers
+    assert "  schedule:" in watchdog_triggers
+    assert "cron: '*/5 * * * *'" in watchdog_triggers
 
 
 def test_12h_concurrency_isolates_prs_from_main_evidence_runs():

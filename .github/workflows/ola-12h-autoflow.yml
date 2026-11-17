@@ -6,9 +6,6 @@ env:
   OLA_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 on:
-  schedule:
-    - cron: '17 0,12 * * *'
-      timezone: "Europe/Brussels"
   workflow_dispatch:
   pull_request:
     branches:
@@ -17,9 +14,9 @@ on:
     branches:
       - main
 
-# A PR run must never replace a queued main/scheduled evidence run.
-# All main triggers intentionally share one group to prevent overlapping
-# schedule, push and Watchdog-dispatched full flows.
+# The 24x7 Watchdog is the sole scheduler for this evidence flow.
+# PR and main pushes still run immediately; the watchdog dispatches only when
+# exact-SHA evidence is missing or has exceeded the 12-hour freshness window.
 concurrency:
   group: ola-12h-autoflow-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false

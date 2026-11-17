@@ -26,7 +26,7 @@ from scripts.ola_watchdog_evidence import verify_nested_artifact_copies, verify_
 
 
 ACTIVE_STATUSES = {"queued", "pending", "in_progress", "waiting", "requested"}
-FRESHNESS_SECONDS = 900
+FRESHNESS_SECONDS = 12 * 60 * 60
 MAX_ARTIFACT_ARCHIVE_BYTES = 256 * 1024 * 1024
 FLOW_WORKFLOW = "ola-12h-autoflow.yml"
 

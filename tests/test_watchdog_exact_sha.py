@@ -10,6 +10,7 @@ from pathlib import Path
 from scripts.ola_watchdog import (
     choose_flow_action,
     decide_verified_flow,
+    FRESHNESS_SECONDS,
     run_watchdog,
     verify_aggregator_bundle,
 )
@@ -74,7 +75,7 @@ def test_successful_exact_sha_run_requires_artifact_verification():
     assert result["run"]["headSha"] == SOURCE_SHA
 
 
-def test_verified_flow_freshness_uses_completion_update_not_start_time():
+def test_verified_flow_freshness_uses_completion_update_and_12h_cadence():
     run = flow_run(
         created_at="2026-11-17T08:00:00Z",
         updated_at="2026-11-17T08:25:00Z",
@@ -84,22 +85,26 @@ def test_verified_flow_freshness_uses_completion_update_not_start_time():
         run,
         evidence_valid=True,
         now_epoch=1794904200,
-        freshness_seconds=900,
+    )
+    almost_stale = decide_verified_flow(
+        run,
+        evidence_valid=True,
+        now_epoch=1794947099,
     )
     stale = decide_verified_flow(
         run,
         evidence_valid=True,
-        now_epoch=1794904900,
-        freshness_seconds=900,
+        now_epoch=1794947100,
     )
     invalid = decide_verified_flow(
         run,
         evidence_valid=False,
         now_epoch=1794902700,
-        freshness_seconds=900,
     )
 
+    assert FRESHNESS_SECONDS == 12 * 60 * 60
     assert fresh["action"] == "HEALTHY"
+    assert almost_stale["action"] == "HEALTHY"
     assert stale["action"] == "DISPATCH"
     assert invalid["action"] == "BLOCKED"
 
