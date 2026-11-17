@@ -26,7 +26,8 @@ def proof():
         return "4"
     WorkflowEngine(max_workers=2).run(nodes, execute,
         lambda event: events.append({**event, "requester_id": "person1",
-                                     "planner": {"response_id": "p1"}, "commit": "expected"}),
+                                     "planner": {"response_id": "p1"}, "commit": "expected",
+                                     "task_digest": hashlib.sha256(b"test").hexdigest()}),
         run_id="run1")
     events.append({
         "event": "execution.run.end",
@@ -108,6 +109,13 @@ def test_fake_timing_rejected_even_after_rehash():
     for event in events:
         if event["event"] == "task.completed":
             event["worker_finished_ns"] = event["worker_started_ns"]
+    assert check(rehash(events))["status"] == "BLOCK"
+
+
+def test_goal_digest_mismatch_between_lifecycle_and_plan_is_blocked():
+    events = [json.loads(row["payload_json"]) for row in proof()]
+    planned = next(event for event in events if event["event"] == "workflow.planned")
+    planned["task_digest"] = "0" * 64
     assert check(rehash(events))["status"] == "BLOCK"
 
 
@@ -202,7 +210,8 @@ def sandbox_events(node_count=1):
         nodes,
         lambda node, deps: output,
         lambda event: events.append({**event, "requester_id": "person1",
-                                     "planner": {"response_id": "p1"}, "commit": "expected"}),
+                                     "planner": {"response_id": "p1"}, "commit": "expected",
+                                     "task_digest": hashlib.sha256(b"sandbox").hexdigest()}),
         run_id="sandbox-run",
     )
     events.append({
