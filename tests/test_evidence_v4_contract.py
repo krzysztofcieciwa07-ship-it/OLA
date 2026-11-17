@@ -156,12 +156,18 @@ def test_duplicate_payload_json_members_are_rejected():
     ("tenant_id", "tenant-b"),
     ("seq", 1),
     ("prev_hash", "1" * 64),
-    ("record_type", "provenance.changed"),
 ])
 def test_authenticated_record_fields_cannot_be_substituted(field, value):
     row = _record()
     row[field] = value
     assert not verify_record(row, _ring())
+
+
+def test_record_type_substitution_fails_closed():
+    row = _record()
+    row["record_type"] = "provenance.changed"
+    with pytest.raises(ValueError, match="record type metadata mismatch"):
+        verify_record(row, _ring())
 
 
 def test_payload_mutation_is_detected():
