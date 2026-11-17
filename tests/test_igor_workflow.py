@@ -211,6 +211,7 @@ def sandbox_events(node_count=1):
         "sandbox_name": "sandbox-run-123",
         "image": "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8",
         "region": "fra1",
+        "failover_regions": [],
         "network_policy": "deny-all",
         "persistent": False,
         "destroy_on_exit": True,
@@ -280,6 +281,7 @@ def test_igor_verifies_sandbox_execution_shape_and_source_digest():
 
 @pytest.mark.parametrize("field,value", [
     ("region", "iad1"),
+    ("failover_regions", ["iad1"]),
     ("network_policy", "allow-all"),
     ("persistent", True),
     ("destroy_on_exit", False),
