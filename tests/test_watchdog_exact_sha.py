@@ -151,14 +151,14 @@ def test_artifact_archive_digest_is_checked_before_safe_extraction(tmp_path, mon
     destination = tmp_path / "extracted"
 
     ok, reason = download_and_verify_artifact_archive(
-        "example/OLA", 42, archive_digest, destination
+        "example/OLA", 42, archive_digest, len(archive_bytes), destination
     )
     assert ok is True
     assert reason == "verified"
     assert (destination / "ola-auto-evidence.json").read_text() == "{}"
 
     bad_ok, bad_reason = download_and_verify_artifact_archive(
-        "example/OLA", 42, "sha256:" + ("0" * 64), tmp_path / "bad"
+        "example/OLA", 42, "sha256:" + ("0" * 64), len(archive_bytes), tmp_path / "bad"
     )
     assert bad_ok is False
     assert bad_reason == "aggregator_artifact_archive_digest_mismatch"
@@ -181,7 +181,7 @@ def test_artifact_archive_rejects_path_traversal(tmp_path, monkeypatch):
 
     monkeypatch.setattr("scripts.ola_watchdog.subprocess.run", fake_run)
     ok, reason = download_and_verify_artifact_archive(
-        "example/OLA", 42, archive_digest, tmp_path / "extracted"
+        "example/OLA", 42, archive_digest, len(archive_bytes), tmp_path / "extracted"
     )
     assert ok is False
     assert reason == "aggregator_artifact_archive_unsafe_entry"
