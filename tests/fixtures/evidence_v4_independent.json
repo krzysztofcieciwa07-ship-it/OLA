@@ -10,8 +10,8 @@
     "tenant_id": "fixture-tenant",
     "seq": 3,
     "record_type": "agent.codeact",
-    "payload_json": "{\"__ola_evidence_v4__\":{\"key_id\":\"v4-fixture-2026\",\"producer\":\"ola_runtime\",\"record_type\":\"agent.codeact\",\"version\":4},\"commit\":\"abc123\",\"result\":\"verified\",\"run_id\":\"fixture-run\",\"task\":\"fixture task\"}",
+    "payload_json": "{\"__ola_evidence_v4__\":{\"key_id\":\"v4-fixture-2026\",\"producer\":\"ola_runtime\",\"record_type\":\"agent.codeact\",\"version\":4},\"commit\":\"abc123\",\"result\":\"verified\",\"run_id\":\"agent-run\",\"task\":\"fixture task\"}",
     "prev_hash": "81385dc9f6b907326925c63b3560f025efeef892a1d54c80506cda25e3b54fdd",
-    "record_hash": "66871e2a408ace214a2914ba50cae15ea6fee2cc209d686c131622d2083496f1"
+    "record_hash": "b3891563e8c99fabec748665d882179214805c4fe25ac76c6cf6a1287589d760"
   }
 }
