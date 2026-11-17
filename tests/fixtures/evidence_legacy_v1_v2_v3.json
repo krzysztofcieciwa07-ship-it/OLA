@@ -1,6 +1,9 @@
 {
   "fixture_schema": "ola-evidence-legacy-compatibility-fixture-v1",
   "provenance": {
+    "v1_v2_algorithm_source_commit": "c46b469836fc841638654850158c82d728164f3c",
+    "v1_v2_algorithm_source_path": "app/hashchain.py",
+    "v1_v2_algorithm_source_blob": "60f12f96bcb0291201b432747cfd16b12921d2c3",
     "v3_algorithm_source_commit": "c46b469836fc841638654850158c82d728164f3c",
     "v3_algorithm_source_path": "app/hashchain.py",
     "v3_algorithm_source_blob": "60f12f96bcb0291201b432747cfd16b12921d2c3",
