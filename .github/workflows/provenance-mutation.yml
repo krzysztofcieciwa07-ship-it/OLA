@@ -32,6 +32,9 @@ jobs:
       - name: Build deployment image
         run: docker build --build-arg OLA_SOURCE_COMMIT="${OLA_SOURCE_SHA}" --tag ola:${OLA_SOURCE_SHA} .
 
+      - name: Assert deployment image source label
+        run: python -c 'import json,subprocess,sys; d=json.loads(subprocess.check_output(["docker","image","inspect",sys.argv[1]]))[0]; assert d["Config"]["Labels"]["org.opencontainers.image.revision"] == sys.argv[2]' "ola:${OLA_SOURCE_SHA}" "${OLA_SOURCE_SHA}"
+
       - name: Start deployment image with source provenance
         run: |
           set -euo pipefail
