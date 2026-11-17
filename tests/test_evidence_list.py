@@ -139,3 +139,25 @@ def test_evidence_list_requires_authentication_and_valid_pagination():
         params={"before_seq": -1},
     )
     assert response.status_code == 400, response.text
+
+
+def test_public_evidence_rejects_oversized_or_deep_payloads_as_client_errors():
+    tenant_id, key = _tenant_with_key()
+    before = _record_count(tenant_id)
+    oversized = CLIENT.post(
+        "/evidence",
+        headers={"X-API-Key": key},
+        json={"record_type": "generic", "payload": {"value": "x" * (1024 * 1024)}},
+    )
+    assert oversized.status_code == 400, oversized.text
+
+    nested = {"leaf": True}
+    for _ in range(40):
+        nested = {"nested": nested}
+    too_deep = CLIENT.post(
+        "/evidence",
+        headers={"X-API-Key": key},
+        json={"record_type": "generic", "payload": nested},
+    )
+    assert too_deep.status_code == 400, too_deep.text
+    assert _record_count(tenant_id) == before
