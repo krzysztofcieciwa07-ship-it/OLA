@@ -7,11 +7,13 @@ import hashlib
 import hmac
 import json
 import os
+import stat
 import subprocess
 import tempfile
 import time
+import zipfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -78,7 +80,10 @@ def decide_verified_flow(
     """Decide whether verified exact-SHA evidence is fresh enough."""
     if not evidence_valid:
         return {"action": "BLOCKED", "reason": "aggregator_evidence_not_verified"}
-    age = max(0.0, now_epoch - _timestamp(run.get("createdAt")))
+    # updatedAt reflects completion, whereas createdAt can make a long-running
+    # successful flow appear stale immediately after it finishes.
+    freshness_anchor = run.get("updatedAt") or run.get("completedAt") or run.get("createdAt")
+    age = max(0.0, now_epoch - _timestamp(freshness_anchor))
     if age >= freshness_seconds:
         return {"action": "DISPATCH", "reason": "verified_flow_stale"}
     return {"action": "HEALTHY", "reason": "verified_exact_sha_flow_fresh"}
@@ -91,6 +96,73 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise ValueError("duplicate JSON member")
         result[key] = value
     return result
+
+
+def download_and_verify_artifact_archive(
+    repository: str,
+    artifact_id: int,
+    expected_digest: str,
+    destination: str | Path,
+) -> tuple[bool, str]:
+    """Download the original GitHub artifact ZIP, verify its API digest, then extract safely."""
+    target = Path(destination)
+    archive_path = target.parent / "ola-auto-evidence-artifact.zip"
+    target.mkdir(parents=True, exist_ok=True)
+
+    if not expected_digest.startswith("sha256:"):
+        return False, "aggregator_artifact_digest_missing"
+    expected_hex = expected_digest.removeprefix("sha256:").lower()
+    if len(expected_hex) != 64 or any(ch not in "0123456789abcdef" for ch in expected_hex):
+        return False, "aggregator_artifact_digest_invalid"
+
+    try:
+        with archive_path.open("wb") as archive_stream:
+            subprocess.run(
+                ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact_id}/zip"],
+                check=True,
+                stdout=archive_stream,
+                stderr=subprocess.PIPE,
+            )
+
+        digest = hashlib.sha256()
+        with archive_path.open("rb") as archive_stream:
+            for chunk in iter(lambda: archive_stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if not hmac.compare_digest(digest.hexdigest(), expected_hex):
+            return False, "aggregator_artifact_archive_digest_mismatch"
+
+        with zipfile.ZipFile(archive_path) as bundle:
+            infos = bundle.infolist()
+            if not infos or len(infos) > 2000:
+                return False, "aggregator_artifact_archive_entry_limit"
+            total_uncompressed = sum(info.file_size for info in infos)
+            if total_uncompressed > 256 * 1024 * 1024:
+                return False, "aggregator_artifact_archive_size_limit"
+
+            seen: set[str] = set()
+            for info in infos:
+                name = info.filename
+                path = PurePosixPath(name)
+                mode = (info.external_attr >> 16) & 0o170000
+                if (
+                    not name
+                    or "\\" in name
+                    or path.is_absolute()
+                    or ".." in path.parts
+                    or (path.parts and ":" in path.parts[0])
+                    or name in seen
+                    or mode == stat.S_IFLNK
+                    or info.file_size > 128 * 1024 * 1024
+                ):
+                    return False, "aggregator_artifact_archive_unsafe_entry"
+                seen.add(name)
+            bundle.extractall(target)
+    except (OSError, subprocess.CalledProcessError):
+        return False, "aggregator_artifact_download_failed"
+    except (zipfile.BadZipFile, RuntimeError, ValueError):
+        return False, "aggregator_artifact_archive_invalid"
+
+    return True, "verified"
 
 
 def verify_aggregator_bundle(
@@ -215,7 +287,7 @@ def run_watchdog() -> dict[str, Any]:
             "--workflow", FLOW_WORKFLOW,
             "--branch", "main",
             "--limit", "100",
-            "--json", "databaseId,status,conclusion,createdAt,headSha,headBranch",
+            "--json", "databaseId,status,conclusion,createdAt,updatedAt,headSha,headBranch",
         ])
         selection = choose_flow_action(runs, source_sha)
         selected = selection.get("run")
@@ -274,22 +346,24 @@ def run_watchdog() -> dict[str, Any]:
 
         try:
             with tempfile.TemporaryDirectory(prefix="ola-watchdog-evidence-") as directory:
-                subprocess.run(
-                    [
-                        "gh", "run", "download", run_id,
-                        "--name", artifact_name,
-                        "--dir", directory,
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
+                bundle_dir = Path(directory) / "bundle"
+                archive_ok, archive_reason = download_and_verify_artifact_archive(
+                    repository,
+                    int(artifact["id"]),
+                    digest,
+                    bundle_dir,
                 )
-                valid, reason, summary = verify_aggregator_bundle(directory, source_sha)
+                if not archive_ok:
+                    _block(report, archive_reason)
+                    report["evidence_status"] = "BLOCKED"
+                    return report
+                report["aggregator_artifact_digest_verified"] = True
+                valid, reason, summary = verify_aggregator_bundle(bundle_dir, source_sha)
                 if summary is not None:
-                    summary_bytes = (Path(directory) / "ola-auto-evidence.json").read_bytes()
+                    summary_bytes = (bundle_dir / "ola-auto-evidence.json").read_bytes()
                     report["aggregator_summary_sha256"] = hashlib.sha256(summary_bytes).hexdigest()
-        except subprocess.CalledProcessError:
-            _block(report, "aggregator_artifact_download_failed")
+        except (KeyError, TypeError, ValueError):
+            _block(report, "aggregator_artifact_metadata_invalid")
             report["evidence_status"] = "BLOCKED"
             return report
 
