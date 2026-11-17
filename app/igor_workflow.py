@@ -13,6 +13,9 @@ EXPECTED_VERCEL_SANDBOX_IMAGE = "vercel/sandbox/python@sha256:e678419c0a4463c1f8
 EXPECTED_VERCEL_SANDBOX_REGION = "fra1"
 SUPPORTED_WORKFLOW_TOOLS = frozenset({
     "safe_expression", "local_mcp_tool_registry.sha256", "llm_agent", "vercel_sandbox",
+    "retro.linear.read", "retro.slack.read", "retro.synthesize", "retro.render",
+    "support.intercom.read", "support.repro.isolated", "support.code.search",
+    "support.jira.draft",
 })
 
 
