@@ -1291,6 +1291,37 @@ def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_ow
 
 
 
+def test_postgres_trusted_api_key_context_rejects_revoked_and_expired_keys(postgres_db):
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    tenant_id = str(uuid.uuid4())
+    revoked_key = "c" * 64
+    expired_key = "d" * 64
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:id, 'key-lifecycle-tenant')"),
+            {"id": tenant_id},
+        )
+        conn.execute(text("""
+            INSERT INTO api_keys (id, tenant_id, key_hash, role, revoked_at, expires_at)
+            VALUES
+                (:revoked_id, :tenant_id, :revoked_key, 'tenant', CURRENT_TIMESTAMP, NULL),
+                (:expired_id, :tenant_id, :expired_key, 'tenant', NULL, CURRENT_TIMESTAMP - INTERVAL '1 minute')
+        """), {
+            "revoked_id": str(uuid.uuid4()), "expired_id": str(uuid.uuid4()),
+            "tenant_id": tenant_id, "revoked_key": revoked_key, "expired_key": expired_key,
+        })
+
+    for key_hash in (revoked_key, expired_key):
+        with pytest.raises(DBAPIError) as exc:
+            with runtime_engine.begin() as conn:
+                conn.execute(
+                    text("SELECT ola_establish_api_key_context(:key_hash)"),
+                    {"key_hash": key_hash},
+                ).scalar_one()
+        sqlstate = getattr(exc.value.orig, "sqlstate", None) or getattr(exc.value.orig, "pgcode", None)
+        assert sqlstate == "42501"
+
+
 def test_postgres_runtime_cannot_spoof_tenant_guc_to_read_other_tenant(postgres_db):
     _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
     tenant_a = str(uuid.uuid4())
