@@ -176,6 +176,13 @@ def core_readiness():
         failed.append("api_key_pepper")
 
     try:
+        from .evidence_v4 import load_keyring
+        load_keyring()
+    except Exception:
+        # Key material and parser details must never enter readiness output.
+        failed.append("evidence_v4_keyring")
+
+    try:
         with engine.connect() as conn:
             conn.exec_driver_sql("SELECT 1").scalar_one()
         if engine.dialect.name == "sqlite":
@@ -637,7 +644,9 @@ def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
     # trusted NINA execution, DAG timing, or Human Gate producers. The local
     # hash chain proves record integrity, not who caused a record to be written.
     from .hashchain import is_privileged_type, EVIDENCE_META_KEY
-    from .evidence_v4 import V4_META_KEY
+    from .evidence_v4 import (
+        V4_META_KEY, InvalidRecordError, canonical_json as canonical_v4_json,
+    )
     if is_privileged_type(record_type):
         raise HTTPException(status_code=403, detail="reserved internal evidence type")
     payload = body.get("payload", {})
@@ -645,6 +654,10 @@ def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
         raise HTTPException(status_code=400, detail="evidence payload must be a JSON object")
     if EVIDENCE_META_KEY in payload or V4_META_KEY in payload:
         raise HTTPException(status_code=400, detail="reserved evidence metadata")
+    try:
+        canonical_v4_json(payload)
+    except InvalidRecordError:
+        raise HTTPException(status_code=400, detail="invalid evidence payload") from None
     return append_evidence_atomic(tenant_id, record_type, payload, producer_id="tenant_api")
 
 
