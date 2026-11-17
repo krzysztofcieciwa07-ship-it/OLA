@@ -1230,21 +1230,22 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
         "checkout_execution_jobs": "ola_tenant_context_matches(tenant_id::text)",
     }
     for table_name, predicate in tenant_policies.items():
+        qualified_table = f'{quoted_schema}."{table_name}"'
         connection.exec_driver_sql(
-            f'ALTER TABLE "{table_name}" ENABLE ROW LEVEL SECURITY'
+            f'ALTER TABLE {qualified_table} ENABLE ROW LEVEL SECURITY'
         )
         connection.exec_driver_sql(
-            f'DROP POLICY IF EXISTS ola_tenant_access ON "{table_name}"'
+            f'DROP POLICY IF EXISTS ola_tenant_access ON {qualified_table}'
         )
         connection.exec_driver_sql(
-            f'DROP POLICY IF EXISTS ola_tenant_isolation ON "{table_name}"'
+            f'DROP POLICY IF EXISTS ola_tenant_isolation ON {qualified_table}'
         )
         connection.exec_driver_sql(
-            f'CREATE POLICY ola_tenant_access ON "{table_name}" '
+            f'CREATE POLICY ola_tenant_access ON {qualified_table} '
             f'AS PERMISSIVE FOR ALL USING (true) WITH CHECK (true)'
         )
         connection.exec_driver_sql(
-            f'CREATE POLICY ola_tenant_isolation ON "{table_name}" '
+            f'CREATE POLICY ola_tenant_isolation ON {qualified_table} '
             f'AS RESTRICTIVE FOR ALL USING ({predicate}) WITH CHECK ({predicate})'
         )
 
