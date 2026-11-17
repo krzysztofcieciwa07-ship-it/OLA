@@ -96,7 +96,7 @@ def load_keyring(environ: Mapping[str, str] | None = None) -> Keyring:
         raise MissingKeyError("V4 keyring and active key_id are required")
     try:
         parsed = json.loads(raw, object_pairs_hook=_unique_object)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, RecursionError) as exc:
         raise InvalidKeyringError("V4 keyring is invalid JSON or contains duplicate keys") from exc
     if not isinstance(parsed, dict) or not parsed or len(parsed) > MAX_KEYRING_ENTRIES:
         raise InvalidKeyringError("V4 keyring must be a non-empty object")
@@ -188,7 +188,7 @@ def _record_material(record: Mapping[str, Any]) -> tuple[bytes, str]:
         raise InvalidRecordError("invalid payload size")
     try:
         payload = json.loads(payload_json, object_pairs_hook=_unique_object)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise InvalidRecordError(str(exc)) from exc
     if not isinstance(payload, dict):
         raise InvalidRecordError("V4 payload must be a JSON object")
@@ -253,7 +253,7 @@ def verify_record(record: Mapping[str, Any], keyring: Keyring) -> bool:
 def _stored_version(record: Mapping[str, Any]) -> int:
     try:
         payload = json.loads(record["payload_json"], object_pairs_hook=_unique_object)
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, RecursionError) as exc:
         raise InvalidRecordError("invalid payload while resolving evidence version") from exc
     if not isinstance(payload, dict):
         raise InvalidRecordError("evidence payload must be an object")
