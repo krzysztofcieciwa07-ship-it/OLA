@@ -74,9 +74,25 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('assert d["human_gate"]=="PENDING"', igor)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
+    def test_runtime_workflows_pin_exact_source_and_image_revision(self):
+        contracts = {
+            ".github/workflows/e2e.yml": "ref: ${{ env.OLA_SOURCE_SHA }}",
+            ".github/workflows/ola-product-gate.yml": "ref: ${{ env.OLA_SOURCE_SHA }}",
+            ".github/workflows/provenance-gate-final.yml": "ref: ${{ env.OLA_SOURCE_SHA }}",
+            ".github/workflows/provenance-mutation.yml": "ref: ${{ env.OLA_SOURCE_SHA }}",
+            ".github/workflows/runtime-stress.yml": "ref: ${{ env.OLA_SOURCE_SHA }}",
+            ".github/workflows/state-continuity.yml": "ref: ${{ env.OLA_SOURCE_SHA }}",
+            ".github/workflows/nina-real-runtime-provenance.yml": "ref: ${{ env.EXPECTED_COMMIT }}",
+            ".github/workflows/ollama-real-runtime.yml": "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+            ".github/workflows/igor-independent-evidence.yml": "ref: ${{ env.SOURCE_COMMIT }}",
+        }
+        for filename, checkout_ref in contracts.items():
+            with self.subTest(workflow=filename):
+                content = (ROOT / filename).read_text(encoding="utf-8")
+                self.assertIn(checkout_ref, content)
+                self.assertIn("--build-arg OLA_SOURCE_COMMIT=", content)
+                self.assertIn("org.opencontainers.image.revision", content)
+                self.assertIn("OLA_RUNTIME_COMMIT", content)
 
     def test_pull_request_manifest_never_claims_attestation(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
@@ -84,3 +100,7 @@ if __name__ == "__main__":
         self.assertIn('source_attestation="NOT_PERFORMED"', content)
         self.assertIn('image_attestation="NOT_PERFORMED"', content)
         self.assertIn('status="PREMERGE_CI_PASSED"', content)
+
+
+if __name__ == "__main__":
+    unittest.main()
