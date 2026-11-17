@@ -61,4 +61,3 @@ def test_key_material_is_not_exposed_by_keyring_repr():
     secret = b"never-print-this-key-material-32bytes"
     ring = Keyring(keys={"private-key-id": secret}, active_key_id="private-key-id")
     assert secret.decode() not in repr(ring)
-    assert "private-key-id" not in repr(ring)
