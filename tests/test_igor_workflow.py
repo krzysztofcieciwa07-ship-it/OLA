@@ -46,6 +46,7 @@ def proof():
         "source_commit": "expected",
         "requester_id": "person1",
         "commit": "expected",
+        "allowed_tools": ["llm_agent", "safe_expression"],
     })
     return rehash(events)
 
@@ -265,6 +266,7 @@ def sandbox_events(node_count=1):
         "source_commit": "expected",
         "requester_id": "person1",
         "commit": "expected",
+        "allowed_tools": ["vercel_sandbox"],
     })
     return events
 
@@ -298,7 +300,7 @@ def test_igor_blocks_sandbox_policy_mutations(field, value):
     events = sandbox_events()
     completed = next(event for event in events if event["event"] == "task.completed")
     completed["output"][field] = value
-    assert verify_sandbox_events(rehash(events))["status"] == "BLOCK"
+    assert verify_sandbox_events(events)["status"] == "BLOCK"
 
 
 def test_igor_rejects_sandbox_unpinned_runtime_image_even_with_valid_chain():
