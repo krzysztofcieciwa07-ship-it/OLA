@@ -99,7 +99,7 @@ def test_igor_runtime_verifier_accepts_v4_only_after_independent_chain_verificat
     monkeypatch.setenv("OLA_EVIDENCE_V4_KEYRING_JSON", env["OLA_EVIDENCE_V4_KEYRING_JSON"])
     monkeypatch.setenv("OLA_EVIDENCE_V4_ACTIVE_KEY_ID", env["OLA_EVIDENCE_V4_ACTIVE_KEY_ID"])
     result = IgorVerifier().verify_records(
-        [v4["record"]],
+        legacy["records"] + [v4["record"]],
         "abc123",
         "fixture task",
         "verified",
