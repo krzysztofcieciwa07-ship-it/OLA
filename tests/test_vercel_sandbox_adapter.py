@@ -101,9 +101,10 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
 
 def test_adapter_caps_retained_output_and_marks_truncation():
     box = FakeSandbox(stdout="x" * 20, stderr="y" * 20)
+    sdk = FakeSDK(box)
     result = execute_python_source(
         "print('x')",
-        sdk=(sdk := FakeSDK(box)),
+        sdk=sdk,
         client=sdk,
         output_limit_bytes=5,
     )
