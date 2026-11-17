@@ -53,6 +53,18 @@ def test_ola_e2e_closed_environment():
         json={"record_type": "generic", "payload": {"x": 1}},
     )
     assert created.status_code == 200
+
+    forged_v4 = client.post(
+        "/evidence",
+        headers={"X-API-Key": key_a},
+        json={
+            "record_type": "generic",
+            "payload": {"__ola_evidence_v4__": {"version": 4}},
+        },
+    )
+    assert forged_v4.status_code == 400
+    assert forged_v4.json()["detail"] == "reserved evidence metadata"
+
     record = created.json()
     assert record["seq"] == 0
 
