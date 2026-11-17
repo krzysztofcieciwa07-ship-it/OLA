@@ -234,6 +234,7 @@ def verify_chain(records, environ=None):
     expected_prev = GENESIS_HASH
     expected_seq = 0
     expected_tenant = None
+    saw_v4 = False
     try:
         for record in records:
             if not isinstance(record, Mapping):
@@ -264,7 +265,10 @@ def verify_chain(records, environ=None):
             if version == 4:
                 payload = _json_object(record["payload_json"], strict=True)
                 expected = _v4_digest(record, payload, env)
+                saw_v4 = True
             else:
+                if saw_v4:
+                    return False, "legacy record after V4 cutover"
                 version, producer = _legacy_metadata(payload, record)
                 expected = _legacy_digest(record, payload, version, producer, env)
             if not hmac.compare_digest(expected, supplied):
