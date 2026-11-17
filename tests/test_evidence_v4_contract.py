@@ -342,3 +342,14 @@ def test_payload_depth_and_size_limits_are_enforced():
         canonical_json(nested)
     with pytest.raises(ValueError, match="size limit"):
         canonical_json({"blob": "x" * MAX_PAYLOAD_BYTES})
+
+
+def test_mixed_chain_rejects_legacy_segment_after_v4_cutover():
+    v4 = _record(0, GENESIS_HASH)
+    legacy_after_v4 = _legacy(2, 1, v4["record_hash"], "2" * 64)
+    ok, reason = verify_mixed_chain(
+        [v4, legacy_after_v4], _ring(),
+        legacy_verifier=lambda _segment, **_anchor: (True, "fixture accepted"),
+    )
+    assert not ok
+    assert reason == "legacy record after V4 cutover"
