@@ -10,6 +10,7 @@ from .igor_evidence_verifier import verify_chain, trusted_record
 
 
 EXPECTED_VERCEL_SANDBOX_IMAGE = "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8"
+EXPECTED_VERCEL_SANDBOX_REGION = "fra1"
 SUPPORTED_WORKFLOW_TOOLS = frozenset({
     "safe_expression", "local_mcp_tool_registry.sha256", "llm_agent", "vercel_sandbox",
 })
@@ -48,7 +49,9 @@ def _verify_sandbox_output(node, output):
         return "sandbox source exceeds policy"
 
     required = {
-        "executor", "operation", "runtime", "sandbox_name", "image", "source_sha256",
+        "executor", "operation", "runtime", "sandbox_name", "image", "region",
+        "network_policy", "persistent", "resources", "timeout_seconds",
+        "output_limit_bytes_per_stream", "source_bytes", "source_sha256",
         "exit_code", "stdout", "stderr", "stdout_sha256", "stderr_sha256",
         "stdout_truncated", "stderr_truncated",
     }
@@ -60,6 +63,22 @@ def _verify_sandbox_output(node, output):
         return "sandbox executor provenance invalid"
     if not isinstance(output.get("sandbox_name"), str) or not output["sandbox_name"]:
         return "sandbox identity missing"
+    if output.get("region") != EXPECTED_VERCEL_SANDBOX_REGION:
+        return "sandbox region is not the approved EU region"
+    if output.get("network_policy") != "deny-all":
+        return "sandbox network policy is not deny-all"
+    if type(output.get("persistent")) is not bool or output["persistent"] is not False:
+        return "sandbox persistence policy invalid"
+    if output.get("resources") != {"vcpus": 1, "memory_mb": 2048}:
+        return "sandbox resource policy invalid"
+    if (type(output.get("timeout_seconds")) is not int
+            or not 1 <= output["timeout_seconds"] <= 60):
+        return "sandbox execution timeout invalid"
+    if (type(output.get("output_limit_bytes_per_stream")) is not int
+            or not 1 <= output["output_limit_bytes_per_stream"] <= 8192):
+        return "sandbox output budget invalid"
+    if type(output.get("source_bytes")) is not int:
+        return "sandbox source size invalid"
     image = output.get("image")
     if not isinstance(image, str):
         return "sandbox image missing"
@@ -79,13 +98,17 @@ def _verify_sandbox_output(node, output):
     for stream in ("stdout", "stderr"):
         value = output.get(stream)
         digest = output.get(stream + "_sha256")
-        if not isinstance(value, str) or len(value.encode("utf-8")) > 8192:
+        if (not isinstance(value, str)
+                or len(value.encode("utf-8")) > output["output_limit_bytes_per_stream"]):
             return "sandbox captured output invalid"
         expected = hashlib.sha256(value.encode("utf-8")).hexdigest()
         if not isinstance(digest, str) or digest != expected:
             return "sandbox captured output digest mismatch"
 
-    source_digest = hashlib.sha256(task["source"].encode("utf-8")).hexdigest()
+    source_bytes = task["source"].encode("utf-8")
+    source_digest = hashlib.sha256(source_bytes).hexdigest()
+    if output["source_bytes"] != len(source_bytes):
+        return "sandbox source byte count mismatch"
     if output.get("source_sha256") != source_digest:
         return "sandbox source digest mismatch"
     if output["exit_code"] != 0:
