@@ -2,10 +2,31 @@
 
 ## State
 
-V4 core now has a storage envelope compatible with the existing immutable
-`EvidenceRecord` columns. This is still an opt-in branch change: no production
-writer is migrated, no default verifier is changed, and no production secret is
-provisioned. Release remains blocked.
+V4 storage, cryptographic verification, and all five writer families are
+implemented on the active PR branch. This is **branch implementation**, not a
+production release: no production secret is provisioned, no production
+historical ledger has been migrated, and deployment remains blocked pending
+independent review and Human Gate.
+
+Writer integration map (all append through the caller-owned transaction):
+
+1. `database.append_evidence_atomic` — central application writer; retains
+   SQLite `BEGIN IMMEDIATE`, PostgreSQL tenant advisory locking, sequence
+   allocation, deduplication, and the unique `(tenant_id, seq)` guard.
+2. `nina_workflow_gate` — both workflow and NINA approval records; retains
+   read/verify preflight, tenant lock reacquisition, and approved-tip recheck.
+3. `paid_order_execution` — execution lifecycle evidence; retains outbox
+   claim, row locks, and transaction coupling with execution state.
+4. `order_approval` — revenue execution approval; retains payment proof,
+   current-tip validation, and atomic approval/control/job updates.
+5. `report_review` — report approval and delivery evidence; retains report
+   digest recomputation, tip binding, and atomic review/delivery state.
+
+The independent verifier in `app/igor_evidence_verifier.py` handles V1/V2/V3/V4
+without importing the writer's cryptographic implementation. Runtime
+verification is key-dependent: V3 requires the historical
+`OLA_API_KEY_PEPPER`; V4 requires the injected V4 keyring. Production key
+custody and authentic historical records remain unproven release blockers.
 
 ## Storage contract — no schema migration
 
