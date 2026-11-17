@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -21,7 +20,7 @@ class FakeResources:
 class FakeSandbox:
     name = "sandbox-test-123"
 
-    def __init__(self, stdout="42\\n", stderr=""):
+    def __init__(self, stdout="42\n", stderr=""):
         self.stdout_value = stdout
         self.stderr_value = stderr
         self.calls = []
@@ -74,7 +73,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert result["runtime"] == "python3.14"
     assert result["sandbox_name"] == box.name
     assert result["exit_code"] == 0
-    assert result["stdout"] == "42\\n"
+    assert result["stdout"] == "42\n"
     assert result["source_sha256"]
     assert result["stdout_sha256"]
     assert result["stderr_sha256"]
@@ -104,8 +103,8 @@ def test_adapter_caps_retained_output_and_marks_truncation():
     box = FakeSandbox(stdout="x" * 20, stderr="y" * 20)
     result = execute_python_source(
         "print('x')",
-        sdk=FakeSDK(box),
-        client=FakeSDK(box),
+        sdk=(sdk := FakeSDK(box)),
+        client=sdk,
         output_limit_bytes=5,
     )
     assert result["stdout"] == "xxxxx"
