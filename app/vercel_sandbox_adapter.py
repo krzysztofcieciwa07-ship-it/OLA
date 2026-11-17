@@ -60,7 +60,6 @@ def execute_python_source(
     source,
     *,
     sdk=None,
-    session_factory=None,
     timeout_seconds=30,
     output_limit_bytes=MAX_OUTPUT_BYTES,
 ):
@@ -79,19 +78,18 @@ def execute_python_source(
     if type(output_limit_bytes) is not int or not 1 <= output_limit_bytes <= MAX_OUTPUT_BYTES:
         raise SandboxAdapterError("output limit must be an integer from 1 to 8192 bytes")
 
-    if sdk is None or session_factory is None:
-        from vercel.api import session
+    if sdk is None or client is None:
         from vercel.sandbox import sync as sandbox_sdk
 
         sdk = sdk or sandbox_sdk
-        session_factory = session_factory or session
+        client = client or sandbox_sdk.SyncSandboxClient.create()
 
     stdout = _BoundedTextSink(output_limit_bytes)
     stderr = _BoundedTextSink(output_limit_bytes)
     timeout = timedelta(seconds=timeout_seconds)
 
-    with session_factory():
-        with sdk.create_sandbox(
+    try:
+        with client.create_sandbox(
             image=RUNTIME_IMAGE,
             execution_time_limit=timeout,
             persistent=False,
@@ -113,6 +111,8 @@ def execute_python_source(
             exit_code = getattr(completed, "returncode", None)
             if type(exit_code) is not int:
                 raise SandboxAdapterError("Vercel Sandbox returned no valid process exit code")
+    finally:
+        client.close()
 
     return {
         "executor": "vercel_sandbox",
