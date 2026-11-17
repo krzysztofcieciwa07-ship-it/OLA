@@ -207,6 +207,8 @@ def _v4_digest(record, payload, environ):
         "payload_json": record["payload_json"],
     }
     material = _canonical(envelope).encode("utf-8")
+    if len(material) > MAX_PAYLOAD_BYTES:
+        raise IndependentEvidenceError("V4 authenticated material exceeds size limit")
     return hmac.new(key, material, hashlib.sha256).hexdigest()
 
 
