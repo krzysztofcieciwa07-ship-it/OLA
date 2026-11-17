@@ -168,6 +168,8 @@ def verify_worker_database_identity(
                    current_schemas(false) AS effective_schemas,
                    has_schema_privilege(current_user, :expected_schema, 'USAGE') AS expected_schema_usage
         """), {"expected_schema": expected_schema}).mappings().one()
+        if not search_path_state["expected_schema_usage"]:
+            raise RuntimeError("PostgreSQL worker schema USAGE is missing for the configured schema")
         if search_path_state["current_schema"] != expected_schema:
             raise RuntimeError(
                 "PostgreSQL worker search_path mismatch: "
@@ -177,8 +179,6 @@ def verify_worker_database_identity(
                 f"effective_schemas={search_path_state['effective_schemas']!r}, "
                 f"expected_schema_usage={search_path_state['expected_schema_usage']!r}"
             )
-        if not search_path_state["expected_schema_usage"]:
-            raise RuntimeError("PostgreSQL worker role lacks USAGE on the configured schema")
         # Catalog-discover again to reject ambiguous duplicate claim functions
         # or relations even when search_path has the expected current schema.
         schema_matches = conn.execute(text("""
