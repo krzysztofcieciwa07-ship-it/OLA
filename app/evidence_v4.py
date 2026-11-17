@@ -192,6 +192,8 @@ def _record_material(record: Mapping[str, Any]) -> tuple[bytes, str]:
         raise InvalidRecordError(str(exc)) from exc
     if not isinstance(payload, dict):
         raise InvalidRecordError("V4 payload must be a JSON object")
+    if V2_META_KEY in payload:
+        raise InvalidRecordError("V4 payload may not contain legacy V2 metadata")
     if canonical_json(payload) != payload_json:
         raise InvalidRecordError("payload_json is not canonical")
     metadata = payload.get(V4_META_KEY)
@@ -255,6 +257,8 @@ def _stored_version(record: Mapping[str, Any]) -> int:
         raise InvalidRecordError("invalid payload while resolving evidence version") from exc
     if not isinstance(payload, dict):
         raise InvalidRecordError("evidence payload must be an object")
+    if V4_META_KEY in payload and V2_META_KEY in payload:
+        raise InvalidRecordError("ambiguous legacy and V4 metadata")
     if V4_META_KEY in payload:
         meta = payload[V4_META_KEY]
         if not isinstance(meta, dict) or meta.get("version") != VERSION:
@@ -286,6 +290,7 @@ def verify_mixed_chain(
         return False, "empty evidence chain"
     expected_seq = 0
     expected_prev = GENESIS_HASH
+    expected_tenant: str | None = None
     legacy_segment: list[Mapping[str, Any]] = []
 
     def flush_legacy() -> tuple[bool, str]:
@@ -311,8 +316,23 @@ def verify_mixed_chain(
     for record in records:
         if not isinstance(record, Mapping):
             return False, "invalid record"
-        if record.get("seq") != expected_seq or record.get("prev_hash") != expected_prev:
-            return False, "sequence or predecessor mismatch"
+        tenant_id = record.get("tenant_id")
+        if not isinstance(tenant_id, str) or not tenant_id:
+            return False, "invalid tenant_id"
+        if expected_tenant is None:
+            expected_tenant = tenant_id
+        elif tenant_id != expected_tenant:
+            return False, "tenant boundary mismatch"
+        if type(record.get("seq")) is not int or record["seq"] != expected_seq:
+            return False, "sequence mismatch"
+        if not isinstance(record.get("prev_hash"), str) or not _HASH_RE.fullmatch(record["prev_hash"]):
+            return False, "invalid predecessor hash"
+        if record["prev_hash"] != expected_prev:
+            return False, "predecessor mismatch"
+        if not isinstance(record.get("record_type"), str) or not record["record_type"]:
+            return False, "invalid record_type"
+        if not isinstance(record.get("payload_json"), str):
+            return False, "invalid payload_json"
         try:
             version = _stored_version(record)
         except EvidenceV4Error as exc:
