@@ -31,6 +31,12 @@ class FakeSandbox:
         self.stderr_value = stderr
         self.calls = []
         self.exited = False
+        self.process = SimpleNamespace(killed=False)
+
+        def kill_process():
+            self.process.killed = True
+
+        self.process.kill = kill_process
 
     def __enter__(self):
         return self
@@ -40,6 +46,8 @@ class FakeSandbox:
 
     def run_process(self, command, args, **kwargs):
         self.calls.append((command, args, kwargs))
+        if kwargs.get("on_start") is not None:
+            kwargs["on_start"](self.process)
         kwargs["stdout"].write(self.stdout_value)
         kwargs["stderr"].write(self.stderr_value)
         return SimpleNamespace(returncode=0)
@@ -103,6 +111,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert kwargs["stdout"] is not None and kwargs["stderr"] is not None
     assert box.exited is True
     assert sdk.closed is True
+    assert box.process.killed is False
     assert options["destroy"] is True
 
 
@@ -209,6 +218,7 @@ def test_adapter_aborts_sandbox_when_output_budget_is_exceeded(stream):
     # Exiting the ephemeral sandbox context destroys the remote process.
     assert box.exited is True
     assert sdk.closed is True
+    assert box.process.killed is True
 
 
 def test_adapter_rejects_new_sandbox_when_global_capacity_is_exhausted(monkeypatch):
