@@ -73,6 +73,7 @@ class FakeSDK:
 
     def create_sandbox(self, **kwargs):
         self.create_options = kwargs
+        self.box.execution_time_limit = kwargs["execution_time_limit"]
         return self.box
 
     def close(self):
@@ -93,7 +94,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
 
     assert result["executor"] == "vercel_sandbox"
     assert result["operation"] == "python_exec"
-    assert result["runtime"] == "python3.14"
+    assert result["runtime"] == "python3"
     assert result["sandbox_name"] == box.name
     assert result["image"] == box.image
     assert result["region"] == "fra1"
@@ -103,7 +104,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert result["destroy_on_exit"] is True
     assert result["resources"] == {"vcpus": 1, "memory_mb": 2048}
     assert result["timeout_seconds"] == 12
-    assert result["output_limit_bytes_per_stream"] == 8192
+    assert result["output_limit_bytes_per_stream"] == 3072
     assert result["source_bytes"] == len(source.encode("utf-8"))
     assert result["exit_code"] == 0
     assert result["stdout"] == "42\n"
@@ -142,7 +143,7 @@ def test_adapter_requires_provider_confirmed_region_before_execution():
     with pytest.raises(SandboxAdapterError, match="EU region"):
         execute_python_source("print(1)", sdk=sdk, client=sdk)
 
-    assert box.process_calls == []
+    assert box.calls == []
 
 
 def test_adapter_rejects_unpinned_resolved_image_before_execution():
@@ -313,3 +314,58 @@ def test_adapter_releases_global_slot_after_output_abort(monkeypatch):
 
     assert slots.acquire(blocking=False) is True
     slots.release()
+
+
+def test_default_stream_limits_fit_inside_workflow_engine_output_budget():
+    from app.vercel_sandbox_adapter import MAX_OUTPUT_BYTES
+    from app.workflow_engine import WorkflowEngine, WorkflowNode
+
+    assert MAX_OUTPUT_BYTES == 3072
+    box = FakeSandbox(stdout="x" * MAX_OUTPUT_BYTES, stderr="y" * MAX_OUTPUT_BYTES)
+    sdk = FakeSDK(box)
+    result = execute_python_source(
+        "print('bounded')", sdk=sdk, client=sdk,
+        output_limit_bytes=MAX_OUTPUT_BYTES,
+    )
+    assert result["stdout_truncated"] is False
+    assert result["stderr_truncated"] is False
+
+    workflow = WorkflowEngine(max_workers=1, deadline_seconds=5).run(
+        [WorkflowNode("sandbox", "vercel_sandbox", "bounded task", ())],
+        lambda node, deps: result,
+    )
+    assert workflow["status"] == "COMPLETED_UNVERIFIED"
+    assert "sandbox" in workflow["results"]
+
+
+def test_serialized_output_budget_accounts_for_json_escaped_control_bytes():
+    import json
+    from app.vercel_sandbox_adapter import MAX_OUTPUT_BYTES, _fit_serialized_output_budget
+
+    result = {
+        "executor": "vercel_sandbox",
+        "operation": "python_exec",
+        "runtime": "python3",
+        "sandbox_name": "sandbox-control-test",
+        "image": "vercel/sandbox/python@sha256:" + "a" * 64,
+        "region": "fra1",
+        "failover_regions": [],
+        "network_policy": "deny-all",
+        "persistent": False,
+        "destroy_on_exit": True,
+        "resources": {"vcpus": 1, "memory_mb": 2048},
+        "timeout_seconds": 30,
+        "output_limit_bytes_per_stream": MAX_OUTPUT_BYTES,
+        "source_bytes": 1,
+        "source_sha256": "b" * 64,
+        "exit_code": 0,
+        "stdout": chr(1) * MAX_OUTPUT_BYTES,
+        "stderr": chr(2) * MAX_OUTPUT_BYTES,
+        "stdout_sha256": "c" * 64,
+        "stderr_sha256": "d" * 64,
+        "stdout_truncated": False,
+        "stderr_truncated": False,
+    }
+    bounded = _fit_serialized_output_budget(result)
+    assert len(json.dumps(bounded, ensure_ascii=False, sort_keys=True).encode("utf-8")) <= 8192
+    assert bounded["stdout_truncated"] or bounded["stderr_truncated"]

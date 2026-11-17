@@ -1,6 +1,8 @@
 import hashlib
 import json
 
+import pytest
+
 from app.hashchain import canonical_json, compute_record_hash, compute_record_hash_v2, sealed_payload_json, EVIDENCE_META_KEY
 from app.igor_workflow import verify_dag_records
 from app.workflow_engine import WorkflowEngine, validate_plan
@@ -44,6 +46,7 @@ def proof():
         "source_commit": "expected",
         "requester_id": "person1",
         "commit": "expected",
+        "allowed_tools": ["llm_agent", "safe_expression"],
     })
     return rehash(events)
 
@@ -217,7 +220,7 @@ def sandbox_events(node_count=1):
         "destroy_on_exit": True,
         "resources": {"vcpus": 1, "memory_mb": 2048},
         "timeout_seconds": 30,
-        "output_limit_bytes_per_stream": 8192,
+        "output_limit_bytes_per_stream": 3072,
         "source_bytes": len(source.encode("utf-8")),
         "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
         "exit_code": 0,
@@ -263,6 +266,7 @@ def sandbox_events(node_count=1):
         "source_commit": "expected",
         "requester_id": "person1",
         "commit": "expected",
+        "allowed_tools": ["vercel_sandbox"],
     })
     return events
 
@@ -296,7 +300,7 @@ def test_igor_blocks_sandbox_policy_mutations(field, value):
     events = sandbox_events()
     completed = next(event for event in events if event["event"] == "task.completed")
     completed["output"][field] = value
-    assert verify_sandbox_events(rehash(events))["status"] == "BLOCK"
+    assert verify_sandbox_events(events)["status"] == "BLOCK"
 
 
 def test_igor_rejects_sandbox_unpinned_runtime_image_even_with_valid_chain():

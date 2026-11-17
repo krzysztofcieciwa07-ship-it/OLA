@@ -10,8 +10,9 @@ from urllib.parse import urlsplit
 import json
 import os
 import re
+import uuid
 
-from .workflow_engine import WorkflowEngine, WorkflowPlanError, validate_plan
+from .workflow_engine import WorkflowEngine, WorkflowPlanError, validate_plan, _digest
 
 
 class EscalationBlocked(WorkflowPlanError):
@@ -207,6 +208,16 @@ def run_support_escalation(*, tenant_id, requester_id, conversation_id,
     meta = {"mode": "REVIEWED_ESCALATION_DAG_TEMPLATE", "conversation_id": conversation_id,
             "correlation_id": correlation}
     commit = os.getenv("OLA_RUNTIME_COMMIT", "UNKNOWN")
+    allowed_tools = sorted({"support.intercom.read", "support.repro.isolated",
+                            "support.code.search", "support.jira.draft"})
+    run_id = str(uuid.uuid4())
+    task_digest = _digest(meta)
+    start_saved = append(tenant_id, "execution.run.start", {
+        "run_id": run_id, "task_digest": task_digest, "source_commit": commit,
+        "requester_id": requester_id, "commit": commit, "allowed_tools": allowed_tools,
+    })
+    if not isinstance(start_saved, dict) or not start_saved.get("id"):
+        raise EscalationBlocked("execution start evidence was not confirmed")
 
     def execute(node, deps):
         if node.id == "intercom":
@@ -221,17 +232,41 @@ def run_support_escalation(*, tenant_id, requester_id, conversation_id,
 
     def record(event):
         saved = append(tenant_id, event["event"], {
-            **event, "requester_id": requester_id, "planner": meta, "commit": commit})
+            **event, "requester_id": requester_id, "planner": meta,
+            "commit": commit, "task_digest": task_digest, "allowed_tools": allowed_tools,
+        })
         if not isinstance(saved, dict) or not saved.get("id"):
             raise EscalationBlocked("evidence append unconfirmed")
 
-    result = WorkflowEngine(max_workers=2).run(nodes, execute, record)
+    result = WorkflowEngine(max_workers=2).run(nodes, execute, record, run_id=run_id)
+    from .igor_support_escalation import verify_escalation_records
+    preliminary = verify_escalation_records(
+        fetch_records(tenant_id), tenant_id=tenant_id, run_id=run_id,
+        conversation_id=conversation_id,
+        expected_commit=commit if commit != "UNKNOWN" else None,
+        require_lifecycle=False,
+    )
+    workflow_status = result["status"]
+    end_saved = append(tenant_id, "execution.run.end", {
+        "run_id": run_id,
+        "status": "COMPLETED" if workflow_status == "COMPLETED_UNVERIFIED" else "FAILED",
+        "workflow_status": workflow_status,
+        "pre_end_igor_status": preliminary["status"],
+        "task_digest": task_digest, "source_commit": commit,
+        "requester_id": requester_id, "commit": commit, "allowed_tools": allowed_tools,
+        "completed_node_count": len(result["results"]),
+        "failed_node_count": len(result["failed"]),
+        "skipped_node_count": len(result["skipped"]),
+    })
+    if not isinstance(end_saved, dict) or not end_saved.get("id"):
+        raise EscalationBlocked("execution end evidence unconfirmed")
+    igor = verify_escalation_records(
+        fetch_records(tenant_id), tenant_id=tenant_id, run_id=run_id,
+        conversation_id=conversation_id,
+        expected_commit=commit if commit != "UNKNOWN" else None,
+    )
     if result["status"] != "COMPLETED_UNVERIFIED":
         raise EscalationBlocked("DAG blocked: " + str(result["failed"]))
-    from .igor_support_escalation import verify_escalation_records
-    igor = verify_escalation_records(fetch_records(tenant_id), tenant_id=tenant_id,
-        run_id=result["run_id"], conversation_id=conversation_id,
-        expected_commit=commit if commit != "UNKNOWN" else None)
     if igor["status"] != "VERIFIED":
         raise EscalationBlocked("IGOR rejected escalation: " + igor["reason"])
     draft = result["results"]["draft"]

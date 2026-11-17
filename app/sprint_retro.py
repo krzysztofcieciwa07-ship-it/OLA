@@ -8,10 +8,11 @@ import json
 import math
 import os
 import re
+import uuid
 from datetime import datetime
 from urllib.parse import urlsplit
 
-from .workflow_engine import WorkflowEngine, WorkflowPlanError, validate_plan
+from .workflow_engine import WorkflowEngine, WorkflowPlanError, validate_plan, _digest
 
 
 class RetroBlocked(WorkflowPlanError):
@@ -233,6 +234,16 @@ def run_sprint_retro(*, tenant_id, requester_id, cycle_id, channel_id, start, en
                   "cycle_id": cycle_id, "channel_id": channel_id,
                   "start": start, "end": end}
     commit = os.getenv("OLA_RUNTIME_COMMIT", "UNKNOWN")
+    allowed_tools = sorted({"retro.linear.read", "retro.slack.read",
+                            "retro.synthesize", "retro.render"})
+    run_id = str(uuid.uuid4())
+    task_digest = _digest(provenance)
+    start_saved = append(tenant_id, "execution.run.start", {
+        "run_id": run_id, "task_digest": task_digest, "source_commit": commit,
+        "requester_id": requester_id, "commit": commit, "allowed_tools": allowed_tools,
+    })
+    if not isinstance(start_saved, dict) or not start_saved.get("id"):
+        raise RetroBlocked("execution start evidence was not committed")
 
     def execute(node, deps):
         if node.id == "linear":
@@ -249,22 +260,42 @@ def run_sprint_retro(*, tenant_id, requester_id, cycle_id, channel_id, start, en
         raise RetroBlocked("unregistered retro node")
 
     def record(event):
-        saved = append(tenant_id, event["event"], {**event,
-            "requester_id": requester_id, "planner": provenance, "commit": commit})
+        saved = append(tenant_id, event["event"], {
+            **event, "requester_id": requester_id, "planner": provenance,
+            "commit": commit, "task_digest": task_digest, "allowed_tools": allowed_tools,
+        })
         if not isinstance(saved, dict) or not saved.get("id"):
             raise RetroBlocked("evidence was not committed")
 
-    execution = WorkflowEngine(max_workers=2).run(nodes, execute, record)
-    if execution["status"] != "COMPLETED_UNVERIFIED":
-        raise RetroBlocked("retro DAG blocked: " + str(execution["failed"]))
+    execution = WorkflowEngine(max_workers=2).run(nodes, execute, record, run_id=run_id)
     from .igor_sprint_retro import verify_sprint_retro_records
-    report = verify_sprint_retro_records(fetch_records(tenant_id),
-        tenant_id=tenant_id, run_id=execution["run_id"],
-        cycle_id=cycle_id, expected_commit=commit if commit != "UNKNOWN" else None)
+    preliminary = verify_sprint_retro_records(
+        fetch_records(tenant_id), tenant_id=tenant_id, run_id=run_id,
+        cycle_id=cycle_id, expected_commit=commit if commit != "UNKNOWN" else None,
+        require_lifecycle=False,
+    )
+    workflow_status = execution["status"]
+    end_saved = append(tenant_id, "execution.run.end", {
+        "run_id": run_id,
+        "status": "COMPLETED" if workflow_status == "COMPLETED_UNVERIFIED" else "FAILED",
+        "workflow_status": workflow_status,
+        "pre_end_igor_status": preliminary["status"],
+        "task_digest": task_digest, "source_commit": commit,
+        "requester_id": requester_id, "commit": commit, "allowed_tools": allowed_tools,
+        "completed_node_count": len(execution["results"]),
+        "failed_node_count": len(execution["failed"]),
+        "skipped_node_count": len(execution["skipped"]),
+    })
+    if not isinstance(end_saved, dict) or not end_saved.get("id"):
+        raise RetroBlocked("execution end evidence was not committed")
+    report = verify_sprint_retro_records(
+        fetch_records(tenant_id), tenant_id=tenant_id, run_id=run_id,
+        cycle_id=cycle_id, expected_commit=commit if commit != "UNKNOWN" else None,
+    )
     if report["status"] != "VERIFIED":
         raise RetroBlocked("IGOR rejected retrospective evidence: " + report["reason"])
     final = execution["results"]["document"]
-    return {"status": "COMPLETED_UNVERIFIED", "run_id": execution["run_id"],
+    return {"status": "COMPLETED_UNVERIFIED", "run_id": run_id,
             "document": final["markdown"], "document_sha256": final["sha256"],
             "igor": report, "human_gate": "NOT_APPROVED", "verified": False,
             "source": "REVIEWED_RETRO_DAG_TEMPLATE", "production_authorized": False}

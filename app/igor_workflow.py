@@ -13,6 +13,9 @@ EXPECTED_VERCEL_SANDBOX_IMAGE = "vercel/sandbox/python@sha256:e678419c0a4463c1f8
 EXPECTED_VERCEL_SANDBOX_REGION = "fra1"
 SUPPORTED_WORKFLOW_TOOLS = frozenset({
     "safe_expression", "local_mcp_tool_registry.sha256", "llm_agent", "vercel_sandbox",
+    "retro.linear.read", "retro.slack.read", "retro.synthesize", "retro.render",
+    "support.intercom.read", "support.repro.isolated", "support.code.search",
+    "support.jira.draft",
 })
 
 
@@ -82,7 +85,7 @@ def _verify_sandbox_output(node, output):
             or not 1 <= output["timeout_seconds"] <= 60):
         return "sandbox execution timeout invalid"
     if (type(output.get("output_limit_bytes_per_stream")) is not int
-            or not 1 <= output["output_limit_bytes_per_stream"] <= 8192):
+            or not 1 <= output["output_limit_bytes_per_stream"] <= 3072):
         return "sandbox output budget invalid"
     if type(output.get("source_bytes")) is not int:
         return "sandbox source size invalid"

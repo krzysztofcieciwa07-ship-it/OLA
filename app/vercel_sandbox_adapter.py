@@ -10,7 +10,7 @@ from threading import BoundedSemaphore
 
 
 MAX_SOURCE_BYTES = 100_000
-MAX_OUTPUT_BYTES = 8_192
+MAX_OUTPUT_BYTES = 3_072
 MAX_TIMEOUT_SECONDS = 60
 # Admission control is process-local; multi-process deployments multiply this cap.
 MAX_CONCURRENT_SANDBOXES_PER_PROCESS = 4
@@ -81,6 +81,22 @@ class _BoundedTextSink:
         return hashlib.sha256(self.bytes()).hexdigest()
 
 
+def _fit_serialized_output_budget(result, max_bytes=8192):
+    """Bound the complete JSON node result, including escaping expansion."""
+    import json
+
+    while len(json.dumps(result, ensure_ascii=False, sort_keys=True).encode("utf-8")) > max_bytes:
+        stream = max(("stdout", "stderr"), key=lambda key: len(result[key].encode("utf-8")))
+        raw = result[stream].encode("utf-8")
+        if not raw:
+            raise SandboxAdapterError("sandbox result metadata exceeds workflow output budget")
+        reduced = raw[:max(0, len(raw) - 128)].decode("utf-8", errors="replace")
+        result[stream] = reduced
+        result[stream + "_sha256"] = hashlib.sha256(reduced.encode("utf-8")).hexdigest()
+        result[stream + "_truncated"] = True
+    return result
+
+
 def execute_python_source(
     source,
     *,
@@ -102,7 +118,7 @@ def execute_python_source(
     if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= MAX_TIMEOUT_SECONDS:
         raise SandboxAdapterError("timeout must be an integer from 1 to 60 seconds")
     if type(output_limit_bytes) is not int or not 1 <= output_limit_bytes <= MAX_OUTPUT_BYTES:
-        raise SandboxAdapterError("output limit must be an integer from 1 to 8192 bytes")
+        raise SandboxAdapterError("output limit must be an integer from 1 to 3072 bytes")
 
     if not _SANDBOX_SLOTS.acquire(blocking=False):
         raise SandboxAdapterError("sandbox concurrency limit reached")
@@ -185,7 +201,7 @@ def execute_python_source(
         finally:
             client.close()
 
-        return {
+        result = {
             "executor": "vercel_sandbox",
             "operation": "python_exec",
             "runtime": "python3",
@@ -209,6 +225,7 @@ def execute_python_source(
             "stdout_truncated": stdout.truncated,
             "stderr_truncated": stderr.truncated,
         }
+        return _fit_serialized_output_budget(result)
     finally:
         _SANDBOX_SLOTS.release()
 

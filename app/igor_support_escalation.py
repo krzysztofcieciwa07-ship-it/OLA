@@ -37,9 +37,10 @@ def _permalink(url, provider):
 
 
 def verify_escalation_records(records, *, tenant_id, run_id, conversation_id,
-                              expected_commit=None):
+                              expected_commit=None, require_lifecycle=True):
     base = verify_dag_records(records, tenant_id=tenant_id, run_id=run_id,
-                              expected_commit=expected_commit)
+                              expected_commit=expected_commit,
+                              require_lifecycle=require_lifecycle)
     if base["status"] != "VERIFIED":
         return _block("DAG integrity: " + base["reason"])
     try:
