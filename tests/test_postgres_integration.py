@@ -2,6 +2,7 @@
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 
 import pytest
 from sqlalchemy import create_engine, event, select, text
@@ -9,7 +10,15 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
-from app.tenant_context import tenant_scope
+from app.tenant_context import set_api_key_context, reset_database_auth_context
+
+@contextmanager
+def authenticated_tenant_scope(key_fingerprint):
+    token = set_api_key_context(key_fingerprint)
+    try:
+        yield
+    finally:
+        reset_database_auth_context(token)
 
 POSTGRES_URL = os.getenv("OLA_TEST_POSTGRES_URL", "").strip()
 pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="OLA_TEST_POSTGRES_URL is not configured")
@@ -24,7 +33,6 @@ def postgres_db(monkeypatch):
     schema = "ola_test_" + uuid.uuid4().hex
     runtime_role = "ola_rt_" + uuid.uuid4().hex[:12]
     worker_role = "ola_wr_" + uuid.uuid4().hex[:12]
-    monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", uuid.uuid4().hex * 2)
     migration_role = make_url(POSTGRES_URL).username
     monkeypatch.setenv("OLA_DATABASE_MIGRATION_ROLE", migration_role)
     with admin_engine.begin() as conn:
@@ -88,13 +96,19 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
     # The restricted runtime role has only SELECT/INSERT on evidence_records.
     database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
     tenant_id = str(uuid.uuid4())
-    with tenant_scope(tenant_id):
-        with database.SessionLocal() as db:
-            db.add(Tenant(id=tenant_id, name="PostgreSQL integration tenant"))
-            db.commit()
+    key_hash = uuid.uuid4().hex + uuid.uuid4().hex
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:id, :name)"),
+            {"id": tenant_id, "name": "PostgreSQL integration tenant"},
+        )
+        conn.execute(
+            text("INSERT INTO api_keys (id, tenant_id, key_hash, role) VALUES (:id, :tenant_id, :key_hash, 'tenant')"),
+            {"id": str(uuid.uuid4()), "tenant_id": tenant_id, "key_hash": key_hash},
+        )
 
     def append_event(index):
-        with tenant_scope(tenant_id):
+        with authenticated_tenant_scope(key_hash):
             return database.append_evidence_atomic(
                 tenant_id, "integration.append", {"index": index},
             )
@@ -103,7 +117,7 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
         results = list(pool.map(append_event, range(32)))
 
     assert len({item["id"] for item in results}) == 32
-    with tenant_scope(tenant_id):
+    with authenticated_tenant_scope(key_hash):
         with database.SessionLocal() as db:
             rows = db.scalars(
                 select(EvidenceRecord)
@@ -155,8 +169,8 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
     with _admin_engine.begin() as conn:
         conn.exec_driver_sql(
             f"ALTER POLICY ola_tenant_isolation ON \"{_schema}\".evidence_records "
-            f"USING (tenant_id::text = \"{_schema}\".ola_current_tenant_id()) "
-            f"WITH CHECK (tenant_id::text = \"{_schema}\".ola_current_tenant_id())"
+            f"USING (\"{_schema}\".ola_tenant_context_matches(tenant_id::text)) "
+            f"WITH CHECK (\"{_schema}\".ola_tenant_context_matches(tenant_id::text))"
         )
     database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
 
@@ -403,7 +417,7 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
         assert db.execute(text("SELECT id FROM api_keys")).all() == []
 
     # A transaction-local tenant context exposes only that tenant's rows.
-    with tenant_scope(tenant_a):
+    with authenticated_tenant_scope(key_a):
         with database.SessionLocal() as db:
             assert db.execute(text("SELECT id FROM tenants")).scalars().all() == [tenant_a]
             assert db.execute(text("SELECT tenant_id FROM api_keys")).scalars().all() == [tenant_a]
@@ -575,11 +589,37 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
     worker_engine = create_engine(
         worker_url,
         pool_pre_ping=True,
-        connect_args={"options": f"-csearch_path={_schema}"},
+        connect_args={"options": f"-c search_path={_schema}"},
     )
 
+    def verify_worker_identity(target_engine=worker_engine, target_role=worker_role):
+        return worker.verify_worker_database_identity(
+            target_engine, target_role,
+            runtime_role=runtime_role, expected_schema=_schema,
+        )
+
     try:
-        worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+        with worker_engine.connect() as conn:
+            path_state = conn.execute(text("""
+                SELECT current_schema() AS current_schema,
+                       current_setting('search_path') AS search_path,
+                       current_schemas(false) AS effective_schemas,
+                       has_schema_privilege(current_user, :schema_name, 'USAGE') AS schema_usage
+            """), {"schema_name": _schema}).mappings().one()
+        assert path_state["current_schema"] == _schema, path_state
+        assert _schema in path_state["effective_schemas"], path_state
+        assert path_state["schema_usage"] is True, path_state
+        verify_worker_identity()
+
+        wrong_path_engine = create_engine(
+            worker_url, pool_pre_ping=True,
+            connect_args={"options": "-c search_path=public"},
+        )
+        try:
+            with pytest.raises(RuntimeError, match="search_path mismatch"):
+                verify_worker_identity(wrong_path_engine)
+        finally:
+            wrong_path_engine.dispose()
 
         with _admin_engine.connect() as owner_connection:
             claim_owner = owner_connection.execute(text("""
@@ -594,9 +634,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'ALTER FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) OWNER TO "{runtime_role}"'
             )
         with pytest.raises(RuntimeError, match="claim function ACL"):
-            worker.verify_worker_database_identity(
-                worker_engine, worker_role, runtime_role=runtime_role,
-            )
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'ALTER FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) OWNER TO "{claim_owner}"'
@@ -607,12 +645,12 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
             conn.exec_driver_sql(
                 f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO "{worker_role}"'
             )
-        worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+        verify_worker_identity()
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO PUBLIC')
         with pytest.raises(RuntimeError, match="worker schema ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM PUBLIC')
 
@@ -621,7 +659,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT USAGE ON SCHEMA "{_schema}" TO "{worker_role}" WITH GRANT OPTION'
             )
         with pytest.raises(RuntimeError, match="worker schema ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM "{worker_role}"')
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO "{worker_role}"')
@@ -635,19 +673,19 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO "{schema_outsider}"')
         try:
             with pytest.raises(RuntimeError, match="worker schema ACL"):
-                worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+                verify_worker_identity()
         finally:
             with _admin_engine.begin() as conn:
                 conn.exec_driver_sql(f'REVOKE ALL ON SCHEMA "{_schema}" FROM "{schema_outsider}"')
                 conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{schema_outsider}"')
-        worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+        verify_worker_identity()
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_authenticate_api_key(text) TO "{worker_role}"'
             )
         with pytest.raises(RuntimeError, match="API-key authentication function"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE EXECUTE ON FUNCTION "{_schema}".ola_authenticate_api_key(text) FROM "{worker_role}"'
@@ -658,7 +696,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO PUBLIC'
             )
         with pytest.raises(RuntimeError, match="claim function ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) FROM PUBLIC'
@@ -669,7 +707,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO "{runtime_role}"'
             )
         with pytest.raises(RuntimeError, match="claim function ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) FROM "{runtime_role}"'
@@ -680,7 +718,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT EXECUTE ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) TO "{worker_role}" WITH GRANT OPTION'
             )
         with pytest.raises(RuntimeError, match="claim function ACL"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE ALL ON FUNCTION "{_schema}".ola_claim_checkout_jobs(integer, integer) FROM "{worker_role}"'
@@ -698,22 +736,22 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
             conn.exec_driver_sql(f'GRANT "{worker_role}" TO "{outsider_role}"')
         try:
             with pytest.raises(RuntimeError, match="unauthorized role memberships"):
-                worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+                verify_worker_identity()
         finally:
             with _admin_engine.begin() as conn:
                 conn.exec_driver_sql(f'REVOKE "{worker_role}" FROM "{outsider_role}"')
                 conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{outsider_role}"')
-        worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+        verify_worker_identity()
 
         with pytest.raises(RuntimeError, match="identity mismatch"):
-            worker.verify_worker_database_identity(runtime_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity(runtime_engine, worker_role)
 
         # An administrator that uses SET ROLE must not masquerade as a worker
         # DSN: current_user changes, but session_user remains the administrator.
         admin_as_worker_engine = create_engine(
             POSTGRES_URL,
             pool_pre_ping=True,
-            connect_args={"options": f"-csearch_path={_schema}"},
+            connect_args={"options": f"-c search_path={_schema}"},
         )
 
         @event.listens_for(admin_as_worker_engine, "connect")
@@ -725,7 +763,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
 
         try:
             with pytest.raises(RuntimeError, match="session identity mismatch"):
-                worker.verify_worker_database_identity(admin_as_worker_engine, worker_role, runtime_role=runtime_role)
+                verify_worker_identity(admin_as_worker_engine, worker_role)
         finally:
             admin_as_worker_engine.dispose()
 
@@ -734,7 +772,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
         admin_as_runtime_engine = create_engine(
             POSTGRES_URL,
             pool_pre_ping=True,
-            connect_args={"options": f"-csearch_path={_schema}"},
+            connect_args={"options": f"-c search_path={_schema}"},
         )
 
         @event.listens_for(admin_as_runtime_engine, "connect")
@@ -754,14 +792,14 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
         finally:
             admin_as_runtime_engine.dispose()
         with pytest.raises(RuntimeError, match="identity mismatch"):
-            worker.verify_worker_database_identity(_admin_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity(_admin_engine, worker_role)
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'GRANT SELECT ON TABLE "{_schema}".checkout_execution_jobs TO "{worker_role}"'
             )
         with pytest.raises(RuntimeError, match="direct privileges"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE SELECT ON TABLE "{_schema}".checkout_execution_jobs FROM "{worker_role}"'
@@ -772,7 +810,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT MAINTAIN ON TABLE "{_schema}".checkout_execution_jobs TO "{worker_role}"'
             )
         with pytest.raises(RuntimeError, match="direct privileges"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE MAINTAIN ON TABLE "{_schema}".checkout_execution_jobs FROM "{worker_role}"'
@@ -783,7 +821,7 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
                 f'GRANT SELECT ON TABLE "{_schema}".ola_schema_migrations TO "{worker_role}"'
             )
         with pytest.raises(RuntimeError, match="direct privileges"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'REVOKE SELECT ON TABLE "{_schema}".ola_schema_migrations FROM "{worker_role}"'
@@ -794,32 +832,32 @@ def test_postgres_worker_dsn_identity_is_verified_and_least_privileged(postgres_
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE USAGE ON SCHEMA "{_schema}" FROM "{worker_role}"')
         with pytest.raises(RuntimeError, match="schema USAGE"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{_schema}" TO "{worker_role}"')
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT CREATE ON SCHEMA "{_schema}" TO "{worker_role}"')
         with pytest.raises(RuntimeError, match="schema USAGE"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE CREATE ON SCHEMA "{_schema}" FROM "{worker_role}"')
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'ALTER ROLE "{worker_role}" INHERIT')
         with pytest.raises(RuntimeError, match="must be LOGIN NOINHERIT"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'ALTER ROLE "{worker_role}" NOINHERIT')
 
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'GRANT "{runtime_role}" TO "{worker_role}"')
         with pytest.raises(RuntimeError, match="unauthorized role memberships"):
-            worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+            verify_worker_identity()
         with _admin_engine.begin() as conn:
             conn.exec_driver_sql(f'REVOKE "{runtime_role}" FROM "{worker_role}"')
 
-        worker.verify_worker_database_identity(worker_engine, worker_role, runtime_role=runtime_role)
+        verify_worker_identity()
     finally:
         worker_engine.dispose()
 
@@ -1215,153 +1253,200 @@ def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_ow
     )
 
 
-def test_postgres_runtime_cannot_impersonate_tenant_by_setting_legacy_guc(postgres_db):
-    """A runtime SQL login must not select a tenant merely by forging ola.tenant_id."""
-    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
-    victim_tenant = str(uuid.uuid4())
+def test_postgres_tenant_context_is_cleared_at_commit_and_guc_cannot_restore_it(postgres_db):
+    database, _runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    from app.models import CheckoutOrder, Tenant
+
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    key_a = "e" * 64
+    order_a = str(uuid.uuid4())
+    order_b = str(uuid.uuid4())
     with migration_engine.begin() as conn:
         conn.execute(
-            text("INSERT INTO tenants (id, name) VALUES (:id, 'victim-tenant')"),
-            {"id": victim_tenant},
+            text("INSERT INTO tenants (id, name) VALUES (:a, 'tenant-a'), (:b, 'tenant-b')"),
+            {"a": tenant_a, "b": tenant_b},
         )
+        conn.execute(text("""
+            INSERT INTO api_keys (id, tenant_id, key_hash, role)
+            VALUES (:key_id, :tenant_id, :key_hash, 'tenant')
+        """), {"key_id": str(uuid.uuid4()), "tenant_id": tenant_a, "key_hash": key_a})
+        conn.execute(text("""
+            INSERT INTO checkout_orders
+                (id, tenant_id, idempotency_key_hash, request_hash, status, created_at)
+            VALUES
+                (:order_a, :tenant_a, :idem_a, :hash, 'CHECKOUT_CREATED', 0),
+                (:order_b, :tenant_b, :idem_b, :hash, 'CHECKOUT_CREATED', 0)
+        """), {
+            "order_a": order_a, "tenant_a": tenant_a, "idem_a": uuid.uuid4().hex,
+            "order_b": order_b, "tenant_b": tenant_b, "idem_b": uuid.uuid4().hex,
+            "hash": "f" * 64,
+        })
 
-    # Use a raw SQLAlchemy Engine with the ola_runtime login. This intentionally
-    # bypasses ORM session hooks that normally attach the signed tenant context.
-    raw_runtime_engine = create_engine(
-        runtime_engine.url,
-        pool_pre_ping=True,
-        connect_args={"options": f"-csearch_path={_schema}"},
-    )
+    token = set_api_key_context(key_a)
     try:
-        with raw_runtime_engine.begin() as conn:
-            conn.execute(
-                text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
-                {"tenant_id": victim_tenant},
-            )
-            conn.execute(text("SELECT set_config('ola.tenant_signature', '', true)"))
-            visible_without_signature = conn.execute(
-                text("SELECT id FROM tenants WHERE id = :tenant_id"),
-                {"tenant_id": victim_tenant},
-            ).scalars().all()
-    finally:
-        raw_runtime_engine.dispose()
-    assert visible_without_signature == [], (
-        "runtime role impersonated a tenant by forging the legacy ola.tenant_id GUC",
-        visible_without_signature,
-    )
-
-    # A captured valid signature for tenant A must not authorize tenant B.
-    # Use the raw role connection to prevent ORM hooks from replacing attacker GUCs.
-    from app.tenant_context import tenant_context_signature
-    attacker_tenant = str(uuid.uuid4())
-    attacker_signature = tenant_context_signature(attacker_tenant)
-    replay_engine = create_engine(
-        runtime_engine.url,
-        pool_pre_ping=True,
-        connect_args={"options": f"-csearch_path={_schema}"},
-    )
-    try:
-        with replay_engine.begin() as conn:
-            conn.execute(
-                text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
-                {"tenant_id": victim_tenant},
-            )
-            conn.execute(
-                text("SELECT set_config('ola.tenant_signature', :signature, true)"),
-                {"signature": attacker_signature},
-            )
-            visible_with_replayed_signature = conn.execute(
-                text("SELECT id FROM tenants WHERE id = :tenant_id"),
-                {"tenant_id": victim_tenant},
-            ).scalars().all()
-    finally:
-        replay_engine.dispose()
-    assert visible_with_replayed_signature == [], (
-        "runtime role reused a tenant-A signature to impersonate tenant B",
-        visible_with_replayed_signature,
-    )
-
-    # The legitimate application path signs the tenant only after trusted
-    # authentication and therefore still sees its own tenant.
-    with tenant_scope(victim_tenant):
         with database.SessionLocal() as db:
-            assert db.execute(
-                text("SELECT id FROM tenants WHERE id = :tenant_id"),
-                {"tenant_id": victim_tenant},
-            ).scalars().all() == [victim_tenant]
+            first = db.scalars(select(CheckoutOrder.id).order_by(CheckoutOrder.id)).all()
+            assert first == [order_a]
+            db.commit()
 
-    # The runtime role cannot read the verification key from its private table.
-    with runtime_engine.begin() as conn:
-        with pytest.raises(DBAPIError, match="permission denied"):
-            conn.execute(text("SELECT secret FROM ola_rls_context_secrets")).all()
+            # The transaction-local context row is ON COMMIT DELETE ROWS.
+            # A caller-settable GUC on the next transaction is not a new proof.
+            reset_database_auth_context(token)
+            token = None
+            db.execute(
+                text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+                {"tenant_id": tenant_b},
+            )
+            second = db.scalars(select(CheckoutOrder.id).order_by(CheckoutOrder.id)).all()
+            assert second == []
+    finally:
+        if token is not None:
+            reset_database_auth_context(token)
 
 
-def test_postgres_runtime_verifier_rejects_a_mismatched_context_secret(postgres_db, monkeypatch):
-    database, runtime_engine, _migration_engine, _admin_engine, runtime_role, _schema, worker_role = postgres_db
-    monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", "different-secret-material-that-is-not-the-database-key")
-    with pytest.raises(RuntimeError, match="secret does not match"):
-        database.verify_postgres_schema(
-            runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
-        )
-
-
-def test_postgres_runtime_signed_tenant_context_is_bound_and_unforgeable(postgres_db):
-    """A valid tenant-A signature cannot authorize tenant B under runtime credentials."""
-    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, schema, _worker_role = postgres_db
-    tenant_a, tenant_b = str(uuid.uuid4()), str(uuid.uuid4())
+def test_postgres_trusted_api_key_context_rejects_revoked_and_expired_keys(postgres_db):
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    tenant_id = str(uuid.uuid4())
+    revoked_key = "c" * 64
+    expired_key = "d" * 64
     with migration_engine.begin() as conn:
         conn.execute(
-            text("INSERT INTO tenants (id, name) VALUES (:id, 'tenant-a'), (:other, 'tenant-b')"),
-            {"id": tenant_a, "other": tenant_b},
+            text("INSERT INTO tenants (id, name) VALUES (:id, 'key-lifecycle-tenant')"),
+            {"id": tenant_id},
+        )
+        conn.execute(text("""
+            INSERT INTO api_keys (id, tenant_id, key_hash, role, revoked_at, expires_at)
+            VALUES
+                (:revoked_id, :tenant_id, :revoked_key, 'tenant', CURRENT_TIMESTAMP, NULL),
+                (:expired_id, :tenant_id, :expired_key, 'tenant', NULL, CURRENT_TIMESTAMP - INTERVAL '1 minute')
+        """), {
+            "revoked_id": str(uuid.uuid4()), "expired_id": str(uuid.uuid4()),
+            "tenant_id": tenant_id, "revoked_key": revoked_key, "expired_key": expired_key,
+        })
+
+    for key_hash in (revoked_key, expired_key):
+        with pytest.raises(DBAPIError) as exc:
+            with runtime_engine.begin() as conn:
+                conn.execute(
+                    text("SELECT ola_establish_api_key_context(:key_hash)"),
+                    {"key_hash": key_hash},
+                ).scalar_one()
+        sqlstate = getattr(exc.value.orig, "sqlstate", None) or getattr(exc.value.orig, "pgcode", None)
+        assert sqlstate == "42501"
+
+
+def test_postgres_runtime_cannot_spoof_tenant_guc_to_read_other_tenant(postgres_db):
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    order_a = str(uuid.uuid4())
+    order_b = str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:a, 'tenant-a'), (:b, 'tenant-b')"),
+            {"a": tenant_a, "b": tenant_b},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO checkout_orders
+                    (id, tenant_id, idempotency_key_hash, request_hash, status, created_at)
+                VALUES
+                    (:order_a, :tenant_a, :idem_a, :hash, 'CHECKOUT_CREATED', 0),
+                    (:order_b, :tenant_b, :idem_b, :hash, 'CHECKOUT_CREATED', 0)
+            """),
+            {
+                "order_a": order_a, "tenant_a": tenant_a, "idem_a": uuid.uuid4().hex,
+                "order_b": order_b, "tenant_b": tenant_b, "idem_b": uuid.uuid4().hex,
+                "hash": "d" * 64,
+            },
         )
 
-    from app.tenant_context import tenant_context_signature
-    signature_a = tenant_context_signature(tenant_a)
-    raw = create_engine(
-        runtime_engine.url, pool_pre_ping=True,
-        connect_args={"options": f"-csearch_path={schema}"},
+    with runtime_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_b},
+        )
+        visible = conn.execute(
+            text("SELECT id FROM checkout_orders ORDER BY id")
+        ).scalars().all()
+
+    assert visible == [], (
+        "ola_runtime must not gain tenant access by setting ola.tenant_id; "
+        f"cross-tenant rows were visible: {visible}"
     )
-    try:
-        with raw.begin() as conn:
-            conn.execute(text("SELECT set_config('ola.tenant_id', :id, true)"),
-                         {"id": tenant_b})
-            conn.execute(text("SELECT set_config('ola.tenant_signature', :sig, true)"),
-                         {"sig": signature_a})
-            replayed = conn.execute(
-                text("SELECT id FROM tenants WHERE id = :id"), {"id": tenant_b}
-            ).scalars().all()
 
-            conn.execute(text("SELECT set_config('ola.tenant_id', :id, true)"),
-                         {"id": tenant_a})
-            conn.execute(text("SELECT set_config('ola.tenant_signature', :sig, true)"),
-                         {"sig": signature_a})
-            own = conn.execute(
-                text("SELECT id FROM tenants WHERE id = :id"), {"id": tenant_a}
-            ).scalars().all()
-        assert replayed == []
-        assert own == [tenant_a]
 
-        with raw.begin() as conn:
-            with pytest.raises(DBAPIError, match="permission denied"):
-                conn.execute(text("SELECT secret FROM ola_rls_context_secrets")).all()
-    finally:
-        raw.dispose()
+def test_postgres_trusted_api_key_context_overrides_forged_guc(postgres_db):
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    key_a = "a" * 64
+    key_b = "b" * 64
+    order_a = str(uuid.uuid4())
+    order_b = str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:a, 'tenant-a'), (:b, 'tenant-b')"),
+            {"a": tenant_a, "b": tenant_b},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO api_keys (id, tenant_id, key_hash, role)
+                VALUES (:key_a_id, :tenant_a, :key_a, 'tenant'),
+                       (:key_b_id, :tenant_b, :key_b, 'tenant')
+            """),
+            {
+                "key_a_id": str(uuid.uuid4()), "tenant_a": tenant_a, "key_a": key_a,
+                "key_b_id": str(uuid.uuid4()), "tenant_b": tenant_b, "key_b": key_b,
+            },
+        )
+        conn.execute(
+            text("""
+                INSERT INTO checkout_orders
+                    (id, tenant_id, idempotency_key_hash, request_hash, status, created_at)
+                VALUES
+                    (:order_a, :tenant_a, :idem_a, :hash, 'CHECKOUT_CREATED', 0),
+                    (:order_b, :tenant_b, :idem_b, :hash, 'CHECKOUT_CREATED', 0)
+            """),
+            {
+                "order_a": order_a, "tenant_a": tenant_a, "idem_a": uuid.uuid4().hex,
+                "order_b": order_b, "tenant_b": tenant_b, "idem_b": uuid.uuid4().hex,
+                "hash": "e" * 64,
+            },
+        )
+
+    with runtime_engine.begin() as conn:
+        authenticated_tenant = conn.execute(
+            text("SELECT ola_establish_api_key_context(:key_hash)"),
+            {"key_hash": key_a},
+        ).scalar_one()
+        assert authenticated_tenant == tenant_a
+        conn.execute(
+            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_b},
+        )
+        visible = conn.execute(
+            text("SELECT id FROM checkout_orders ORDER BY id")
+        ).scalars().all()
+
+    assert visible == [order_a]
 
 
 def test_postgres_runtime_verifier_rejects_same_named_tenant_function_from_other_schema(postgres_db):
-    """A policy must depend on this schema's tenant function, not a same-named decoy."""
+    """A policy must depend on this schema's trusted function OID, not a decoy."""
     database, runtime_engine, _migration_engine, admin_engine, runtime_role, schema, worker_role = postgres_db
     decoy_schema = schema + "_decoy"
     with admin_engine.begin() as conn:
         conn.exec_driver_sql(f'CREATE SCHEMA "{decoy_schema}"')
         conn.exec_driver_sql(
-            f'CREATE FUNCTION "{decoy_schema}".ola_current_tenant_id() '
-            "RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT NULL::text $$"
+            f'CREATE FUNCTION "{decoy_schema}".ola_tenant_context_matches(text) '
+            "RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT false $$"
         )
         conn.exec_driver_sql(
             f'ALTER POLICY ola_tenant_isolation ON "{schema}".tenants '
-            f'USING (id::text = "{decoy_schema}".ola_current_tenant_id()) '
-            f'WITH CHECK (id::text = "{decoy_schema}".ola_current_tenant_id())'
+            f'USING ("{decoy_schema}".ola_tenant_context_matches(id::text)) '
+            f'WITH CHECK ("{decoy_schema}".ola_tenant_context_matches(id::text))'
         )
     try:
         with pytest.raises(RuntimeError, match="policy expression is invalid: tenants"):
@@ -1372,10 +1457,12 @@ def test_postgres_runtime_verifier_rejects_same_named_tenant_function_from_other
         with admin_engine.begin() as conn:
             conn.exec_driver_sql(
                 f'ALTER POLICY ola_tenant_isolation ON "{schema}".tenants '
-                f'USING (id::text = "{schema}".ola_current_tenant_id()) '
-                f'WITH CHECK (id::text = "{schema}".ola_current_tenant_id())'
+                f'USING ("{schema}".ola_tenant_context_matches(id::text)) '
+                f'WITH CHECK ("{schema}".ola_tenant_context_matches(id::text))'
             )
             conn.exec_driver_sql(f'DROP SCHEMA "{decoy_schema}" CASCADE')
     database.verify_postgres_schema(
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
+
+

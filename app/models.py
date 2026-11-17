@@ -1,6 +1,6 @@
 import uuid
 import time
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey, UniqueConstraint
 from .database import Base
 
 
@@ -20,6 +20,8 @@ class ApiKey(Base):
     tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
     key_hash = Column(String(64), nullable=False, unique=True)
     role = Column(String(32), nullable=False, default="tenant")
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class EvidenceRecord(Base):

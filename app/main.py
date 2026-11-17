@@ -4,12 +4,13 @@ import os
 import re
 import uuid
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
 from sqlalchemy import select, func, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, DBAPIError
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, append_evidence_atomic, prepare_runtime_schema, verify_postgres_schema
 from .models import Tenant, ApiKey, EvidenceRecord, CheckoutOrder, CheckoutOrderControl, CheckoutExecutionJob
@@ -29,17 +30,23 @@ from .stripe_webhook import process_checkout_event
 from .order_approval import approve_paid_order, PaidOrderApprovalRejected
 from .paid_order_execution import execute_paid_order_job, validate_postgres_worker_claim, verify_worker_token, PaidOrderExecutionRejected
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
-from .tenant_context import set_current_tenant_id, reset_current_tenant_id
+from .tenant_context import (
+    set_current_tenant_id, reset_current_tenant_id,
+    set_database_auth_context, reset_database_auth_context, set_api_key_context,
+    set_checkout_context,
+)
 
 app = FastAPI(title="OLA Execution Gate")
 
 @app.middleware("http")
 async def isolate_request_tenant_context(request: Request, call_next):
-    token = set_current_tenant_id(None)
+    tenant_token = set_current_tenant_id(None)
+    auth_token = set_database_auth_context(None)
     try:
         return await call_next(request)
     finally:
-        reset_current_tenant_id(token)
+        reset_database_auth_context(auth_token)
+        reset_current_tenant_id(tenant_token)
 
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
@@ -55,20 +62,37 @@ def identity_from_key(raw_key):
         raise HTTPException(status_code=401, detail="invalid API key") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="API key verification unavailable") from exc
-    with SessionLocal() as db:
-        if db.bind.dialect.name == "postgresql":
-            row = db.execute(
-                text("SELECT tenant_id, api_key_id FROM ola_authenticate_api_key(:key_hash)"),
-                {"key_hash": key_hash},
-            ).one_or_none()
-            if row is None:
-                raise HTTPException(status_code=401, detail="invalid API key")
-            tenant_id, key_id = row.tenant_id, row.api_key_id
-        else:
-            key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
-            if key is None:
-                raise HTTPException(status_code=401, detail="invalid API key")
-            tenant_id, key_id = key.tenant_id, key.id
+
+    if engine.dialect.name == "postgresql":
+        # PostgreSQL derives tenant identity from this fingerprint in the
+        # SECURITY DEFINER transaction initializer; caller tenant IDs are hints only.
+        set_api_key_context(key_hash)
+    try:
+        with SessionLocal() as db:
+            if db.bind.dialect.name == "postgresql":
+                row = db.execute(
+                    text("SELECT tenant_id, api_key_id FROM ola_authenticate_api_key(:key_hash)"),
+                    {"key_hash": key_hash},
+                ).one_or_none()
+                if row is None:
+                    raise HTTPException(status_code=401, detail="invalid API key")
+                tenant_id, key_id = row.tenant_id, row.api_key_id
+            else:
+                key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
+                now = datetime.now(timezone.utc)
+                expired = key is not None and key.expires_at is not None and (
+                    (key.expires_at.replace(tzinfo=timezone.utc) if key.expires_at.tzinfo is None else key.expires_at)
+                    <= now
+                )
+                if key is None or key.revoked_at is not None or expired:
+                    raise HTTPException(status_code=401, detail="invalid or expired API key")
+                tenant_id, key_id = key.tenant_id, key.id
+    except DBAPIError as exc:
+        original = getattr(exc, "orig", None)
+        code = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+        if code == "42501":
+            raise HTTPException(status_code=401, detail="invalid or expired API key") from exc
+        raise HTTPException(status_code=503, detail="API key verification unavailable") from exc
     set_current_tenant_id(tenant_id)
     return tenant_id, key_id
 
@@ -533,8 +557,9 @@ def payment_success(session_id: str):
     if not request_hash:
         raise HTTPException(status_code=403, detail="payment session has no request hash")
 
-    # Stripe has authenticated the Checkout Session and its tenant/order metadata.
-    # Establish the signed database context before any tenant-scoped read.
+    # The database verifies the exact persisted OLA order / Checkout Session pair.
+    # Stripe metadata is not an RLS authorization source.
+    set_checkout_context(order_id, session_id)
     set_current_tenant_id(tenant_id)
     with SessionLocal() as db:
         order = db.get(CheckoutOrder, order_id)

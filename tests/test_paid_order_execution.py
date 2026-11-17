@@ -701,11 +701,12 @@ def test_worker_verifies_runtime_database_before_worker_claim_database(monkeypat
     import scripts.run_paid_order_worker as worker
 
     calls = []
+    monkeypatch.setenv("OLA_DATABASE_SCHEMA", "ola_test_schema")
     monkeypatch.setattr(worker, "prepare_runtime_schema", lambda: calls.append("runtime"))
     monkeypatch.setattr(
         worker, "verify_worker_database_identity",
-        lambda engine, expected, runtime_role="ola_runtime", migration_role=None:
-            calls.append(("worker", engine, expected, runtime_role)),
+        lambda engine, expected, runtime_role="ola_runtime", migration_role=None, expected_schema=None:
+            calls.append(("worker", engine, expected, runtime_role, expected_schema)),
     )
 
     worker_engine = object()
@@ -714,5 +715,5 @@ def test_worker_verifies_runtime_database_before_worker_claim_database(monkeypat
     )
     assert calls == [
         "runtime",
-        ("worker", worker_engine, "ola_worker", "ola_runtime"),
+        ("worker", worker_engine, "ola_worker", "ola_runtime", "ola_test_schema"),
     ]
