@@ -15,6 +15,9 @@ permissions: {}
 env:
   # CI fixture only; NEVER use as a production secret.
   OLA_API_KEY_PEPPER: ${{ github.sha }}
+  # Public test-only key; never use this value for production.
+  OLA_EVIDENCE_V4_KEYRING_JSON: '{"ci-v4-2026":"cHl0ZXN0LW9ubHktdjQta2V5LW1hdGVyaWFsLTMyYnl0ZXMhIQ=="}'
+  OLA_EVIDENCE_V4_ACTIVE_KEY_ID: ci-v4-2026
 
 jobs:
   igor:
@@ -111,7 +114,7 @@ jobs:
 
       - name: Start runtime
         run: |
-          docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" -e OLA_RUNTIME_COMMIT="${SOURCE_COMMIT}" --name ola-igor-e2e --publish 8001:8000 "ola-igor:${SOURCE_COMMIT}"
+          docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" -e OLA_EVIDENCE_V4_KEYRING_JSON='{"ci-v4-2026":"cHl0ZXN0LW9ubHktdjQta2V5LW1hdGVyaWFsLTMyYnl0ZXMhIQ=="}' -e OLA_EVIDENCE_V4_ACTIVE_KEY_ID=ci-v4-2026 -e OLA_RUNTIME_COMMIT="${SOURCE_COMMIT}" --name ola-igor-e2e --publish 8001:8000 "ola-igor:${SOURCE_COMMIT}"
           for i in $(seq 1 30); do curl --fail --silent http://127.0.0.1:8001/health >/dev/null && exit 0; sleep 1; done
           docker logs ola-igor-e2e
           exit 1
