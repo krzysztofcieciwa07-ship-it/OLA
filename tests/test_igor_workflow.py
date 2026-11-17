@@ -125,7 +125,7 @@ def test_v2_type_tamper_is_detected_even_when_hash_is_unchanged():
     assert check(forged)["status"] == "BLOCK"
 
 
-def sandbox_events():
+def sandbox_events(node_count=1):
     source = "print(42)"
     task = json.dumps({"operation": "python_exec", "source": source}, separators=(",", ":"))
     output = {
@@ -143,10 +143,11 @@ def sandbox_events():
         "stderr_truncated": False,
     }
     nodes = validate_plan({"nodes": [
-        {"id": "sandbox", "tool": "vercel_sandbox", "task": task, "needs": []}
+        {"id": f"sandbox-{index}", "tool": "vercel_sandbox", "task": task, "needs": []}
+        for index in range(node_count)
     ]}, allowed_tools={"vercel_sandbox"})
     events = []
-    WorkflowEngine(max_workers=1).run(
+    WorkflowEngine(max_workers=max(1, node_count)).run(
         nodes,
         lambda node, deps: output,
         lambda event: events.append({**event, "requester_id": "person1",
@@ -188,3 +189,9 @@ def test_igor_rejects_sandbox_nonzero_exit_code():
     completed["output_digest"] = _digest(completed["output"])
     report = verify_sandbox_events(events)
     assert report["status"] == "BLOCK"
+
+
+def test_igor_rejects_replayed_sandbox_identity_within_one_run():
+    report = verify_sandbox_events(sandbox_events(node_count=2))
+    assert report["status"] == "BLOCK"
+    assert "identity replayed" in report["reason"]
