@@ -132,3 +132,23 @@ a V4 retry automatically. That avoids treating legacy history as trusted
 idempotency evidence without a separate historical reconciliation policy.
 The append primitive verifies the complete existing tenant chain before
 deduplication or append, and refuses to extend a chain it cannot verify.
+
+## Lifecycle evidence and CI separation
+
+The functional suite uses a deterministic, public test-only key injected by
+pytest. It exercises the V4 writer, independent IGOR verification, rotation,
+tampering, and mixed legacy chains.
+
+`tests/test_evidence_v4_process_lifecycle.py` starts separate Python
+processes for write, restart/read, key rotation, SQLite backup, restore, and
+key-loss verification. It writes the evidence database backup and keyring
+backup as separate artifacts and asserts that neither raw nor base64 key
+material appears in the database file.
+
+`tests/test_evidence_secret_management.py` is marked
+`secret_management`. A separate CI job runs it without a V4 test key and
+proves missing/invalid injection fails closed, short keys are rejected,
+duplicate key IDs are rejected, and key bytes are not exposed in repr output.
+This is a secret-injection contract test, not proof of a production secret
+manager integration. Production secret-manager provisioning and access-policy
+verification remain release blockers.
