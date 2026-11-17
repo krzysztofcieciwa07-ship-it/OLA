@@ -141,6 +141,7 @@ def test_adapter_aborts_and_destroys_sandbox_when_output_limit_is_exceeded():
 
     assert box.exited is True
     assert sdk.closed is True
+    assert box.process.killed is True
 
 
 @pytest.mark.parametrize(
