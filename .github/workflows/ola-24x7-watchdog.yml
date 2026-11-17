@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   watchdog:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -107,5 +108,51 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ola-24x7-watchdog-${{ github.run_id }}
+          path: watchdog-evidence.json
+          if-no-files-found: error
+
+  reject-non-main-manual-dispatch:
+    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Record rejected manual dispatch lifecycle
+        env:
+          WATCHDOG_SOURCE_SHA: ${{ github.sha }}
+          WATCHDOG_REF: ${{ github.ref }}
+          WATCHDOG_EVENT: ${{ github.event_name }}
+          WATCHDOG_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime, json, os
+          from pathlib import Path
+
+          now = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+          report = {
+              "schema": "ola-24x7-watchdog-evidence-v1",
+              "run.start": now(),
+              "source_sha": os.environ["WATCHDOG_SOURCE_SHA"],
+              "event_name": os.environ["WATCHDOG_EVENT"],
+              "git_ref": os.environ["WATCHDOG_REF"],
+              "run_id": os.environ["WATCHDOG_RUN_ID"],
+              "decision": "HUMAN_GATE",
+              "action": "NONE",
+              "reason": "manual_dispatch_ref_not_main",
+              "evidence_status": "BLOCKED",
+          }
+          report["run.end"] = now()
+          Path("watchdog-evidence.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload rejected watchdog lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-24x7-watchdog-rejected-${{ github.run_id }}
           path: watchdog-evidence.json
           if-no-files-found: error

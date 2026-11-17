@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 import stat
+import selectors
 import subprocess
 import tempfile
 import time
@@ -17,10 +18,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 
-ACTIVE_STATUSES = {"queued", "in_progress", "waiting", "requested"}
+ACTIVE_STATUSES = {"queued", "pending", "in_progress", "waiting", "requested"}
 FRESHNESS_SECONDS = 900
 MAX_ARTIFACT_ARCHIVE_BYTES = 256 * 1024 * 1024
 FLOW_WORKFLOW = "ola-12h-autoflow.yml"
+
+
+def is_allowed_dispatch(event_name: str, git_ref: str) -> bool:
+    """Allow scheduled runs and manual runs bound to the current main ref."""
+    return event_name != "workflow_dispatch" or git_ref == "refs/heads/main"
 
 
 def _timestamp(value: str | None) -> float:
@@ -106,7 +112,7 @@ def download_and_verify_artifact_archive(
     expected_size_bytes: int,
     destination: str | Path,
 ) -> tuple[bool, str]:
-    """Download the original GitHub artifact ZIP, verify its API digest, then extract safely."""
+    """Stream a bounded GitHub artifact ZIP, verify its API digest, then extract safely."""
     target = Path(destination)
     archive_path = target.parent / "ola-auto-evidence-artifact.zip"
     target.mkdir(parents=True, exist_ok=True)
@@ -120,25 +126,93 @@ def download_and_verify_artifact_archive(
     if len(expected_hex) != 64 or any(ch not in "0123456789abcdef" for ch in expected_hex):
         return False, "aggregator_artifact_digest_invalid"
 
-    try:
-        with archive_path.open("wb") as archive_stream:
-            subprocess.run(
-                ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact_id}/zip"],
-                check=True,
-                stdout=archive_stream,
-                stderr=subprocess.PIPE,
-            )
+    command = [
+        "gh", "api", f"repos/{repository}/actions/artifacts/{artifact_id}/zip"
+    ]
+    process: subprocess.Popen[bytes] | None = None
 
-        if archive_path.stat().st_size != expected_size_bytes:
+    def stop_child() -> None:
+        if process is None:
+            return
+        if process.poll() is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+        if process.stdout is None:
+            raise OSError("artifact download stdout unavailable")
+
+        bytes_written = 0
+        oversized = False
+        deadline = time.monotonic() + 120.0
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            with archive_path.open("wb") as archive_stream:
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(command, 120)
+                    if not selector.select(remaining):
+                        raise subprocess.TimeoutExpired(command, 120)
+                    chunk = os.read(
+                        process.stdout.fileno(),
+                        min(64 * 1024, expected_size_bytes - bytes_written + 1),
+                    )
+                    if not chunk:
+                        break
+                    if bytes_written + len(chunk) > expected_size_bytes:
+                        oversized = True
+                        break
+                    archive_stream.write(chunk)
+                    bytes_written += len(chunk)
+
+        if oversized:
+            stop_child()
+            archive_path.unlink(missing_ok=True)
             return False, "aggregator_artifact_archive_size_mismatch"
 
-        digest = hashlib.sha256()
-        with archive_path.open("rb") as archive_stream:
-            for chunk in iter(lambda: archive_stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        if not hmac.compare_digest(digest.hexdigest(), expected_hex):
-            return False, "aggregator_artifact_archive_digest_mismatch"
+        return_code = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+        if return_code != 0:
+            archive_path.unlink(missing_ok=True)
+            return False, "aggregator_artifact_download_failed"
+        if bytes_written != expected_size_bytes:
+            archive_path.unlink(missing_ok=True)
+            return False, "aggregator_artifact_archive_size_mismatch"
+    except subprocess.TimeoutExpired:
+        stop_child()
+        archive_path.unlink(missing_ok=True)
+        return False, "aggregator_artifact_download_timeout"
+    except OSError:
+        stop_child()
+        archive_path.unlink(missing_ok=True)
+        return False, "aggregator_artifact_download_failed"
+    finally:
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
 
+    digest = hashlib.sha256()
+    with archive_path.open("rb") as archive_stream:
+        for chunk in iter(lambda: archive_stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if not hmac.compare_digest(digest.hexdigest(), expected_hex):
+        archive_path.unlink(missing_ok=True)
+        return False, "aggregator_artifact_archive_digest_mismatch"
+
+    try:
         with zipfile.ZipFile(archive_path) as bundle:
             infos = bundle.infolist()
             if not infos or len(infos) > 2000:
@@ -165,13 +239,10 @@ def download_and_verify_artifact_archive(
                     return False, "aggregator_artifact_archive_unsafe_entry"
                 seen.add(name)
             bundle.extractall(target)
-    except (OSError, subprocess.CalledProcessError):
-        return False, "aggregator_artifact_download_failed"
     except (zipfile.BadZipFile, RuntimeError, ValueError):
         return False, "aggregator_artifact_archive_invalid"
 
     return True, "verified"
-
 
 def verify_aggregator_bundle(
     directory: str | Path, source_sha: str
@@ -283,6 +354,14 @@ def run_watchdog() -> dict[str, Any]:
     }
 
     try:
+        if not is_allowed_dispatch(
+            os.environ.get("GITHUB_EVENT_NAME", ""),
+            os.environ.get("GITHUB_REF", ""),
+        ):
+            _block(report, "manual_dispatch_ref_not_main")
+            report["evidence_status"] = "BLOCKED"
+            return report
+
         source_sha = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             check=True,

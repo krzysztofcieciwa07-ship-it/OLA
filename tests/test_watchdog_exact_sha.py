@@ -10,6 +10,7 @@ from pathlib import Path
 from scripts.ola_watchdog import (
     choose_flow_action,
     decide_verified_flow,
+    run_watchdog,
     verify_aggregator_bundle,
 )
 
@@ -131,6 +132,22 @@ def write_bundle(tmp_path, summary: dict) -> None:
     )
 
 
+
+def install_fake_gh(tmp_path, monkeypatch, payload: bytes) -> None:
+    import base64
+
+    encoded = base64.b64encode(payload).decode("ascii")
+    fake_gh = tmp_path / "gh"
+    fake_gh.write_text(
+        f"#!{sys.executable}\n"
+        "import base64, sys\n"
+        f"sys.stdout.buffer.write(base64.b64decode({encoded!r}))\n",
+        encoding="utf-8",
+    )
+    fake_gh.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+
 def test_artifact_archive_digest_is_checked_before_safe_extraction(tmp_path, monkeypatch):
     import io
     import zipfile
@@ -143,11 +160,7 @@ def test_artifact_archive_digest_is_checked_before_safe_extraction(tmp_path, mon
     archive_bytes = archive.getvalue()
     archive_digest = "sha256:" + hashlib.sha256(archive_bytes).hexdigest()
 
-    def fake_run(args, *, check, stdout, stderr):
-        assert args == ["gh", "api", "repos/example/OLA/actions/artifacts/42/zip"]
-        stdout.write(archive_bytes)
-
-    monkeypatch.setattr("scripts.ola_watchdog.subprocess.run", fake_run)
+    install_fake_gh(tmp_path, monkeypatch, archive_bytes)
     destination = tmp_path / "extracted"
 
     ok, reason = download_and_verify_artifact_archive(
@@ -182,10 +195,7 @@ def test_artifact_archive_rejects_path_traversal(tmp_path, monkeypatch):
     archive_bytes = archive.getvalue()
     archive_digest = "sha256:" + hashlib.sha256(archive_bytes).hexdigest()
 
-    def fake_run(args, *, check, stdout, stderr):
-        stdout.write(archive_bytes)
-
-    monkeypatch.setattr("scripts.ola_watchdog.subprocess.run", fake_run)
+    install_fake_gh(tmp_path, monkeypatch, archive_bytes)
     ok, reason = download_and_verify_artifact_archive(
         "example/OLA", 42, archive_digest, len(archive_bytes), tmp_path / "extracted"
     )
@@ -246,6 +256,11 @@ def test_watchdog_workflow_persists_lifecycle_evidence_and_never_cancels_active_
     assert "aggregator_artifact_digest_verified" in script
     assert "updatedAt" in script
     assert "classify" in script
+    assert "pending" in script
+    assert "MAX_ARTIFACT_ARCHIVE_BYTES" in script
+    assert "selectors.DefaultSelector" in script
+    assert "is_allowed_dispatch" in script
+    assert "reject-non-main-manual-dispatch" in workflow
 
 
 
@@ -282,7 +297,7 @@ def test_watchdog_embedded_python_is_syntactically_valid():
     ).read_text(encoding="utf-8")
     blocks = embedded_python_blocks(workflow)
 
-    assert len(blocks) == 2
+    assert len(blocks) == 3
     for index, block in enumerate(blocks):
         compile(block, f"ola-24x7-watchdog::<embedded-{index}>", "exec")
 
@@ -328,20 +343,9 @@ def test_pending_exact_sha_flow_is_waited_not_blocked():
 
 
 def test_artifact_download_aborts_before_writing_beyond_declared_size(tmp_path, monkeypatch):
-    import os
-
     from scripts.ola_watchdog import download_and_verify_artifact_archive
 
-    fake_gh = tmp_path / "gh"
-    fake_gh.write_text(
-        f"#!{sys.executable}\n"
-        "import sys\n"
-        "sys.stdout.buffer.write(b'x' * (1024 * 1024))\n",
-        encoding="utf-8",
-    )
-    fake_gh.chmod(0o755)
-    monkeypatch.setenv("PATH", str(tmp_path))
-
+    install_fake_gh(tmp_path, monkeypatch, b"x" * (1024 * 1024))
     destination = tmp_path / "extracted"
     ok, reason = download_and_verify_artifact_archive(
         "example/OLA",
@@ -364,3 +368,25 @@ def test_manual_watchdog_dispatch_is_restricted_to_main_ref():
 
     assert "if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'" in workflow
     assert "if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'" in workflow
+
+
+def test_manual_dispatch_from_non_main_is_blocked_before_git_or_github(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/feature/untrusted")
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    def forbidden_command(*args, **kwargs):
+        raise AssertionError("non-main manual dispatch must not call git or GitHub")
+
+    monkeypatch.setattr("scripts.ola_watchdog.subprocess.run", forbidden_command)
+
+    report = run_watchdog()
+
+    assert report["decision"] == "HUMAN_GATE"
+    assert report["action"] == "NONE"
+    assert report["reason"] == "manual_dispatch_ref_not_main"
+    persisted = json.loads((tmp_path / "watchdog-evidence.json").read_text(encoding="utf-8"))
+    assert persisted["run.start"]
+    assert persisted["run.end"]
+    assert persisted["source_sha"] is None
