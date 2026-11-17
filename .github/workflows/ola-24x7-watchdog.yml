@@ -28,6 +28,29 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
+      - name: Initialize watchdog lifecycle evidence
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime, json, subprocess
+          source = subprocess.run(
+              ["git", "rev-parse", "HEAD"],
+              check=True, capture_output=True, text=True,
+          ).stdout.strip()
+          report = {
+              "schema": "ola-24x7-watchdog-evidence-v1",
+              "run.start": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+              "run.end": None,
+              "source_sha": source,
+              "decision": "UNKNOWN",
+              "action": "NONE",
+              "reason": "watchdog_preflight_not_completed",
+          }
+          with open("watchdog-evidence.json", "w", encoding="utf-8") as stream:
+              json.dump(report, stream, sort_keys=True, indent=2)
+              stream.write("\\n")
+          PY
+
       - name: Run bounded watchdog regression suite
         run: |
           set -euo pipefail
@@ -40,6 +63,34 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python scripts/ola_watchdog.py
+
+      - name: Finalize watchdog lifecycle evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime, json
+          from pathlib import Path
+          path = Path("watchdog-evidence.json")
+          if path.exists():
+              report = json.loads(path.read_text(encoding="utf-8"))
+          else:
+              report = {
+                  "schema": "ola-24x7-watchdog-evidence-v1",
+                  "run.start": None,
+                  "source_sha": "${{ github.sha }}",
+                  "decision": "STOP",
+                  "action": "NONE",
+                  "reason": "watchdog_lifecycle_file_missing",
+              }
+          if not report.get("run.end"):
+              report["run.end"] = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+          if report.get("decision") in {"UNKNOWN", None}:
+              report["decision"] = "STOP"
+              report["action"] = "NONE"
+              report["reason"] = "watchdog_preflight_failed"
+          path.write_text(json.dumps(report, sort_keys=True, indent=2) + "\\n", encoding="utf-8")
+          PY
 
       - name: Enforce watchdog decision
         if: always()

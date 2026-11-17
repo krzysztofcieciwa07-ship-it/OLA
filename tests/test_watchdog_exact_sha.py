@@ -171,5 +171,16 @@ def test_watchdog_workflow_persists_lifecycle_evidence_and_never_cancels_active_
     assert '"run.start"' in script
     assert '"run.end"' in script
     assert "headSha" in script
-    assert "gh run download" in script
+    assert '"gh", "run", "download"' in script
     assert "classify" in script
+
+
+
+def test_workflow_finalizes_a_lifecycle_report_even_when_preflight_fails():
+    workflow = (
+        ROOT / ".github" / "workflows" / "ola-24x7-watchdog.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "Initialize watchdog lifecycle evidence" in workflow
+    assert "Finalize watchdog lifecycle evidence" in workflow
+    assert 'data["run.end"]' in workflow

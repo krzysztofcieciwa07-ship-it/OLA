@@ -176,6 +176,13 @@ def _block(report: dict[str, Any], reason: str) -> None:
 
 def run_watchdog() -> dict[str, Any]:
     started = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    initial_path = Path("watchdog-evidence.json")
+    if initial_path.is_file():
+        try:
+            initial_report = json.loads(initial_path.read_text(encoding="utf-8"))
+            started = initial_report.get("run.start") or started
+        except (OSError, json.JSONDecodeError):
+            pass
     report: dict[str, Any] = {
         "schema": "ola-24x7-watchdog-evidence-v1",
         "run.start": started,
