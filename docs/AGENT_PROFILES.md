@@ -183,6 +183,25 @@ The Windows helper is intended to bind to loopback, hold an ephemeral runtime to
 
 Cockpit preview controls must be demonstrative and read-only. No preview action may perform real write, shell execution, approval, retry, deployment, or device revocation. Real operation requires owner authentication, device enrollment, session revocation, exact API scope, source binding and audited approvals.
 
+### 3.7 S…X — cloud execution environment
+
+**Status:** NOT_VERIFIED / DO_NOT_START.
+
+**Intended role:** a separately identified cloud execution environment for controlled agent or engineering work, subject to OLA's source, identity, isolation and evidence controls.
+
+**What is known:**
+- The owner refers to this resource as `S…X`.
+- The exact provider, project, environment/session, snapshot, repository/worktree, source SHA, image/runtime, and network policy have not been confirmed.
+- A fresh scan of the connected Railway project/environment/service inventory did not find an unambiguous S…X resource.
+- Replit searches for app titles `S-X` and `SX` returned no matching apps.
+- The earlier Vercel snapshot lookup returned `snapshot_not_found` for one previously selected resource. That failure does not identify S…X and must not be used to relabel S…X as a Vercel Sandbox.
+
+**Prohibited until identity is proven:** start/resume, attach a volume, clone a worktree, dispatch an agent, run shell/code, publish a URL, or deploy.
+
+**Required acceptance record:** provider/account, project ID, environment ID, session/instance ID, snapshot ID and state, repository URL, branch/worktree, exact full source SHA, image/runtime digest, resource limits, network allowlist, secret custody, operator identity, health/heartbeat, run ID, and complete `run.start` → `run.end` Evidence V4 record independently checked by IGOR.
+
+**Decision:** do not use a display name as a resource selector. Only continue after immutable identifiers match and the source/runtime/security posture is independently verified. A provider dashboard reporting `ONLINE` is not enough to assert application readiness.
+ 
 ## 4. Evidence Gateway — repository and service distinction
 
 The related `ola-evidence-gateway` repository is currently catalogued as a specification/reference, not a deployed API service. The catalogue records that it has documentation paths but no verified server, API, tests or container deployment.

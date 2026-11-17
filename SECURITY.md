@@ -149,3 +149,26 @@ The repository root LICENSE is **Unlicense** for the repository's own covered wo
 The current `.github/CODEOWNERS` maps the default paths to the single account `@krzysztofcieciwa07-ship-it`. That is not an independent reviewer when the same account authors the PR. The current ruleset-candidate script also sets `require_code_owner_review: false`, while `.github/SECURITY-BASELINE.md` lists CODEOWNERS review as a target control. These definitions are not yet aligned.
 
 Do not treat the CODEOWNERS file as proof of independent review. Before claiming this control is effective, configure a separate trusted reviewer/team, align the candidate ruleset and documentation, and prove with a test PR that self-authored changes cannot satisfy the independent-review requirement.
+
+
+## S…X cloud execution environment — identification and launch gate
+
+The cloud environment referred to by the owner as **S…X** is a distinct resource whose provider and resource identity have not yet been established. Do not infer that it is a Vercel Sandbox, a Railway project, a Replit App, or any other similarly named resource.
+
+Before any start, resume, clone, attach, deployment, or code execution, independently verify and record:
+
+1. provider/account and owner/workspace identity;
+2. immutable project ID and environment ID;
+3. session/instance ID and snapshot ID/state, if applicable;
+4. repository URL, branch/worktree and exact full source SHA;
+5. image/runtime digest and configured entrypoint;
+6. region, CPU/memory/disk limits, persistence and lifecycle/expiry;
+7. outbound network allowlist, inbound exposure and secret custody;
+8. authenticated operator identity and permitted actions;
+9. health/heartbeat and a real run ID with start/end evidence.
+
+A matching display name is not an identity. A stale/deleted snapshot is not a running environment. A successful provider control-plane response is not proof that the application is healthy or running the expected SHA.
+
+**Current disposition: NOT_VERIFIED / DO_NOT_START.** The latest accessible Railway inventory contained the known OLA projects/environments but no unambiguous S…X name; Replit title searches for S-X/SX returned no apps. These checks cover only those connected inventories. A previous attempt to resume a particular Vercel resource returned `snapshot_not_found`; that resource must not be treated as S…X without an independently matching immutable identifier.
+
+Do not expose provider credentials or secret values in reports. Record identifiers and redacted configuration metadata only. If the identity or source cannot be proven, fail closed and leave the resource untouched.

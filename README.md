@@ -217,6 +217,14 @@ Additional component profiles, their real status, privileges, and limitations ar
 
 Do not infer that an external tool is integrated merely because its source repository, workflow file, or adapter proposal exists. Integration status requires a source-level adapter, bounded identity/capabilities, successful runtime execution, evidence, and independent verification.
 
+## S…X cloud execution environment
+
+The environment referred to by the owner as **S…X** is a distinct cloud-execution resource, not an assumed Vercel Sandbox instance. Its provider, project, environment/session, snapshot, repository/worktree, source SHA, image/runtime and network policy are **NOT_VERIFIED**.
+
+A fresh inventory of the currently accessible Railway projects/environments/services and Replit app search did not identify an unambiguous S…X resource. This negative search is limited to those connected inventories; it does not prove that the resource does not exist in another provider or account.
+
+Do not start, resume, clone, attach, or deploy a resource based only on the S…X alias. Resolve the exact immutable resource identifiers and verify its owner, source and security configuration first. See [Agent Profiles](docs/AGENT_PROFILES.md) and [Decision Register](docs/DECISION_REGISTER_2026-11-17.md) for the acceptance contract.
+
 ## License and third-party components
 
 The root [LICENSE](LICENSE) applies the **Unlicense** dedication to the OLA repository's own covered work. It includes broad public-domain-style permission and an express warranty/liability disclaimer. The repository itself is also labelled `Unlicense` in GitHub metadata.

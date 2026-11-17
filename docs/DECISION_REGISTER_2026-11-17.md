@@ -180,7 +180,26 @@ Merge is permitted only after exact-SHA tests, security/provenance/Evidence Gate
 | BLK-011 | Railway runtime source binding | MISMATCH IN LAST INSPECTED AUDIT | Re-read live build metadata and readiness; deployed revision must equal an accepted exact SHA |
 | BLK-012 | Owner/device auth for Cockpit | NOT_VERIFIED | Persistent owner/device registry, separate credentials, revocation and authenticated action boundary |
 | BLK-013 | Dependency license compliance | NOT_VERIFIED | SBOM, transitive license inventory and legal notice review per release SHA |
-| BLK-014 | Private vulnerability reporting | NOT_VERIFIED | Enable and test the repository's private reporting channel |
+| BLK-014 | Private vulnerability reporting | NOT_VERIFIED | Enable and test the repository's private reporting channel |\n| BLK-015 | S…X cloud execution environment | NOT_VERIFIED / DO_NOT_START | Confirm provider/project/environment/session/snapshot/repo/SHA/image/runtime/network/owner identity; then health + Evidence V4 + IGOR proof |
+
+## S…X — cloud execution environment
+
+**Owner reference:** `S…X`  
+**Classification:** distinct cloud-execution resource; not an agent profile and not assumed to be a Sandbox product.  
+**Status:** **NOT_VERIFIED / DO_NOT_START**.
+
+### Evidence checked in this pass
+- Canonical OLA repository search for `S-X`, `S X`, `SX environment` and `S-X agent environment`: no matches.
+- Accessible Railway projects/environments/services: no unambiguous resource with an S…X identity.
+- Connected Replit app searches for `S-X` and `SX`: no matches.
+- An earlier Vercel lookup of one selected snapshot returned `snapshot_not_found`. This is a finding about that selected resource only; it does not prove that S…X is a Vercel Sandbox or that S…X is absent.
+
+These are bounded negative searches across the connected sources, not proof that the resource does not exist in another provider, account, or workspace.
+
+### Required resource identity before activation
+Record and independently verify: provider/account/workspace, immutable project ID, environment ID, session/instance ID, snapshot ID/state, repository/worktree, branch, full source SHA, image/runtime digest, region and resource limits, network allowlist, secret custody, operator identity, health/heartbeat, and a real run ID with complete lifecycle evidence.
+
+**Decision:** no start, resume, clone, attach, execution, publish or deploy based on the alias alone. Resolve exact immutable identifiers first; then run a bounded non-privileged health/provenance check, persist Evidence V4, and obtain independent IGOR verification. Unknown identity or provenance remains BLOCKED.
 
 ## 11. Additional governance finding
 
