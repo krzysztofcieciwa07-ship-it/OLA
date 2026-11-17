@@ -8,7 +8,7 @@ from sqlalchemy import select, text
 from app.main import app
 from app.database import SessionLocal
 from app.models import ApiKey, EvidenceRecord, Tenant
-from app.hashchain import verify_chain
+from app.igor_evidence_verifier import verify_chain
 from app.rules import RuleStatus, rule_cert_expiry_001, rule_core_hash_001
 
 
