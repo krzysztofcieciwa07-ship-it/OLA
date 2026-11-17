@@ -280,6 +280,8 @@ jobs:
             -e OLA_REQUIRE_BUILD_INFO=1 \
             -e OLA_RUNTIME_COMMIT=0000000000000000000000000000000000000000 \
             -e OLA_API_KEY_PEPPER="$pepper" \
+            -e OLA_EVIDENCE_V4_KEYRING_JSON='{"ci-v4-2026":"cHl0ZXN0LW9ubHktdjQta2V5LW1hdGVyaWFsLTMyYnl0ZXMhIQ=="}' \
+            -e OLA_EVIDENCE_V4_ACTIVE_KEY_ID=ci-v4-2026 \
             -p 8000:8000 "ola-final:$TARGET_SOURCE_SHA"
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/readyz | TARGET_SOURCE_SHA="$TARGET_SOURCE_SHA" python -c '
