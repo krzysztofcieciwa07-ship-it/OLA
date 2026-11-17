@@ -18,6 +18,66 @@ def _result(status, reason, **kw):
     return {"status": status, "reason": reason, **kw}
 
 
+
+
+def _verify_sandbox_output(node, output):
+    """Independently validate captured Sandbox result fields, not provider attestation."""
+    def unique_object(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate JSON member")
+            value[key] = item
+        return value
+
+    try:
+        task = json.loads(node["task"], object_pairs_hook=unique_object)
+    except (TypeError, ValueError):
+        return "sandbox task envelope malformed"
+    if (not isinstance(task, dict) or set(task) != {"operation", "source"}
+            or task.get("operation") != "python_exec"
+            or not isinstance(task.get("source"), str) or not task["source"].strip()):
+        return "sandbox task contract invalid"
+    if len(task["source"].encode("utf-8")) > 100_000:
+        return "sandbox source exceeds policy"
+
+    required = {
+        "executor", "operation", "runtime", "sandbox_name", "source_sha256",
+        "exit_code", "stdout", "stderr", "stdout_sha256", "stderr_sha256",
+        "stdout_truncated", "stderr_truncated",
+    }
+    if not isinstance(output, dict) or set(output) != required:
+        return "sandbox output schema invalid"
+    if (output.get("executor") != "vercel_sandbox"
+            or output.get("operation") != "python_exec"
+            or output.get("runtime") != "python3.14"):
+        return "sandbox executor provenance invalid"
+    if not isinstance(output.get("sandbox_name"), str) or not output["sandbox_name"]:
+        return "sandbox identity missing"
+    if type(output.get("exit_code")) is not int:
+        return "sandbox exit code invalid"
+    if type(output.get("stdout_truncated")) is not bool or type(output.get("stderr_truncated")) is not bool:
+        return "sandbox output truncation flags invalid"
+    if output["stdout_truncated"] or output["stderr_truncated"]:
+        return "sandbox output truncated"
+
+    for stream in ("stdout", "stderr"):
+        value = output.get(stream)
+        digest = output.get(stream + "_sha256")
+        if not isinstance(value, str) or len(value.encode("utf-8")) > 8192:
+            return "sandbox captured output invalid"
+        expected = hashlib.sha256(value.encode("utf-8")).hexdigest()
+        if not isinstance(digest, str) or digest != expected:
+            return "sandbox captured output digest mismatch"
+
+    source_digest = hashlib.sha256(task["source"].encode("utf-8")).hexdigest()
+    if output.get("source_sha256") != source_digest:
+        return "sandbox source digest mismatch"
+    if output["exit_code"] != 0:
+        return "sandbox process exited nonzero"
+    return None
+
+
 def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
                        require_overlap=False, expected_provider=None):
     if not records:
@@ -111,6 +171,10 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
                     if output["response_id"] in response_ids:
                         return _result("BLOCK", "duplicate LLM response ID")
                     response_ids.add(output["response_id"])
+                if nodes[nid]["tool"] == "vercel_sandbox":
+                    sandbox_error = _verify_sandbox_output(nodes[nid], event.get("output"))
+                    if sandbox_error:
+                        return _result("BLOCK", sandbox_error)
                 finishes[nid] = event
             elif kind in ("workflow.completed", "workflow.failed"):
                 if index != len(relevant) - 1:
@@ -144,6 +208,9 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
                        verified_nodes=len(finishes), evidence_count=len(relevant),
                        chain_tip=chain_tip, plan_digest=plan_event["plan_digest"],
                        overlap_ns=overlap, report_digest=report_digest,
-                       trust_scope="LOCAL_HASH_CHAIN_AND_CAPTURED_RUNTIME_EVENTS")
+                       trust_scope="LOCAL_HASH_CHAIN_AND_CAPTURED_RUNTIME_EVENTS",
+                       **({"external_attestation": "NOT_ESTABLISHED"}
+                          if any(node.get("tool") == "vercel_sandbox" for node in plan)
+                          else {}))
     except (TypeError, KeyError, ValueError, IndexError, AttributeError, OverflowError):
         return _result("BLOCK", "malformed evidence")
