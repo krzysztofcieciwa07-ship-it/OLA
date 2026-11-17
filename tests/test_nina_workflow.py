@@ -44,6 +44,48 @@ def test_evidence_sink_error_never_reports_success():
             executor=lambda node, deps: "2")
 
 
+def test_run_nina_workflow_igor_verifies_before_and_after_lifecycle_end(monkeypatch):
+    import app.igor_workflow
+
+    writes = []
+    verifier_calls = []
+
+    def append(tenant, kind, payload):
+        writes.append((tenant, kind, payload))
+        return {"id": str(len(writes))}
+
+    def fake_verify(records, **kwargs):
+        verifier_calls.append(kwargs)
+        return {"status": "VERIFIED", "report_digest": "a" * 64}
+
+    monkeypatch.setattr(app.igor_workflow, "verify_dag_records", fake_verify)
+    nodes = validate_plan({"nodes": [
+        {"id": "a", "tool": "safe_expression", "task": "1+1", "needs": []}
+    ]}, allowed_tools={"safe_expression"})
+
+    result = run_nina_workflow(
+        tenant_id="tenantA",
+        requester_id="u1",
+        goal="verify lifecycle",
+        allowed_tools=["safe_expression"],
+        append=append,
+        planner=lambda goal, tools: (
+            nodes, {"provider": "ollama", "model": "test", "response_id": "plan-1"}
+        ),
+        executor=lambda node, deps: "2",
+        fetch_records=lambda tenant: [],
+    )
+
+    assert [call["require_lifecycle"] for call in verifier_calls] == [False, True]
+    assert writes[0][1] == "execution.run.start"
+    assert writes[-1][1] == "execution.run.end"
+    assert writes[-1][2]["pre_end_igor_status"] == "VERIFIED"
+    assert result["status"] == "COMPLETED_UNVERIFIED"
+    assert result["igor"]["status"] == "VERIFIED"
+    assert result["human_gate"] == "NOT_APPROVED"
+    assert result["verified"] is False
+
+
 def test_planner_failure_closes_execution_lifecycle():
     writes = []
 
