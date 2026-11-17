@@ -3,7 +3,11 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 import uuid
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 os.environ.setdefault("OLA_LLM_MODE", "deterministic")
 
