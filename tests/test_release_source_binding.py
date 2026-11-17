@@ -150,7 +150,12 @@ class ReleaseSourceBindingTest(unittest.TestCase):
 
     def test_staging_rehearsal_runs_on_main_push_and_binds_exact_source(self):
         workflow = (ROOT / ".github/workflows/staging-rehearsal.yml").read_text(encoding="utf-8")
-        self.assertIn("  push:\\n    branches:\\n      - main\\n", workflow)
+        workflow_lines = workflow.splitlines()
+        push_index = workflow_lines.index("  push:")
+        self.assertEqual(
+            workflow_lines[push_index + 1 : push_index + 3],
+            ["    branches:", "      - main"],
+        )
         self.assertIn("OLA_RUNTIME_COMMIT: " + SOURCE, workflow)
         self.assertIn("ref: " + SOURCE, workflow)
 
