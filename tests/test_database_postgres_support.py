@@ -119,18 +119,12 @@ def test_database_url_rejects_unsupported_dialects():
         database.database_url_from_env({"OLA_DATABASE_URL": "mysql://ola:secret@db/ola"})
 
 
-def test_postgres_session_context_always_overwrites_tenant_and_worker_gucs(monkeypatch):
-    import hashlib
-    import hmac
+def test_postgres_session_context_uses_api_key_evidence_not_tenant_id_gucs():
     from app.database import _apply_postgres_tenant_context
-    from app.tenant_context import tenant_scope, worker_scope
-    secret = "signed-context-test-secret-material-0123456789abcdef"
-    monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", secret)
-    expected_signature = hmac.new(
-        secret.encode("utf-8"),
-        b"OLA-TENANT-CONTEXT-V1:tenant-alpha",
-        hashlib.sha256,
-    ).hexdigest()
+    from app.tenant_context import (
+        set_api_key_context, reset_database_auth_context,
+        set_current_tenant_id, reset_current_tenant_id,
+    )
 
     calls = []
 
@@ -142,32 +136,71 @@ def test_postgres_session_context_always_overwrites_tenant_and_worker_gucs(monke
 
     connection = FakeConnection()
 
-    with tenant_scope(None):
+    tenant_token = set_current_tenant_id("tenant-alpha")
+    try:
         _apply_postgres_tenant_context(None, None, connection)
+        assert calls == [], "a caller-supplied tenant id must not establish PostgreSQL RLS"
+    finally:
+        reset_current_tenant_id(tenant_token)
+
+    auth_token = set_api_key_context("a" * 64)
+    try:
+        _apply_postgres_tenant_context(None, None, connection)
+    finally:
+        reset_database_auth_context(auth_token)
     assert calls == [
-        ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": ""}),
-        ("SELECT set_config('ola.tenant_signature', :signature, true)", {"signature": ""}),
-        ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "off"}),
+        ("SELECT ola_establish_api_key_context(:key_hash)", {"key_hash": "a" * 64}),
     ]
 
-    calls.clear()
-    with tenant_scope("tenant-alpha"):
-        _apply_postgres_tenant_context(None, None, connection)
+
+def test_postgres_session_context_uses_database_claim_for_worker():
+    from app.database import _apply_postgres_tenant_context
+    from app.tenant_context import set_worker_claim_context, reset_database_auth_context
+
+    calls = []
+
+    class FakeConnection:
+        dialect = SimpleNamespace(name="postgresql")
+
+        def execute(self, statement, params=None):
+            calls.append((str(statement), params))
+
+    token = set_worker_claim_context("job-123", "a" * 32, 900)
+    try:
+        _apply_postgres_tenant_context(None, None, FakeConnection())
+    finally:
+        reset_database_auth_context(token)
     assert calls == [
-        ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": "tenant-alpha"}),
-        ("SELECT set_config('ola.tenant_signature', :signature, true)", {"signature": expected_signature}),
-        ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "off"}),
+        (
+            "SELECT ola_establish_worker_context(:job_id, :claim_token, :stale_after_seconds)",
+            {"job_id": "job-123", "claim_token": "a" * 32, "stale_after_seconds": 900},
+        )
     ]
 
-    calls.clear()
-    with worker_scope():
-        _apply_postgres_tenant_context(None, None, connection)
-    assert calls == [
-        ("SELECT set_config('ola.tenant_id', :tenant_id, true)", {"tenant_id": ""}),
-        ("SELECT set_config('ola.tenant_signature', :signature, true)", {"signature": ""}),
-        ("SELECT set_config('ola.worker_mode', :worker_mode, true)", {"worker_mode": "on"}),
-    ]
 
+def test_postgres_session_context_uses_stored_checkout_binding_for_stripe():
+    from app.database import _apply_postgres_tenant_context
+    from app.tenant_context import set_checkout_context, reset_database_auth_context
+
+    calls = []
+
+    class FakeConnection:
+        dialect = SimpleNamespace(name="postgresql")
+
+        def execute(self, statement, params=None):
+            calls.append((str(statement), params))
+
+    token = set_checkout_context("order-123", "cs_test_123")
+    try:
+        _apply_postgres_tenant_context(None, None, FakeConnection())
+    finally:
+        reset_database_auth_context(token)
+    assert calls == [
+        (
+            "SELECT ola_establish_checkout_context(:order_id, :session_id)",
+            {"order_id": "order-123", "session_id": "cs_test_123"},
+        )
+    ]
 
 
 def test_role_membership_diagnostic_includes_grantor_and_admin_option():
