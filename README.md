@@ -185,3 +185,48 @@ Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities or preparing a 
 Engineering rules, contribution steps, and the pull-request evidence format are maintained in docs/ENGINEERING_STANDARD.md, CONTRIBUTING.md, and .github/PULL_REQUEST_TEMPLATE.md. Security reporting and release-evidence requirements are defined in SECURITY.md. Dependency update checks are configured through Dependabot.
 
 Portfolio ownership and fork provenance: [Repository Catalog](docs/REPOSITORY_CATALOG.md), [machine-readable catalog](docs/REPOSITORY_CATALOG.json), [fork recovery map](docs/FORK_RECOVERY_MAP.md), and [metadata plan](docs/REPOSITORY_METADATA_PLAN.md). These are inventory records, not release-readiness claims.
+
+
+## Agent profiles and integration boundaries
+
+OLA exposes six **execution roles/capability paths** through `app/agent_runtime.py`. They are not six independent operating-system processes or six autonomous agents. The current implementation runs the roles sequentially in one Python process and records `execution_boundary: in_process`.
+
+| Profile | Implemented responsibility | Current boundary |
+|---|---|---|
+| `codeact` | Runs the bounded arithmetic-expression capability. | Not a general-purpose code-writing or shell-execution agent. |
+| `react` | Emits a small reason–act–observe structure from the previous result. | A fixed runtime path, not an open-ended autonomous loop. |
+| `agentic_rag` | Searches up to ten recent evidence records belonging to the same tenant using simple term matching. | Not a vector database or semantic RAG service. |
+| `mcp_tool_use` | Calls the registered local SHA-256 tool. | The current registry also exposes string length; it is not a general MCP marketplace. |
+| `self_reflection` | Applies a deterministic check to the prior output. | A heuristic check, not an independent reasoning model or proof of correctness. |
+| `multi_agent` | Aggregates outputs from the preceding role executions. | Sequential in-process aggregation, not distributed multi-agent cooperation. |
+
+The configured model adapter supports **OpenAI** and **Ollama**. `OLA_LLM_MODE=required` demands a real provider invocation; deterministic mode is the default for the legacy role runtime. Model output is advisory and must not be treated as evidence that a capability actually ran. The NINA DAG planner separately requires real model invocation metadata and validates strict JSON against the allowlisted tool contract.
+
+Additional component profiles, their real status, privileges, and limitations are documented in [Agent Profiles](docs/AGENT_PROFILES.md).
+
+### External engineering and orchestration tools
+
+| Tool / project | Correct role in the OLA toolchain | Current integration status |
+|---|---|---|
+| Codex | External coding and repository-work agent. Works on isolated branches and submits reviewable commits/PRs. | No direct Codex runtime adapter in the OLA application. |
+| Gemini Agent / Agent OS | Potential external research, review, and engineering agent. | No verified Gemini provider adapter in the OLA runtime. |
+| Jev / TypeSafe System One | Typed advisory decision-vector evaluation. | Manual GitHub Actions workflow exists; advisory only, not IGOR and not Human Gate approval. |
+| MetaGPT | External multi-agent software-team framework; useful as a reference for role/SOP-based software production. | Fork/reference only. Not installed as an OLA dependency and not connected to NINA. |
+| n8n | External trigger, connector, and scheduling layer around OLA APIs. | Railway service is online, but the inspected instance reported zero workflows; it is not yet the active full-workflow orchestrator. |
+| Evidence Gateway | Potential evidence transport/API boundary. | The related repository is currently a specification/reference, not a deployed gateway service. |
+
+Do not infer that an external tool is integrated merely because its source repository, workflow file, or adapter proposal exists. Integration status requires a source-level adapter, bounded identity/capabilities, successful runtime execution, evidence, and independent verification.
+
+## S…X cloud execution environment
+
+The environment referred to by the owner as **S…X** is a distinct cloud-execution resource, not an assumed Vercel Sandbox instance. Its provider, project, environment/session, snapshot, repository/worktree, source SHA, image/runtime and network policy are **NOT_VERIFIED**.
+
+A fresh inventory of the currently accessible Railway projects/environments/services and Replit app search did not identify an unambiguous S…X resource. This negative search is limited to those connected inventories; it does not prove that the resource does not exist in another provider or account.
+
+Do not start, resume, clone, attach, or deploy a resource based only on the S…X alias. Resolve the exact immutable resource identifiers and verify its owner, source and security configuration first. See [Agent Profiles](docs/AGENT_PROFILES.md) and [Decision Register](docs/DECISION_REGISTER_2026-11-17.md) for the acceptance contract.
+
+## License and third-party components
+
+The root [LICENSE](LICENSE) applies the **Unlicense** dedication to the OLA repository's own covered work. It includes broad public-domain-style permission and an express warranty/liability disclaimer. The repository itself is also labelled `Unlicense` in GitHub metadata.
+
+This does **not** relicense third-party code or dependencies. MetaGPT is a separately maintained MIT-licensed project; any code copied or vendored from it must retain the applicable copyright and license notices and satisfy MIT conditions. Dependency license compliance has not yet been established by a complete SBOM/license scan. Before redistributing a packaged product, generate an SBOM, identify direct and transitive licenses, review attribution and notice requirements, and record the scan against the exact release SHA.
