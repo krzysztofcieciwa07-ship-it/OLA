@@ -977,10 +977,12 @@ def prepare_runtime_schema():
     raise RuntimeError(f"unsupported runtime database dialect: {engine.dialect.name}")
 
 
-def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_secret):
-    """Install signed tenant RLS plus a role-bound worker claim capability."""
-    if not isinstance(context_secret, str) or len(context_secret.encode("utf-8")) < 32:
-        raise ValueError("OLA_RLS_CONTEXT_SECRET must contain at least 32 bytes")
+def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_secret=None):
+    """Install DB-verified tenant RLS plus a role-bound worker claim capability.
+
+    context_secret is accepted only for compatibility with existing v6 callers;
+    v7 transaction authorization does not read or require it.
+    """
     role_pattern = r"[A-Za-z_][A-Za-z0-9_$]{0,62}"
     if not isinstance(runtime_role, str) or re.fullmatch(role_pattern, runtime_role) is None:
         raise ValueError("runtime_role must be a valid unquoted PostgreSQL role name")
@@ -1002,11 +1004,8 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_s
             active BOOLEAN NOT NULL DEFAULT TRUE
         )
     """)
-    connection.execute(text(f"""
-        INSERT INTO {quoted_schema}.ola_rls_context_secrets (key_id, secret, active)
-        VALUES ('active', decode(:secret_hex, 'hex'), TRUE)
-        ON CONFLICT (key_id) DO NOTHING
-    """), {"secret_hex": context_secret.encode("utf-8").hex()})
+    # Legacy v6 secret storage remains private for rollback/history only.
+    # No v7 RLS policy or runtime function reads this relation.
     connection.exec_driver_sql(
         f"REVOKE ALL PRIVILEGES ON TABLE {quoted_schema}.ola_rls_context_secrets FROM PUBLIC"
     )
@@ -1051,6 +1050,8 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_s
         SELECT k.tenant_id::text, k.id::text, k.role::text
         FROM {quoted_schema}.api_keys AS k
         WHERE k.key_hash = p_key_hash
+          AND k.revoked_at IS NULL
+          AND (k.expires_at IS NULL OR k.expires_at > pg_catalog.clock_timestamp())
         LIMIT 1
     $ola$;
     """)
@@ -1127,19 +1128,171 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_s
     $ola$;
     """)
 
+    # v6 GUC verifier remains only as a private compatibility object.
+    migration_owner = connection.exec_driver_sql("SELECT current_user").scalar_one()
+    revoke_unexpected_function_execute("ola_current_tenant_id()", migration_owner)
     connection.exec_driver_sql(
         f"REVOKE ALL ON FUNCTION {quoted_schema}.ola_current_tenant_id() FROM PUBLIC"
     )
-    revoke_unexpected_function_execute("ola_current_tenant_id()", runtime_role)
     connection.exec_driver_sql(
         f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_current_tenant_id() FROM "{worker_role}"'
     )
     connection.exec_driver_sql(
         f'REVOKE ALL ON FUNCTION {quoted_schema}.ola_current_tenant_id() FROM "{runtime_role}"'
     )
-    connection.exec_driver_sql(
-        f'GRANT EXECUTE ON FUNCTION {quoted_schema}.ola_current_tenant_id() TO "{runtime_role}"'
+
+    api_key_owner = connection.execute(text("""
+        SELECT pg_get_userbyid(c.relowner) FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = :schema_name AND c.relname = 'api_keys'
+    """), {"schema_name": schema_name}).scalar_one()
+    if migration_owner != api_key_owner:
+        raise RuntimeError("PostgreSQL migration role must own tenant tables and trusted context functions")
+
+    connection.exec_driver_sql(f"""
+    CREATE OR REPLACE FUNCTION {quoted_schema}.ola_prepare_tenant_context()
+    RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+    AS $ola$
+    DECLARE v_table_owner oid; v_function_owner oid;
+    BEGIN
+        IF session_user <> '{runtime_role}' THEN
+            RAISE EXCEPTION 'tenant context requires runtime login' USING ERRCODE = '42501';
+        END IF;
+        CREATE TEMP TABLE IF NOT EXISTS ola_tenant_context (
+            tenant_id text NOT NULL, auth_kind text NOT NULL, evidence_id text NOT NULL
+        ) ON COMMIT DELETE ROWS;
+        SELECT relowner INTO v_table_owner FROM pg_class
+        WHERE relnamespace = pg_my_temp_schema() AND relname = 'ola_tenant_context' AND relkind = 'r';
+        SELECT proowner INTO v_function_owner FROM pg_proc
+        WHERE oid = '{quoted_schema}.ola_prepare_tenant_context()'::regprocedure;
+        IF v_table_owner IS NULL OR v_table_owner <> v_function_owner THEN
+            RAISE EXCEPTION 'untrusted temporary context relation' USING ERRCODE = '42501';
+        END IF;
+        IF EXISTS (SELECT 1 FROM pg_temp.ola_tenant_context) THEN
+            RAISE EXCEPTION 'tenant context already set for transaction' USING ERRCODE = '42501';
+        END IF;
+    END;
+    $ola$;
+    """)
+
+    connection.exec_driver_sql(f"""
+    CREATE OR REPLACE FUNCTION {quoted_schema}.ola_establish_api_key_context(p_key_hash text)
+    RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+    AS $ola$
+    DECLARE v_tenant_id text; v_key_id text;
+    BEGIN
+        IF session_user <> '{runtime_role}' OR p_key_hash IS NULL
+           OR pg_catalog.length(p_key_hash) <> 64 OR p_key_hash !~ '^[0-9a-f]{{64}}$' THEN
+            RAISE EXCEPTION 'invalid API-key evidence' USING ERRCODE = '42501';
+        END IF;
+        SELECT k.tenant_id::text, k.id::text INTO v_tenant_id, v_key_id
+        FROM {quoted_schema}.api_keys k
+        WHERE k.key_hash = p_key_hash AND k.revoked_at IS NULL
+          AND (k.expires_at IS NULL OR k.expires_at > pg_catalog.clock_timestamp())
+        LIMIT 1;
+        IF v_tenant_id IS NULL THEN
+            RAISE EXCEPTION 'API-key evidence rejected' USING ERRCODE = '42501';
+        END IF;
+        PERFORM {quoted_schema}.ola_prepare_tenant_context();
+        INSERT INTO pg_temp.ola_tenant_context VALUES (v_tenant_id, 'api_key', v_key_id);
+        RETURN v_tenant_id;
+    END;
+    $ola$;
+    """)
+
+    connection.exec_driver_sql(f"""
+    CREATE OR REPLACE FUNCTION {quoted_schema}.ola_establish_worker_context(
+        p_job_id text, p_claim_token text, p_stale_after_seconds integer
     )
+    RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+    AS $ola$
+    DECLARE v_tenant_id text; v_now integer := FLOOR(EXTRACT(EPOCH FROM pg_catalog.clock_timestamp()))::integer;
+    BEGIN
+        IF session_user <> '{runtime_role}' OR p_job_id IS NULL OR p_claim_token IS NULL
+           OR p_stale_after_seconds NOT BETWEEN 60 AND 86400 THEN
+            RAISE EXCEPTION 'invalid worker claim evidence' USING ERRCODE = '42501';
+        END IF;
+        SELECT j.tenant_id::text INTO v_tenant_id FROM {quoted_schema}.checkout_execution_jobs j
+        WHERE j.id = p_job_id AND j.claim_token = p_claim_token AND j.claimed_at IS NOT NULL
+          AND j.claimed_at > v_now - p_stale_after_seconds AND j.claimed_at <= v_now + 60
+          AND ((j.status = 'QUEUED' AND j.attempt_count = 0)
+               OR (j.status = 'RUNNING' AND j.attempt_count = 1))
+        LIMIT 1;
+        IF v_tenant_id IS NULL THEN
+            RAISE EXCEPTION 'worker claim evidence rejected' USING ERRCODE = '42501';
+        END IF;
+        PERFORM {quoted_schema}.ola_prepare_tenant_context();
+        INSERT INTO pg_temp.ola_tenant_context VALUES (v_tenant_id, 'worker_claim', p_job_id);
+        RETURN v_tenant_id;
+    END;
+    $ola$;
+    """)
+
+    connection.exec_driver_sql(f"""
+    CREATE OR REPLACE FUNCTION {quoted_schema}.ola_establish_checkout_context(p_order_id text, p_session_id text)
+    RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+    AS $ola$
+    DECLARE v_tenant_id text;
+    BEGIN
+        IF session_user <> '{runtime_role}' OR p_order_id IS NULL OR p_session_id IS NULL
+           OR p_session_id !~ '^cs_test_' THEN
+            RAISE EXCEPTION 'invalid Checkout Session evidence' USING ERRCODE = '42501';
+        END IF;
+        SELECT o.tenant_id::text INTO v_tenant_id FROM {quoted_schema}.checkout_orders o
+        WHERE o.id = p_order_id AND o.stripe_session_id = p_session_id
+        LIMIT 1;
+        IF v_tenant_id IS NULL THEN
+            RAISE EXCEPTION 'Checkout Session evidence rejected' USING ERRCODE = '42501';
+        END IF;
+        PERFORM {quoted_schema}.ola_prepare_tenant_context();
+        INSERT INTO pg_temp.ola_tenant_context VALUES (v_tenant_id, 'stripe_checkout', p_order_id);
+        RETURN v_tenant_id;
+    END;
+    $ola$;
+    """)
+
+    connection.exec_driver_sql(f"""
+    CREATE OR REPLACE FUNCTION {quoted_schema}.ola_tenant_context_matches(p_tenant_id text)
+    RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog
+    AS $ola$
+    DECLARE v_table_owner oid; v_function_owner oid;
+    BEGIN
+        IF p_tenant_id IS NULL OR pg_catalog.pg_my_temp_schema() = 0 THEN RETURN false; END IF;
+        SELECT relowner INTO v_table_owner FROM pg_class
+        WHERE relnamespace = pg_catalog.pg_my_temp_schema()
+          AND relname = 'ola_tenant_context' AND relkind = 'r';
+        SELECT proowner INTO v_function_owner FROM pg_proc
+        WHERE oid = '{quoted_schema}.ola_tenant_context_matches(text)'::regprocedure;
+        IF v_table_owner IS NULL OR v_table_owner <> v_function_owner THEN RETURN false; END IF;
+        RETURN EXISTS (SELECT 1 FROM pg_temp.ola_tenant_context WHERE tenant_id = p_tenant_id);
+    EXCEPTION WHEN undefined_table THEN
+        RETURN false;
+    END;
+    $ola$;
+    """)
+
+    for signature, runtime_exec in (
+        ("ola_prepare_tenant_context()", False),
+        ("ola_establish_api_key_context(text)", True),
+        ("ola_establish_worker_context(text,text,integer)", True),
+        ("ola_establish_checkout_context(text,text)", True),
+        ("ola_tenant_context_matches(text)", True),
+    ):
+        allowed_role = runtime_role if runtime_exec else migration_owner
+        revoke_unexpected_function_execute(signature, allowed_role)
+        connection.exec_driver_sql(
+            f"REVOKE ALL ON FUNCTION {quoted_schema}.{signature} FROM PUBLIC"
+        )
+        connection.exec_driver_sql(
+            f'REVOKE ALL ON FUNCTION {quoted_schema}.{signature} FROM "{worker_role}"'
+        )
+        connection.exec_driver_sql(
+            f'REVOKE ALL ON FUNCTION {quoted_schema}.{signature} FROM "{runtime_role}"'
+        )
+        if runtime_exec:
+            connection.exec_driver_sql(
+                f'GRANT EXECUTE ON FUNCTION {quoted_schema}.{signature} TO "{runtime_role}"'
+            )
 
     existing_roles = {
         row[0] for row in connection.execute(
@@ -1322,34 +1475,28 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role, context_s
             f'GRANT {privileges} ON TABLE {qualified_table} TO "{runtime_role}"'
         )
 
-    tenant_context = f"{quoted_schema}.ola_current_tenant_id()"
+    tenant_context = "ola_tenant_context_matches"
     tenant_policies = {
-        "tenants": f"id::text = {tenant_context}",
-        "api_keys": f"tenant_id::text = {tenant_context}",
-        "evidence_records": f"tenant_id::text = {tenant_context}",
-        "checkout_orders": f"tenant_id::text = {tenant_context}",
-        "checkout_order_controls": f"tenant_id::text = {tenant_context}",
-        "checkout_report_reviews": f"tenant_id::text = {tenant_context}",
-        "stripe_events": f"tenant_id::text = {tenant_context}",
-        # No worker-wide escape hatch: only a signed tenant claim unlocks rows.
-        "checkout_execution_jobs": f"tenant_id::text = {tenant_context}",
+        "tenants": f"{tenant_context}(id::text)",
+        "api_keys": f"{tenant_context}(tenant_id::text)",
+        "evidence_records": f"{tenant_context}(tenant_id::text)",
+        "checkout_orders": f"{tenant_context}(tenant_id::text)",
+        "checkout_order_controls": f"{tenant_context}(tenant_id::text)",
+        "checkout_report_reviews": f"{tenant_context}(tenant_id::text)",
+        "stripe_events": f"{tenant_context}(tenant_id::text)",
+        "checkout_execution_jobs": f"{tenant_context}(tenant_id::text)",
     }
     for table_name, predicate in tenant_policies.items():
+        qualified_table = f'{quoted_schema}."{table_name}"'
+        connection.exec_driver_sql(f'ALTER TABLE {qualified_table} ENABLE ROW LEVEL SECURITY')
+        connection.exec_driver_sql(f'DROP POLICY IF EXISTS ola_tenant_access ON {qualified_table}')
+        connection.exec_driver_sql(f'DROP POLICY IF EXISTS ola_tenant_isolation ON {qualified_table}')
         connection.exec_driver_sql(
-            f'ALTER TABLE "{table_name}" ENABLE ROW LEVEL SECURITY'
-        )
-        connection.exec_driver_sql(
-            f'DROP POLICY IF EXISTS ola_tenant_access ON "{table_name}"'
-        )
-        connection.exec_driver_sql(
-            f'DROP POLICY IF EXISTS ola_tenant_isolation ON "{table_name}"'
-        )
-        connection.exec_driver_sql(
-            f'CREATE POLICY ola_tenant_access ON "{table_name}" '
+            f'CREATE POLICY ola_tenant_access ON {qualified_table} '
             f'AS PERMISSIVE FOR ALL USING (true) WITH CHECK (true)'
         )
         connection.exec_driver_sql(
-            f'CREATE POLICY ola_tenant_isolation ON "{table_name}" '
+            f'CREATE POLICY ola_tenant_isolation ON {qualified_table} '
             f'AS RESTRICTIVE FOR ALL USING ({predicate}) WITH CHECK ({predicate})'
         )
 
@@ -1380,6 +1527,8 @@ def migrate_postgres_schema(target_engine, *, runtime_role, worker_role=None):
         Base.metadata.create_all(bind=conn)
         conn.execute(text("ALTER TABLE checkout_orders ADD COLUMN IF NOT EXISTS task TEXT"))
         conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS role VARCHAR(32) NOT NULL DEFAULT 'tenant'"))
+        conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ"))
+        conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ"))
         conn.execute(text("ALTER TABLE stripe_events ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(36)"))
         conn.execute(text("ALTER TABLE checkout_execution_jobs ADD COLUMN IF NOT EXISTS claimed_at INTEGER"))
         conn.execute(text("""
@@ -1391,7 +1540,7 @@ def migrate_postgres_schema(target_engine, *, runtime_role, worker_role=None):
         """))
         conn.execute(text("UPDATE stripe_events SET task = NULL WHERE task IS NOT NULL"))
         create_postgres_append_only_triggers(conn)
-        install_postgres_tenant_rls(conn, runtime_role, worker_role, context_secret)
+        install_postgres_tenant_rls(conn, runtime_role, worker_role)
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
             VALUES (:version, :description)
@@ -1447,6 +1596,14 @@ def migrate_postgres_schema(target_engine, *, runtime_role, worker_role=None):
         """), {
             "version": "ola_signed_tenant_context_v6",
             "description": "Require database-verified HMAC tenant context for runtime RLS",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_trusted_tenant_context_v7",
+            "description": "Replace signed GUC authorization with DB-verified transaction evidence",
         })
     verify_postgres_schema(
         target_engine, enforce_runtime_privileges=False,
