@@ -21,7 +21,8 @@ def test_end_to_end_workflow_service_records_every_step():
         allowed_tools=["safe_expression", "local_mcp_tool_registry.sha256"], append=append,
         planner=lambda goal, tools: (nodes, {"provider": "ollama", "model": "test", "response_id": "abc"}),
         executor=execute)
-    assert result["status"] == "COMPLETED_UNVERIFIED"
+    assert result["status"] == "UNKNOWN"
+    assert result["igor"]["status"] == "UNKNOWN"
     assert result["verified"] is False
     assert len(result["evidence_ids"]) == 8
     assert writes[0][1] == "execution.run.start"
