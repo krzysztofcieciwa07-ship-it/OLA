@@ -6,12 +6,15 @@ WorkflowEngine and Evidence V4 writer own those responsibilities.
 """
 import hashlib
 from datetime import timedelta
+from threading import BoundedSemaphore
 
 
 MAX_SOURCE_BYTES = 100_000
 MAX_OUTPUT_BYTES = 8_192
 MAX_TIMEOUT_SECONDS = 60
+MAX_CONCURRENT_SANDBOXES = 4
 RUNTIME_IMAGE = "vercel/sandbox/python:3.14"
+_SANDBOX_SLOTS = BoundedSemaphore(MAX_CONCURRENT_SANDBOXES)
 
 
 def _is_digest_pinned_image(image):
@@ -27,8 +30,13 @@ class SandboxAdapterError(ValueError):
     """The requested sandbox operation violates the adapter contract."""
 
 
+class SandboxOutputLimitExceeded(SandboxAdapterError):
+    """Remote output exceeded its budget; the ephemeral sandbox is destroyed."""
+
+
 class _BoundedTextSink:
-    """Retain at most N UTF-8 bytes while allowing the remote process to drain."""
+    """Retain at most N UTF-8 bytes and abort immediately on overflow."""
+
 
     encoding = "utf-8"
     errors = "replace"
@@ -47,6 +55,7 @@ class _BoundedTextSink:
             self._buffer.extend(encoded[:remaining])
         if len(encoded) > max(remaining, 0):
             self.truncated = True
+            raise SandboxOutputLimitExceeded("sandbox output budget exceeded")
         return len(value)
 
     def flush(self):
@@ -88,62 +97,68 @@ def execute_python_source(
     if type(output_limit_bytes) is not int or not 1 <= output_limit_bytes <= MAX_OUTPUT_BYTES:
         raise SandboxAdapterError("output limit must be an integer from 1 to 8192 bytes")
 
-    if sdk is None and client is None:
-        from vercel.sandbox import sync as sandbox_sdk
-
-        sdk = sandbox_sdk
-        client = sandbox_sdk.SyncSandboxClient.create()
-    elif sdk is None or client is None:
-        raise SandboxAdapterError("SDK and client test injections must be supplied together")
-
-    stdout = _BoundedTextSink(output_limit_bytes)
-    stderr = _BoundedTextSink(output_limit_bytes)
-    timeout = timedelta(seconds=timeout_seconds)
+    if not _SANDBOX_SLOTS.acquire(blocking=False):
+        raise SandboxAdapterError("sandbox concurrency limit reached")
 
     try:
-        with client.create_sandbox(
-            image=RUNTIME_IMAGE,
-            execution_time_limit=timeout,
-            persistent=False,
-            resources=sdk.SandboxResources(vcpus=1),
-            network_policy=sdk.NetworkPolicy.deny_all(),
-            destroy=True,
-        ) as sandbox:
-            sandbox_name = getattr(sandbox, "name", None)
-            if not isinstance(sandbox_name, str) or not sandbox_name:
-                raise SandboxAdapterError("Vercel Sandbox did not return a sandbox identity")
-            image = getattr(sandbox, "image", None)
-            if not _is_digest_pinned_image(image):
-                raise SandboxAdapterError("Vercel Sandbox did not return a digest-pinned image")
-            completed = sandbox.run_process(
-                "python3",
-                ["-c", source],
-                kill_after=timeout,
-                stdout=stdout,
-                stderr=stderr,
-                check=False,
-            )
-            exit_code = getattr(completed, "returncode", None)
-            if type(exit_code) is not int:
-                raise SandboxAdapterError("Vercel Sandbox returned no valid process exit code")
-    finally:
-        client.close()
+        if sdk is None and client is None:
+            from vercel.sandbox import sync as sandbox_sdk
 
-    return {
-        "executor": "vercel_sandbox",
-        "operation": "python_exec",
-        "runtime": "python3.14",
-        "sandbox_name": sandbox_name,
-        "image": image,
-        "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
-        "exit_code": exit_code,
-        "stdout": stdout.text(),
-        "stderr": stderr.text(),
-        "stdout_sha256": stdout.sha256(),
-        "stderr_sha256": stderr.sha256(),
-        "stdout_truncated": stdout.truncated,
-        "stderr_truncated": stderr.truncated,
-    }
+            sdk = sandbox_sdk
+            client = sandbox_sdk.SyncSandboxClient.create()
+        elif sdk is None or client is None:
+            raise SandboxAdapterError("SDK and client test injections must be supplied together")
+
+        stdout = _BoundedTextSink(output_limit_bytes)
+        stderr = _BoundedTextSink(output_limit_bytes)
+        timeout = timedelta(seconds=timeout_seconds)
+
+        try:
+            with client.create_sandbox(
+                image=RUNTIME_IMAGE,
+                execution_time_limit=timeout,
+                persistent=False,
+                resources=sdk.SandboxResources(vcpus=1),
+                network_policy=sdk.NetworkPolicy.deny_all(),
+                destroy=True,
+            ) as sandbox:
+                sandbox_name = getattr(sandbox, "name", None)
+                if not isinstance(sandbox_name, str) or not sandbox_name:
+                    raise SandboxAdapterError("Vercel Sandbox did not return a sandbox identity")
+                image = getattr(sandbox, "image", None)
+                if not _is_digest_pinned_image(image):
+                    raise SandboxAdapterError("Vercel Sandbox did not return a digest-pinned image")
+                completed = sandbox.run_process(
+                    "python3",
+                    ["-c", source],
+                    kill_after=timeout,
+                    stdout=stdout,
+                    stderr=stderr,
+                    check=False,
+                )
+                exit_code = getattr(completed, "returncode", None)
+                if type(exit_code) is not int:
+                    raise SandboxAdapterError("Vercel Sandbox returned no valid process exit code")
+        finally:
+            client.close()
+
+        return {
+            "executor": "vercel_sandbox",
+            "operation": "python_exec",
+            "runtime": "python3.14",
+            "sandbox_name": sandbox_name,
+            "image": image,
+            "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+            "exit_code": exit_code,
+            "stdout": stdout.text(),
+            "stderr": stderr.text(),
+            "stdout_sha256": stdout.sha256(),
+            "stderr_sha256": stderr.sha256(),
+            "stdout_truncated": stdout.truncated,
+            "stderr_truncated": stderr.truncated,
+        }
+    finally:
+        _SANDBOX_SLOTS.release()
 
 
 def _unique_json_object(pairs):
