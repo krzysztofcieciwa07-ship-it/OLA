@@ -182,11 +182,15 @@ Merge is permitted only after exact-SHA tests, security/provenance/Evidence Gate
 | BLK-013 | Dependency license compliance | NOT_VERIFIED | SBOM, transitive license inventory and legal notice review per release SHA |
 | BLK-014 | Private vulnerability reporting | NOT_VERIFIED | Enable and test the repository's private reporting channel |
 
-## 11. Merge and release decision
+## 11. Additional governance finding
+
+- **CODEOWNERS limitation:** the current CODEOWNERS file maps protected paths to one account only; this cannot provide independent review when that account authors the PR. The ruleset candidate has `require_code_owner_review: false`, while the security baseline describes CODEOWNERS review as a target control. Align policy and effective settings after configuring an independent reviewer.
+
+## 12. Merge and release decision
 
 **No merge to main and no production deployment was performed as part of this documentation update.** The documentation changes are staged on a dedicated topic branch and must be reviewed like any other repository change. The current branch policy is not strong enough to claim enforced review protection. Do not merge this PR until effective protections and an independent review are proven.
 
-## 12. Source references
+## 13. Source references
 
 - [Canonical OLA repository](https://github.com/krzysztofcieciwa07-ship-it/OLA)
 - [README](../README.md)

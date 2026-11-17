@@ -142,3 +142,10 @@ Any missing, skipped, stale, mismatched, tampered, or unverifiable prerequisite 
 ## License and third-party notices
 
 The repository root LICENSE is **Unlicense** for the repository's own covered work. This does not change the license of separately maintained third-party projects or packages. Preserve third-party notices and license texts when copying or vendoring code. MetaGPT is MIT-licensed; include its applicable notices if any of its code is redistributed with OLA. A complete direct/transitive dependency license audit and SBOM are still required before product redistribution; do not claim full license compliance until they are generated and reviewed for the exact release SHA.
+
+
+### CODEOWNERS and independent-review limitation
+
+The current `.github/CODEOWNERS` maps the default paths to the single account `@krzysztofcieciwa07-ship-it`. That is not an independent reviewer when the same account authors the PR. The current ruleset-candidate script also sets `require_code_owner_review: false`, while `.github/SECURITY-BASELINE.md` lists CODEOWNERS review as a target control. These definitions are not yet aligned.
+
+Do not treat the CODEOWNERS file as proof of independent review. Before claiming this control is effective, configure a separate trusted reviewer/team, align the candidate ruleset and documentation, and prove with a test PR that self-authored changes cannot satisfy the independent-review requirement.
