@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 
 from scripts.ola_watchdog import (
@@ -183,4 +186,61 @@ def test_workflow_finalizes_a_lifecycle_report_even_when_preflight_fails():
 
     assert "Initialize watchdog lifecycle evidence" in workflow
     assert "Finalize watchdog lifecycle evidence" in workflow
-    assert 'data["run.end"]' in workflow
+    assert 'report["run.end"]' in workflow
+
+
+def embedded_python_blocks(source: str) -> list[str]:
+    lines = source.splitlines()
+    blocks = []
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() == "python - <<'PY'":
+            body = []
+            index += 1
+            while index < len(lines) and lines[index].strip() != "PY":
+                body.append(lines[index])
+                index += 1
+            assert index < len(lines), "unterminated embedded Python block"
+            blocks.append(textwrap.dedent("\n".join(body)))
+        index += 1
+    return blocks
+
+
+def test_watchdog_embedded_python_is_syntactically_valid():
+    workflow = (
+        ROOT / ".github" / "workflows" / "ola-24x7-watchdog.yml"
+    ).read_text(encoding="utf-8")
+    blocks = embedded_python_blocks(workflow)
+
+    assert len(blocks) == 2
+    for index, block in enumerate(blocks):
+        compile(block, f"ola-24x7-watchdog::<embedded-{index}>", "exec")
+
+
+def test_watchdog_finalizer_writes_valid_terminal_lifecycle_report(tmp_path):
+    workflow = (
+        ROOT / ".github" / "workflows" / "ola-24x7-watchdog.yml"
+    ).read_text(encoding="utf-8")
+    finalizer = embedded_python_blocks(workflow)[1]
+    initial = {
+        "schema": "ola-24x7-watchdog-evidence-v1",
+        "run.start": "2026-11-17T08:00:00Z",
+        "run.end": None,
+        "source_sha": SOURCE_SHA,
+        "decision": "UNKNOWN",
+        "action": "NONE",
+        "reason": "watchdog_preflight_not_completed",
+    }
+    (tmp_path / "watchdog-evidence.json").write_text(
+        json.dumps(initial), encoding="utf-8"
+    )
+
+    subprocess.run([sys.executable, "-c", finalizer], cwd=tmp_path, check=True)
+    result = json.loads(
+        (tmp_path / "watchdog-evidence.json").read_text(encoding="utf-8")
+    )
+
+    assert result["run.start"] == initial["run.start"]
+    assert result["run.end"]
+    assert result["decision"] == "STOP"
+    assert result["reason"] == "watchdog_preflight_failed"
