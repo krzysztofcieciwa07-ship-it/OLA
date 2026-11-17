@@ -1,6 +1,7 @@
 """Independent validation of nested NINA and IGOR evidence in the 12h aggregator."""
 from __future__ import annotations
 
+import gzip
 import hashlib
 import hmac
 import json
@@ -223,45 +224,74 @@ def verify_nested_artifact_copies(
     return True, "verified", verified
 
 
+class _TarUncompressedLimitExceeded(Exception):
+    """Raised when the decompressed TAR stream crosses its byte budget."""
+
+
+class _BoundedReader:
+    """Bound decompressed reads, including TAR headers and padding."""
+
+    def __init__(self, stream: Any, limit: int):
+        self._stream = stream
+        self._limit = limit
+        self._read = 0
+
+    def read(self, size: int = -1) -> bytes:
+        remaining = self._limit - self._read
+        requested = remaining + 1 if size is None or size < 0 else min(size, remaining + 1)
+        data = self._stream.read(requested)
+        if len(data) > remaining:
+            raise _TarUncompressedLimitExceeded
+        self._read += len(data)
+        return data
+
+
 def _verify_tar(tar_path: Path, bundle: Path) -> tuple[bool, str]:
     try:
-        with tarfile.open(tar_path, "r:gz") as archive:
-            members = archive.getmembers()
-            if not members or len(members) > MAX_TAR_ENTRIES:
-                return False, "igor_tar_entry_limit"
-            if sum(m.size for m in members if m.isfile()) > MAX_TAR_UNCOMPRESSED_BYTES:
-                return False, "igor_tar_size_limit"
-            actual: dict[str, str] = {}
-            seen: set[str] = set()
-            for member in members:
-                name = member.name.rstrip("/")
-                path = PurePosixPath(name)
-                if (
-                    not name or "\\" in name or path.is_absolute() or not path.parts
-                    or any(part in {"", ".", ".."} for part in path.parts)
-                    or ":" in path.parts[0] or name in seen
-                ):
-                    return False, "igor_tar_unsafe_path"
-                seen.add(name)
-                if member.isdir():
-                    continue
-                if not member.isfile() or member.size > 128 * 1024 * 1024:
-                    return False, "igor_tar_unsafe_entry"
-                stream = archive.extractfile(member)
-                if stream is None:
-                    return False, "igor_tar_member_unreadable"
-                digest = hashlib.sha256()
-                remaining = member.size
-                while remaining:
-                    chunk = stream.read(min(1024 * 1024, remaining))
-                    if not chunk:
-                        return False, "igor_tar_member_truncated"
-                    digest.update(chunk)
-                    remaining -= len(chunk)
-                if stream.read(1):
-                    return False, "igor_tar_member_size_mismatch"
-                actual[name] = digest.hexdigest()
-    except (OSError, tarfile.TarError, EOFError, ValueError):
+        actual: dict[str, str] = {}
+        seen: set[str] = set()
+        total_member_bytes = 0
+        with gzip.open(tar_path, "rb") as compressed:
+            bounded = _BoundedReader(compressed, MAX_TAR_UNCOMPRESSED_BYTES)
+            with tarfile.open(fileobj=bounded, mode="r|") as archive:
+                for member in archive:
+                    if len(seen) >= MAX_TAR_ENTRIES:
+                        return False, "igor_tar_entry_limit"
+                    name = member.name.rstrip("/")
+                    path = PurePosixPath(name)
+                    if (
+                        not name or "\\" in name or path.is_absolute() or not path.parts
+                        or any(part in {"", ".", ".."} for part in path.parts)
+                        or ":" in path.parts[0] or name in seen
+                    ):
+                        return False, "igor_tar_unsafe_path"
+                    seen.add(name)
+                    if member.isdir():
+                        continue
+                    if not member.isfile() or member.size > 128 * 1024 * 1024:
+                        return False, "igor_tar_unsafe_entry"
+                    total_member_bytes += member.size
+                    if total_member_bytes > MAX_TAR_UNCOMPRESSED_BYTES:
+                        return False, "igor_tar_size_limit"
+                    stream = archive.extractfile(member)
+                    if stream is None:
+                        return False, "igor_tar_member_unreadable"
+                    digest = hashlib.sha256()
+                    remaining = member.size
+                    while remaining:
+                        chunk = stream.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            return False, "igor_tar_member_truncated"
+                        digest.update(chunk)
+                        remaining -= len(chunk)
+                    if stream.read(1):
+                        return False, "igor_tar_member_size_mismatch"
+                    actual[name] = digest.hexdigest()
+                if not seen:
+                    return False, "igor_tar_entry_limit"
+    except _TarUncompressedLimitExceeded:
+        return False, "igor_tar_size_limit"
+    except (OSError, EOFError, gzip.BadGzipFile, tarfile.TarError, ValueError):
         return False, "igor_tar_invalid"
 
     expected: dict[str, str] = {}
