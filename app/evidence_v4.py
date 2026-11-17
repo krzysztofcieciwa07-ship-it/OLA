@@ -13,7 +13,7 @@ import json
 import math
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
@@ -68,7 +68,7 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class Keyring:
-    keys: Mapping[str, bytes]
+    keys: Mapping[str, bytes] = field(repr=False)
     active_key_id: str
 
     def __post_init__(self) -> None:
