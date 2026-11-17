@@ -12,9 +12,10 @@ from threading import BoundedSemaphore
 MAX_SOURCE_BYTES = 100_000
 MAX_OUTPUT_BYTES = 8_192
 MAX_TIMEOUT_SECONDS = 60
-MAX_CONCURRENT_SANDBOXES = 4
+# Admission control is process-local; multi-process deployments multiply this cap.
+MAX_CONCURRENT_SANDBOXES_PER_PROCESS = 4
 RUNTIME_IMAGE = "vercel/sandbox/python:3.14"
-_SANDBOX_SLOTS = BoundedSemaphore(MAX_CONCURRENT_SANDBOXES)
+_SANDBOX_SLOTS = BoundedSemaphore(MAX_CONCURRENT_SANDBOXES_PER_PROCESS)
 
 
 def _is_digest_pinned_image(image):
@@ -41,9 +42,10 @@ class _BoundedTextSink:
     encoding = "utf-8"
     errors = "replace"
 
-    def __init__(self, limit_bytes):
+    def __init__(self, limit_bytes, on_overflow=None):
         self._limit = limit_bytes
         self._buffer = bytearray()
+        self._on_overflow = on_overflow
         self.truncated = False
 
     def write(self, value):
@@ -55,6 +57,8 @@ class _BoundedTextSink:
             self._buffer.extend(encoded[:remaining])
         if len(encoded) > max(remaining, 0):
             self.truncated = True
+            if self._on_overflow is not None:
+                self._on_overflow()
             raise SandboxOutputLimitExceeded("sandbox output budget exceeded")
         return len(value)
 
@@ -109,8 +113,21 @@ def execute_python_source(
         elif sdk is None or client is None:
             raise SandboxAdapterError("SDK and client test injections must be supplied together")
 
-        stdout = _BoundedTextSink(output_limit_bytes)
-        stderr = _BoundedTextSink(output_limit_bytes)
+        process_ref = {}
+
+        def abort_process():
+            process = process_ref.get("process")
+            if process is not None:
+                try:
+                    process.kill()
+                finally:
+                    raise SandboxOutputLimitExceeded("sandbox output budget exceeded")
+
+        def capture_process(process):
+            process_ref["process"] = process
+
+        stdout = _BoundedTextSink(output_limit_bytes, on_overflow=abort_process)
+        stderr = _BoundedTextSink(output_limit_bytes, on_overflow=abort_process)
         timeout = timedelta(seconds=timeout_seconds)
 
         try:
@@ -135,6 +152,7 @@ def execute_python_source(
                     stdout=stdout,
                     stderr=stderr,
                     check=False,
+                    on_start=capture_process,
                 )
                 exit_code = getattr(completed, "returncode", None)
                 if type(exit_code) is not int:
