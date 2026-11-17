@@ -34,9 +34,10 @@ def build_scan_plan(
 ) -> dict[str, Any]:
     """Build a Gitleaks range ending at the immutable source SHA.
 
-    A missing log option means a full-history scan. The PR plan does not call
-    the Pull Requests Commits API; it uses the event base SHA and exact
-    checked-out source SHA supplied by the workflow.
+    A missing log option means a full-history scan. Incremental PR/push scans
+    follow the first-parent chain and include each merge commit's first-parent
+    diff, so merged side-branch changes are not silently omitted. The PR plan
+    uses event base SHA and exact checked-out source SHA supplied by the workflow.
     """
     target = _require_sha(target_sha, "target source SHA")
 
@@ -50,7 +51,7 @@ def build_scan_plan(
                 "merge_base": ancestor,
                 "before_sha": None,
                 "scan_range": target,
-                "log_opts": "-1",
+                "log_opts": "--diff-merges=first-parent -1",
             }
         scan_range = f"{ancestor}..{target}"
         return {
@@ -59,7 +60,7 @@ def build_scan_plan(
             "merge_base": ancestor,
             "before_sha": None,
             "scan_range": scan_range,
-            "log_opts": f"--no-merges --first-parent {scan_range}",
+            "log_opts": f"--first-parent --diff-merges=first-parent {scan_range}",
         }
 
     if event == "push":
@@ -80,7 +81,7 @@ def build_scan_plan(
                 "merge_base": None,
                 "before_sha": before,
                 "scan_range": target,
-                "log_opts": "-1",
+                "log_opts": "--diff-merges=first-parent -1",
             }
         scan_range = f"{before}..{target}"
         return {
@@ -89,7 +90,7 @@ def build_scan_plan(
             "merge_base": None,
             "before_sha": before,
             "scan_range": scan_range,
-            "log_opts": f"--no-merges --first-parent {scan_range}",
+            "log_opts": f"--first-parent --diff-merges=first-parent {scan_range}",
         }
 
     if event in {"workflow_dispatch", "schedule"}:

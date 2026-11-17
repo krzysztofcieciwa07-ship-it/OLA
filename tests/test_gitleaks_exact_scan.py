@@ -1,5 +1,8 @@
 """Regression tests for exact-SHA Gitleaks scanning."""
 import re
+import shlex
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -25,7 +28,7 @@ class GitleaksExactSourceTests(unittest.TestCase):
         self.assertEqual(self.target, plan["source_sha"])
         self.assertEqual(f"{self.merge_base}..{self.target}", plan["scan_range"])
         self.assertEqual(
-            f"--no-merges --first-parent {self.merge_base}..{self.target}",
+            f"--first-parent --diff-merges=first-parent {self.merge_base}..{self.target}",
             plan["log_opts"],
         )
         self.assertNotIn(self.stale_api_head, plan["log_opts"])
@@ -35,6 +38,8 @@ class GitleaksExactSourceTests(unittest.TestCase):
         plan = build_scan_plan("push", self.target, before_sha=before)
         self.assertEqual(f"{before}..{self.target}", plan["scan_range"])
         self.assertIn(self.target, plan["log_opts"])
+        self.assertIn("--diff-merges=first-parent", plan["log_opts"])
+        self.assertNotIn("--no-merges", plan["log_opts"])
 
     def test_first_push_and_manual_runs_scan_full_history(self):
         zero = "0" * 40
@@ -44,6 +49,7 @@ class GitleaksExactSourceTests(unittest.TestCase):
 
     def test_no_change_scans_the_exact_target_commit(self):
         self.assertEqual(self.target, build_scan_plan("push", self.target, before_sha=self.target)["scan_range"])
+        self.assertIn("--diff-merges=first-parent", build_scan_plan("push", self.target, before_sha=self.target)["log_opts"])
         self.assertEqual(
             self.target,
             build_scan_plan("pull_request", self.target, base_sha=self.base, merge_base=self.target)["scan_range"],
@@ -70,6 +76,61 @@ class GitleaksExactSourceTests(unittest.TestCase):
         ignore_lines = (ROOT / ".gitleaksignore").read_text(encoding="utf-8").splitlines()
         precise = [line for line in ignore_lines if re.fullmatch(r"[0-9a-f]{40}:tests/test_gitleaks_exact_scan\.py:generic-api-key:15", line)]
         self.assertEqual(len(precise), 1)
+
+
+    def test_push_and_pr_ranges_include_first_parent_merge_diff(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+
+            def git(*arguments):
+                result = subprocess.run(
+                    ["git", *arguments],
+                    cwd=repo,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                return result.stdout.strip()
+
+            git("init", "--quiet", "--initial-branch=main")
+            git("config", "user.name", "OLA Gitleaks Regression")
+            git("config", "user.email", "ola-gitleaks-regression@example.invalid")
+            (repo / "base.txt").write_text("base\\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "--quiet", "-m", "base")
+            git("checkout", "--quiet", "-b", "feature/merge-scan")
+            marker = "OLA_MERGE_SCAN_REGRESSION_MARKER_NOT_A_SECRET"
+            (repo / "fixture.txt").write_text(marker + "\\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "--quiet", "-m", "feature fixture")
+            git("checkout", "--quiet", "main")
+            (repo / "main.txt").write_text("main update\\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "--quiet", "-m", "main update")
+            before = git("rev-parse", "HEAD")
+            git("merge", "--no-ff", "feature/merge-scan", "-m", "merge feature")
+            target = git("rev-parse", "HEAD")
+
+            plans = (
+                build_scan_plan("push", target, before_sha=before),
+                build_scan_plan(
+                    "pull_request", target, base_sha=before, merge_base=before
+                ),
+            )
+            for plan in plans:
+                with self.subTest(scan_range=plan["scan_range"]):
+                    options = shlex.split(plan["log_opts"])
+                    self.assertIn("--first-parent", options)
+                    self.assertIn("--diff-merges=first-parent", options)
+                    self.assertNotIn("--no-merges", options)
+                    patch = subprocess.run(
+                        ["git", "log", "-p", *options],
+                        cwd=repo,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout
+                    self.assertIn(marker, patch)
 
 
 if __name__ == "__main__":
