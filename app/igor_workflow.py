@@ -141,6 +141,11 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
 
         start_row, start_payload = lifecycle["execution.run.start"][0]
         task_digest = start_payload.get("task_digest")
+        allowed_tools = start_payload.get("allowed_tools")
+        if (not isinstance(allowed_tools, list) or not allowed_tools or len(allowed_tools) > 16
+                or not all(isinstance(tool, str) and tool.strip() for tool in allowed_tools)
+                or len(set(allowed_tools)) != len(allowed_tools)):
+            return _result("BLOCK", "execution start capability allowlist invalid")
         if (not isinstance(task_digest, str) or len(task_digest) != 64
                 or any(char not in "0123456789abcdef" for char in task_digest)):
             return _result("BLOCK", "execution start task digest invalid")
@@ -151,7 +156,8 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
         if (start_payload.get("requester_id") != plan_event.get("requester_id")
                 or start_payload.get("source_commit") != plan_event.get("commit")
                 or start_payload.get("commit") != plan_event.get("commit")
-                or plan_event.get("task_digest") != task_digest):
+                or plan_event.get("task_digest") != task_digest
+                or plan_event.get("allowed_tools") != allowed_tools):
             return _result("BLOCK", "execution start provenance mismatch")
         if plan_event.get("event") != "workflow.planned":
             return _result("BLOCK", "missing plan")
@@ -167,6 +173,8 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
                 return _result("BLOCK", "duplicate node or invalid dependencies")
             if not isinstance(node["tool"], str) or not isinstance(node["task"], str):
                 return _result("BLOCK", "malformed DAG tool/task")
+            if node["tool"] not in allowed_tools:
+                return _result("BLOCK", "DAG node tool outside recorded capability allowlist")
             if any(not isinstance(dep, str) for dep in needs) or len(set(needs)) != len(needs):
                 return _result("BLOCK", "invalid dependency list")
             nodes[nid] = node
@@ -183,6 +191,8 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
                 return _result("BLOCK", "run commit mismatch")
             if event.get("task_digest") != task_digest:
                 return _result("BLOCK", "run task digest mismatch")
+            if event.get("allowed_tools") != allowed_tools:
+                return _result("BLOCK", "run capability allowlist mismatch")
             if expected_commit and event.get("commit") != expected_commit:
                 return _result("BLOCK", "expected commit mismatch")
             if index == 0:
@@ -249,6 +259,7 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
             if records.index(end_row) <= records.index(terminal_row):
                 return _result("BLOCK", "execution end must follow workflow terminal event")
             if (end_payload.get("task_digest") != task_digest
+                    or end_payload.get("allowed_tools") != allowed_tools
                     or end_payload.get("source_commit") != plan_event.get("commit")
                     or end_payload.get("commit") != plan_event.get("commit")
                     or end_payload.get("requester_id") != plan_event.get("requester_id")):
