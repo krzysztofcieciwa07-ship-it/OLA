@@ -10,6 +10,9 @@ from .igor_evidence_verifier import verify_chain, trusted_record
 
 
 EXPECTED_VERCEL_SANDBOX_IMAGE = "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8"
+SUPPORTED_WORKFLOW_TOOLS = frozenset({
+    "safe_expression", "local_mcp_tool_registry.sha256", "llm_agent", "vercel_sandbox",
+})
 
 
 def _hash(value):
@@ -144,7 +147,9 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
         allowed_tools = start_payload.get("allowed_tools")
         if (not isinstance(allowed_tools, list) or not allowed_tools or len(allowed_tools) > 16
                 or not all(isinstance(tool, str) and tool.strip() for tool in allowed_tools)
-                or len(set(allowed_tools)) != len(allowed_tools)):
+                or len(set(allowed_tools)) != len(allowed_tools)
+                or allowed_tools != sorted(allowed_tools)
+                or not set(allowed_tools) <= SUPPORTED_WORKFLOW_TOOLS):
             return _result("BLOCK", "execution start capability allowlist invalid")
         if (not isinstance(task_digest, str) or len(task_digest) != 64
                 or any(char not in "0123456789abcdef" for char in task_digest)):
