@@ -10,7 +10,7 @@ import uuid
 
 from sqlalchemy import select
 from app.database import SessionLocal
-from app.hashchain import verify_chain
+from app.igor_evidence_verifier import verify_chain
 from app.models import Tenant, EvidenceRecord
 from app.main import append_record
 import app.agent_runtime as agent_runtime
