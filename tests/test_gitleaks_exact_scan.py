@@ -1,4 +1,5 @@
 """Regression tests for exact-SHA Gitleaks scanning."""
+import re
 import unittest
 from pathlib import Path
 
@@ -12,7 +13,10 @@ class GitleaksExactSourceTests(unittest.TestCase):
         self.target = "9f83912182cea5e9a3d6292d0e1c6632048a64be"
         self.base = "8adf30cd5e41a18a5345f66e67f5ddcdbc164862"
         self.merge_base = "28c3f4ccc1b584a9274500ad77ad87366d318f41"
-        self.stale_api_head = "3eeeec4d5da6afaed38861fc6228a34d3b4f8dbd"
+        self.stale_api_head = "1" * 40
+
+    def test_stale_api_head_is_a_non_secret_synthetic_sha(self):
+        self.assertEqual(self.stale_api_head, "1" * 40)
 
     def test_pr_range_ends_at_immutable_event_sha_not_stale_api_head(self):
         plan = build_scan_plan(
@@ -61,6 +65,11 @@ class GitleaksExactSourceTests(unittest.TestCase):
         self.assertIn("python scripts/gitleaks_exact_scan.py", content)
         self.assertIn("gitleaks-exact-scan.json", content)
         self.assertIn("gitleaks-exact-source-results.sarif", content)
+        self.assertRegex(content, r"uses: actions/setup-python@[0-9a-f]{40} # v5\.6\.0")
+        self.assertNotIn("# v6.0.0", content)
+        ignore_lines = (ROOT / ".gitleaksignore").read_text(encoding="utf-8").splitlines()
+        precise = [line for line in ignore_lines if re.fullmatch(r"[0-9a-f]{40}:tests/test_gitleaks_exact_scan\.py:generic-api-key:15", line)]
+        self.assertEqual(len(precise), 1)
 
 
 if __name__ == "__main__":
