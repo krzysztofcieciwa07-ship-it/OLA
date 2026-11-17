@@ -5,7 +5,7 @@ import pytest
 
 from app.evidence_v4 import (
     ACTIVE_KEY_ENV, KEYRING_ENV, GENESIS_HASH, Keyring, MissingKeyError,
-    UnknownKeyError, canonical_json, load_keyring, sign_record, verify_record,
+    InvalidKeyringError, UnknownKeyError, canonical_json, load_keyring, sign_record, verify_record,
     verify_mixed_chain,
 )
 
@@ -62,6 +62,26 @@ def test_missing_keyring_fails_closed():
         load_keyring({})
 
 
+def test_keyring_copies_and_freezes_caller_mapping():
+    supplied = {"k1": KEY_A}
+    ring = Keyring(keys=supplied, active_key_id="k1")
+    supplied["k1"] = KEY_B
+    supplied["k2"] = KEY_B
+    assert ring.keys["k1"] == KEY_A
+    assert "k2" not in ring.keys
+    with pytest.raises(TypeError):
+        ring.keys["k1"] = KEY_B
+
+
+def test_duplicate_keyring_json_members_are_rejected():
+    env = {
+        KEYRING_ENV: '{"k1":"' + base64.b64encode(KEY_A).decode() + '","k1":"' + base64.b64encode(KEY_B).decode() + '"}',
+        ACTIVE_KEY_ENV: "k1",
+    }
+    with pytest.raises(InvalidKeyringError):
+        load_keyring(env)
+
+
 def test_restart_reloads_same_external_keyring():
     env = {
         KEYRING_ENV: json.dumps({"k1": base64.b64encode(KEY_A).decode()}),
@@ -95,6 +115,13 @@ def test_noncanonical_payload_is_rejected():
     # Whitespace makes this JSON semantically equivalent but not canonical.
     record["payload_json"] = '{ "result":391,"run_id":"r1"}'
     with pytest.raises(ValueError, match="payload_json is not canonical"):
+        verify_record(record, _ring())
+
+
+def test_duplicate_payload_json_members_are_rejected():
+    record = _record()
+    record["payload_json"] = '{"result":391,"result":392,"run_id":"r1"}'
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
         verify_record(record, _ring())
 
 
