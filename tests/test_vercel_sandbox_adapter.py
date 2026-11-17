@@ -97,6 +97,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert result["sandbox_name"] == box.name
     assert result["image"] == box.image
     assert result["region"] == "fra1"
+    assert result["failover_regions"] == []
     assert result["network_policy"] == "deny-all"
     assert result["persistent"] is False
     assert result["destroy_on_exit"] is True
