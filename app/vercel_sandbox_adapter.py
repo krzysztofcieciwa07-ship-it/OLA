@@ -10,7 +10,7 @@ from threading import BoundedSemaphore
 
 
 MAX_SOURCE_BYTES = 100_000
-MAX_OUTPUT_BYTES = 8_192
+MAX_OUTPUT_BYTES = 3_072
 MAX_TIMEOUT_SECONDS = 60
 # Admission control is process-local; multi-process deployments multiply this cap.
 MAX_CONCURRENT_SANDBOXES_PER_PROCESS = 4
@@ -102,7 +102,7 @@ def execute_python_source(
     if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= MAX_TIMEOUT_SECONDS:
         raise SandboxAdapterError("timeout must be an integer from 1 to 60 seconds")
     if type(output_limit_bytes) is not int or not 1 <= output_limit_bytes <= MAX_OUTPUT_BYTES:
-        raise SandboxAdapterError("output limit must be an integer from 1 to 8192 bytes")
+        raise SandboxAdapterError("output limit must be an integer from 1 to 3072 bytes")
 
     if not _SANDBOX_SLOTS.acquire(blocking=False):
         raise SandboxAdapterError("sandbox concurrency limit reached")
