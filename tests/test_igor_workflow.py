@@ -7,7 +7,14 @@ from app.workflow_engine import WorkflowEngine, validate_plan
 
 
 def proof():
-    events = []
+    events = [{
+        "event": "execution.run.start",
+        "run_id": "run1",
+        "goal_sha256": hashlib.sha256(b"test").hexdigest(),
+        "source_commit": "expected",
+        "requester_id": "person1",
+        "commit": "expected",
+    }]
     nodes = validate_plan({"nodes": [
         {"id": "alpha", "tool": "llm_agent", "task": "one", "needs": []},
         {"id": "beta", "tool": "llm_agent", "task": "two", "needs": []},
@@ -21,6 +28,15 @@ def proof():
         lambda event: events.append({**event, "requester_id": "person1",
                                      "planner": {"response_id": "p1"}, "commit": "expected"}),
         run_id="run1")
+    events.append({
+        "event": "execution.run.end",
+        "run_id": "run1",
+        "workflow_status": "COMPLETED_UNVERIFIED",
+        "pre_end_igor_status": "VERIFIED",
+        "source_commit": "expected",
+        "requester_id": "person1",
+        "commit": "expected",
+    })
     return rehash(events)
 
 
@@ -58,8 +74,24 @@ def test_tamper_breaks_chain_even_when_execution_claims_success():
 
 
 def test_missing_terminal_is_blocked():
-    evidence = proof()[:-1]
-    assert check(evidence)["status"] == "BLOCK"
+    events = [json.loads(row["payload_json"]) for row in proof()]
+    events = [event for event in events if event["event"] != "workflow.completed"]
+    assert check(rehash(events))["status"] == "BLOCK"
+
+
+def test_igor_requires_exactly_one_ordered_execution_lifecycle():
+    events = [json.loads(row["payload_json"]) for row in proof()]
+    events.pop(0)
+    assert check(rehash(events))["status"] == "BLOCK"
+
+    events = [json.loads(row["payload_json"]) for row in proof()]
+    events.pop()
+    assert check(rehash(events))["status"] == "BLOCK"
+
+    events = [json.loads(row["payload_json"]) for row in proof()]
+    end = events.pop()
+    events.insert(2, end)
+    assert check(rehash(events))["status"] == "BLOCK"
 
 
 def test_fake_timing_rejected_even_after_rehash():
@@ -92,7 +124,9 @@ def test_customer_evidence_with_matching_run_id_does_not_poison_dag_verification
                        "note": "unrelated user evidence"})
     report = check(rehash(events))
     assert report["status"] == "VERIFIED", report
-    assert report["evidence_count"] == len(events) - 1
+    assert report["evidence_count"] == sum(
+        event["event"].startswith(("workflow.", "task.")) for event in events
+    )
 
 
 def test_unexpected_internal_workflow_event_remains_blocked():
@@ -147,7 +181,14 @@ def sandbox_events(node_count=1):
         {"id": f"sandbox-{index}", "tool": "vercel_sandbox", "task": task, "needs": []}
         for index in range(node_count)
     ]}, allowed_tools={"vercel_sandbox"})
-    events = []
+    events = [{
+        "event": "execution.run.start",
+        "run_id": "sandbox-run",
+        "goal_sha256": hashlib.sha256(b"sandbox").hexdigest(),
+        "source_commit": "expected",
+        "requester_id": "person1",
+        "commit": "expected",
+    }]
     WorkflowEngine(max_workers=max(1, node_count)).run(
         nodes,
         lambda node, deps: output,
@@ -155,6 +196,15 @@ def sandbox_events(node_count=1):
                                      "planner": {"response_id": "p1"}, "commit": "expected"}),
         run_id="sandbox-run",
     )
+    events.append({
+        "event": "execution.run.end",
+        "run_id": "sandbox-run",
+        "workflow_status": "COMPLETED_UNVERIFIED",
+        "pre_end_igor_status": "VERIFIED",
+        "source_commit": "expected",
+        "requester_id": "person1",
+        "commit": "expected",
+    })
     return events
 
 
