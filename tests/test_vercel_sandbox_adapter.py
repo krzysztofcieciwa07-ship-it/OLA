@@ -236,6 +236,9 @@ def test_default_adapter_uses_official_sdk_policy_and_resource_types(monkeypatch
 
     assert result["executor"] == "vercel_sandbox"
     assert captured["options"].region == "fra1"
+    assert fake_client.create_options["region"] == "fra1"
+    assert fake_client.create_options["failover_regions"] == []
+    assert fake_client.create_options["destroy"] is True
     assert isinstance(fake_client.create_options["network_policy"], sdk.NetworkPolicy)
     assert isinstance(fake_client.create_options["resources"], sdk.SandboxResources)
     assert fake_client.create_options["resources"].memory == 2048
