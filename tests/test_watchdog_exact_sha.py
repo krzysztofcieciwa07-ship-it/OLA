@@ -157,6 +157,12 @@ def test_artifact_archive_digest_is_checked_before_safe_extraction(tmp_path, mon
     assert reason == "verified"
     assert (destination / "ola-auto-evidence.json").read_text() == "{}"
 
+    size_ok, size_reason = download_and_verify_artifact_archive(
+        "example/OLA", 42, archive_digest, len(archive_bytes) + 1, tmp_path / "wrong-size"
+    )
+    assert size_ok is False
+    assert size_reason == "aggregator_artifact_archive_size_mismatch"
+
     bad_ok, bad_reason = download_and_verify_artifact_archive(
         "example/OLA", 42, "sha256:" + ("0" * 64), len(archive_bytes), tmp_path / "bad"
     )
