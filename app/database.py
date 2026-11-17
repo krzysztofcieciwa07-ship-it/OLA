@@ -894,6 +894,8 @@ def install_postgres_tenant_rls(connection, runtime_role, worker_role):
         SELECT k.tenant_id::text, k.id::text, k.role::text
         FROM {quoted_schema}.api_keys AS k
         WHERE k.key_hash = p_key_hash
+          AND k.revoked_at IS NULL
+          AND (k.expires_at IS NULL OR k.expires_at > pg_catalog.clock_timestamp())
         LIMIT 1
     $ola$;
     """)
