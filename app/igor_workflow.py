@@ -59,7 +59,7 @@ def _verify_sandbox_output(node, output):
         return "sandbox output schema invalid"
     if (output.get("executor") != "vercel_sandbox"
             or output.get("operation") != "python_exec"
-            or output.get("runtime") != "python3.14"):
+            or output.get("runtime") != "python3"):
         return "sandbox executor provenance invalid"
     if not isinstance(output.get("sandbox_name"), str) or not output["sandbox_name"]:
         return "sandbox identity missing"
