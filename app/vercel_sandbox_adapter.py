@@ -154,6 +154,21 @@ def execute_python_source(
                 image = getattr(sandbox, "image", None)
                 if image != RUNTIME_IMAGE or not _is_digest_pinned_image(image):
                     raise SandboxAdapterError("Vercel Sandbox did not return the expected digest-pinned image")
+                actual_policy = getattr(sandbox, "network_policy", None)
+                if getattr(actual_policy, "mode", None) != "deny-all":
+                    raise SandboxAdapterError("Vercel Sandbox did not confirm deny-all network policy")
+                if getattr(sandbox, "persistent", None) is not False:
+                    raise SandboxAdapterError("Vercel Sandbox did not confirm ephemeral persistence")
+                if (type(getattr(sandbox, "vcpus", None)) is not int
+                        or sandbox.vcpus != SANDBOX_VCPUS
+                        or type(getattr(sandbox, "memory", None)) is not int
+                        or sandbox.memory != SANDBOX_MEMORY_MB):
+                    raise SandboxAdapterError("Vercel Sandbox did not confirm bounded resources")
+                if tuple(getattr(sandbox, "failover_regions", ())) != ():
+                    raise SandboxAdapterError("Vercel Sandbox failover regions are not disabled")
+                actual_time_limit = getattr(sandbox, "execution_time_limit", None)
+                if actual_time_limit != timeout:
+                    raise SandboxAdapterError("Vercel Sandbox did not confirm execution time limit")
                 completed = sandbox.run_process(
                     "python3",
                     ["-c", source],
@@ -176,11 +191,11 @@ def execute_python_source(
             "sandbox_name": sandbox_name,
             "image": image,
             "region": SANDBOX_REGION,
-            "network_policy": "deny-all",
-            "persistent": False,
+            "network_policy": actual_policy.mode,
+            "persistent": sandbox.persistent,
             "destroy_on_exit": True,
-            "resources": {"vcpus": SANDBOX_VCPUS, "memory_mb": SANDBOX_MEMORY_MB},
-            "timeout_seconds": timeout_seconds,
+            "resources": {"vcpus": sandbox.vcpus, "memory_mb": sandbox.memory},
+            "timeout_seconds": int(actual_time_limit.total_seconds()),
             "output_limit_bytes_per_stream": output_limit_bytes,
             "source_bytes": len(source_bytes),
             "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
