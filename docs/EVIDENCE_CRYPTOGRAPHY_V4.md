@@ -97,6 +97,13 @@ verifies V4 itself. Legacy V1/V2/V3 segments are passed intact to an explicit
 legacy verifier. It must never silently treat a legacy record as V4 or fall
 back to a V4 key for legacy verification.
 
+The cutover is monotonic within each tenant chain: V1/V2/V3 records are allowed
+only in the historical prefix before the first V4 record. Once a V4 record is
+verified, every later record must also be V4. A later legacy record is rejected
+even if its historical digest is otherwise valid; in particular, a privileged
+V2 record cannot regain trust after cutover. The boundary is determined by
+verified chain order, not timestamps or caller-supplied metadata.
+
 ## Required release gates
 
 - All five evidence writers produce V4 using the storage contract above.
