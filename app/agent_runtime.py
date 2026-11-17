@@ -143,9 +143,11 @@ def _mcp_tool_call(name, arguments):
 
 def _nina_dag_json_schema(context):
     """One strict DAG schema shared by OpenAI Responses and Ollama JSON mode."""
-    allowed = context.get("allowed_tools", []) if isinstance(context, dict) else []
+    if not isinstance(context, dict):
+        raise ValueError("planner context must be an object")
+    allowed = context.get("allowed_tools", [])
     if (not isinstance(allowed, list) or not allowed or len(allowed) > 16
-            or not all(isinstance(tool, str) and tool for tool in allowed)
+            or not all(isinstance(tool, str) and tool.strip() for tool in allowed)
             or len(set(allowed)) != len(allowed)):
         raise ValueError("planner requires explicit unique allowlisted capabilities")
     schema = {
@@ -161,7 +163,7 @@ def _nina_dag_json_schema(context):
                         "id": {"type": "string", "minLength": 1, "maxLength": 40},
                         "tool": {"type": "string", "enum": allowed},
                         "task": {"type": "string", "minLength": 1, "maxLength": 1000},
-                        "needs": {"type": "array", "items": {"type": "string"}},
+                        "needs": {"type": "array", "maxItems": 16, "items": {"type": "string"}},
                     },
                     "required": ["id", "tool", "task", "needs"],
                     "additionalProperties": False,
@@ -219,6 +221,7 @@ def _invoke_llm(agent, task, context):
             ],
         }
         if agent == "nina_dag_planner":
+            payload["max_output_tokens"] = 8192
             payload["text"] = {
                 "format": {
                     "type": "json_schema",
