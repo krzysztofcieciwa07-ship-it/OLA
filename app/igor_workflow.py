@@ -9,6 +9,9 @@ import json
 from .igor_evidence_verifier import verify_chain, trusted_record
 
 
+EXPECTED_VERCEL_SANDBOX_IMAGE = "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8"
+
+
 def _hash(value):
     material = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(material.encode()).hexdigest()
@@ -61,6 +64,8 @@ def _verify_sandbox_output(node, output):
     if (not prefix or not marker or len(image_digest) != 64
             or any(char not in "0123456789abcdef" for char in image_digest)):
         return "sandbox image is not digest-pinned"
+    if image != EXPECTED_VERCEL_SANDBOX_IMAGE:
+        return "sandbox image does not match allowlisted runtime image"
     if type(output.get("exit_code")) is not int:
         return "sandbox exit code invalid"
     if type(output.get("stdout_truncated")) is not bool or type(output.get("stderr_truncated")) is not bool:
