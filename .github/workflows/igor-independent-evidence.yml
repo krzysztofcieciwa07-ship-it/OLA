@@ -110,8 +110,10 @@ jobs:
       - name: Build exact-source runtime for independent replay
         run: |
           python -m pip install -r requirements.txt
-          docker build --tag "ola-igor:${SOURCE_COMMIT}" .
+          docker build --build-arg OLA_SOURCE_COMMIT="${SOURCE_COMMIT}" --tag "ola-igor:${SOURCE_COMMIT}" .
 
+      - name: Assert IGOR image source label
+        run: test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "ola-igor:${SOURCE_COMMIT}")" = "${SOURCE_COMMIT}"
       - name: Start runtime
         run: |
           docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" -e OLA_EVIDENCE_V4_KEYRING_JSON='{"ci-v4-2026":"cHl0ZXN0LW9ubHktdjQta2V5LW1hdGVyaWFsLTMyYnl0ZXMhIQ=="}' -e OLA_EVIDENCE_V4_ACTIVE_KEY_ID=ci-v4-2026 -e OLA_RUNTIME_COMMIT="${SOURCE_COMMIT}" --name ola-igor-e2e --publish 8001:8000 "ola-igor:${SOURCE_COMMIT}"
