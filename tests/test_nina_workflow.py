@@ -232,7 +232,7 @@ def test_independent_goal_requires_model_chosen_parallel_nodes(monkeypatch):
 def test_vercel_sandbox_tool_uses_structured_task_and_registered_adapter(monkeypatch):
     import json
     import app.vercel_sandbox_adapter as adapter
-    from app.nina import REGISTERED_TOOLS
+    from app.nina import REGISTERED_TOOLS, WORKFLOW_REGISTERED_TOOLS
     from app.nina_workflow import execute_registered_node
     from app.workflow_engine import WorkflowNode
 
@@ -241,7 +241,8 @@ def test_vercel_sandbox_tool_uses_structured_task_and_registered_adapter(monkeyp
                         lambda source: calls.append(source) or {"executor": "vercel_sandbox"})
     task = json.dumps({"operation": "python_exec", "source": "print(42)"})
     node = WorkflowNode("sandbox", "vercel_sandbox", task, ())
-    assert "vercel_sandbox" in REGISTERED_TOOLS
+    assert "vercel_sandbox" in WORKFLOW_REGISTERED_TOOLS
+    assert "vercel_sandbox" not in REGISTERED_TOOLS
     assert execute_registered_node(node, {}) == {"executor": "vercel_sandbox"}
     assert calls == ["print(42)"]
 
