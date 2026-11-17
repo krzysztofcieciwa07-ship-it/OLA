@@ -1,0 +1,17 @@
+{
+  "fixture_schema": "ola-evidence-v4-independent-test-vector-v1",
+  "provenance": {
+    "generator": "independent test-vector calculation using Python stdlib hashlib/hmac/json",
+    "test_key_base64": "VjQtaW5kZXBlbmRlbnQtZml4dHVyZS1rZXktbWF0ZXJpYWwtMzI=",
+    "test_key_id": "v4-fixture-2026",
+    "note": "Public test-only key; not a production secret."
+  },
+  "record": {
+    "tenant_id": "fixture-tenant",
+    "seq": 3,
+    "record_type": "provenance.runtime",
+    "payload_json": "{\"__ola_evidence_v4__\":{\"key_id\":\"v4-fixture-2026\",\"producer\":\"ola_runtime\",\"record_type\":\"provenance.runtime\",\"version\":4},\"commit\":\"abc123\",\"result\":\"verified\",\"run_id\":\"fixture-run\",\"task\":\"fixture task\"}",
+    "prev_hash": "81385dc9f6b907326925c63b3560f025efeef892a1d54c80506cda25e3b54fdd",
+    "record_hash": "1c99463e7f29435739fd80ca6355dc40d9ed79eb89d39c9b3a3e93d3cfc8ba52"
+  }
+}
