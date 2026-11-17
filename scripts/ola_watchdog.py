@@ -19,6 +19,7 @@ from typing import Any
 
 ACTIVE_STATUSES = {"queued", "in_progress", "waiting", "requested"}
 FRESHNESS_SECONDS = 900
+MAX_ARTIFACT_ARCHIVE_BYTES = 256 * 1024 * 1024
 FLOW_WORKFLOW = "ola-12h-autoflow.yml"
 
 
@@ -102,6 +103,7 @@ def download_and_verify_artifact_archive(
     repository: str,
     artifact_id: int,
     expected_digest: str,
+    expected_size_bytes: int,
     destination: str | Path,
 ) -> tuple[bool, str]:
     """Download the original GitHub artifact ZIP, verify its API digest, then extract safely."""
@@ -109,6 +111,9 @@ def download_and_verify_artifact_archive(
     archive_path = target.parent / "ola-auto-evidence-artifact.zip"
     target.mkdir(parents=True, exist_ok=True)
 
+    if (type(expected_size_bytes) is not int or expected_size_bytes < 1
+            or expected_size_bytes > MAX_ARTIFACT_ARCHIVE_BYTES):
+        return False, "aggregator_artifact_archive_size_limit"
     if not expected_digest.startswith("sha256:"):
         return False, "aggregator_artifact_digest_missing"
     expected_hex = expected_digest.removeprefix("sha256:").lower()
@@ -123,6 +128,9 @@ def download_and_verify_artifact_archive(
                 stdout=archive_stream,
                 stderr=subprocess.PIPE,
             )
+
+        if archive_path.stat().st_size != expected_size_bytes:
+            return False, "aggregator_artifact_archive_size_mismatch"
 
         digest = hashlib.sha256()
         with archive_path.open("rb") as archive_stream:
@@ -352,6 +360,7 @@ def run_watchdog() -> dict[str, Any]:
                     repository,
                     int(artifact["id"]),
                     digest,
+                    int(artifact["size_in_bytes"]),
                     bundle_dir,
                 )
                 if not archive_ok:
