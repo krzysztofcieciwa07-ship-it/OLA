@@ -107,7 +107,13 @@ def _write_nested(root: Path, source_sha: str = SOURCE_SHA) -> None:
     (nina / "ola-nina-ollama-runtime.log").write_text("ollama runtime completed\n", encoding="utf-8")
     _manifest(nina, nina / "evidence-files.sha256", NINA_FILES)
 
-    for name in NINA_FILES:
+    # Mirror the production IGOR artifact layout: runtime contains the five
+    # runtime payloads; provenance/build/image metadata live in their own
+    # provenance/ and source/ directories.
+    for name in NINA_FILES - {
+        "provenance.txt", "ola-build-info.json",
+        "runtime-image-revision.txt", "runtime-image-id.txt",
+    }:
         target = runtime / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(nina / name, target)
