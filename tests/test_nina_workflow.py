@@ -227,3 +227,36 @@ def test_independent_goal_requires_model_chosen_parallel_nodes(monkeypatch):
     assert len(requests) == 2 and all(req["independent_only"] is True for req in requests)
     assert provenance["attempts"] == 2
     assert provenance["response_id"] == "plan-2"
+
+
+def test_vercel_sandbox_tool_uses_structured_task_and_registered_adapter(monkeypatch):
+    import json
+    import app.vercel_sandbox_adapter as adapter
+    from app.nina import REGISTERED_TOOLS, WORKFLOW_REGISTERED_TOOLS
+    from app.nina_workflow import execute_registered_node
+    from app.workflow_engine import WorkflowNode
+
+    calls = []
+    monkeypatch.setattr(adapter, "execute_python_source",
+                        lambda source: calls.append(source) or {"executor": "vercel_sandbox"})
+    task = json.dumps({"operation": "python_exec", "source": "print(42)"})
+    node = WorkflowNode("sandbox", "vercel_sandbox", task, ())
+    assert "vercel_sandbox" in WORKFLOW_REGISTERED_TOOLS
+    assert "vercel_sandbox" not in REGISTERED_TOOLS
+    assert execute_registered_node(node, {}) == {"executor": "vercel_sandbox"}
+    assert calls == ["print(42)"]
+
+
+@pytest.mark.parametrize("task", [
+    "print(42)",
+    '{"operation":"shell","source":"id"}',
+    '{"operation":"python_exec","source":"print(1)","command":"bash"}',
+    '{"operation":"python_exec","source":42}',
+    '{"operation":"python_exec","operation":"python_exec","source":"print(1)"}',
+])
+def test_vercel_sandbox_rejects_unstructured_or_unsupported_task(task):
+    from app.nina_workflow import execute_registered_node
+    from app.workflow_engine import WorkflowNode, WorkflowPlanError
+
+    with pytest.raises(WorkflowPlanError):
+        execute_registered_node(WorkflowNode("sandbox", "vercel_sandbox", task, ()), {})
