@@ -332,6 +332,35 @@ def _gh_json(arguments: list[str]) -> dict[str, Any]:
     return json.loads(completed.stdout)
 
 
+def _guard_current_main(
+    report: dict[str, Any], repository: str, source_sha: str
+) -> bool:
+    """Do not claim health or dispatch from a scheduled checkout older than main."""
+    payload = _gh_json(["api", f"repos/{repository}/git/ref/heads/main"])
+    current_sha = payload.get("object", {}).get("sha")
+    if (
+        not isinstance(current_sha, str)
+        or len(current_sha) != 40
+        or any(character not in "0123456789abcdef" for character in current_sha.lower())
+    ):
+        _block(report, "current_main_sha_unavailable")
+        report["evidence_status"] = "BLOCKED"
+        return False
+
+    current_sha = current_sha.lower()
+    report["current_main_sha"] = current_sha
+    if not hmac.compare_digest(current_sha, source_sha.lower()):
+        # A schedule/manual run may start on an older event SHA if main moved
+        # while the runner was queued. Record a non-healthy wait; never dispatch
+        # or reuse evidence for the stale checkout.
+        report["decision"] = "CONTINUE"
+        report["action"] = "WAIT"
+        report["reason"] = "main_advanced_since_watchdog_checkout"
+        report["evidence_status"] = "BLOCKED"
+        return False
+    return True
+
+
 def _dispatch(report: dict[str, Any], reason: str) -> None:
     completed = subprocess.run(
         ["gh", "workflow", "run", FLOW_WORKFLOW, "--ref", "main"],
@@ -365,6 +394,7 @@ def run_watchdog() -> dict[str, Any]:
         "run.start": started,
         "run.end": None,
         "source_sha": None,
+        "current_main_sha": None,
         "flow_run_id": None,
         "flow_sha": None,
         "flow_conclusion": None,
@@ -396,6 +426,8 @@ def run_watchdog() -> dict[str, Any]:
         ).stdout.strip()
         report["source_sha"] = source_sha
         repository = os.environ["GITHUB_REPOSITORY"]
+        if not _guard_current_main(report, repository, source_sha):
+            return report
 
         runs = _gh_json([
             "run", "list",
@@ -421,6 +453,8 @@ def run_watchdog() -> dict[str, Any]:
             report["evidence_status"] = "BLOCKED"
             return report
         if selection["action"] == "DISPATCH":
+            if not _guard_current_main(report, repository, source_sha):
+                return report
             _dispatch(report, selection["reason"])
             return report
 
@@ -494,6 +528,9 @@ def run_watchdog() -> dict[str, Any]:
             report["evidence_status"] = "BLOCKED"
             return report
 
+        if not _guard_current_main(report, repository, source_sha):
+            return report
+
         report["evidence_status"] = "VERIFIED"
         freshness = decide_verified_flow(
             selected,
@@ -501,6 +538,8 @@ def run_watchdog() -> dict[str, Any]:
             now_epoch=time.time(),
         )
         if freshness["action"] == "DISPATCH":
+            if not _guard_current_main(report, repository, source_sha):
+                return report
             _dispatch(report, freshness["reason"])
         else:
             report["decision"] = "CONTINUE"

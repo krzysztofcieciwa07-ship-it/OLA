@@ -452,7 +452,7 @@ def test_watchdog_waits_when_main_advances_after_scheduled_checkout(tmp_path, mo
 
     def fake_run(arguments, **kwargs):
         assert arguments == ["git", "rev-parse", "HEAD"]
-        return subprocess.CompletedProcess(arguments, 0, stdout=f"{SOURCE_SHA}\\n", stderr="")
+        return subprocess.CompletedProcess(arguments, 0, stdout=f"{SOURCE_SHA}\n", stderr="")
 
     calls = []
 
