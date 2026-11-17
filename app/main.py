@@ -4,6 +4,7 @@ import os
 import re
 import uuid
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
@@ -75,8 +76,13 @@ def identity_from_key(raw_key):
                 tenant_id, key_id = row.tenant_id, row.api_key_id
             else:
                 key = db.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
-                if key is None:
-                    raise HTTPException(status_code=401, detail="invalid API key")
+                now = datetime.now(timezone.utc)
+                expired = key is not None and key.expires_at is not None and (
+                    (key.expires_at.replace(tzinfo=timezone.utc) if key.expires_at.tzinfo is None else key.expires_at)
+                    <= now
+                )
+                if key is None or key.revoked_at is not None or expired:
+                    raise HTTPException(status_code=401, detail="invalid or expired API key")
                 tenant_id, key_id = key.tenant_id, key.id
     except DBAPIError as exc:
         original = getattr(exc, "orig", None)
