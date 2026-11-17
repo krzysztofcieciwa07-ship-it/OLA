@@ -85,7 +85,7 @@ def _verify_sandbox_output(node, output):
             or not 1 <= output["timeout_seconds"] <= 60):
         return "sandbox execution timeout invalid"
     if (type(output.get("output_limit_bytes_per_stream")) is not int
-            or not 1 <= output["output_limit_bytes_per_stream"] <= 8192):
+            or not 1 <= output["output_limit_bytes_per_stream"] <= 3072):
         return "sandbox output budget invalid"
     if type(output.get("source_bytes")) is not int:
         return "sandbox source size invalid"
