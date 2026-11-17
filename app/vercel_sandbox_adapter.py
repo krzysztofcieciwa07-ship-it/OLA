@@ -14,7 +14,7 @@ MAX_OUTPUT_BYTES = 8_192
 MAX_TIMEOUT_SECONDS = 60
 # Admission control is process-local; multi-process deployments multiply this cap.
 MAX_CONCURRENT_SANDBOXES_PER_PROCESS = 4
-RUNTIME_IMAGE = "vercel/sandbox/python:3.14"
+RUNTIME_IMAGE = "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8"
 _SANDBOX_SLOTS = BoundedSemaphore(MAX_CONCURRENT_SANDBOXES_PER_PROCESS)
 
 
@@ -143,8 +143,8 @@ def execute_python_source(
                 if not isinstance(sandbox_name, str) or not sandbox_name:
                     raise SandboxAdapterError("Vercel Sandbox did not return a sandbox identity")
                 image = getattr(sandbox, "image", None)
-                if not _is_digest_pinned_image(image):
-                    raise SandboxAdapterError("Vercel Sandbox did not return a digest-pinned image")
+                if image != RUNTIME_IMAGE or not _is_digest_pinned_image(image):
+                    raise SandboxAdapterError("Vercel Sandbox did not return the expected digest-pinned image")
                 completed = sandbox.run_process(
                     "python3",
                     ["-c", source],
