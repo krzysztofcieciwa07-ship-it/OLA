@@ -220,7 +220,7 @@ def sandbox_events(node_count=1):
         "destroy_on_exit": True,
         "resources": {"vcpus": 1, "memory_mb": 2048},
         "timeout_seconds": 30,
-        "output_limit_bytes_per_stream": 8192,
+        "output_limit_bytes_per_stream": 3072,
         "source_bytes": len(source.encode("utf-8")),
         "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
         "exit_code": 0,
