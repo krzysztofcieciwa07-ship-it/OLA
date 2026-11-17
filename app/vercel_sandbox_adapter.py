@@ -146,7 +146,7 @@ def execute_python_source(
                 sandbox_name = getattr(sandbox, "name", None)
                 if not isinstance(sandbox_name, str) or not sandbox_name:
                     raise SandboxAdapterError("Vercel Sandbox did not return a sandbox identity")
-                actual_region = getattr(sandbox, "region", SANDBOX_REGION)
+                actual_region = getattr(sandbox, "region", None) or SANDBOX_REGION
                 if actual_region != SANDBOX_REGION:
                     raise SandboxAdapterError("Vercel Sandbox did not use the configured EU region")
                 image = getattr(sandbox, "image", None)
