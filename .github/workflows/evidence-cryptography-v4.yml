@@ -11,6 +11,7 @@ on:
       - "app/igor_workflow.py"
       - "tests/test_evidence_v4_contract.py"
       - "tests/test_evidence_writer_v4.py"
+      - "tests/test_evidence_v4_process_lifecycle.py"
       - "tests/test_evidence_secret_management.py"
       - "tests/test_igor_independent_evidence.py"
       - ".github/workflows/evidence-cryptography-v4.yml"
@@ -38,7 +39,7 @@ jobs:
       - name: Run V4, writer, and independent IGOR contracts
         run: |
           set -euo pipefail
-          pytest -q tests/test_evidence_v4_contract.py tests/test_evidence_writer_v4.py tests/test_igor_independent_evidence.py
+          pytest -q tests/test_evidence_v4_contract.py tests/test_evidence_writer_v4.py tests/test_evidence_v4_process_lifecycle.py tests/test_igor_independent_evidence.py
 
   secret-management-contract:
     runs-on: ubuntu-latest
