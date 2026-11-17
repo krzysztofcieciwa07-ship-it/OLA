@@ -164,7 +164,8 @@ def execute_python_source(
                         or type(getattr(sandbox, "memory", None)) is not int
                         or sandbox.memory != SANDBOX_MEMORY_MB):
                     raise SandboxAdapterError("Vercel Sandbox did not confirm bounded resources")
-                if tuple(getattr(sandbox, "failover_regions", ())) != ():
+                actual_failover_regions = getattr(sandbox, "failover_regions", None)
+                if not isinstance(actual_failover_regions, (tuple, list)) or len(actual_failover_regions) != 0:
                     raise SandboxAdapterError("Vercel Sandbox failover regions are not disabled")
                 actual_time_limit = getattr(sandbox, "execution_time_limit", None)
                 if actual_time_limit != timeout:
@@ -190,7 +191,8 @@ def execute_python_source(
             "runtime": "python3.14",
             "sandbox_name": sandbox_name,
             "image": image,
-            "region": SANDBOX_REGION,
+            "region": actual_region,
+            "failover_regions": list(actual_failover_regions),
             "network_policy": actual_policy.mode,
             "persistent": sandbox.persistent,
             "destroy_on_exit": True,
