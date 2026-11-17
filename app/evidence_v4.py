@@ -225,6 +225,7 @@ def verify_mixed_chain(
             return False, "legacy V3 verification failed"
         return True, str(result[1])
 
+    previous_version: int | None = None
     for record in records:
         if not isinstance(record, Mapping):
             return False, "invalid record"
@@ -232,9 +233,10 @@ def verify_mixed_chain(
             return False, "sequence or predecessor mismatch"
         version = record.get("version")
         if version == 3:
-            ok, reason = flush_legacy() if record.get("version") != 3 else (True, "ok")
-            if not ok:
-                return False, reason
+            if previous_version == 4:
+                ok, reason = flush_legacy()
+                if not ok:
+                    return False, reason
             legacy_segment.append(record)
         elif version == 4:
             ok, reason = flush_legacy()
@@ -251,4 +253,5 @@ def verify_mixed_chain(
         if not isinstance(expected_prev, str) or not _HASH_RE.fullmatch(expected_prev):
             return False, "invalid record_hash"
         expected_seq += 1
+        previous_version = version
     return flush_legacy()
