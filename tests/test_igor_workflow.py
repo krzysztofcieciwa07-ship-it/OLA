@@ -121,6 +121,19 @@ def test_goal_digest_mismatch_between_lifecycle_and_plan_is_blocked():
     assert check(rehash(events))["status"] == "BLOCK"
 
 
+def test_igor_rejects_unsupported_capability_even_if_allowlist_claims_it():
+    from app.workflow_engine import _digest
+
+    events = [json.loads(row["payload_json"]) for row in proof()]
+    for event in events:
+        if event.get("run_id") == "run1" and "allowed_tools" in event:
+            event["allowed_tools"] = sorted(set(event["allowed_tools"] + ["shell"]))
+    planned = next(event for event in events if event["event"] == "workflow.planned")
+    planned["nodes"][0]["tool"] = "shell"
+    planned["plan_digest"] = _digest(planned["nodes"])
+    assert check(rehash(events))["status"] == "BLOCK"
+
+
 def test_igor_blocks_unallowlisted_plan_tool_even_with_recomputed_digest():
     from app.workflow_engine import _digest
 
