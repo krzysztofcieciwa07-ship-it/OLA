@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 import textwrap
 
 
@@ -11,58 +10,55 @@ def workflow(name: str) -> str:
 
 
 def trigger_block(source: str, next_section: str) -> str:
-    match = re.search(
-        rf"(?ms)^on:\\n(?P<body>.*?)(?=^{re.escape(next_section)}:)",
-        source,
-    )
-    assert match is not None, "workflow trigger block is missing"
-    return match.group("body")
+    lines = source.splitlines()
+    start = lines.index("on:")
+    end = lines.index(f"{next_section}:")
+    return chr(10).join(lines[start + 1:end])
 
 
 def test_nina_ollama_workflow_is_reusable_not_a_second_pr_or_main_push_trigger():
-    source = workflow("nina-igor-ollama.yml")
-    triggers = trigger_block(source, "permissions")
+    triggers = trigger_block(workflow("nina-igor-ollama.yml"), "permissions")
 
-    assert re.search(r"(?m)^  workflow_call:", triggers)
-    assert re.search(r"(?m)^  workflow_dispatch:", triggers)
-    assert not re.search(r"(?m)^  pull_request:", triggers)
-    push = re.search(r"(?ms)^  push:\\n(?P<body>.*)$", triggers)
-    assert push is not None
-    assert "- feat/evidence-graph-v0.1" in push.group("body")
-    assert "- main" not in push.group("body")
+    assert "  workflow_call:" in triggers
+    assert "  workflow_dispatch:" in triggers
+    assert "  pull_request:" not in triggers
+    push = triggers[triggers.index("  push:"):]
+    assert "- feat/evidence-graph-v0.1" in push
+    assert "- main" not in push
 
 
 def test_12h_flow_is_the_single_full_flow_for_pr_and_main_push():
-    source = workflow("ola-12h-autoflow.yml")
-    triggers = trigger_block(source, "concurrency")
+    triggers = trigger_block(workflow("ola-12h-autoflow.yml"), "concurrency")
 
-    assert re.search(r"(?m)^  schedule:", triggers)
-    assert re.search(r"(?m)^  workflow_dispatch:", triggers)
-    assert re.search(r"(?m)^  pull_request:", triggers)
-    assert re.search(r"(?m)^  push:", triggers)
+    assert "  schedule:" in triggers
+    assert "  workflow_dispatch:" in triggers
+    assert "  pull_request:" in triggers
+    assert "  push:" in triggers
     assert "paths:" not in triggers
 
 
 def test_12h_concurrency_isolates_prs_from_main_evidence_runs():
     source = workflow("ola-12h-autoflow.yml")
-    group = re.search(r"(?m)^  group: (.+)$", source)
-    assert group is not None
-    assert "github.event.pull_request.number" in group.group(1)
-    assert "github.ref" in group.group(1)
-    assert re.search(r"(?m)^  cancel-in-progress: false$", source)
+    group = next(line for line in source.splitlines() if line.strip().startswith("group:"))
+
+    assert "github.event.pull_request.number" in group
+    assert "github.ref" in group
+    assert "cancel-in-progress: false" in source
 
 
 def test_final_gate_verifies_nested_nina_igor_and_aggregator_in_12h_run():
     source = workflow("final-production-gate.yml")
-    required = re.search(r"required_exact\\s*=\\s*\\[(.*?)\\]", source, re.S)
-    assert required is not None
-    assert "OLA 12h Autonomous Evidence Flow" in required.group(1)
-    assert "NINA IGOR Ollama Full Flow" not in required.group(1)
+    start = source.index("required_exact = [")
+    end = source.index("]", start)
+    required = source[start:end]
+
+    assert "OLA 12h Autonomous Evidence Flow" in required
+    assert "NINA IGOR Ollama Full Flow" not in required
     assert 'autoflow_run = exact.get("OLA 12h Autonomous Evidence Flow")' in source
-    assert 'real_ollama_flow / nina-igor-ollama-full-flow' in source
-    assert 'real_ollama_flow / igor-independent-ollama / igor-ollama' in source
+    assert "real_ollama_flow / nina-igor-ollama-full-flow" in source
+    assert "real_ollama_flow / igor-independent-ollama / igor-ollama" in source
     assert '"OLA 12h Evidence Aggregator": "classify"' in source
-    assert "jobs_by_name.setdefault(job.get(\\"name\\"), job)" in source
+    assert 'jobs_by_name.setdefault(job.get("name"), job)' in source
 
 
 def test_final_gate_embedded_python_is_syntactically_valid():
