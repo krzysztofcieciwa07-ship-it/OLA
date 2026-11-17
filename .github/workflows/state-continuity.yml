@@ -9,6 +9,10 @@ on:
 
 permissions:
   contents: read
+env:
+  OLA_EVIDENCE_V4_KEYRING_JSON: '{"ci-v4-2026":"cHl0ZXN0LW9ubHktdjQta2V5LW1hdGVyaWFsLTMyYnl0ZXMhIQ=="}'
+  OLA_EVIDENCE_V4_ACTIVE_KEY_ID: ci-v4-2026
+
 
 jobs:
   continuity:
@@ -24,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           docker volume create ola-state-data
-          docker run -d --name ola-state --mount source=ola-state-data,target=/data -e OLA_RUNTIME_COMMIT="$GITHUB_SHA" -p 8000:8000 ola-state-continuity
+          docker run -d --name ola-state --mount source=ola-state-data,target=/data -e OLA_RUNTIME_COMMIT="$GITHUB_SHA" -e OLA_EVIDENCE_V4_KEYRING_JSON="$OLA_EVIDENCE_V4_KEYRING_JSON" -e OLA_EVIDENCE_V4_ACTIVE_KEY_ID="$OLA_EVIDENCE_V4_ACTIVE_KEY_ID" -p 8000:8000 ola-state-continuity
           for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:8000/health >/dev/null; then exit 0; fi; sleep 2; done
           docker logs ola-state
           exit 1
