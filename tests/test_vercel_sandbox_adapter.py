@@ -97,7 +97,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert result["stderr_truncated"] is False
 
     options = sdk.create_options
-    assert options["image"] == "vercel/sandbox/python:3.14"
+    assert options["image"] == "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8"
     assert options["persistent"] is False
     assert options["network_policy"] == "deny-all"
     assert options["resources"].vcpus == 1
