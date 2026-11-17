@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from app import igor_evidence_verifier as independent
+from app.igor import IgorVerifier
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -87,3 +88,23 @@ def test_igor_verifier_has_no_shared_writer_verifier_imports():
         elif isinstance(node, ast.Import):
             imported.extend(alias.name for alias in node.names)
     assert not any(name in {"app.hashchain", "app.evidence_v4"} for name in imported)
+
+
+
+def test_igor_runtime_verifier_accepts_v4_only_after_independent_chain_verification(monkeypatch):
+    legacy = _legacy_fixture()
+    v4 = _v4_fixture()
+    env = _environment(legacy, v4)
+    monkeypatch.setenv("OLA_API_KEY_PEPPER", env["OLA_API_KEY_PEPPER"])
+    monkeypatch.setenv("OLA_EVIDENCE_V4_KEYRING_JSON", env["OLA_EVIDENCE_V4_KEYRING_JSON"])
+    monkeypatch.setenv("OLA_EVIDENCE_V4_ACTIVE_KEY_ID", env["OLA_EVIDENCE_V4_ACTIVE_KEY_ID"])
+    result = IgorVerifier().verify_records(
+        [v4["record"]],
+        "abc123",
+        "fixture task",
+        "verified",
+        expected_run_id="fixture-run",
+    )
+    assert result.status == "VERIFIED"
+    assert result.checks["chain"] is True
+    assert result.evidence_ids == ()
