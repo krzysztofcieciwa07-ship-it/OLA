@@ -103,12 +103,11 @@ def run_controlled_audit(tenant_id, task, scenario):
         evidence_ids.append(append_record(tenant_id, record_type, payload)["id"])
 
     with SessionLocal() as db:
+        # Verify the complete tenant chain, not a selected suffix whose first
+        # sequence may be nonzero after earlier activity.
         rows = db.scalars(
             select(EvidenceRecord)
-            .where(
-                EvidenceRecord.tenant_id == tenant_id,
-                EvidenceRecord.id.in_(evidence_ids),
-            )
+            .where(EvidenceRecord.tenant_id == tenant_id)
             .order_by(EvidenceRecord.seq.asc())
         ).all()
 
@@ -129,7 +128,7 @@ def run_controlled_audit(tenant_id, task, scenario):
             "audit_id": audit_id,
             "status": "FAILED",
             "outcome": "evidence_chain_invalid",
-            "evidence_count": len(rows),
+            "evidence_count": len(evidence_ids),
             "evidence_ids": evidence_ids,
             "reason": reason,
         }
