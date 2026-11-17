@@ -295,9 +295,10 @@ def test_provenance_labelled_historical_v1_v2_v3_fixture_and_v4_transition():
 
 def test_mixed_chain_rejects_cross_tenant_boundary():
     v1 = _legacy(1, 0, GENESIS_HASH, "1" * 64)
-    v1["tenant_id"] = "tenant-other"
+    v2 = _legacy(1, 1, v1["record_hash"], "2" * 64)
+    v2["tenant_id"] = "tenant-other"
     ok, reason = verify_mixed_chain(
-        [v1], _ring(), legacy_verifier=lambda _segment, **_anchor: (True, "not enough")
+        [v1, v2], _ring(), legacy_verifier=lambda _segment, **_anchor: (True, "not enough")
     )
     assert not ok
     assert reason == "tenant boundary mismatch"
