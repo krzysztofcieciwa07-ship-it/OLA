@@ -94,6 +94,13 @@ class ReleaseSourceBindingTest(unittest.TestCase):
                 self.assertIn("org.opencontainers.image.revision", content)
                 self.assertIn("OLA_RUNTIME_COMMIT", content)
 
+    def test_independent_igor_uses_the_same_legacy_pepper_source_as_nina(self):
+        nina = (ROOT / ".github/workflows/nina-real-runtime-provenance.yml").read_text(encoding="utf-8")
+        igor = (ROOT / ".github/workflows/igor-independent-evidence.yml").read_text(encoding="utf-8")
+        self.assertIn("OLA_API_KEY_PEPPER: ${{ github.event.pull_request.head.sha || github.sha }}", nina)
+        self.assertIn("SOURCE_COMMIT: ${{ inputs.source_commit }}", igor)
+        self.assertIn("OLA_API_KEY_PEPPER: ${{ inputs.source_commit }}", igor)
+        self.assertNotIn("OLA_API_KEY_PEPPER: ${{ github.sha }}", igor)
     def test_pull_request_manifest_never_claims_attestation(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main' && success()", content)
