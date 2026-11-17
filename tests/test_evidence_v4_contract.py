@@ -92,9 +92,10 @@ def test_payload_canonicalization_is_stable():
 
 def test_noncanonical_payload_is_rejected():
     record = _record()
-    record["payload_json"] = '{"result":391,"run_id":"r1"}'
-    assert not verify_record(record, _ring())
-
+    # Whitespace makes this JSON semantically equivalent but not canonical.
+    record["payload_json"] = '{ "result":391,"run_id":"r1"}'
+    with pytest.raises(ValueError, match="payload_json is not canonical"):
+        verify_record(record, _ring())
 
 
 def test_key_loss_fails_closed_without_legacy_fallback():
