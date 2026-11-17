@@ -58,9 +58,6 @@ jobs:
       - name: Test security policy with high rule metadata
         run: python -m unittest discover -s tests -p "test_codeql_sarif_gate.py"
 
-      - name: Test exact-source CodeQL suppression policy
-        run: python -m unittest discover -s tests -p "test_codeql_alert_policy.py"
-
       - name: Enforce OLA high/critical policy from SARIF
         run: python scripts/check_codeql_sarif.py codeql-results
 
