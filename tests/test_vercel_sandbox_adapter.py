@@ -204,9 +204,14 @@ def test_adapter_rejects_source_over_limit_before_provider_call():
 
 
 def test_pinned_vercel_sdk_exposes_standalone_sync_sandbox_client():
+    import inspect
+
     import vercel.sandbox as sdk
     from vercel.sandbox.sync import SandboxServiceOptions, SyncSandboxClient
 
+    create_parameters = set(inspect.signature(SyncSandboxClient.create_sandbox).parameters)
+    assert {"image", "execution_time_limit", "persistent", "resources",
+            "network_policy", "destroy"} <= create_parameters
     options = SandboxServiceOptions(region="fra1")
     client = SyncSandboxClient.create(options=options)
     try:
