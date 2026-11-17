@@ -15,6 +15,9 @@ MAX_TIMEOUT_SECONDS = 60
 # Admission control is process-local; multi-process deployments multiply this cap.
 MAX_CONCURRENT_SANDBOXES_PER_PROCESS = 4
 RUNTIME_IMAGE = "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8"
+SANDBOX_REGION = "fra1"
+SANDBOX_VCPUS = 1
+SANDBOX_MEMORY_MB = 2048
 _SANDBOX_SLOTS = BoundedSemaphore(MAX_CONCURRENT_SANDBOXES_PER_PROCESS)
 
 
@@ -106,10 +109,11 @@ def execute_python_source(
 
     try:
         if sdk is None and client is None:
-            from vercel.sandbox import sync as sandbox_sdk
+            import vercel.sandbox as sdk
+            from vercel.sandbox.sync import SandboxServiceOptions, SyncSandboxClient
 
-            sdk = sandbox_sdk
-            client = sandbox_sdk.SyncSandboxClient.create()
+            client_options = SandboxServiceOptions(region=SANDBOX_REGION)
+            client = SyncSandboxClient.create(options=client_options)
         elif sdk is None or client is None:
             raise SandboxAdapterError("SDK and client test injections must be supplied together")
 
@@ -135,13 +139,16 @@ def execute_python_source(
                 image=RUNTIME_IMAGE,
                 execution_time_limit=timeout,
                 persistent=False,
-                resources=sdk.SandboxResources(vcpus=1),
+                resources=sdk.SandboxResources(vcpus=SANDBOX_VCPUS, memory=SANDBOX_MEMORY_MB),
                 network_policy=sdk.NetworkPolicy.deny_all(),
                 destroy=True,
             ) as sandbox:
                 sandbox_name = getattr(sandbox, "name", None)
                 if not isinstance(sandbox_name, str) or not sandbox_name:
                     raise SandboxAdapterError("Vercel Sandbox did not return a sandbox identity")
+                actual_region = getattr(sandbox, "region", SANDBOX_REGION)
+                if actual_region != SANDBOX_REGION:
+                    raise SandboxAdapterError("Vercel Sandbox did not use the configured EU region")
                 image = getattr(sandbox, "image", None)
                 if image != RUNTIME_IMAGE or not _is_digest_pinned_image(image):
                     raise SandboxAdapterError("Vercel Sandbox did not return the expected digest-pinned image")
@@ -166,6 +173,13 @@ def execute_python_source(
             "runtime": "python3.14",
             "sandbox_name": sandbox_name,
             "image": image,
+            "region": SANDBOX_REGION,
+            "network_policy": "deny-all",
+            "persistent": False,
+            "resources": {"vcpus": SANDBOX_VCPUS, "memory_mb": SANDBOX_MEMORY_MB},
+            "timeout_seconds": timeout_seconds,
+            "output_limit_bytes_per_stream": output_limit_bytes,
+            "source_bytes": len(source_bytes),
             "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
             "exit_code": exit_code,
             "stdout": stdout.text(),
