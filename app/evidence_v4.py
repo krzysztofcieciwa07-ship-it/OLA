@@ -13,6 +13,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 DOMAIN = "OLA-EVIDENCE-CHAIN-V4"
@@ -25,6 +26,16 @@ MAX_JSON_DEPTH = 32
 MAX_KEYRING_ENTRIES = 32
 _KEY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject duplicate JSON object members instead of silently taking the last."""
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
 
 
 class EvidenceV4Error(ValueError):
@@ -62,8 +73,10 @@ class Keyring:
                 raise InvalidKeyringError("invalid key_id")
             if not isinstance(key, bytes) or len(key) < 32:
                 raise InvalidKeyringError("V4 keys must contain at least 256 bits")
-        if self.active_key_id not in self.keys:
+        if not isinstance(self.active_key_id, str) or self.active_key_id not in self.keys:
             raise UnknownKeyError("active V4 key_id is not present in keyring")
+        # frozen dataclasses do not freeze a caller-owned dict; take an immutable copy.
+        object.__setattr__(self, "keys", MappingProxyType(dict(self.keys)))
 
 
 def load_keyring(environ: Mapping[str, str] | None = None) -> Keyring:
@@ -74,7 +87,7 @@ def load_keyring(environ: Mapping[str, str] | None = None) -> Keyring:
     if not raw or not active:
         raise MissingKeyError("V4 keyring and active key_id are required")
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(raw, object_pairs_hook=_unique_object)
     except (TypeError, ValueError) as exc:
         raise InvalidKeyringError("V4 keyring is not valid JSON") from exc
     if not isinstance(parsed, dict) or not parsed or len(parsed) > MAX_KEYRING_ENTRIES:
@@ -149,7 +162,7 @@ def _material(record: Mapping[str, Any]) -> bytes:
     if not isinstance(payload_json, str) or len(payload_json.encode("utf-8")) > MAX_PAYLOAD_BYTES:
         raise InvalidRecordError("invalid payload size")
     try:
-        payload = json.loads(payload_json)
+        payload = json.loads(payload_json, object_pairs_hook=_unique_object)
     except (TypeError, ValueError) as exc:
         raise InvalidRecordError("payload_json is invalid JSON") from exc
     if canonical_json(payload) != payload_json:
