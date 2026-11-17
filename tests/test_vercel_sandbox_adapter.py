@@ -158,3 +158,17 @@ def test_pinned_vercel_sdk_exposes_standalone_sync_sandbox_client():
         assert sandbox_sdk.SandboxResources(vcpus=1) is not None
     finally:
         client.close()
+
+
+def test_default_adapter_uses_official_sdk_policy_and_resource_types(monkeypatch):
+    from vercel.sandbox import sync as sandbox_sdk
+
+    fake_client = FakeSDK(FakeSandbox())
+    monkeypatch.setattr(sandbox_sdk.SyncSandboxClient, "create", lambda: fake_client)
+
+    result = execute_python_source("print(42)")
+
+    assert result["executor"] == "vercel_sandbox"
+    assert isinstance(fake_client.create_options["network_policy"], sandbox_sdk.NetworkPolicy)
+    assert isinstance(fake_client.create_options["resources"], sandbox_sdk.SandboxResources)
+    assert fake_client.closed is True
