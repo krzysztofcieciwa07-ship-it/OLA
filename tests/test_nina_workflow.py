@@ -27,6 +27,8 @@ def test_end_to_end_workflow_service_records_every_step():
     assert len(result["evidence_ids"]) == 8
     assert writes[0][1] == "execution.run.start"
     assert writes[1][1] == "workflow.planned"
+    assert writes[0][2]["task_digest"] == writes[1][2]["task_digest"]
+    assert writes[-1][2]["task_digest"] == writes[0][2]["task_digest"]
     assert writes[-2][1] == "workflow.completed"
     assert writes[-1][1] == "execution.run.end"
     assert all(item[0] == "tenantA" for item in writes)
