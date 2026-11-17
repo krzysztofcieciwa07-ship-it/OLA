@@ -438,3 +438,39 @@ def test_manual_dispatch_from_non_main_is_blocked_before_git_or_github(tmp_path,
     assert persisted["run.start"]
     assert persisted["run.end"]
     assert persisted["source_sha"] is None
+
+
+def test_watchdog_waits_when_main_advances_after_scheduled_checkout(tmp_path, monkeypatch):
+    from scripts.ola_watchdog import run_watchdog
+
+    repository = "krzysztofcieciwa07-ship-it/OLA"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("GITHUB_REPOSITORY", repository)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    def fake_run(arguments, **kwargs):
+        assert arguments == ["git", "rev-parse", "HEAD"]
+        return subprocess.CompletedProcess(arguments, 0, stdout=f"{SOURCE_SHA}\\n", stderr="")
+
+    calls = []
+
+    def fake_gh_json(arguments):
+        calls.append(arguments)
+        if arguments == ["api", f"repos/{repository}/git/ref/heads/main"]:
+            return {"object": {"sha": OLD_SHA}}
+        raise AssertionError("stale checkout must not inspect or dispatch an evidence flow")
+
+    monkeypatch.setattr("scripts.ola_watchdog.subprocess.run", fake_run)
+    monkeypatch.setattr("scripts.ola_watchdog._gh_json", fake_gh_json)
+
+    report = run_watchdog()
+
+    assert calls == [["api", f"repos/{repository}/git/ref/heads/main"]]
+    assert report["source_sha"] == SOURCE_SHA
+    assert report["current_main_sha"] == OLD_SHA
+    assert report["decision"] == "CONTINUE"
+    assert report["action"] == "WAIT"
+    assert report["evidence_status"] == "BLOCKED"
+    assert report["reason"] == "main_advanced_since_watchdog_checkout"
