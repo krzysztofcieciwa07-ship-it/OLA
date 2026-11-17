@@ -301,33 +301,18 @@ def test_postgres_verifier_rejects_role_name_collisions_before_database_access()
         )
 
 
-def test_tenant_context_signature_is_tenant_bound_and_fails_closed(monkeypatch):
-    import hashlib
-    import hmac
-    from app.tenant_context import tenant_context_signature
+def test_database_auth_context_rejects_malformed_evidence():
+    import pytest
+    from app.tenant_context import (
+        set_api_key_context, set_worker_claim_context, set_checkout_context,
+        set_database_auth_context,
+    )
 
-    secret = "unit-test-tenant-context-secret-material-0123456789"
-    monkeypatch.setenv("OLA_RLS_CONTEXT_SECRET", secret)
-    expected = hmac.new(
-        secret.encode("utf-8"),
-        b"OLA-TENANT-CONTEXT-V1:tenant-alpha",
-        hashlib.sha256,
-    ).hexdigest()
-    assert tenant_context_signature("tenant-alpha") == expected
-    assert tenant_context_signature("tenant-beta") != expected
-
-    monkeypatch.delenv("OLA_RLS_CONTEXT_SECRET")
-    with pytest.raises(RuntimeError, match="OLA_RLS_CONTEXT_SECRET"):
-        tenant_context_signature("tenant-alpha")
-
-
-def test_signed_tenant_rls_sql_validates_signature_format_and_fails_closed():
-    import inspect
-
-    source = inspect.getsource(database.install_postgres_tenant_rls)
-    assert "v_signature !~ '^[0-9a-f]{{64}}$' THEN" in source
-    assert "RETURN NULL;" in source
-    assert "END IF;" in source
-    assert "SECURITY DEFINER" in source
-    assert "SET search_path = pg_catalog" in source
-    assert "ola_current_tenant_id()" in source
+    with pytest.raises(ValueError, match="64-character lowercase hex"):
+        set_api_key_context("not-a-fingerprint")
+    with pytest.raises(ValueError, match="bounded lease"):
+        set_worker_claim_context("job-1", "short", 0)
+    with pytest.raises(ValueError, match="sandbox session id"):
+        set_checkout_context("order-1", "cs_live_not-accepted")
+    with pytest.raises(ValueError, match="unsupported"):
+        set_database_auth_context("caller_supplied_tenant", "tenant-a")
