@@ -94,3 +94,27 @@ def test_noncanonical_payload_is_rejected():
     record = _record()
     record["payload_json"] = '{"result":391,"run_id":"r1"}'
     assert not verify_record(record, _ring())
+
+
+
+def test_key_loss_fails_closed_without_legacy_fallback():
+    signed = _record(keyring=_ring("k1"))
+    no_old_key = Keyring(keys={"k2": KEY_B}, active_key_id="k2")
+    with pytest.raises(UnknownKeyError):
+        verify_record(signed, no_old_key)
+
+
+def test_backup_restore_preserves_verifiability_with_restored_secret():
+    original = _ring("k1")
+    record = _record(keyring=original)
+    evidence_backup = json.dumps(record, sort_keys=True)
+    secret_backup = {
+        KEYRING_ENV: json.dumps({
+            "k1": base64.b64encode(KEY_A).decode(),
+            "k2": base64.b64encode(KEY_B).decode(),
+        }),
+        ACTIVE_KEY_ENV: "k2",
+    }
+    restored_record = json.loads(evidence_backup)
+    restored_keyring = load_keyring(secret_backup)
+    assert verify_record(restored_record, restored_keyring)
