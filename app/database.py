@@ -633,7 +633,7 @@ def verify_postgres_schema(
             FROM unnest(CAST(:table_names AS text[])) AS scoped(table_name)
         """), {
             "runtime_role": runtime_role,
-            "table_names": [*rls_tables, "ola_schema_migrations", "ola_rls_context_secrets"],
+            "table_names": [*rls_tables, "ola_schema_migrations"],
         }).all()
         role_state = {
             row[0]: tuple(bool(value) for value in row[1:])
@@ -879,7 +879,6 @@ def verify_postgres_schema(
         "checkout_execution_jobs": {"SELECT", "INSERT", "UPDATE"},
         "checkout_report_reviews": {"SELECT", "INSERT", "UPDATE"},
         "ola_schema_migrations": {"SELECT"},
-        "ola_rls_context_secrets": set(),
     }
     privilege_names = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN")
     runtime_privilege_state = {
