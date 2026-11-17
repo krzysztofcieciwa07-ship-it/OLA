@@ -73,8 +73,10 @@ def _depth(value, level=0):
 
 
 def _json_object(raw, *, strict=False):
-    if not isinstance(raw, str) or len(raw.encode("utf-8")) > MAX_PAYLOAD_BYTES:
-        raise IndependentEvidenceError("invalid or oversized payload_json")
+    if not isinstance(raw, str):
+        raise IndependentEvidenceError("invalid payload_json")
+    if strict and len(raw.encode("utf-8")) > MAX_PAYLOAD_BYTES:
+        raise IndependentEvidenceError("V4 payload size limit exceeded")
     try:
         if strict:
             value = json.loads(raw, object_pairs_hook=_reject_duplicate_members)
