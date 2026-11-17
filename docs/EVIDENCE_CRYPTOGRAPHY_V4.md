@@ -123,14 +123,12 @@ must not alter or replace that legacy pepper.
 
 V4 `key_id` is cryptographic metadata, not business-event identity. A key
 rotation must not cause a retried event to be appended a second time solely
-because the active key changed. Before migrating the central
-`append_evidence_atomic(..., deduplicate=True)` path, tests must define and
-prove the logical deduplication key over tenant, record type, producer, and
-canonical application payload with protocol metadata excluded.
+because the active key changed. The V4 append primitive therefore compares
+canonical application payload, tenant, record type, and producer while
+excluding `key_id`.
 
-Cross-version behavior must be explicit: a semantically identical V1/V2/V3
-event may be present in immutable history when the same request is retried
-after V4 activation. The migration must decide whether those records satisfy
-the retry (preferred when the old record is trusted for that business purpose)
-or whether the append is intentionally version-scoped. It must never compare
-raw V4 payload bytes in a way that makes key rotation alone defeat deduplication.
+Deduplication is deliberately V4-version-scoped. V1/V2/V3 rows do not satisfy
+a V4 retry automatically. That avoids treating legacy history as trusted
+idempotency evidence without a separate historical reconciliation policy.
+The append primitive verifies the complete existing tenant chain before
+deduplication or append, and refuses to extend a chain it cannot verify.
