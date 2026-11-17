@@ -4,7 +4,6 @@ Two distinct API key identities are required; this is NOT GitHub PR approval
 and does not grant deployment privileges.
 """
 import json
-import uuid
 
 from sqlalchemy import select
 from .database import SessionLocal, begin_write_transaction
