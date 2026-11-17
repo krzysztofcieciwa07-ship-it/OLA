@@ -135,5 +135,18 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('status="PREMERGE_CI_PASSED"', content)
 
 
+    def test_release_gate_producer_workflows_run_for_every_candidate_sha(self):
+        # The final gate requires these exact-SHA proofs on every PR and main
+        # push. Path filters can silently suppress a producer while the
+        # consumer still waits for it, yielding a false release-gate failure.
+        for filename in (
+            ".github/workflows/evidence-cryptography-v4.yml",
+            ".github/workflows/paid-order-postgres.yml",
+        ):
+            with self.subTest(workflow=filename):
+                content = (ROOT / filename).read_text(encoding="utf-8")
+                self.assertNotRegex(content, r"(?m)^  (?:pull_request|push):\\n    paths:")
+
+
 if __name__ == "__main__":
     unittest.main()
