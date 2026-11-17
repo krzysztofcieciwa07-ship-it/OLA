@@ -20,7 +20,7 @@ from .agent_runtime import run_agent_task
 from .agent_registry import build_agent_registry
 from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
 from .business_runtime import run_invoice_task
-from .nina import NinaOrchestrator, NinaTask, REGISTERED_TOOLS, WORKFLOW_REGISTERED_TOOLS
+from .nina import NinaOrchestrator, NinaTask, WORKFLOW_REGISTERED_TOOLS
 from .nina_workflow import run_nina_workflow
 from .nina_workflow_gate import approve_workflow, approve_nina_candidate, WorkflowApprovalRejected
 from .workflow_engine import WorkflowPlanError
