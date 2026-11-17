@@ -147,3 +147,14 @@ def test_adapter_rejects_source_over_limit_before_provider_call():
             client=sdk,
         )
     assert sdk.create_options is None
+
+
+def test_pinned_vercel_sdk_exposes_standalone_sync_sandbox_client():
+    from vercel.sandbox import sync as sandbox_sdk
+
+    client = sandbox_sdk.SyncSandboxClient.create()
+    try:
+        assert sandbox_sdk.NetworkPolicy.deny_all() is not None
+        assert sandbox_sdk.SandboxResources(vcpus=1) is not None
+    finally:
+        client.close()
