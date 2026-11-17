@@ -252,7 +252,8 @@ def test_artifact_archive_rejects_file_parent_collisions(tmp_path, monkeypatch):
     assert not (destination / "evidence").exists()
 
 
-def test_aggregator_bundle_requires_checksum_exact_sha_and_all_evidence(tmp_path):
+def test_aggregator_bundle_requires_checksum_exact_sha_and_all_evidence(tmp_path, monkeypatch):
+    monkeypatch.setattr("scripts.ola_watchdog.verify_nested_evidence", lambda *args: (True, "verified"))
     write_bundle(tmp_path, valid_summary())
 
     ok, reason, parsed = verify_aggregator_bundle(tmp_path, SOURCE_SHA)
@@ -272,7 +273,8 @@ def test_aggregator_bundle_rejects_missing_nested_evidence_even_with_valid_summa
     assert parsed is not None
 
 
-def test_aggregator_bundle_rejects_tampering_and_wrong_source(tmp_path):
+def test_aggregator_bundle_rejects_tampering_and_wrong_source(tmp_path, monkeypatch):
+    monkeypatch.setattr("scripts.ola_watchdog.verify_nested_evidence", lambda *args: (True, "verified"))
     write_bundle(tmp_path, valid_summary())
     summary_path = tmp_path / "ola-auto-evidence.json"
     summary_path.write_text(summary_path.read_text() + " ", encoding="utf-8")
@@ -312,6 +314,9 @@ def test_watchdog_workflow_persists_lifecycle_evidence_and_never_cancels_active_
     assert "headSha" in script
     assert "actions/artifacts/" in script
     assert "aggregator_artifact_digest_verified" in script
+    assert "verify_nested_artifact_copies" in script
+    assert "verify_nested_evidence" in script
+    assert "required_nested_evidence_job_not_successful" in script
     assert "updatedAt" in script
     assert "classify" in script
     assert "pending" in script

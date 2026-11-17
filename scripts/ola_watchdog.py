@@ -10,12 +10,19 @@ import os
 import stat
 import selectors
 import subprocess
+import sys
 import tempfile
 import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from scripts.ola_watchdog_evidence import verify_nested_artifact_copies, verify_nested_evidence
 
 
 ACTIVE_STATUSES = {"queued", "pending", "in_progress", "waiting", "requested"}
@@ -271,7 +278,10 @@ def download_and_verify_artifact_archive(
     return True, "verified"
 
 def verify_aggregator_bundle(
-    directory: str | Path, source_sha: str
+    directory: str | Path,
+    source_sha: str,
+    expected_run_id: int | None = None,
+    expected_nina_artifact_digest: str | None = None,
 ) -> tuple[bool, str, dict[str, Any] | None]:
     """Verify the aggregator's own checksum and fail-closed V3 claims."""
     root = Path(directory)
@@ -319,6 +329,16 @@ def verify_aggregator_bundle(
     )
     if not required:
         return False, "evidence_not_verified", summary
+
+    if expected_run_id is None:
+        expected_run_id = summary.get("flow_run_id")
+    if expected_nina_artifact_digest is None:
+        expected_nina_artifact_digest = summary.get("nina_artifact_digest")
+    nested_ok, nested_reason = verify_nested_evidence(
+        root, source_sha, expected_run_id, expected_nina_artifact_digest
+    )
+    if not nested_ok:
+        return False, nested_reason, summary
     return True, "verified", summary
 
 
@@ -403,6 +423,8 @@ def run_watchdog() -> dict[str, Any]:
         "aggregator_artifact_size_bytes": None,
         "aggregator_artifact_digest_verified": False,
         "aggregator_summary_sha256": None,
+        "nested_artifacts": {},
+        "nested_artifacts_verified": False,
         "evidence_status": "UNKNOWN",
         "decision": "STOP",
         "action": "NONE",
@@ -462,22 +484,28 @@ def run_watchdog() -> dict[str, Any]:
         jobs_payload = _gh_json([
             "api", f"repos/{repository}/actions/runs/{run_id}/jobs?per_page=100",
         ])
-        classify = next(
-            (job for job in jobs_payload.get("jobs", []) if job.get("name") == "classify"),
-            None,
-        )
-        if not classify or classify.get("conclusion") != "success":
-            _block(report, "classify_job_not_successful")
+        required_jobs = {
+            "preflight",
+            "real_ollama_flow / nina-igor-ollama-full-flow",
+            "real_ollama_flow / igor-independent-ollama / igor-ollama",
+            "classify",
+        }
+        job_results = {
+            job.get("name"): job.get("conclusion")
+            for job in jobs_payload.get("jobs", [])
+        }
+        if any(job_results.get(name) != "success" for name in required_jobs):
+            _block(report, "required_nested_evidence_job_not_successful")
             report["evidence_status"] = "BLOCKED"
             return report
 
         artifacts_payload = _gh_json([
             "api", f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100",
         ])
+        artifact_list = artifacts_payload.get("artifacts", [])
         artifact_name = f"ola-auto-evidence-{source_sha}"
         artifact = next(
-            (item for item in artifacts_payload.get("artifacts", [])
-             if item.get("name") == artifact_name),
+            (item for item in artifact_list if item.get("name") == artifact_name),
             None,
         )
         if not artifact or artifact.get("expired") is True:
@@ -514,7 +542,26 @@ def run_watchdog() -> dict[str, Any]:
                     report["evidence_status"] = "BLOCKED"
                     return report
                 report["aggregator_artifact_digest_verified"] = True
-                valid, reason, summary = verify_aggregator_bundle(bundle_dir, source_sha)
+                nested_ok, nested_reason, nested_metadata = verify_nested_artifact_copies(
+                    repository,
+                    artifact_list,
+                    bundle_dir,
+                    source_sha,
+                    Path(directory),
+                    download_and_verify_artifact_archive,
+                )
+                if not nested_ok:
+                    _block(report, nested_reason)
+                    report["evidence_status"] = "BLOCKED"
+                    return report
+                report["nested_artifacts"] = nested_metadata
+                report["nested_artifacts_verified"] = True
+                valid, reason, summary = verify_aggregator_bundle(
+                    bundle_dir,
+                    source_sha,
+                    expected_run_id=int(run_id),
+                    expected_nina_artifact_digest=nested_metadata["nina"]["digest"],
+                )
                 if summary is not None:
                     summary_bytes = (bundle_dir / "ola-auto-evidence.json").read_bytes()
                     report["aggregator_summary_sha256"] = hashlib.sha256(summary_bytes).hexdigest()
