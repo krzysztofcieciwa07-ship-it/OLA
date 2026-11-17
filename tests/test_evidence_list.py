@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.api_key_hashing import api_key_fingerprint
 from app.database import SessionLocal
 from app.main import app
+from app.evidence_v4 import MAX_PAYLOAD_BYTES
 from app.models import ApiKey, EvidenceRecord, Tenant
 
 
@@ -160,4 +161,19 @@ def test_public_evidence_rejects_oversized_or_deep_payloads_as_client_errors():
         json={"record_type": "generic", "payload": nested},
     )
     assert too_deep.status_code == 400, too_deep.text
+    assert _record_count(tenant_id) == before
+
+
+def test_public_evidence_maps_post_envelope_v4_size_failure_to_400():
+    tenant_id, key = _tenant_with_key()
+    before = _record_count(tenant_id)
+    # The caller payload is valid and just below the V4 byte ceiling. The
+    # authenticated V4 metadata envelope pushes the stored JSON over it.
+    payload = {"blob": "x" * (MAX_PAYLOAD_BYTES - len('{"blob":""}') - 1)}
+    response = CLIENT.post(
+        "/evidence",
+        headers={"X-API-Key": key},
+        json={"record_type": "generic", "payload": payload},
+    )
+    assert response.status_code == 400, response.text
     assert _record_count(tenant_id) == before
