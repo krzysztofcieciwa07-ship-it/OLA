@@ -19,13 +19,15 @@ class FakeNetworkPolicy:
 
 
 class FakeResources:
-    def __init__(self, *, vcpus):
+    def __init__(self, *, vcpus, memory):
         self.vcpus = vcpus
+        self.memory = memory
 
 
 class FakeSandbox:
     name = "sandbox-test-123"
     image = "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8"
+    region = "fra1"
 
     def __init__(self, stdout="42\n", stderr=""):
         self.stdout_value = stdout
@@ -88,6 +90,13 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert result["runtime"] == "python3.14"
     assert result["sandbox_name"] == box.name
     assert result["image"] == box.image
+    assert result["region"] == "fra1"
+    assert result["network_policy"] == "deny-all"
+    assert result["persistent"] is False
+    assert result["resources"] == {"vcpus": 1, "memory_mb": 2048}
+    assert result["timeout_seconds"] == 12
+    assert result["output_limit_bytes_per_stream"] == 8192
+    assert result["source_bytes"] == len(source.encode("utf-8"))
     assert result["exit_code"] == 0
     assert result["stdout"] == "42\n"
     assert result["source_sha256"]
@@ -101,6 +110,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert options["persistent"] is False
     assert options["network_policy"] == "deny-all"
     assert options["resources"].vcpus == 1
+    assert options["resources"].memory == 2048
     assert options["execution_time_limit"] == timedelta(seconds=12)
     assert "env" not in options
 
@@ -193,27 +203,37 @@ def test_adapter_rejects_source_over_limit_before_provider_call():
 
 
 def test_pinned_vercel_sdk_exposes_standalone_sync_sandbox_client():
-    from vercel.sandbox import sync as sandbox_sdk
+    import vercel.sandbox as sdk
+    from vercel.sandbox.sync import SandboxServiceOptions, SyncSandboxClient
 
-    client = sandbox_sdk.SyncSandboxClient.create()
+    options = SandboxServiceOptions(region="fra1")
+    client = SyncSandboxClient.create(options=options)
     try:
-        assert sandbox_sdk.NetworkPolicy.deny_all() is not None
-        assert sandbox_sdk.SandboxResources(vcpus=1) is not None
+        assert sdk.NetworkPolicy.deny_all() is not None
+        assert sdk.SandboxResources(vcpus=1, memory=2048) is not None
     finally:
         client.close()
 
 
 def test_default_adapter_uses_official_sdk_policy_and_resource_types(monkeypatch):
-    from vercel.sandbox import sync as sandbox_sdk
+    import vercel.sandbox as sdk
+    from vercel.sandbox.sync import SyncSandboxClient
 
     fake_client = FakeSDK(FakeSandbox())
-    monkeypatch.setattr(sandbox_sdk.SyncSandboxClient, "create", lambda: fake_client)
+    captured = {}
+    def fake_create(*, options):
+        captured["options"] = options
+        return fake_client
+    monkeypatch.setattr(SyncSandboxClient, "create", fake_create)
 
     result = execute_python_source("print(42)")
 
     assert result["executor"] == "vercel_sandbox"
-    assert isinstance(fake_client.create_options["network_policy"], sandbox_sdk.NetworkPolicy)
-    assert isinstance(fake_client.create_options["resources"], sandbox_sdk.SandboxResources)
+    assert captured["options"].region == "fra1"
+    assert isinstance(fake_client.create_options["network_policy"], sdk.NetworkPolicy)
+    assert isinstance(fake_client.create_options["resources"], sdk.SandboxResources)
+    assert fake_client.create_options["resources"].memory == 2048
+    assert result["region"] == "fra1"
     assert fake_client.closed is True
 
 
