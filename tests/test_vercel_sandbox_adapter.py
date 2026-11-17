@@ -19,6 +19,7 @@ class FakeResources:
 
 class FakeSandbox:
     name = "sandbox-test-123"
+    image = "vercel/sandbox/python@sha256:" + "a" * 64
 
     def __init__(self, stdout="42\n", stderr=""):
         self.stdout_value = stdout
@@ -71,7 +72,8 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert result["executor"] == "vercel_sandbox"
     assert result["operation"] == "python_exec"
     assert result["runtime"] == "python3.14"
-    assert result["sandbox_name"] == box.name\n    assert result["image"] == box.image
+    assert result["sandbox_name"] == box.name
+    assert result["image"] == box.image
     assert result["exit_code"] == 0
     assert result["stdout"] == "42\n"
     assert result["source_sha256"]
