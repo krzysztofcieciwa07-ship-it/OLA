@@ -92,7 +92,6 @@ def compute_record_hash_v2(tenant_id, seq, prev_hash, record_type, producer, pay
         "record_type": record_type, "producer": producer, "payload_json": payload_json,
     }).encode("utf-8")
     # V2 is retained only to verify immutable historical records; new writes use keyed V3.
-    # codeql[py/weak-sensitive-data-hashing]
     return hashlib.sha256(material).hexdigest()
 
 
@@ -111,7 +110,7 @@ def compute_record_hash_v3(tenant_id, seq, prev_hash, record_type, producer, pay
         "tenant_id": tenant_id, "seq": seq, "prev_hash": prev_hash,
         "record_type": record_type, "producer": producer, "payload_json": payload_json,
     }).encode("utf-8")
-    # codeql[py/weak-sensitive-data-hashing] HMAC-SHA-256 is keyed with the server-side pepper; this is not an unkeyed digest.
+    # HMAC-SHA-256 is keyed with the server-side pepper; this is not an unkeyed digest.
     return hmac.new(_evidence_chain_key(), material, hashlib.sha256).hexdigest()
 
 

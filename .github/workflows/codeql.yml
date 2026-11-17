@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   schedule:
     - cron: "17 4 * * 3"
   workflow_dispatch:
@@ -59,9 +58,6 @@ jobs:
       - name: Test security policy with high rule metadata
         run: python -m unittest discover -s tests -p "test_codeql_sarif_gate.py"
 
-      - name: Test exact-source CodeQL suppression policy
-        run: python -m unittest discover -s tests -p "test_codeql_alert_policy.py"
-
       - name: Enforce OLA high/critical policy from SARIF
         run: python scripts/check_codeql_sarif.py codeql-results
 
@@ -77,10 +73,8 @@ jobs:
           import os
           import re
           import sys
-          from pathlib import Path
           from urllib.parse import quote
           from urllib.request import Request, urlopen
-          from scripts.codeql_alert_policy import source_suppression_reason
 
           repo = os.environ["GITHUB_REPOSITORY"]
           expected = os.environ["EXPECTED_SOURCE_SHA"]
@@ -161,7 +155,6 @@ jobs:
                   "url": alert.get("html_url"),
               })
           current = []
-          in_source_suppressed = []
           for alert in relevant:
               if alert["sha"] != expected or alert["path"] not in changed_lines_by_path:
                   continue
@@ -171,18 +164,11 @@ jobs:
                   alert["diff_status"] = "PATCH_UNAVAILABLE"
                   current.append(alert)
               elif alert["line"] is None or alert["line"] in changed_lines:
-                  rationale = None
-                  if alert["line"] is not None:
-                      rationale = source_suppression_reason(
-                          Path.cwd(), alert["path"], alert["line"], alert["rule"]
-                      )
-                  if rationale:
-                      alert["diff_status"] = "IN_SOURCE_SUPPRESSED"
-                      alert["suppression_reason"] = rationale
-                      in_source_suppressed.append(alert)
-                  else:
-                      alert["diff_status"] = "CHANGED_LINE"
-                      current.append(alert)
+                  # No source comment can suppress an alert. The helper is
+                  # intentionally fail-closed; false positives require an
+                  # independently reviewed manual GitHub Code Scanning dismissal.
+                  alert["diff_status"] = "CHANGED_LINE"
+                  current.append(alert)
           high = [a for a in current if a["severity"] in ("critical", "high")]
           print(json.dumps({
               "status": "BLOCK" if high else "INSPECTED",
@@ -192,7 +178,6 @@ jobs:
                   for path, lines in sorted(changed_lines_by_path.items())
               },
               "in_scope_alerts": current,
-              "in_source_suppressed_alerts": in_source_suppressed,
               "repository_alert_inventory": relevant,
           }, sort_keys=True))
           if high:
