@@ -26,6 +26,7 @@ def flow_run(
     conclusion: str = "success",
     run_id: int = 123,
     created_at: str = "2026-11-17T08:00:00Z",
+    updated_at: str | None = None,
 ) -> dict:
     return {
         "databaseId": run_id,
@@ -34,7 +35,7 @@ def flow_run(
         "status": status,
         "conclusion": conclusion,
         "createdAt": created_at,
-        "updatedAt": created_at,
+        "updatedAt": updated_at or created_at,
     }
 
 
@@ -81,13 +82,13 @@ def test_verified_flow_freshness_uses_completion_update_not_start_time():
     fresh = decide_verified_flow(
         run,
         evidence_valid=True,
-        now_epoch=1794903900,
+        now_epoch=1794904200,
         freshness_seconds=900,
     )
     stale = decide_verified_flow(
         run,
         evidence_valid=True,
-        now_epoch=1794904500,
+        now_epoch=1794904900,
         freshness_seconds=900,
     )
     invalid = decide_verified_flow(
@@ -235,7 +236,9 @@ def test_watchdog_workflow_persists_lifecycle_evidence_and_never_cancels_active_
     assert '"run.start"' in script
     assert '"run.end"' in script
     assert "headSha" in script
-    assert '"gh", "run", "download"' in script
+    assert '"actions/artifacts/"' in script
+    assert "aggregator_artifact_digest_verified" in script
+    assert "updatedAt" in script
     assert "classify" in script
 
 
