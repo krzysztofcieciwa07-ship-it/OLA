@@ -118,19 +118,20 @@ def test_adapter_rejects_unpinned_resolved_image_before_execution():
     assert sdk.closed is True
 
 
-def test_adapter_caps_retained_output_and_marks_truncation():
+def test_adapter_aborts_and_destroys_sandbox_when_output_limit_is_exceeded():
     box = FakeSandbox(stdout="x" * 20, stderr="y" * 20)
     sdk = FakeSDK(box)
-    result = execute_python_source(
-        "print('x')",
-        sdk=sdk,
-        client=sdk,
-        output_limit_bytes=5,
-    )
-    assert result["stdout"] == "xxxxx"
-    assert result["stderr"] == "yyyyy"
-    assert result["stdout_truncated"] is True
-    assert result["stderr_truncated"] is True
+
+    with pytest.raises(SandboxOutputLimitExceeded, match="output budget"):
+        execute_python_source(
+            "print('x')",
+            sdk=sdk,
+            client=sdk,
+            output_limit_bytes=5,
+        )
+
+    assert box.exited is True
+    assert sdk.closed is True
 
 
 @pytest.mark.parametrize(
