@@ -14,7 +14,6 @@ permissions: {}
 
 env:
   # CI fixture only; NEVER use as a production secret.
-  OLA_API_KEY_PEPPER: ${{ github.sha }}
   # Public test-only key; never use this value for production.
   OLA_EVIDENCE_V4_KEYRING_JSON: '{"ci-v4-2026":"cHl0ZXN0LW9ubHktdjQta2V5LW1hdGVyaWFsLTMyYnl0ZXMhIQ=="}'
   OLA_EVIDENCE_V4_ACTIVE_KEY_ID: ci-v4-2026
@@ -30,6 +29,7 @@ jobs:
     if: ${{ inputs.source_commit != '' && inputs.nina_artifact_name != '' }}
     env:
       SOURCE_COMMIT: ${{ inputs.source_commit }}
+      OLA_API_KEY_PEPPER: ${{ inputs.source_commit }}
       NINA_RUN_ID: ${{ github.run_id }}
       NINA_ARTIFACT_NAME: ${{ inputs.nina_artifact_name }}
     steps:
