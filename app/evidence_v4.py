@@ -297,7 +297,11 @@ def verify_mixed_chain(
         segment = legacy_segment
         legacy_segment = []
         try:
-            result = legacy_verifier(segment)
+            result = legacy_verifier(
+                segment,
+                start_seq=segment[0]["seq"],
+                start_prev_hash=segment[0]["prev_hash"],
+            )
         except Exception:
             return False, "legacy verifier raised an exception"
         if not isinstance(result, tuple) or len(result) != 2 or result[0] is not True:
