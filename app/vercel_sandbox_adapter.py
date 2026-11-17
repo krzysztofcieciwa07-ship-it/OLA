@@ -4,8 +4,8 @@ The adapter executes a fixed Python interpreter invocation inside a fresh
 Firecracker sandbox. It does not create runs or write evidence; the existing
 WorkflowEngine and Evidence V4 writer own those responsibilities.
 """
-from datetime import timedelta
 import hashlib
+from datetime import timedelta
 
 
 MAX_SOURCE_BYTES = 100_000
@@ -60,13 +60,14 @@ def execute_python_source(
     source,
     *,
     sdk=None,
+    client=None,
     timeout_seconds=30,
     output_limit_bytes=MAX_OUTPUT_BYTES,
 ):
     """Execute Python source in a one-shot, network-isolated Vercel Sandbox.
 
-    The SDK session is opened inside the calling thread. This matters because
-    WorkflowEngine dispatches registered nodes through ThreadPoolExecutor.
+    A standalone SDK client is created and closed inside the calling thread.
+    This matters because WorkflowEngine dispatches nodes through ThreadPoolExecutor.
     """
     if not isinstance(source, str) or not source.strip():
         raise SandboxAdapterError("Python source must be a non-empty string")
@@ -78,11 +79,13 @@ def execute_python_source(
     if type(output_limit_bytes) is not int or not 1 <= output_limit_bytes <= MAX_OUTPUT_BYTES:
         raise SandboxAdapterError("output limit must be an integer from 1 to 8192 bytes")
 
-    if sdk is None or client is None:
+    if sdk is None and client is None:
         from vercel.sandbox import sync as sandbox_sdk
 
-        sdk = sdk or sandbox_sdk
-        client = client or sandbox_sdk.SyncSandboxClient.create()
+        sdk = sandbox_sdk
+        client = sandbox_sdk.SyncSandboxClient.create()
+    elif sdk is None or client is None:
+        raise SandboxAdapterError("SDK and client test injections must be supplied together")
 
     stdout = _BoundedTextSink(output_limit_bytes)
     stderr = _BoundedTextSink(output_limit_bytes)
