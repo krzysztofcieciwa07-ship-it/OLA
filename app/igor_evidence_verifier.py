@@ -272,7 +272,11 @@ def verify_chain(records, environ=None):
             expected_prev = supplied
             expected_seq += 1
         return True, "ok"
-    except (IndependentEvidenceError, TypeError, KeyError, ValueError, OverflowError, RecursionError):
+    except IndependentEvidenceError as exc:
+        # Preserve bounded, verifier-authored diagnostics for auditability.
+        # Parser and runtime exceptions remain deliberately non-descriptive.
+        return False, str(exc)
+    except (TypeError, KeyError, ValueError, OverflowError, RecursionError):
         return False, "evidence verification failed closed"
 
 
