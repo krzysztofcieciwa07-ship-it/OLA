@@ -125,7 +125,7 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
             nodes[nid] = node
         if any(dep not in nodes or dep == nid for nid, node in nodes.items() for dep in node["needs"]):
             return _result("BLOCK", "unresolvable dependencies")
-        starts, finishes, response_ids = {}, {}, set()
+        starts, finishes, response_ids, sandbox_names = {}, {}, set(), set()
         terminal = None
         for index, event in enumerate(relevant):
             if event.get("requester_id") != plan_event.get("requester_id"):
@@ -175,6 +175,10 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
                     sandbox_error = _verify_sandbox_output(nodes[nid], event.get("output"))
                     if sandbox_error:
                         return _result("BLOCK", sandbox_error)
+                    sandbox_name = event["output"]["sandbox_name"]
+                    if sandbox_name in sandbox_names:
+                        return _result("BLOCK", "sandbox identity replayed within run")
+                    sandbox_names.add(sandbox_name)
                 finishes[nid] = event
             elif kind in ("workflow.completed", "workflow.failed"):
                 if index != len(relevant) - 1:
