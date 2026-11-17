@@ -219,7 +219,12 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
             require_overlap=require_overlap, expected_provider=expected_provider,
             require_lifecycle=True,
         )
-    final_status = workflow_status if igor["status"] in ("VERIFIED", "UNKNOWN") else "BLOCK"
+    if workflow_status != "COMPLETED_UNVERIFIED" or igor["status"] == "BLOCK":
+        final_status = "BLOCK"
+    elif igor["status"] == "VERIFIED":
+        final_status = "COMPLETED_UNVERIFIED"
+    else:
+        final_status = "UNKNOWN"
     return {**result, "status": final_status, "tenant_id": tenant_id, "planner": provenance,
             "evidence_ids": evidence_ids, "igor": igor, "human_gate": "NOT_APPROVED",
             "verified": False}
