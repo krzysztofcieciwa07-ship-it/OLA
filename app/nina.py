@@ -5,6 +5,7 @@ from .agent_runtime import run_agent_task
 
 
 REGISTERED_TOOLS = ("safe_expression", "local_mcp_tool_registry.sha256", "llm_agent")
+WORKFLOW_REGISTERED_TOOLS = (*REGISTERED_TOOLS, "vercel_sandbox")
 
 
 @dataclass(frozen=True)
