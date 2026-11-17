@@ -265,6 +265,7 @@ def run_watchdog() -> dict[str, Any]:
         "flow_conclusion": None,
         "aggregator_artifact_id": None,
         "aggregator_artifact_digest": None,
+        "aggregator_artifact_digest_verified": False,
         "aggregator_summary_sha256": None,
         "evidence_status": "UNKNOWN",
         "decision": "STOP",
