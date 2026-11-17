@@ -96,15 +96,19 @@ def test_real_process_restart_rotation_and_separate_backup_restore(tmp_path):
     # Evidence backup and secret backup are separate artifacts.
     with sqlite3.connect(source_db) as source, sqlite3.connect(backup_db) as backup:
         source.backup(backup)
-    secret_backup.write_text(_keyring_json(KEYS), encoding="utf-8")
+    secret_backup.write_text(json.dumps({
+        "keyring": json.loads(_keyring_json(KEYS)),
+        "active_key_id": "process-k2",
+    }), encoding="utf-8")
     shutil.copy2(backup_db, restored_db)
 
     restored_keys = json.loads(secret_backup.read_text(encoding="utf-8"))
     restored_env_keys = {
         key_id: base64.b64decode(encoded, validate=True)
-        for key_id, encoded in restored_keys.items()
+        for key_id, encoded in restored_keys["keyring"].items()
     }
-    _run(VERIFY_CODE, restored_db, restored_env_keys, "process-k2")
+    restored_active_key_id = restored_keys["active_key_id"]
+    _run(VERIFY_CODE, restored_db, restored_env_keys, restored_active_key_id)
 
     # Losing the old key blocks verification; no fallback key is tried.
     _run(VERIFY_CODE, restored_db, {"process-k2": KEYS["process-k2"]}, "process-k2", expect_success=False)
