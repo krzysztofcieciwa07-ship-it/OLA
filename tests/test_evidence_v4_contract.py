@@ -115,6 +115,7 @@ def test_keyring_copies_and_freezes_caller_mapping():
     supplied["k2"] = KEY_B
     assert ring.keys["k1"] == KEY_A
     assert "k2" not in ring.keys
+    assert "aaaaaaaaaaaaaaaa" not in repr(ring)
     with pytest.raises(TypeError):
         ring.keys["k1"] = KEY_B
 
