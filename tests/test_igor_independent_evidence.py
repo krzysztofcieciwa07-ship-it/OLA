@@ -125,3 +125,31 @@ def test_igor_rejects_over_depth_v4_payload_before_hash_acceptance():
         legacy["records"] + [row], _environment(legacy, v4)
     )
     assert not ok
+
+
+
+def test_igor_preserves_v1_duplicate_json_member_semantics():
+    tenant_id = "legacy-duplicate-json"
+    payload_json = '{"event":"first","event":"last"}'
+    record = {
+        "tenant_id": tenant_id,
+        "seq": 0,
+        "record_type": "task.received",
+        "payload_json": payload_json,
+        "prev_hash": "0" * 64,
+        "record_hash": hashlib.sha256(
+            f"{tenant_id}|0|{'0' * 64}|{payload_json}".encode("utf-8")
+        ).hexdigest(),
+    }
+    assert independent.verify_chain([record]) == (True, "ok")
+
+
+def test_igor_rejects_duplicate_json_members_in_v4():
+    legacy = _legacy_fixture()
+    v4 = _v4_fixture()
+    row = dict(v4["record"])
+    row["payload_json"] = row["payload_json"][:-1] + ',"run_id":"duplicate"}'
+    ok, _ = independent.verify_chain(
+        legacy["records"] + [row], _environment(legacy, v4)
+    )
+    assert not ok
