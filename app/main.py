@@ -658,7 +658,12 @@ def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
         canonical_v4_json(payload)
     except InvalidRecordError:
         raise HTTPException(status_code=400, detail="invalid evidence payload") from None
-    return append_evidence_atomic(tenant_id, record_type, payload, producer_id="tenant_api")
+    try:
+        return append_evidence_atomic(tenant_id, record_type, payload, producer_id="tenant_api")
+    except InvalidRecordError:
+        # V4 metadata is added inside the writer. A caller payload may pass
+        # canonicalization here but exceed the storage ceiling after sealing.
+        raise HTTPException(status_code=400, detail="invalid evidence payload") from None
 
 
 @app.post("/audit")
