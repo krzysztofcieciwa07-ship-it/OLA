@@ -252,7 +252,7 @@ def verify_record(record: Mapping[str, Any], keyring: Keyring) -> bool:
 
 def _stored_version(record: Mapping[str, Any]) -> int:
     try:
-        payload = json.loads(record["payload_json"], object_pairs_hook=_unique_object)
+        payload = json.loads(record["payload_json"])
     except (KeyError, TypeError, ValueError, RecursionError) as exc:
         raise InvalidRecordError("invalid payload while resolving evidence version") from exc
     if not isinstance(payload, dict):
