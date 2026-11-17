@@ -172,3 +172,25 @@ def test_default_adapter_uses_official_sdk_policy_and_resource_types(monkeypatch
     assert isinstance(fake_client.create_options["network_policy"], sandbox_sdk.NetworkPolicy)
     assert isinstance(fake_client.create_options["resources"], sandbox_sdk.SandboxResources)
     assert fake_client.closed is True
+
+
+def test_default_stream_limits_fit_inside_workflow_engine_output_budget():
+    from app.vercel_sandbox_adapter import MAX_OUTPUT_BYTES
+    from app.workflow_engine import WorkflowEngine, WorkflowNode
+
+    assert MAX_OUTPUT_BYTES == 3072
+    box = FakeSandbox(stdout="x" * MAX_OUTPUT_BYTES, stderr="y" * MAX_OUTPUT_BYTES)
+    sdk = FakeSDK(box)
+    result = execute_python_source(
+        "print('bounded')", sdk=sdk, client=sdk,
+        output_limit_bytes=MAX_OUTPUT_BYTES,
+    )
+    assert result["stdout_truncated"] is False
+    assert result["stderr_truncated"] is False
+
+    workflow = WorkflowEngine(max_workers=1, deadline_seconds=5).run(
+        [WorkflowNode("sandbox", "vercel_sandbox", "bounded task", ())],
+        lambda node, deps: result,
+    )
+    assert workflow["status"] == "COMPLETED_UNVERIFIED"
+    assert "sandbox" in workflow["results"]
