@@ -296,9 +296,8 @@ def _execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
                 )
         set_current_tenant_id(job.tenant_id)
         set_worker_mode(False)
-        if is_postgres:
-            # The transaction hook already established RLS from the database claim.
-            # Caller-settable GUCs are not an authorization mechanism.
+        # The transaction hook already established RLS from the database claim.
+        # Caller-settable GUCs are not an authorization mechanism.
         lock_tenant_evidence_chain(db, job.tenant_id)
         if job.status in {"EXECUTED_REVIEW_REQUIRED", "EXECUTED_BLOCKED"} and job.result_json:
             return json.loads(job.result_json)
