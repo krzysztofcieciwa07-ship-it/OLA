@@ -314,3 +314,53 @@ def test_watchdog_finalizer_writes_valid_terminal_lifecycle_report(tmp_path):
     assert result["run.end"]
     assert result["decision"] == "STOP"
     assert result["reason"] == "watchdog_preflight_failed"
+
+
+
+def test_pending_exact_sha_flow_is_waited_not_blocked():
+    result = choose_flow_action(
+        [flow_run(status="pending", conclusion="")],
+        SOURCE_SHA,
+    )
+
+    assert result["action"] == "WAIT"
+    assert result["reason"] == "exact_sha_flow_active"
+
+
+def test_artifact_download_aborts_before_writing_beyond_declared_size(tmp_path, monkeypatch):
+    import os
+
+    from scripts.ola_watchdog import download_and_verify_artifact_archive
+
+    fake_gh = tmp_path / "gh"
+    fake_gh.write_text(
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        "sys.stdout.buffer.write(b'x' * (1024 * 1024))\n",
+        encoding="utf-8",
+    )
+    fake_gh.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    destination = tmp_path / "extracted"
+    ok, reason = download_and_verify_artifact_archive(
+        "example/OLA",
+        42,
+        "sha256:" + ("0" * 64),
+        128,
+        destination,
+    )
+
+    assert ok is False
+    assert reason == "aggregator_artifact_archive_size_mismatch"
+    partial_archive = tmp_path / "ola-auto-evidence-artifact.zip"
+    assert not partial_archive.exists() or partial_archive.stat().st_size <= 128
+
+
+def test_manual_watchdog_dispatch_is_restricted_to_main_ref():
+    workflow = (
+        ROOT / ".github" / "workflows" / "ola-24x7-watchdog.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'" in workflow
+    assert "if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'" in workflow
