@@ -18,3 +18,4 @@ py-modules = ["evidence_graph"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["secret_management: tests for secret injection and fail-closed custody contracts"]
