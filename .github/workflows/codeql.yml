@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   schedule:
     - cron: "17 4 * * 3"
   workflow_dispatch:
@@ -171,18 +170,11 @@ jobs:
                   alert["diff_status"] = "PATCH_UNAVAILABLE"
                   current.append(alert)
               elif alert["line"] is None or alert["line"] in changed_lines:
-                  rationale = None
-                  if alert["line"] is not None:
-                      rationale = source_suppression_reason(
-                          Path.cwd(), alert["path"], alert["line"], alert["rule"]
-                      )
-                  if rationale:
-                      alert["diff_status"] = "IN_SOURCE_SUPPRESSED"
-                      alert["suppression_reason"] = rationale
-                      in_source_suppressed.append(alert)
-                  else:
-                      alert["diff_status"] = "CHANGED_LINE"
-                      current.append(alert)
+                  # No source comment can suppress an alert. The helper is
+                  # intentionally fail-closed; false positives require an
+                  # independently reviewed manual GitHub Code Scanning dismissal.
+                  alert["diff_status"] = "CHANGED_LINE"
+                  current.append(alert)
           high = [a for a in current if a["severity"] in ("critical", "high")]
           print(json.dumps({
               "status": "BLOCK" if high else "INSPECTED",
