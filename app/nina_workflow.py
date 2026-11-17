@@ -3,7 +3,6 @@
 No implicit deterministic fallback: planning requires a real configured LLM.
 All executable capabilities are already allowlisted by NINA.
 """
-import hashlib
 import json
 import os
 import uuid
@@ -107,6 +106,8 @@ def execute_registered_node(node, deps):
 def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
                       planner=model_plan, executor=execute_registered_node,
                       fetch_records=None, require_overlap=False, expected_provider=None):
+    from .igor_workflow import verify_dag_records
+
     # The existing Evidence V4 lifecycle owns the run boundary. Workflow events
     # are nested between these two durable records and share the same run_id.
     supported = {"safe_expression", "local_mcp_tool_registry.sha256", "llm_agent", "vercel_sandbox"}
