@@ -98,6 +98,7 @@ def execute_python_source(
             persistent=False,
             resources=sdk.SandboxResources(vcpus=1),
             network_policy=sdk.NetworkPolicy.deny_all(),
+            destroy=True,
         ) as sandbox:
             sandbox_name = getattr(sandbox, "name", None)
             if not isinstance(sandbox_name, str) or not sandbox_name:
@@ -130,12 +131,21 @@ def execute_python_source(
     }
 
 
+def _unique_json_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON member")
+        value[key] = item
+    return value
+
+
 def execute_sandbox_task(task_json):
     """Validate the NINA node task envelope before dispatching source code."""
     import json
 
     try:
-        task = json.loads(task_json)
+        task = json.loads(task_json, object_pairs_hook=_unique_json_object)
     except (TypeError, ValueError):
         raise SandboxAdapterError("sandbox task must be strict JSON") from None
     if not isinstance(task, dict) or set(task) != {"operation", "source"}:
