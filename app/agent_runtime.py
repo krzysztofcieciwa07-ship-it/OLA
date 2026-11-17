@@ -556,11 +556,10 @@ def run_multi_agent_task(tenant_id, task, agents):
     if not agents:
         raise ValueError("agent registry must not be empty")
     agent_ids = [agent.agent_id for agent in agents]
-    roles = [agent.role for agent in agents]
     if len(set(agent_ids)) != len(agent_ids):
         raise ValueError("agent ids must be unique")
-    if len(set(roles)) != len(roles):
-        raise ValueError("agent roles must be unique")
+    # Specialist roles come from a finite catalogue and may repeat across
+    # distinct manifest-backed instances. Identity uniqueness is per instance.
 
     run_id = str(uuid.uuid4())
     execution = []

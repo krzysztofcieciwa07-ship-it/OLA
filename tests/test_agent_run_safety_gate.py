@@ -47,7 +47,7 @@ def test_registered_low_risk_agent_is_allowed_and_decision_is_chained(monkeypatc
 
     response = TestClient(main_module.app).post(
         "/agent-run", headers=headers,
-        json={"agent_id": "agent-001", "risk": "LOW", "task": "Calculate 17 * 23"},
+        json={"agent_id": "hermes-primary", "risk": "LOW", "task": "Calculate 17 * 23"},
     )
 
     assert response.status_code == 200
@@ -58,7 +58,12 @@ def test_registered_low_risk_agent_is_allowed_and_decision_is_chained(monkeypatc
     assert len(rows) == 9  # gate decision, run lifecycle, and six agent records
     assert rows[0][0] == "execution.safety_gate"
     assert rows[0][1]["decision"] == "ALLOW"
-    assert rows[0][1]["agent_id"] == "agent-001"
+    assert rows[0][1]["agent_id"] == "hermes-primary"
+    assert rows[0][1]["specialist_role"] == "Hermes"
+    assert rows[0][1]["requested_execution_profile"] == "multi_agent"
+    assert rows[0][1]["requested_capability"] == "agent_aggregator"
+    assert rows[0][1]["provider_policy"] == ["ollama"]
+    assert rows[0][1]["approval_policy"]["self_approval_allowed"] is False
     assert rows[0][1]["risk"] == "LOW"
     assert rows[0][1]["reason"] == "allowlisted_action"
     assert rows[0][1]["task_sha256"] == hashlib.sha256(
@@ -86,7 +91,7 @@ def test_high_risk_requires_verified_human_approval(monkeypatch, claimed_approva
     tenant_id, headers = _tenant()
     monkeypatch.setattr(main_module, "run_agent_task", lambda *_: 1 / 0)
 
-    body = {"agent_id": "agent-001", "risk": "HIGH", "task": "do not execute"}
+    body = {"agent_id": "hermes-primary", "risk": "HIGH", "task": "do not execute"}
     if claimed_approval is not None:
         body["human_approved"] = claimed_approval
     response = TestClient(main_module.app).post(
@@ -111,7 +116,7 @@ def test_gate_exception_is_denied_without_execution(monkeypatch):
     monkeypatch.setattr(main_module.AGENT_RUN_GATE, "execute", broken_gate)
     response = TestClient(main_module.app).post(
         "/agent-run", headers=headers,
-        json={"agent_id": "agent-001", "task": "do not execute"},
+        json={"agent_id": "hermes-primary", "task": "do not execute"},
     )
 
     assert response.status_code == 403
@@ -127,7 +132,7 @@ def test_high_risk_stays_denied_even_if_gate_returns_allow(monkeypatch):
 
     response = TestClient(main_module.app).post(
         "/agent-run", headers=headers,
-        json={"agent_id": "agent-001", "risk": "HIGH",
+        json={"agent_id": "hermes-primary", "risk": "HIGH",
               "human_approved": True, "task": "do not execute"},
     )
 
@@ -142,7 +147,7 @@ def test_missing_gate_decision_is_denied_without_execution(monkeypatch):
 
     response = TestClient(main_module.app).post(
         "/agent-run", headers=headers,
-        json={"agent_id": "agent-001", "task": "do not execute"},
+        json={"agent_id": "hermes-primary", "task": "do not execute"},
     )
 
     assert response.status_code == 403
@@ -159,7 +164,7 @@ def test_evidence_write_failure_blocks_runtime(monkeypatch):
     monkeypatch.setattr(main_module, "append_record", broken_evidence)
     response = TestClient(main_module.app).post(
         "/agent-run", headers=headers,
-        json={"agent_id": "agent-001", "task": "do not execute"},
+        json={"agent_id": "hermes-primary", "task": "do not execute"},
     )
 
     assert response.status_code == 403
