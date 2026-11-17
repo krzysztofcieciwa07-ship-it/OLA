@@ -22,10 +22,10 @@ def _ring(active="k1", keys=None):
     return Keyring(keys=keys or {"k1": KEY_A, "k2": KEY_B}, active_key_id=active)
 
 
-def _record(seq=0, prev=GENESIS_HASH, keyring=None, payload=None, record_type="provenance.runtime"):
+def _record(seq=0, prev=GENESIS_HASH, keyring=None, payload=None, record_type="provenance.runtime", tenant_id="tenant-a"):
     ring = keyring or _ring()
     row = {
-        "tenant_id": "tenant-a",
+        "tenant_id": tenant_id,
         "seq": seq,
         "prev_hash": prev,
         "record_type": record_type,
@@ -297,7 +297,7 @@ def test_provenance_labelled_historical_v1_v2_v3_fixture_and_v4_transition():
             expected_prev = row["record_hash"]
         return True, "historical fixture verified"
 
-    v4 = _record(3, legacy[-1]["record_hash"])
+    v4 = _record(3, legacy[-1]["record_hash"], tenant_id=legacy[-1]["tenant_id"])
     ok, reason = verify_mixed_chain(legacy + [v4], _ring(), legacy_verifier=verify_historical)
     assert ok, reason
 
