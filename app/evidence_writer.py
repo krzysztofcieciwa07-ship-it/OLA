@@ -21,6 +21,7 @@ from .evidence_v4 import (
     sign_record,
 )
 from .models import EvidenceRecord
+from .igor_evidence_verifier import verify_chain as verify_existing_chain
 
 
 def _logical_v4_payload(payload_json: str, *, record_type: str, producer: str) -> str | None:
@@ -81,6 +82,20 @@ def append_evidence_v4_locked(
     ring = keyring or load_keyring()
     logical_payload = canonical_json(dict(payload))
 
+    existing_rows = db.scalars(
+        select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id)
+        .order_by(EvidenceRecord.seq.asc())
+    ).all()
+    if existing_rows:
+        existing_records = [{
+            "id": row.id, "tenant_id": row.tenant_id, "seq": row.seq,
+            "record_type": row.record_type, "payload_json": row.payload_json,
+            "prev_hash": row.prev_hash, "record_hash": row.record_hash,
+        } for row in existing_rows]
+        chain_ok, chain_reason = verify_existing_chain(existing_records)
+        if not chain_ok:
+            raise ValueError(f"existing tenant evidence chain is invalid: {chain_reason}")
+
     if deduplicate:
         candidates = db.scalars(
             select(EvidenceRecord).where(
@@ -103,12 +118,7 @@ def append_evidence_v4_locked(
                     "deduplicated": True,
                 }
 
-    latest = db.scalar(
-        select(EvidenceRecord)
-        .where(EvidenceRecord.tenant_id == tenant_id)
-        .order_by(EvidenceRecord.seq.desc())
-        .limit(1)
-    )
+    latest = existing_rows[-1] if existing_rows else None
     seq = latest.seq + 1 if latest is not None else 0
     previous_hash = latest.record_hash if latest is not None else "0" * 64
     payload_json = seal_payload_v4(
