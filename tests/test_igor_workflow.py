@@ -11,6 +11,7 @@ def proof():
         "event": "execution.run.start",
         "run_id": "run1",
         "task_digest": hashlib.sha256(b"test").hexdigest(),
+        "allowed_tools": ["llm_agent", "safe_expression"],
         "source_commit": "expected",
         "requester_id": "person1",
         "commit": "expected",
@@ -27,7 +28,8 @@ def proof():
     WorkflowEngine(max_workers=2).run(nodes, execute,
         lambda event: events.append({**event, "requester_id": "person1",
                                      "planner": {"response_id": "p1"}, "commit": "expected",
-                                     "task_digest": hashlib.sha256(b"test").hexdigest()}),
+                                     "task_digest": hashlib.sha256(b"test").hexdigest(),
+                                     "allowed_tools": ["llm_agent", "safe_expression"]}),
         run_id="run1")
     events.append({
         "event": "execution.run.end",
@@ -119,6 +121,16 @@ def test_goal_digest_mismatch_between_lifecycle_and_plan_is_blocked():
     assert check(rehash(events))["status"] == "BLOCK"
 
 
+def test_igor_blocks_unallowlisted_plan_tool_even_with_recomputed_digest():
+    from app.workflow_engine import _digest
+
+    events = [json.loads(row["payload_json"]) for row in proof()]
+    planned = next(event for event in events if event["event"] == "workflow.planned")
+    planned["nodes"][0]["tool"] = "shell"
+    planned["plan_digest"] = _digest(planned["nodes"])
+    assert check(rehash(events))["status"] == "BLOCK"
+
+
 def test_wrong_commit_and_missing_run_block():
     assert verify_dag_records(proof(), tenant_id="tenant", run_id="run1",
                               expected_commit="wrong")["status"] == "BLOCK"
@@ -202,6 +214,7 @@ def sandbox_events(node_count=1):
         "event": "execution.run.start",
         "run_id": "sandbox-run",
         "task_digest": hashlib.sha256(b"sandbox").hexdigest(),
+        "allowed_tools": ["vercel_sandbox"],
         "source_commit": "expected",
         "requester_id": "person1",
         "commit": "expected",
@@ -211,7 +224,8 @@ def sandbox_events(node_count=1):
         lambda node, deps: output,
         lambda event: events.append({**event, "requester_id": "person1",
                                      "planner": {"response_id": "p1"}, "commit": "expected",
-                                     "task_digest": hashlib.sha256(b"sandbox").hexdigest()}),
+                                     "task_digest": hashlib.sha256(b"sandbox").hexdigest(),
+                                     "allowed_tools": ["vercel_sandbox"]}),
         run_id="sandbox-run",
     )
     events.append({
