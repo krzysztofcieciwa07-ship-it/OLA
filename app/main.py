@@ -20,7 +20,7 @@ from .agent_runtime import run_agent_task
 from .agent_registry import build_agent_registry
 from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
 from .business_runtime import run_invoice_task
-from .nina import NinaOrchestrator, NinaTask, REGISTERED_TOOLS
+from .nina import NinaOrchestrator, NinaTask, WORKFLOW_REGISTERED_TOOLS
 from .nina_workflow import run_nina_workflow
 from .nina_workflow_gate import approve_workflow, approve_nina_candidate, WorkflowApprovalRejected
 from .workflow_engine import WorkflowPlanError
@@ -724,10 +724,10 @@ def create_nina_workflow(body: dict, x_api_key: str | None = Header(default=None
         raise HTTPException(status_code=400, detail="requested_tools must be nonempty strings")
     # Bound provider prompt size and prevent duplicate capability amplification.
     # This must happen before NINA or the LLM planner is invoked.
-    if len(requested_tools) > len(REGISTERED_TOOLS) or len(set(requested_tools)) != len(requested_tools):
+    if len(requested_tools) > len(WORKFLOW_REGISTERED_TOOLS) or len(set(requested_tools)) != len(requested_tools):
         raise HTTPException(status_code=400, detail="requested_tools must be unique and bounded")
     nina_task = NinaTask.create(tenant_id, task_text, requested_tools)
-    policy = NinaOrchestrator().plan(nina_task)
+    policy = NinaOrchestrator(registered_tools=WORKFLOW_REGISTERED_TOOLS).plan(nina_task)
     if policy.status != "ALLOW":
         return {"status": "BLOCK", "reason": policy.reason, "verified": False}
     try:
