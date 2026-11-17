@@ -14,7 +14,7 @@ from .database import SessionLocal, append_evidence_atomic
 from .hashchain import canonical_json
 from .models import StripeEvent, CheckoutOrder, CheckoutOrderControl
 from .revenue import retrieve_checkout
-from .tenant_context import set_current_tenant_id
+from .tenant_context import set_current_tenant_id, set_checkout_context
 
 
 STRIPE_SIGNATURE_TOLERANCE_SECONDS = 300
@@ -173,6 +173,9 @@ def process_checkout_event(payload: bytes, signature_header: str) -> dict:
     if not isinstance(order_id, str) or not order_id.strip():
         raise HTTPException(status_code=400, detail="Stripe session has no OLA order binding")
 
+    # PostgreSQL derives tenant_id from the stored OLA order / Checkout Session pair.
+    # Stripe metadata is checked against this database binding, never used as RLS authority.
+    set_checkout_context(order_id, session_id)
     set_current_tenant_id(tenant_id)
 
     # Claim the order with a conditional update. Only one Stripe event may own
