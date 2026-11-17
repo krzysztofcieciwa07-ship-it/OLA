@@ -1,4 +1,5 @@
 from datetime import timedelta
+from threading import BoundedSemaphore
 from types import SimpleNamespace
 
 import pytest
@@ -235,3 +236,16 @@ def test_adapter_rejects_new_sandbox_when_global_capacity_is_exhausted(monkeypat
 
     assert sdk.create_options is None
     assert sdk.closed is False
+
+
+
+def test_adapter_releases_global_slot_after_output_abort(monkeypatch):
+    slots = BoundedSemaphore(1)
+    monkeypatch.setattr(adapter_module, "_SANDBOX_SLOTS", slots)
+    sdk = FakeSDK(FakeSandbox(stdout="x" * 20))
+
+    with pytest.raises(SandboxOutputLimitExceeded):
+        execute_python_source("print('large')", sdk=sdk, client=sdk)
+
+    assert slots.acquire(blocking=False) is True
+    slots.release()
