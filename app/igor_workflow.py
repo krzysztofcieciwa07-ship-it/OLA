@@ -50,7 +50,7 @@ def _verify_sandbox_output(node, output):
 
     required = {
         "executor", "operation", "runtime", "sandbox_name", "image", "region",
-        "network_policy", "persistent", "destroy_on_exit", "resources", "timeout_seconds",
+        "failover_regions", "network_policy", "persistent", "destroy_on_exit", "resources", "timeout_seconds",
         "output_limit_bytes_per_stream", "source_bytes", "source_sha256",
         "exit_code", "stdout", "stderr", "stdout_sha256", "stderr_sha256",
         "stdout_truncated", "stderr_truncated",
@@ -65,6 +65,8 @@ def _verify_sandbox_output(node, output):
         return "sandbox identity missing"
     if output.get("region") != EXPECTED_VERCEL_SANDBOX_REGION:
         return "sandbox region is not the approved EU region"
+    if output.get("failover_regions") != []:
+        return "sandbox failover regions are not disabled"
     if output.get("network_policy") != "deny-all":
         return "sandbox network policy is not deny-all"
     if type(output.get("persistent")) is not bool or output["persistent"] is not False:
