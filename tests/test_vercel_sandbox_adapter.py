@@ -335,3 +335,36 @@ def test_default_stream_limits_fit_inside_workflow_engine_output_budget():
     )
     assert workflow["status"] == "COMPLETED_UNVERIFIED"
     assert "sandbox" in workflow["results"]
+
+
+def test_serialized_output_budget_accounts_for_json_escaped_control_bytes():
+    import json
+    from app.vercel_sandbox_adapter import MAX_OUTPUT_BYTES, _fit_serialized_output_budget
+
+    result = {
+        "executor": "vercel_sandbox",
+        "operation": "python_exec",
+        "runtime": "python3",
+        "sandbox_name": "sandbox-control-test",
+        "image": "vercel/sandbox/python@sha256:" + "a" * 64,
+        "region": "fra1",
+        "failover_regions": [],
+        "network_policy": "deny-all",
+        "persistent": False,
+        "destroy_on_exit": True,
+        "resources": {"vcpus": 1, "memory_mb": 2048},
+        "timeout_seconds": 30,
+        "output_limit_bytes_per_stream": MAX_OUTPUT_BYTES,
+        "source_bytes": 1,
+        "source_sha256": "b" * 64,
+        "exit_code": 0,
+        "stdout": "\\x01" * MAX_OUTPUT_BYTES,
+        "stderr": "\\x02" * MAX_OUTPUT_BYTES,
+        "stdout_sha256": "c" * 64,
+        "stderr_sha256": "d" * 64,
+        "stdout_truncated": False,
+        "stderr_truncated": False,
+    }
+    bounded = _fit_serialized_output_budget(result)
+    assert len(json.dumps(bounded, ensure_ascii=False, sort_keys=True).encode("utf-8")) <= 8192
+    assert bounded["stdout_truncated"] or bounded["stderr_truncated"]
