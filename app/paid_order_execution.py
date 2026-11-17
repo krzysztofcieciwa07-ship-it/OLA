@@ -12,7 +12,10 @@ from .database import SessionLocal, begin_write_transaction, lock_tenant_evidenc
 from .hashchain import GENESIS_HASH, compute_record_hash_v3, sealed_payload_json, trusted_record, verify_chain
 from .models import CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl, EvidenceRecord
 from .runtime_provenance import runtime_source_commit
-from .tenant_context import set_current_tenant_id, set_worker_mode, tenant_scope, worker_scope
+from .tenant_context import (
+    set_current_tenant_id, set_worker_mode, tenant_scope, worker_scope,
+    set_worker_claim_context, reset_database_auth_context,
+)
 
 
 class PaidOrderExecutionRejected(ValueError):
@@ -70,7 +73,8 @@ def validate_postgres_worker_claim(
             or not 60 <= stale_after_seconds <= 86400):
         raise PaidOrderExecutionRejected(409, "PostgreSQL worker claim coordinates are invalid")
     run_now = int(time.time())
-    with tenant_scope(tenant_id):
+    auth_token = set_worker_claim_context(job_id, claim_token, stale_after_seconds)
+    try:
         with SessionLocal() as db:
             if db.get_bind().dialect.name != "postgresql":
                 raise PaidOrderExecutionRejected(503, "PostgreSQL worker claims require PostgreSQL runtime storage")
@@ -98,6 +102,8 @@ def validate_postgres_worker_claim(
                     "PostgreSQL worker accepts only never-started queued jobs; RUNNING jobs require manual reconciliation",
                 )
             db.rollback()
+    finally:
+        reset_database_auth_context(auth_token)
 
 
 def _append_locked(db, tenant_id: str, record_type: str, payload: dict) -> dict:
@@ -233,11 +239,14 @@ def execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
             raise PaidOrderExecutionRejected(
                 409, "PostgreSQL worker requires a tenant ID and an active database claim token",
             )
-        with tenant_scope(tenant_id):
+        auth_token = set_worker_claim_context(job_id, claim_token, stale_after_seconds)
+        try:
             return _execute_paid_order_job(
                 job_id, tenant_id=tenant_id, claim_token=claim_token,
                 runner=runner, now=now, stale_after_seconds=stale_after_seconds,
             )
+        finally:
+            reset_database_auth_context(auth_token)
 
     with worker_scope():
         return _execute_paid_order_job(
@@ -288,11 +297,8 @@ def _execute_paid_order_job(job_id: str, *, tenant_id: str | None = None,
         set_current_tenant_id(job.tenant_id)
         set_worker_mode(False)
         if is_postgres:
-            db.execute(
-                text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
-                {"tenant_id": job.tenant_id},
-            )
-            db.execute(text("SELECT set_config('ola.worker_mode', 'off', true)"))
+            # The transaction hook already established RLS from the database claim.
+            # Caller-settable GUCs are not an authorization mechanism.
         lock_tenant_evidence_chain(db, job.tenant_id)
         if job.status in {"EXECUTED_REVIEW_REQUIRED", "EXECUTED_BLOCKED"} and job.result_json:
             return json.loads(job.result_json)
