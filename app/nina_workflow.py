@@ -111,8 +111,14 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
     # The existing Evidence V4 lifecycle owns the run boundary. Workflow events
     # are nested between these two durable records and share the same run_id.
     supported = {"safe_expression", "local_mcp_tool_registry.sha256", "llm_agent", "vercel_sandbox"}
+    if (not isinstance(allowed_tools, (list, tuple)) or not allowed_tools
+            or len(allowed_tools) > 16
+            or not all(isinstance(tool, str) and tool.strip() for tool in allowed_tools)
+            or len(set(allowed_tools)) != len(allowed_tools)):
+        raise WorkflowPlanError("invalid workflow tool allowlist")
     if not set(allowed_tools) <= supported:
         raise WorkflowPlanError("unregistered workflow tool")
+    allowed_tool_names = sorted(allowed_tools)
     run_id = str(uuid.uuid4())
     source_commit = os.getenv("OLA_RUNTIME_COMMIT") or "UNKNOWN"
     task_digest = _digest(goal)
@@ -122,6 +128,7 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
         "source_commit": source_commit,
         "requester_id": requester_id,
         "commit": source_commit,
+        "allowed_tools": allowed_tool_names,
     })
     if not isinstance(start_saved, dict) or not start_saved.get("id"):
         raise RuntimeError("execution start evidence write was not confirmed")
@@ -129,14 +136,15 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
     workflow_events = []
 
     try:
-        nodes, provenance = planner(goal, tuple(allowed_tools))
+        nodes, provenance = planner(goal, tuple(allowed_tool_names))
         nodes = validate_plan({"nodes": [
             {"id": n.id, "tool": n.tool, "task": n.task, "needs": list(n.needs)}
-            for n in nodes]}, allowed_tools=set(allowed_tools))
+            for n in nodes]}, allowed_tools=set(allowed_tool_names))
 
         def record(event):
             payload = {**event, "requester_id": requester_id, "planner": provenance,
-                       "commit": source_commit, "task_digest": task_digest}
+                       "commit": source_commit, "task_digest": task_digest,
+                       "allowed_tools": allowed_tool_names}
             saved = append(tenant_id, event["event"], payload)
             if not isinstance(saved, dict) or not saved.get("id"):
                 raise RuntimeError("evidence write was not confirmed")
@@ -166,6 +174,7 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
                 "source_commit": source_commit,
                 "requester_id": requester_id,
                 "commit": source_commit,
+                "allowed_tools": allowed_tool_names,
             })
             if not isinstance(error_saved, dict) or not error_saved.get("id"):
                 raise RuntimeError("execution error evidence write was not confirmed")
@@ -179,6 +188,7 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
                 "source_commit": source_commit,
                 "requester_id": requester_id,
                 "commit": source_commit,
+                "allowed_tools": allowed_tool_names,
                 "completed_node_count": completed_count,
                 "failed_node_count": max(1, failed_count),
                 "skipped_node_count": 0,
@@ -203,6 +213,7 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
         "source_commit": source_commit,
         "requester_id": requester_id,
         "commit": source_commit,
+        "allowed_tools": allowed_tool_names,
         "completed_node_count": completed_count,
         "failed_node_count": failed_count,
         "skipped_node_count": skipped_count,
