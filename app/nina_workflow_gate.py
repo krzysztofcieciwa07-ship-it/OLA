@@ -10,7 +10,8 @@ from sqlalchemy import select
 from .database import SessionLocal, begin_write_transaction
 from .runtime_provenance import runtime_source_commit
 from .models import EvidenceRecord
-from .hashchain import sealed_payload_json, compute_record_hash_v2, verify_chain, trusted_record
+from .hashchain import sealed_payload_json, compute_record_hash_v2
+from .igor_evidence_verifier import verify_chain, trusted_record
 from .igor_workflow import verify_dag_records
 from .human_gate import HumanGate, ReviewDecision
 from .nina_igor import NinaIgorChain, STATUS_FIELDS
