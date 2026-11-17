@@ -108,3 +108,20 @@ def test_igor_runtime_verifier_accepts_v4_only_after_independent_chain_verificat
     assert result.status == "VERIFIED"
     assert result.checks["chain"] is True
     assert result.evidence_ids == ()
+
+
+
+def test_igor_rejects_over_depth_v4_payload_before_hash_acceptance():
+    legacy = _legacy_fixture()
+    v4 = _v4_fixture()
+    row = dict(v4["record"])
+    payload = json.loads(row["payload_json"])
+    nested = {"leaf": True}
+    for _ in range(independent.MAX_JSON_DEPTH + 2):
+        nested = {"nested": nested}
+    payload["deep"] = nested
+    row["payload_json"] = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    ok, _ = independent.verify_chain(
+        legacy["records"] + [row], _environment(legacy, v4)
+    )
+    assert not ok
