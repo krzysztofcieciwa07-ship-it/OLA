@@ -90,3 +90,31 @@ back to a V4 key for legacy verification.
 - Independent security review has no open critical findings.
 
 Until every gate is evidenced at the exact release SHA: `PRODUCTION_BLOCKED`.
+
+## Writer migration invariants
+
+The V4 append primitive must accept the caller's already-open SQLAlchemy
+transaction/session. It must not open or commit a nested session. Existing
+tenant serialization remains owned by each call site:
+
+- `database.append_evidence_atomic`: retain SQLite `BEGIN IMMEDIATE`,
+  PostgreSQL tenant advisory lock, idempotent deduplication, sequence allocation,
+  and the unique `(tenant_id, seq)` guard.
+- `nina_workflow_gate`: retain read/verify outside the lock, then reacquire the
+  tenant lock and recheck the approved tip before append.
+- `paid_order_execution`: retain the existing outbox claim, row locks, and
+  transaction boundary; append V4 in the same transaction as execution state.
+- `order_approval`: retain payment proof checks, current-tip binding, and the
+  same transaction as approval/control/job updates.
+- `report_review`: retain independent report digest recomputation, tip binding,
+  and the same transaction as review/delivery state.
+
+A central append helper alone is not a migration: all four direct-writer
+families above must call the V4 append primitive explicitly. The migration must
+not move business checks across transaction boundaries.
+
+Read migration is separate from write migration. The V4 chain dispatcher must
+first establish complete chain integrity for all versions, then callers may
+apply trust policy. A V1/V2 record remains readable but never gains V4 trust.
+V3 verification continues to require the historical V3 pepper. V4 key rotation
+must not alter or replace that legacy pepper.
