@@ -1,12 +1,12 @@
 name: NINA IGOR Ollama Full Flow
 
 on:
-  pull_request:
   workflow_dispatch:
   workflow_call:
   push:
     branches:
-      - main
+      # This branch has no 12h orchestrator. Main is handled by the
+      # 12h workflow, which invokes this workflow exactly once.
       - feat/evidence-graph-v0.1
 
 permissions:
