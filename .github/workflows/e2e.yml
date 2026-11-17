@@ -11,6 +11,9 @@ permissions:
 env:
   # CI fixture only; NEVER use as a production secret.
   OLA_API_KEY_PEPPER: ${{ github.sha }}
+  # Public test-only key; never use this value for production.
+  OLA_EVIDENCE_V4_KEYRING_JSON: '{"ci-v4-2026":"cHl0ZXN0LW9ubHktdjQta2V5LW1hdGVyaWFsLTMyYnl0ZXMhIQ=="}'
+  OLA_EVIDENCE_V4_ACTIVE_KEY_ID: ci-v4-2026
 
 jobs:
   e2e:
@@ -48,7 +51,7 @@ jobs:
 
       - name: Run deployment image
         run: |
-          docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" --name ola-e2e --publish 8000:8000 -e STRIPE_WEBHOOK_SECRET="whsec_ci_ola" -e OLA_STRIPE_TENANT_ID="00000000-0000-0000-0000-000000000001" -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" ola:${GITHUB_SHA}
+          docker run --detach --rm -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" -e OLA_EVIDENCE_V4_KEYRING_JSON="$OLA_EVIDENCE_V4_KEYRING_JSON" -e OLA_EVIDENCE_V4_ACTIVE_KEY_ID="$OLA_EVIDENCE_V4_ACTIVE_KEY_ID" --name ola-e2e --publish 8000:8000 -e STRIPE_WEBHOOK_SECRET="whsec_ci_ola" -e OLA_STRIPE_TENANT_ID="00000000-0000-0000-0000-000000000001" -e OPENAI_API_KEY="$OPENAI_API_KEY" -e OLA_LLM_MODE="$OLA_LLM_MODE" -e OLA_LLM_MODEL="$OLA_LLM_MODEL" -e OLA_RUNTIME_COMMIT="${GITHUB_SHA}" ola:${GITHUB_SHA}
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
               exit 0
@@ -85,22 +88,13 @@ jobs:
           expected_types = ["task.received","execution.started","fault.detected","recovery.applied","verification.passed"]
           assert [r[3] for r in rows] == expected_types, rows
           assert [r[0] for r in rows] == result["evidence_ids"], (rows, result)
-          expected_prev = "0" * 64
-          for expected_seq, row in enumerate(rows):
-              _, row_tenant, seq, record_type, payload_json, prev_hash, record_hash = row
-              assert row_tenant == tenant_id; assert seq == expected_seq; assert prev_hash == expected_prev
-              # Independent V2 ledger verifier — never import the producer's hash function.
-              payload = json.loads(payload_json)
-              meta = payload.get("__ola_evidence_v2__")
-              assert meta == {"version": 2, "record_type": record_type, "producer": "ola_runtime"}, meta
-              material = json.dumps({
-                  "domain": "OLA-EVIDENCE-CHAIN-V2",
-                  "tenant_id": tenant_id, "seq": seq, "prev_hash": prev_hash,
-                  "record_type": record_type, "producer": "ola_runtime",
-                  "payload_json": payload_json,
-              }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-              expected_hash = hashlib.sha256(material.encode("utf-8")).hexdigest()
-              assert record_hash == expected_hash, (seq, record_hash, expected_hash); expected_prev = record_hash
+          from app.igor_evidence_verifier import verify_chain
+          records = [{
+              "tenant_id": row[1], "seq": row[2], "record_type": row[3],
+              "payload_json": row[4], "prev_hash": row[5], "record_hash": row[6],
+          } for row in rows]
+          chain_ok, chain_reason = verify_chain(records)
+          assert chain_ok, chain_reason
           print(json.dumps({"gate":"INDEPENDENT_RUNTIME_E2E","status":"VERIFIED","container_health":"PASS","http_audit":"PASS","evidence_count":len(rows),"hash_chain":"PASS","result_ids_match_db":True,"commit":os.environ["EXPECTED_COMMIT"]}, sort_keys=True))
           PY
 
@@ -173,22 +167,13 @@ jobs:
           assert all(p["task"] == task for p in payloads), payloads
           assert payloads[0]["tool_output"] == expected_result, payloads[0]
           assert payloads[-1]["final_result"] == expected_result, payloads[-1]
-          expected_prev = "0" * 64
-          for expected_seq, row in enumerate(rows):
-              _, row_tenant, seq, record_type, payload_json, prev_hash, record_hash = row
-              assert row_tenant == tenant_id; assert seq == expected_seq; assert prev_hash == expected_prev
-              # Independent V2 ledger verifier — never import the producer's hash function.
-              payload = json.loads(payload_json)
-              meta = payload.get("__ola_evidence_v2__")
-              assert meta == {"version": 2, "record_type": record_type, "producer": "ola_runtime"}, meta
-              material = json.dumps({
-                  "domain": "OLA-EVIDENCE-CHAIN-V2",
-                  "tenant_id": tenant_id, "seq": seq, "prev_hash": prev_hash,
-                  "record_type": record_type, "producer": "ola_runtime",
-                  "payload_json": payload_json,
-              }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-              expected_hash = hashlib.sha256(material.encode("utf-8")).hexdigest()
-              assert record_hash == expected_hash; expected_prev = record_hash
+          from app.igor_evidence_verifier import verify_chain
+          records = [{
+              "tenant_id": row[1], "seq": row[2], "record_type": row[3],
+              "payload_json": row[4], "prev_hash": row[5], "record_hash": row[6],
+          } for row in rows]
+          chain_ok, chain_reason = verify_chain(records)
+          assert chain_ok, chain_reason
           verifier = subprocess.run(
               ["python", "scripts/verify_agent_runtime.py", "--tenant-id", tenant_id,
                "--run-id", result["run_id"], "--expected-commit", os.environ["EXPECTED_COMMIT"],
