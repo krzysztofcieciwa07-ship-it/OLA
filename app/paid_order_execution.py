@@ -69,14 +69,14 @@ def validate_postgres_worker_claim(
             or len(tenant_id) > 128 or not tenant_id.isascii()
             or not isinstance(claim_token, str) or not claim_token.isascii()
             or not 16 <= len(claim_token) <= 128
-            or not isinstance(stale_after_seconds, int)
+            or type(stale_after_seconds) is not int
             or not 60 <= stale_after_seconds <= 86400):
         raise PaidOrderExecutionRejected(409, "PostgreSQL worker claim coordinates are invalid")
     run_now = int(time.time())
     auth_token = set_worker_claim_context(job_id, claim_token, stale_after_seconds)
     try:
-            with tenant_scope(tenant_id):
-                with SessionLocal() as db:
+        with tenant_scope(tenant_id):
+            with SessionLocal() as db:
                 if db.get_bind().dialect.name != "postgresql":
                     raise PaidOrderExecutionRejected(503, "PostgreSQL worker claims require PostgreSQL runtime storage")
                 job = db.scalar(
@@ -103,9 +103,9 @@ def validate_postgres_worker_claim(
                         "PostgreSQL worker accepts only never-started queued jobs; RUNNING jobs require manual reconciliation",
                     )
                 db.rollback()
-
     finally:
         reset_database_auth_context(auth_token)
+
 
 def _append_locked(db, tenant_id: str, record_type: str, payload: dict) -> dict:
     """Append trusted evidence under the caller's tenant-chain transaction lock."""
