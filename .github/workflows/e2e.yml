@@ -134,7 +134,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OLA_LLM_MODE: required
           OLA_LLM_MODEL: gpt-5.6-luna
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_COMMIT: ${{ env.OLA_SOURCE_SHA }}
           EXPECTED_TASK: Calculate 17 * 23 and return the verified result.
           EXPECTED_RESULT: "391"
         run: |
@@ -192,7 +192,7 @@ jobs:
 
       - name: Controlled invoice six-agent business E2E and independent verifier
         env:
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_COMMIT: ${{ env.OLA_SOURCE_SHA }}
           INVOICE_JSON: '{"invoice_id":"INV-CI-2026-001","supplier":"TEST-SUPPLIER","currency":"EUR","net":1000.0,"vat_rate":0.21}'
         run: |
           set -euo pipefail
@@ -253,7 +253,7 @@ jobs:
 
       - name: Real runtime fault injection and recovery
         env:
-          EXPECTED_COMMIT: ${{ github.sha }}
+          EXPECTED_COMMIT: ${{ env.OLA_SOURCE_SHA }}
         run: |
           set -euo pipefail
           curl --fail --silent http://127.0.0.1:8000/health >/dev/null
