@@ -1193,6 +1193,8 @@ def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_ow
 ):
     database, runtime_engine, _migration_engine, admin_engine, runtime_role, schema, worker_role = postgres_db
     table_name = "api_keys" if function_name == "ola_authenticate_api_key" else "checkout_execution_jobs"
+    function_grantee = runtime_role if function_name == "ola_authenticate_api_key" else worker_role
+    function_signature = f"{schema}.{function_name}({signature})"
     with admin_engine.connect() as conn:
         original_owner = conn.execute(text("""
             SELECT pg_get_userbyid(c.relowner)
@@ -1200,13 +1202,36 @@ def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_ow
             JOIN pg_namespace AS n ON n.oid = c.relnamespace
             WHERE n.nspname = :schema_name AND c.relname = :table_name
         """), {"schema_name": schema, "table_name": table_name}).scalar_one()
+        acl_before = conn.execute(text("""
+            SELECT COALESCE(
+                jsonb_agg(jsonb_build_object(
+                    'grantee', pg_get_userbyid(acl.grantee),
+                    'grantor', pg_get_userbyid(acl.grantor),
+                    'privilege', acl.privilege_type,
+                    'grantable', acl.is_grantable
+                ) ORDER BY acl.grantee, acl.grantor, acl.privilege_type, acl.is_grantable),
+                '[]'::jsonb
+            )
+            FROM pg_proc AS p
+            CROSS JOIN LATERAL aclexplode(
+                COALESCE(p.proacl, acldefault('f', p.proowner))
+            ) AS acl
+            WHERE p.oid = to_regprocedure(:function_signature)
+        """), {"function_signature": function_signature}).scalar_one()
+    assert {entry["grantee"] for entry in acl_before} <= {original_owner, function_grantee}
+    assert any(
+        entry["grantee"] == function_grantee
+        and entry["privilege"] == "EXECUTE"
+        and not entry["grantable"]
+        for entry in acl_before
+    )
 
-    with admin_engine.begin() as conn:
-        conn.exec_driver_sql(f'GRANT CREATE ON SCHEMA "{schema}" TO "{runtime_role}"')
-        conn.exec_driver_sql(
-            f'ALTER FUNCTION "{schema}".{function_name}({signature}) OWNER TO "{runtime_role}"'
-        )
     try:
+        with admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'GRANT CREATE ON SCHEMA "{schema}" TO "{runtime_role}"')
+            conn.exec_driver_sql(
+                f'ALTER FUNCTION "{schema}".{function_name}({signature}) OWNER TO "{runtime_role}"'
+            )
         message = (
             "API-key SECURITY DEFINER owner must match the api_keys table owner"
             if function_name == "ola_authenticate_api_key"
@@ -1221,20 +1246,35 @@ def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_ow
             conn.exec_driver_sql(
                 f'ALTER FUNCTION "{schema}".{function_name}({signature}) OWNER TO "{original_owner}"'
             )
-            # ALTER FUNCTION OWNER may discard the ACL entry for the new
-            # owner. Restore the one intended application grantee explicitly.
-            allowed_grantee = (
-                runtime_role
-                if function_name == "ola_authenticate_api_key"
-                else worker_role
-            )
-            conn.exec_driver_sql(
-                f'REVOKE ALL ON FUNCTION "{schema}".{function_name}({signature}) FROM "{allowed_grantee}"'
-            )
-            conn.exec_driver_sql(
-                f'GRANT EXECUTE ON FUNCTION "{schema}".{function_name}({signature}) TO "{allowed_grantee}"'
-            )
             conn.exec_driver_sql(f'REVOKE CREATE ON SCHEMA "{schema}" FROM "{runtime_role}"')
+            # Restore the original grant under its original grantor.
+            conn.exec_driver_sql(f'SET ROLE "{original_owner}"')
+            conn.exec_driver_sql(
+                f'REVOKE ALL ON FUNCTION "{schema}".{function_name}({signature}) FROM "{function_grantee}"'
+            )
+            conn.exec_driver_sql(
+                f'GRANT EXECUTE ON FUNCTION "{schema}".{function_name}({signature}) TO "{function_grantee}"'
+            )
+            conn.exec_driver_sql("RESET ROLE")
+
+    with admin_engine.connect() as conn:
+        acl_after = conn.execute(text("""
+            SELECT COALESCE(
+                jsonb_agg(jsonb_build_object(
+                    'grantee', pg_get_userbyid(acl.grantee),
+                    'grantor', pg_get_userbyid(acl.grantor),
+                    'privilege', acl.privilege_type,
+                    'grantable', acl.is_grantable
+                ) ORDER BY acl.grantee, acl.grantor, acl.privilege_type, acl.is_grantable),
+                '[]'::jsonb
+            )
+            FROM pg_proc AS p
+            CROSS JOIN LATERAL aclexplode(
+                COALESCE(p.proacl, acldefault('f', p.proowner))
+            ) AS acl
+            WHERE p.oid = to_regprocedure(:function_signature)
+        """), {"function_signature": function_signature}).scalar_one()
+    assert acl_after == acl_before, "complete function ACL must be restored exactly"
     database.verify_postgres_schema(
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
