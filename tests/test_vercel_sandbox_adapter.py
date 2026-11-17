@@ -25,7 +25,7 @@ class FakeResources:
 
 class FakeSandbox:
     name = "sandbox-test-123"
-    image = "vercel/sandbox/python@sha256:" + "a" * 64
+    image = "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8"
 
     def __init__(self, stdout="42\n", stderr=""):
         self.stdout_value = stdout
@@ -122,6 +122,18 @@ def test_adapter_rejects_unpinned_resolved_image_before_execution():
     sdk = FakeSDK(box)
 
     with pytest.raises(SandboxAdapterError, match="digest-pinned image"):
+        execute_python_source("print(42)", sdk=sdk, client=sdk)
+
+    assert box.calls == []
+    assert sdk.closed is True
+
+
+def test_adapter_rejects_unexpected_digest_pinned_image_before_execution():
+    box = FakeSandbox()
+    box.image = "vercel/sandbox/python@sha256:" + "b" * 64
+    sdk = FakeSDK(box)
+
+    with pytest.raises(SandboxAdapterError, match="expected digest-pinned image"):
         execute_python_source("print(42)", sdk=sdk, client=sdk)
 
     assert box.calls == []
