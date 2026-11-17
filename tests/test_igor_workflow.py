@@ -284,6 +284,8 @@ def test_igor_verifies_sandbox_execution_shape_and_source_digest():
     ("persistent", True),
     ("destroy_on_exit", False),
     ("resources", {"vcpus": 2, "memory_mb": 4096}),
+    ("resources", {"vcpus": True, "memory_mb": 2048}),
+    ("source_bytes", True),
     ("timeout_seconds", 61),
     ("output_limit_bytes_per_stream", 8193),
     ("source_bytes", 1),
