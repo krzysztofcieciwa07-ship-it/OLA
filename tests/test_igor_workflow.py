@@ -207,7 +207,7 @@ def sandbox_events(node_count=1):
     output = {
         "executor": "vercel_sandbox",
         "operation": "python_exec",
-        "runtime": "python3.14",
+        "runtime": "python3",
         "sandbox_name": "sandbox-run-123",
         "image": "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8",
         "region": "fra1",
