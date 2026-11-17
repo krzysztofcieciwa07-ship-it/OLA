@@ -9,6 +9,10 @@ on:
 
 permissions:
   contents: read
+env:
+  OLA_API_KEY_PEPPER: ${{ github.sha }}
+  OLA_EVIDENCE_V4_KEYRING_JSON: '{"ci-v4-2026":"cHl0ZXN0LW9ubHktdjQta2V5LW1hdGVyaWFsLTMyYnl0ZXMhIQ=="}'
+  OLA_EVIDENCE_V4_ACTIVE_KEY_ID: ci-v4-2026
 
 jobs:
   stress:
@@ -23,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run -d --name ola-stress -p 8000:8000 ola-stress
+          docker run -d --name ola-stress -e OLA_API_KEY_PEPPER="$OLA_API_KEY_PEPPER" -e OLA_EVIDENCE_V4_KEYRING_JSON="$OLA_EVIDENCE_V4_KEYRING_JSON" -e OLA_EVIDENCE_V4_ACTIVE_KEY_ID="$OLA_EVIDENCE_V4_ACTIVE_KEY_ID" -p 8000:8000 ola-stress
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health >/dev/null && exit 0; sleep 2; done
           docker logs ola-stress
           exit 1
