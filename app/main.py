@@ -137,7 +137,7 @@ def run_controlled_audit(tenant_id, task, scenario):
         "audit_id": audit_id,
         "status": "VERIFIED",
         "outcome": "recovered_and_verified",
-        "evidence_count": len(rows),
+        "evidence_count": len(evidence_ids),
         "evidence_ids": evidence_ids,
         "reason": reason,
     }
