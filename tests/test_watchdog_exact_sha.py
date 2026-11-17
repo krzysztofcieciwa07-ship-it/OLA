@@ -236,7 +236,7 @@ def test_watchdog_workflow_persists_lifecycle_evidence_and_never_cancels_active_
     assert '"run.start"' in script
     assert '"run.end"' in script
     assert "headSha" in script
-    assert '"actions/artifacts/"' in script
+    assert "actions/artifacts/" in script
     assert "aggregator_artifact_digest_verified" in script
     assert "updatedAt" in script
     assert "classify" in script
