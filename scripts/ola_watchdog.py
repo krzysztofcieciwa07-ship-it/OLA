@@ -273,6 +273,7 @@ def run_watchdog() -> dict[str, Any]:
         "flow_conclusion": None,
         "aggregator_artifact_id": None,
         "aggregator_artifact_digest": None,
+        "aggregator_artifact_size_bytes": None,
         "aggregator_artifact_digest_verified": False,
         "aggregator_summary_sha256": None,
         "evidence_status": "UNKNOWN",
@@ -347,6 +348,12 @@ def run_watchdog() -> dict[str, Any]:
 
         report["aggregator_artifact_id"] = artifact.get("id")
         report["aggregator_artifact_digest"] = artifact.get("digest")
+        artifact_size = artifact.get("size_in_bytes")
+        report["aggregator_artifact_size_bytes"] = artifact_size
+        if type(artifact_size) is not int or not 1 <= artifact_size <= MAX_ARTIFACT_ARCHIVE_BYTES:
+            _block(report, "aggregator_artifact_archive_size_limit")
+            report["evidence_status"] = "BLOCKED"
+            return report
         digest = str(artifact.get("digest") or "")
         if not digest.startswith("sha256:"):
             _block(report, "aggregator_artifact_digest_missing")
@@ -360,7 +367,7 @@ def run_watchdog() -> dict[str, Any]:
                     repository,
                     int(artifact["id"]),
                     digest,
-                    int(artifact["size_in_bytes"]),
+                    artifact_size,
                     bundle_dir,
                 )
                 if not archive_ok:
