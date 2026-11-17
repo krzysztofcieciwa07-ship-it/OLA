@@ -50,7 +50,7 @@ def _verify_sandbox_output(node, output):
 
     required = {
         "executor", "operation", "runtime", "sandbox_name", "image", "region",
-        "network_policy", "persistent", "resources", "timeout_seconds",
+        "network_policy", "persistent", "destroy_on_exit", "resources", "timeout_seconds",
         "output_limit_bytes_per_stream", "source_bytes", "source_sha256",
         "exit_code", "stdout", "stderr", "stdout_sha256", "stderr_sha256",
         "stdout_truncated", "stderr_truncated",
@@ -69,6 +69,8 @@ def _verify_sandbox_output(node, output):
         return "sandbox network policy is not deny-all"
     if type(output.get("persistent")) is not bool or output["persistent"] is not False:
         return "sandbox persistence policy invalid"
+    if type(output.get("destroy_on_exit")) is not bool or output["destroy_on_exit"] is not True:
+        return "sandbox cleanup policy invalid"
     if output.get("resources") != {"vcpus": 1, "memory_mb": 2048}:
         return "sandbox resource policy invalid"
     if (type(output.get("timeout_seconds")) is not int
