@@ -77,3 +77,23 @@ def test_final_gate_embedded_python_is_syntactically_valid():
         "final-production-gate.yml::<embedded-python>",
         "exec",
     )
+
+
+def test_evidence_v4_gate_is_scoped_but_runs_for_workflow_changes():
+    triggers = trigger_block(workflow("evidence-cryptography-v4.yml"), "permissions")
+    pull_request = triggers.split("  pull_request:", 1)[1].split("  push:", 1)[0]
+
+    assert "paths:" in pull_request
+    assert '      - "app/evidence_v4.py"' in pull_request
+    assert '      - ".github/workflows/**"' in pull_request
+
+
+def test_paid_order_postgres_gate_is_scoped_but_runs_for_workflow_changes():
+    triggers = trigger_block(workflow("paid-order-postgres.yml"), "permissions")
+    pull_request = triggers.split("  pull_request:", 1)[1].split("  push:", 1)[0]
+    push = triggers.split("  push:", 1)[1]
+
+    for trigger in (pull_request, push):
+        assert "paths:" in trigger
+        assert '      - "app/**"' in trigger
+        assert '      - ".github/workflows/**"' in trigger
