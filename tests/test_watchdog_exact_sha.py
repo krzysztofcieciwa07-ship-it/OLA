@@ -339,7 +339,7 @@ def test_pending_exact_sha_flow_is_waited_not_blocked():
     )
 
     assert result["action"] == "WAIT"
-    assert result["reason"] == "exact_sha_flow_active"
+    assert result["reason"] == "active_main_flow"
 
 
 def test_artifact_download_aborts_before_writing_beyond_declared_size(tmp_path, monkeypatch):
