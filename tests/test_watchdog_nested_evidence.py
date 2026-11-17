@@ -272,14 +272,17 @@ def test_nested_artifact_copies_require_exact_original_artifact_trees(tmp_path):
     assert reason == "nina_artifact_copy_mismatch"
 
 
-def test_igor_tar_enforces_decompressed_stream_limit_before_full_scan(tmp_path, monkeypatch):
+def test_igor_tar_enforces_decompressed_stream_limit_including_headers(tmp_path, monkeypatch):
     bundle = tmp_path / "evidence-bundle"
     bundle.mkdir()
-    payload_path = bundle / "payload.bin"
-    payload_path.write_bytes(b"\\0" * (2 * 1024 * 1024))
+    # Empty members keep the declared payload sum at zero. Their TAR headers,
+    # padding and end records still exceed the decompressed stream budget.
+    for index in range(200):
+        (bundle / f"entry-{index:03d}.bin").write_bytes(b"")
     archive_path = tmp_path / "oversized.tar.gz"
     with tarfile.open(archive_path, "w:gz") as archive:
-        archive.add(payload_path, arcname="evidence-bundle/payload.bin")
+        for path in sorted(bundle.iterdir()):
+            archive.add(path, arcname=f"evidence-bundle/{path.name}")
 
     monkeypatch.setattr(evidence, "MAX_TAR_UNCOMPRESSED_BYTES", 64 * 1024)
 
