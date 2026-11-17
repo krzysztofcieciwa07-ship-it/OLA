@@ -12,10 +12,9 @@ from .hashchain import (
     GENESIS_HASH,
     compute_record_hash_v2,
     sealed_payload_json,
-    trusted_record,
-    verify_chain,
     canonical_json,
 )
+from .igor_evidence_verifier import verify_chain, trusted_record
 from .models import (
     CheckoutExecutionJob,
     CheckoutOrder,
