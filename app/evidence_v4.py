@@ -278,7 +278,7 @@ def verify_mixed_chain(
     records: list[Mapping[str, Any]],
     keyring: Keyring,
     *,
-    legacy_verifier: Callable[[list[Mapping[str, Any]]], tuple[bool, str]] | None = None,
+    legacy_verifier: Callable[..., tuple[bool, str]] | None = None,
 ) -> tuple[bool, str]:
     """Verify contiguous V1/V2/V3 and V4 segments without reinterpreting history.
 
