@@ -270,6 +270,53 @@ def test_openai_multipart_output_uses_real_newline_separator(monkeypatch):
     assert result["output"] == "part one\npart two"
 
 
+def test_openai_nina_planner_uses_strict_json_schema(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"id": "resp-schema", "output_text": '{"nodes": []}'}
+
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OLA_LLM_MODEL", "gpt-6")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    _invoke_llm(
+        "nina_dag_planner",
+        "Plan bounded independent work",
+        {"allowed_tools": ["llm_agent"], "independent_only": True},
+    )
+
+    payload = calls[0][1]["json"]
+    output_format = payload["text"]["format"]
+    assert output_format["type"] == "json_schema"
+    assert output_format["name"] == "ola_nina_dag_plan"
+    assert output_format["strict"] is True
+    schema = output_format["schema"]
+    assert schema["required"] == ["nodes"]
+    assert schema["additionalProperties"] is False
+    nodes = schema["properties"]["nodes"]
+    assert nodes["minItems"] == 2
+    assert nodes["maxItems"] == 4
+    assert nodes["items"]["properties"]["tool"]["enum"] == ["llm_agent"]
+    assert nodes["items"]["properties"]["needs"]["maxItems"] == 0
+    assert nodes["items"]["properties"]["needs"]["items"]["type"] == "string"
+    assert payload["max_output_tokens"] == 8192
+
+
 def test_ollama_rejects_non_loopback_http_endpoint(monkeypatch):
     import pytest
     from app.agent_runtime import _invoke_llm

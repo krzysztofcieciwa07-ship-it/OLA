@@ -141,6 +141,46 @@ def _mcp_tool_call(name, arguments):
 
 
 
+def _nina_dag_json_schema(context):
+    """One strict DAG schema shared by OpenAI Responses and Ollama JSON mode."""
+    if not isinstance(context, dict):
+        raise ValueError("planner context must be an object")
+    allowed = context.get("allowed_tools", [])
+    if (not isinstance(allowed, list) or not allowed or len(allowed) > 16
+            or not all(isinstance(tool, str) and tool.strip() for tool in allowed)
+            or len(set(allowed)) != len(allowed)):
+        raise ValueError("planner requires explicit unique allowlisted capabilities")
+    schema = {
+        "type": "object",
+        "properties": {
+            "nodes": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "minLength": 1, "maxLength": 40},
+                        "tool": {"type": "string", "enum": allowed},
+                        "task": {"type": "string", "minLength": 1, "maxLength": 1000},
+                        "needs": {"type": "array", "maxItems": 16, "items": {"type": "string"}},
+                    },
+                    "required": ["id", "tool", "task", "needs"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["nodes"],
+        "additionalProperties": False,
+    }
+    if context.get("independent_only") is True:
+        nodes = schema["properties"]["nodes"]
+        nodes["minItems"] = 2
+        nodes["maxItems"] = 4
+        nodes["items"]["properties"]["needs"]["maxItems"] = 0
+    return schema
+
+
 def _invoke_llm(agent, task, context):
     """Invoke the configured real LLM provider; fail closed when required but unavailable."""
     provider = os.getenv("OLA_LLM_PROVIDER", "openai").strip().lower()
@@ -180,6 +220,16 @@ def _invoke_llm(agent, task, context):
                 {"role": "user", "content": prompt},
             ],
         }
+        if agent == "nina_dag_planner":
+            payload["max_output_tokens"] = 8192
+            payload["text"] = {
+                "format": {
+                    "type": "json_schema",
+                    "name": "ola_nina_dag_plan",
+                    "strict": True,
+                    "schema": _nina_dag_json_schema(context),
+                }
+            }
         response = httpx.post(
             endpoint,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -227,43 +277,8 @@ def _invoke_llm(agent, task, context):
             "options": options,
         }
         if agent == "nina_dag_planner":
-            # A JSON DAG needs more room than short worker answers. Ollama's
-            # structured JSON mode keeps the plan machine-readable; validation
-            # of allowed tools, dependencies and sizes still happens separately.
-            allowed = context.get("allowed_tools", [])
-            if (not isinstance(allowed, list) or not allowed
-                    or not all(isinstance(tool, str) and tool for tool in allowed)):
-                raise ValueError("planner requires explicit allowlisted capabilities")
-            payload["format"] = {
-                "type": "object",
-                "properties": {
-                    "nodes": {
-                        "type": "array",
-                        "minItems": 1,
-                        "maxItems": 16,
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": "string", "minLength": 1, "maxLength": 40},
-                                "tool": {"type": "string", "enum": allowed},
-                                "task": {"type": "string", "minLength": 1, "maxLength": 1000},
-                                "needs": {"type": "array", "items": {"type": "string"}},
-                            },
-                            "required": ["id", "tool", "task", "needs"],
-                            "additionalProperties": False,
-                        },
-                    },
-                },
-                "required": ["nodes"],
-                "additionalProperties": False,
-            }
-            if context.get("independent_only") is True:
-                # Independent goal: model still chooses task count/IDs/content,
-                # but cannot hallucinate dependencies on nonexistent DAG nodes.
-                nodes_schema = payload["format"]["properties"]["nodes"]
-                nodes_schema["minItems"] = 2
-                nodes_schema["maxItems"] = 4
-                nodes_schema["items"]["properties"]["needs"]["maxItems"] = 0
+            # Both providers receive the same allowlisted strict JSON Schema.
+            payload["format"] = _nina_dag_json_schema(context)
             options["num_predict"] = max(options.get("num_predict", 0), 256)
         response = httpx.post(
             f"{base_url}/api/chat",

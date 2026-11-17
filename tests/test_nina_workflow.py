@@ -21,11 +21,19 @@ def test_end_to_end_workflow_service_records_every_step():
         allowed_tools=["safe_expression", "local_mcp_tool_registry.sha256"], append=append,
         planner=lambda goal, tools: (nodes, {"provider": "ollama", "model": "test", "response_id": "abc"}),
         executor=execute)
-    assert result["status"] == "COMPLETED_UNVERIFIED"
+    assert result["status"] == "UNKNOWN"
+    assert result["igor"]["status"] == "UNKNOWN"
     assert result["verified"] is False
-    assert len(result["evidence_ids"]) == 6
-    assert writes[0][1] == "workflow.planned"
-    assert writes[-1][1] == "workflow.completed"
+    assert len(result["evidence_ids"]) == 8
+    assert writes[0][1] == "execution.run.start"
+    assert writes[1][1] == "workflow.planned"
+    assert writes[0][2]["task_digest"] == writes[1][2]["task_digest"]
+    assert writes[-1][2]["task_digest"] == writes[0][2]["task_digest"]
+    assert writes[0][2]["allowed_tools"] == ["safe_expression"]
+    assert writes[1][2]["allowed_tools"] == ["safe_expression"]
+    assert writes[-1][2]["allowed_tools"] == ["safe_expression"]
+    assert writes[-2][1] == "workflow.completed"
+    assert writes[-1][1] == "execution.run.end"
     assert all(item[0] == "tenantA" for item in writes)
 
 
@@ -39,6 +47,74 @@ def test_evidence_sink_error_never_reports_success():
             append=lambda *args: {"status": "fake"},
             planner=lambda g, tools: (nodes, {"provider": "ollama", "model": "test", "response_id": "abc"}),
             executor=lambda node, deps: "2")
+
+
+def test_run_nina_workflow_igor_verifies_before_and_after_lifecycle_end(monkeypatch):
+    import app.igor_workflow
+
+    writes = []
+    verifier_calls = []
+
+    def append(tenant, kind, payload):
+        writes.append((tenant, kind, payload))
+        return {"id": str(len(writes))}
+
+    def fake_verify(records, **kwargs):
+        verifier_calls.append(kwargs)
+        return {"status": "VERIFIED", "report_digest": "a" * 64}
+
+    monkeypatch.setattr(app.igor_workflow, "verify_dag_records", fake_verify)
+    nodes = validate_plan({"nodes": [
+        {"id": "a", "tool": "safe_expression", "task": "1+1", "needs": []}
+    ]}, allowed_tools={"safe_expression"})
+
+    result = run_nina_workflow(
+        tenant_id="tenantA",
+        requester_id="u1",
+        goal="verify lifecycle",
+        allowed_tools=["safe_expression"],
+        append=append,
+        planner=lambda goal, tools: (
+            nodes, {"provider": "ollama", "model": "test", "response_id": "plan-1"}
+        ),
+        executor=lambda node, deps: "2",
+        fetch_records=lambda tenant: [],
+    )
+
+    assert [call["require_lifecycle"] for call in verifier_calls] == [False, True]
+    assert writes[0][1] == "execution.run.start"
+    assert writes[-1][1] == "execution.run.end"
+    assert writes[-1][2]["pre_end_igor_status"] == "VERIFIED"
+    assert result["status"] == "COMPLETED_UNVERIFIED"
+    assert result["igor"]["status"] == "VERIFIED"
+    assert result["human_gate"] == "NOT_APPROVED"
+    assert result["verified"] is False
+
+
+def test_planner_failure_closes_execution_lifecycle():
+    writes = []
+
+    def append(tenant, kind, payload):
+        writes.append((tenant, kind, payload))
+        return {"id": str(len(writes))}
+
+    def fail_planner(*args):
+        raise WorkflowPlanError("planner unavailable")
+
+    with pytest.raises(WorkflowPlanError, match="planner unavailable"):
+        run_nina_workflow(
+            tenant_id="tenantA",
+            requester_id="u1",
+            goal="test planner failure",
+            allowed_tools=["llm_agent"],
+            append=append,
+            planner=fail_planner,
+        )
+
+    assert writes[0][1] == "execution.run.start"
+    assert writes[-2][1] == "execution.run.error"
+    assert writes[-1][1] == "execution.run.end"
+    assert writes[-1][2]["workflow_status"] == "BLOCK"
 
 
 def test_reject_unregistered_tool_before_planning():
@@ -227,3 +303,36 @@ def test_independent_goal_requires_model_chosen_parallel_nodes(monkeypatch):
     assert len(requests) == 2 and all(req["independent_only"] is True for req in requests)
     assert provenance["attempts"] == 2
     assert provenance["response_id"] == "plan-2"
+
+
+def test_vercel_sandbox_tool_uses_structured_task_and_registered_adapter(monkeypatch):
+    import json
+    import app.vercel_sandbox_adapter as adapter
+    from app.nina import REGISTERED_TOOLS, WORKFLOW_REGISTERED_TOOLS
+    from app.nina_workflow import execute_registered_node
+    from app.workflow_engine import WorkflowNode
+
+    calls = []
+    monkeypatch.setattr(adapter, "execute_python_source",
+                        lambda source: calls.append(source) or {"executor": "vercel_sandbox"})
+    task = json.dumps({"operation": "python_exec", "source": "print(42)"})
+    node = WorkflowNode("sandbox", "vercel_sandbox", task, ())
+    assert "vercel_sandbox" in WORKFLOW_REGISTERED_TOOLS
+    assert "vercel_sandbox" not in REGISTERED_TOOLS
+    assert execute_registered_node(node, {}) == {"executor": "vercel_sandbox"}
+    assert calls == ["print(42)"]
+
+
+@pytest.mark.parametrize("task", [
+    "print(42)",
+    '{"operation":"shell","source":"id"}',
+    '{"operation":"python_exec","source":"print(1)","command":"bash"}',
+    '{"operation":"python_exec","source":42}',
+    '{"operation":"python_exec","operation":"python_exec","source":"print(1)"}',
+])
+def test_vercel_sandbox_rejects_unstructured_or_unsupported_task(task):
+    from app.nina_workflow import execute_registered_node
+    from app.workflow_engine import WorkflowNode, WorkflowPlanError
+
+    with pytest.raises(WorkflowPlanError):
+        execute_registered_node(WorkflowNode("sandbox", "vercel_sandbox", task, ()), {})
