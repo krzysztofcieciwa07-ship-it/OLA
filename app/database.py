@@ -807,6 +807,10 @@ def _migrate_sqlite_private_order_tasks(bind):
             conn.exec_driver_sql("ALTER TABLE checkout_orders ADD COLUMN task TEXT")
         if "role" not in api_key_columns:
             conn.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'tenant'")
+        if "revoked_at" not in api_key_columns:
+            conn.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN revoked_at DATETIME")
+        if "expires_at" not in api_key_columns:
+            conn.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN expires_at DATETIME")
         conn.exec_driver_sql("""
             UPDATE checkout_orders
             SET task = (
