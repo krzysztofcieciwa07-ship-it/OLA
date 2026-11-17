@@ -23,9 +23,11 @@ def test_end_to_end_workflow_service_records_every_step():
         executor=execute)
     assert result["status"] == "COMPLETED_UNVERIFIED"
     assert result["verified"] is False
-    assert len(result["evidence_ids"]) == 6
-    assert writes[0][1] == "workflow.planned"
-    assert writes[-1][1] == "workflow.completed"
+    assert len(result["evidence_ids"]) == 8
+    assert writes[0][1] == "execution.run.start"
+    assert writes[1][1] == "workflow.planned"
+    assert writes[-2][1] == "workflow.completed"
+    assert writes[-1][1] == "execution.run.end"
     assert all(item[0] == "tenantA" for item in writes)
 
 
@@ -39,6 +41,32 @@ def test_evidence_sink_error_never_reports_success():
             append=lambda *args: {"status": "fake"},
             planner=lambda g, tools: (nodes, {"provider": "ollama", "model": "test", "response_id": "abc"}),
             executor=lambda node, deps: "2")
+
+
+def test_planner_failure_closes_execution_lifecycle():
+    writes = []
+
+    def append(tenant, kind, payload):
+        writes.append((tenant, kind, payload))
+        return {"id": str(len(writes))}
+
+    def fail_planner(*args):
+        raise WorkflowPlanError("planner unavailable")
+
+    with pytest.raises(WorkflowPlanError, match="planner unavailable"):
+        run_nina_workflow(
+            tenant_id="tenantA",
+            requester_id="u1",
+            goal="test planner failure",
+            allowed_tools=["llm_agent"],
+            append=append,
+            planner=fail_planner,
+        )
+
+    assert writes[0][1] == "execution.run.start"
+    assert writes[-2][1] == "execution.run.error"
+    assert writes[-1][1] == "execution.run.end"
+    assert writes[-1][2]["workflow_status"] == "BLOCK"
 
 
 def test_reject_unregistered_tool_before_planning():
