@@ -141,6 +141,8 @@ def execute_python_source(
                 persistent=False,
                 resources=sdk.SandboxResources(vcpus=SANDBOX_VCPUS, memory=SANDBOX_MEMORY_MB),
                 network_policy=sdk.NetworkPolicy.deny_all(),
+                region=SANDBOX_REGION,
+                failover_regions=[],
                 destroy=True,
             ) as sandbox:
                 sandbox_name = getattr(sandbox, "name", None)
