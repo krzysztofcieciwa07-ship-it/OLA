@@ -127,6 +127,17 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert options["destroy"] is True
 
 
+def test_adapter_requires_provider_confirmed_region_before_execution():
+    box = FakeSandbox()
+    box.region = None
+    sdk = FakeSDK(box)
+
+    with pytest.raises(SandboxAdapterError, match="EU region"):
+        execute_python_source("print(1)", sdk=sdk, client=sdk)
+
+    assert box.process_calls == []
+
+
 def test_adapter_rejects_unpinned_resolved_image_before_execution():
     box = FakeSandbox()
     box.image = "vercel/sandbox/python:3.14"
