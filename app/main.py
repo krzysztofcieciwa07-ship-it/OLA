@@ -14,7 +14,8 @@ from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, append_evidence_atomic, prepare_runtime_schema, verify_postgres_schema
 from .models import Tenant, ApiKey, EvidenceRecord, CheckoutOrder, CheckoutOrderControl, CheckoutExecutionJob
 from .api_key_hashing import api_key_fingerprint
-from .hashchain import GENESIS_HASH, canonical_json, compute_record_hash, verify_chain
+from .hashchain import canonical_json
+from .igor_evidence_verifier import verify_chain
 from .agent_runtime import run_agent_task
 from .agent_registry import build_agent_registry
 from .execution_safety_gate import ExecutionDecision, ExecutionSafetyGate
