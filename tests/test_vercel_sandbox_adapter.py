@@ -28,6 +28,12 @@ class FakeSandbox:
     name = "sandbox-test-123"
     image = "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8"
     region = "fra1"
+    network_policy = SimpleNamespace(mode="deny-all")
+    persistent = False
+    vcpus = 1
+    memory = 2048
+    failover_regions = ()
+    execution_time_limit = timedelta(seconds=30)
 
     def __init__(self, stdout="42\n", stderr=""):
         self.stdout_value = stdout
