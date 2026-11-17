@@ -9,9 +9,9 @@
   "record": {
     "tenant_id": "fixture-tenant",
     "seq": 3,
-    "record_type": "provenance.runtime",
-    "payload_json": "{\"__ola_evidence_v4__\":{\"key_id\":\"v4-fixture-2026\",\"producer\":\"ola_runtime\",\"record_type\":\"provenance.runtime\",\"version\":4},\"commit\":\"abc123\",\"result\":\"verified\",\"run_id\":\"fixture-run\",\"task\":\"fixture task\"}",
+    "record_type": "agent.codeact",
+    "payload_json": "{\"__ola_evidence_v4__\":{\"key_id\":\"v4-fixture-2026\",\"producer\":\"ola_runtime\",\"record_type\":\"agent.codeact\",\"version\":4},\"commit\":\"abc123\",\"result\":\"verified\",\"run_id\":\"fixture-run\",\"task\":\"fixture task\"}",
     "prev_hash": "81385dc9f6b907326925c63b3560f025efeef892a1d54c80506cda25e3b54fdd",
-    "record_hash": "1c99463e7f29435739fd80ca6355dc40d9ed79eb89d39c9b3a3e93d3cfc8ba52"
+    "record_hash": "66871e2a408ace214a2914ba50cae15ea6fee2cc209d686c131622d2083496f1"
   }
 }
