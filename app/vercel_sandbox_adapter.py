@@ -9,7 +9,7 @@ from datetime import timedelta
 
 
 MAX_SOURCE_BYTES = 100_000
-MAX_OUTPUT_BYTES = 8_192
+MAX_OUTPUT_BYTES = 3_072
 MAX_TIMEOUT_SECONDS = 60
 RUNTIME_IMAGE = "vercel/sandbox/python:3.14"
 
@@ -77,7 +77,7 @@ def execute_python_source(
     if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= MAX_TIMEOUT_SECONDS:
         raise SandboxAdapterError("timeout must be an integer from 1 to 60 seconds")
     if type(output_limit_bytes) is not int or not 1 <= output_limit_bytes <= MAX_OUTPUT_BYTES:
-        raise SandboxAdapterError("output limit must be an integer from 1 to 8192 bytes")
+        raise SandboxAdapterError("output limit must be an integer from 1 to 3072 bytes")
 
     if sdk is None and client is None:
         from vercel.sandbox import sync as sandbox_sdk
