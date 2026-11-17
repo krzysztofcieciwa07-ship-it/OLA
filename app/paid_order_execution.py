@@ -9,7 +9,8 @@ import uuid
 from sqlalchemy import select
 
 from .database import SessionLocal, begin_write_transaction, lock_tenant_evidence_chain
-from .hashchain import GENESIS_HASH, compute_record_hash_v2, sealed_payload_json, trusted_record, verify_chain
+from .hashchain import GENESIS_HASH, compute_record_hash_v2, sealed_payload_json
+from .igor_evidence_verifier import trusted_record, verify_chain
 from .models import ApiKey, CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl, EvidenceRecord
 from .runtime_provenance import runtime_source_commit
 
