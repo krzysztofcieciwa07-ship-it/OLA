@@ -114,7 +114,7 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
     if not set(allowed_tools) <= supported:
         raise WorkflowPlanError("unregistered workflow tool")
     run_id = str(uuid.uuid4())
-    source_commit = os.getenv("OLA_RUNTIME_COMMIT", "UNKNOWN")
+    source_commit = os.getenv("OLA_RUNTIME_COMMIT") or "UNKNOWN"
     task_digest = _digest(goal)
     start_saved = append(tenant_id, "execution.run.start", {
         "run_id": run_id,
