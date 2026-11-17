@@ -6,7 +6,7 @@ This policy covers the OLA runtime, evidence chain, agent execution, provenance,
 
 ## Supported versions
 
-Only the current protected release line on `main` is supported. Development branches are not production releases and must not be used as production evidence.
+The intended release line is `main`. As of the audit recorded in the decision register, GitHub reports `main.protected=false`; the active ruleset only contains branch-deletion and non-fast-forward protections. Therefore effective review and required-check enforcement on `main` is **NOT_VERIFIED**. A commit on `main` is not, by that fact alone, a protected or production-accepted release. Development branches are not production releases and must not be used as production evidence.
 
 ## Security invariants
 
@@ -62,3 +62,83 @@ Role assignment is an administrative operation. The application does not allow a
 The internal worker token authenticates the execution service; it is not a human approval and must not be shared with tenant clients. The paid-order worker is restricted to the registered `safe_expression` capability. A successful execution approval does not authorize deployment, production financial transfers, or external side effects.
 
 If an approver role is removed or changed after approval but before dispatch, the worker must block the job and require manual reconciliation.
+
+
+## Branch, push, merge, and PR closure policy
+
+### Branch model
+
+- `main` is the canonical integration branch. Do not make routine direct commits to it.
+- Each change starts from the freshly read full SHA of `main` and uses a focused branch, for example `feat/*`, `fix/*`, `security/*`, `docs/*`, or `chore/*`.
+- A branch push must be a normal fast-forward update. Force-push and history rewriting are prohibited for shared, reviewed, or evidence-bearing branches.
+- Every PR must state its purpose, risk boundary, exact candidate SHA, checks actually executed, unresolved findings, and rollback procedure.
+- A branch name, green badge, or open PR is not proof that the candidate is acceptable.
+
+### Push rules
+
+1. Fetch current `main` and record its full 40-character SHA.
+2. Create a new topic branch from that exact SHA, or explicitly reconcile the branch with the current base before review.
+3. Commit only scoped changes. Keep credentials, production data, signing keys, and runtime evidence containing sensitive values out of Git.
+4. Push the topic branch without force. If the remote head changed, inspect the new head and reconcile; do not overwrite it.
+5. Open a PR to `main`. Do not push directly to `main` as a substitute for review.
+6. After each new commit, rerun the required checks against the new exact head SHA. A previous SHA's green CI does not transfer to a new commit.
+
+### Merge gate
+
+A PR is mergeable only when all of the following are true:
+
+- the PR head is the exact SHA that was reviewed and tested;
+- required tests, security scans, provenance checks, and Evidence Gate checks have completed successfully on that SHA;
+- skipped, missing, stale, or mismatched checks are treated as BLOCKED, not PASS;
+- at least one independent reviewer other than the PR author has approved the current change;
+- stale approvals are dismissed after new commits; the latest push is reviewed as required by the configured rules;
+- all blocking review threads are resolved;
+- the PR base is the intended canonical branch and merge conflicts have been handled without discarding evidence;
+- any required Human Gate is a separate identity-bound decision and is not replaced by an agent's recommendation.
+
+Default repository merge preference: **squash** for a focused, self-contained change. Use a merge commit when preserving a reviewed multi-commit sequence is necessary for provenance. Do not use rebase as a way to evade review or required checks: rewritten commits require a new exact-SHA verification cycle.
+
+After merge, record the PR number, merge commit SHA, resulting `main` SHA, and linked CI runs. Verify the new `main` SHA independently. If deployment is involved, compare the deployed image/source revision with that exact merge SHA and run health, readiness, and stability checks. Merge success is not deployment acceptance.
+
+### PR closure and branch retention
+
+- `MERGED`: close through an actual GitHub merge; verify the merge SHA and resulting base history.
+- `CLOSED_UNMERGED`: this means the change was not integrated. Record why (superseded, duplicate, rejected, abandoned, or not planned).
+- Before closing an unmerged PR, compare its head with its base and identify commits/files that would otherwise be lost. Confirm that any required work has been merged elsewhere or explicitly rejected.
+- Closing a PR does not delete its source branch. Do not delete a branch until unique commits, review comments, artifacts, and evidence have been reconciled and retention is approved.
+- Do not mass-close PRs or mass-delete branches based only on age, title, duplicate-looking names, or matching head SHAs.
+- GitHub's repository configuration currently has automatic branch deletion after merge disabled. Keep that behavior until explicit retention policy and evidence archival are in place.
+
+### Current governance limitation
+
+The observed repository ruleset `25853037` is active but only specifies `deletion` and `non_fast_forward`; the branch endpoint reports `main.protected=false`. The connected integration cannot read the full effective branch-protection endpoint (HTTP 403). The owner/admin must activate and independently verify the required review/check policy in GitHub Settings. Do not claim branch protection is complete before a negative test proves that a PR without review or required checks is blocked.
+
+## Agent and external-tool trust boundaries
+
+- OLA's six named runtime roles currently execute in one Python process and are marked `execution_boundary=in_process`. They are capability paths, not six isolated autonomous agents.
+- The runtime provider adapter currently supports OpenAI and Ollama. Gemini, Codex, and MetaGPT are not runtime-authorized providers merely because they are present in the engineering ecosystem or repository catalog.
+- Codex and Gemini may prepare work on topic branches, but must not merge their own changes, approve their own work, alter branch protections, or deploy.
+- MetaGPT is an external MIT-licensed framework/reference fork. It is not a dependency or a trusted execution boundary in OLA. Any future adapter must enforce OLA's identity, JSON schema, capability allowlist, sandbox, evidence, IGOR, and Human Gate contracts.
+- Jev/TypeSafe is advisory only. Its output cannot set `VERIFIED`, authorize a merge, or create Human Gate approval.
+- n8n may trigger approved OLA API operations but cannot bypass tenant authentication, NINA policy, Evidence Gate, IGOR, or Human Gate. Workflow credentials must be least-privilege and held in a secret manager.
+- The Evidence Gateway repository currently represents specification/reference material, not an operational gateway endpoint.
+
+## Evidence Gate — required acceptance sequence
+
+Every consequential coding or runtime change follows this sequence:
+
+1. **Source identity:** record repository, branch, and exact full source SHA.
+2. **Scope and policy:** verify actor identity, tenant, requested capabilities, risk, and approval requirements.
+3. **Execution:** run only allowlisted capabilities with bounded inputs, depth, concurrency, time, output size, and network destinations.
+4. **Lifecycle evidence:** persist run start, per-step start/completion/failure, terminal run end, source revision, input/output digests, and artifact references.
+5. **Integrity:** validate Evidence V4 signatures/hash chain, sequence, previous hash, tenant boundary, and immutable source binding.
+6. **Independent verification:** IGOR recomputes the captured evidence; adversarial mutation must be rejected and replay must be deterministic.
+7. **Policy and human decision:** derive the decision from evidence and policy; human approval must be an independent identity and bound to the verified digest/tip.
+8. **Release provenance:** bind source, build, image/artifact digest, attestation, deployment revision, and runtime health to the same candidate.
+9. **Stability:** require the defined health/SLI observation window before declaring release accepted.
+
+Any missing, skipped, stale, mismatched, tampered, or unverifiable prerequisite blocks progression. `VERIFIED` is not equivalent to `HUMAN_APPROVED`; Human Gate is not equivalent to deployment authorization.
+
+## License and third-party notices
+
+The repository root LICENSE is **Unlicense** for the repository's own covered work. This does not change the license of separately maintained third-party projects or packages. Preserve third-party notices and license texts when copying or vendoring code. MetaGPT is MIT-licensed; include its applicable notices if any of its code is redistributed with OLA. A complete direct/transitive dependency license audit and SBOM are still required before product redistribution; do not claim full license compliance until they are generated and reviewed for the exact release SHA.
