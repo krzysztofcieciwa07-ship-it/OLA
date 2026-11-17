@@ -9,6 +9,16 @@ import os
 from .workflow_engine import WorkflowEngine, WorkflowPlanError, validate_plan
 
 
+def _unique_json_object(pairs):
+    """Reject duplicate JSON members instead of silently accepting last-wins."""
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON member")
+        value[key] = item
+    return value
+
+
 def model_plan(goal, tools, *, independent_only=False):
     from .agent_runtime import _invoke_llm
 
@@ -55,7 +65,7 @@ def model_plan(goal, tools, *, independent_only=False):
                 or not response.get("response_id") or not response.get("output")):
             raise WorkflowPlanError("real LLM planning and response provenance required")
         try:
-            data = json.loads(response["output"])
+            data = json.loads(response["output"], object_pairs_hook=_unique_json_object)
         except (ValueError, TypeError):
             rejection = "planner output is not strict JSON"
             continue
