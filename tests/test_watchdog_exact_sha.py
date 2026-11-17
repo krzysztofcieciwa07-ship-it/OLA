@@ -34,6 +34,7 @@ def flow_run(
         "status": status,
         "conclusion": conclusion,
         "createdAt": created_at,
+        "updatedAt": created_at,
     }
 
 
@@ -71,19 +72,22 @@ def test_successful_exact_sha_run_requires_artifact_verification():
     assert result["run"]["headSha"] == SOURCE_SHA
 
 
-def test_verified_flow_is_fresh_or_dispatches_only_after_freshness_window():
-    run = flow_run(created_at="2026-11-17T08:00:00Z")
+def test_verified_flow_freshness_uses_completion_update_not_start_time():
+    run = flow_run(
+        created_at="2026-11-17T08:00:00Z",
+        updated_at="2026-11-17T08:25:00Z",
+    )
 
     fresh = decide_verified_flow(
         run,
         evidence_valid=True,
-        now_epoch=1794902700,
+        now_epoch=1794903900,
         freshness_seconds=900,
     )
     stale = decide_verified_flow(
         run,
         evidence_valid=True,
-        now_epoch=1794903600,
+        now_epoch=1794904500,
         freshness_seconds=900,
     )
     invalid = decide_verified_flow(
@@ -124,6 +128,63 @@ def write_bundle(tmp_path, summary: dict) -> None:
         f"{digest}  ola-auto-evidence.json\n",
         encoding="utf-8",
     )
+
+
+def test_artifact_archive_digest_is_checked_before_safe_extraction(tmp_path, monkeypatch):
+    import io
+    import zipfile
+
+    from scripts.ola_watchdog import download_and_verify_artifact_archive
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        bundle.writestr("ola-auto-evidence.json", "{}")
+    archive_bytes = archive.getvalue()
+    archive_digest = "sha256:" + hashlib.sha256(archive_bytes).hexdigest()
+
+    def fake_run(args, *, check, stdout, stderr):
+        assert args == ["gh", "api", "repos/example/OLA/actions/artifacts/42/zip"]
+        stdout.write(archive_bytes)
+
+    monkeypatch.setattr("scripts.ola_watchdog.subprocess.run", fake_run)
+    destination = tmp_path / "extracted"
+
+    ok, reason = download_and_verify_artifact_archive(
+        "example/OLA", 42, archive_digest, destination
+    )
+    assert ok is True
+    assert reason == "verified"
+    assert (destination / "ola-auto-evidence.json").read_text() == "{}"
+
+    bad_ok, bad_reason = download_and_verify_artifact_archive(
+        "example/OLA", 42, "sha256:" + ("0" * 64), tmp_path / "bad"
+    )
+    assert bad_ok is False
+    assert bad_reason == "aggregator_artifact_archive_digest_mismatch"
+
+
+def test_artifact_archive_rejects_path_traversal(tmp_path, monkeypatch):
+    import io
+    import zipfile
+
+    from scripts.ola_watchdog import download_and_verify_artifact_archive
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("../escape.txt", "unsafe")
+    archive_bytes = archive.getvalue()
+    archive_digest = "sha256:" + hashlib.sha256(archive_bytes).hexdigest()
+
+    def fake_run(args, *, check, stdout, stderr):
+        stdout.write(archive_bytes)
+
+    monkeypatch.setattr("scripts.ola_watchdog.subprocess.run", fake_run)
+    ok, reason = download_and_verify_artifact_archive(
+        "example/OLA", 42, archive_digest, tmp_path / "extracted"
+    )
+    assert ok is False
+    assert reason == "aggregator_artifact_archive_unsafe_entry"
+    assert not (tmp_path / "escape.txt").exists()
 
 
 def test_aggregator_bundle_requires_checksum_exact_sha_and_all_evidence(tmp_path):
