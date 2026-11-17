@@ -136,7 +136,7 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
 
         def record(event):
             payload = {**event, "requester_id": requester_id, "planner": provenance,
-                       "commit": source_commit}
+                       "commit": source_commit, "task_digest": task_digest}
             saved = append(tenant_id, event["event"], payload)
             if not isinstance(saved, dict) or not saved.get("id"):
                 raise RuntimeError("evidence write was not confirmed")
