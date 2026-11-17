@@ -23,7 +23,9 @@ def _environment(legacy, v4):
     return {
         "OLA_API_KEY_PEPPER": legacy["provenance"]["v3_test_pepper"],
         "OLA_EVIDENCE_V4_KEYRING_JSON": json.dumps({
-            v4["provenance"]["test_key_id"]: v4["provenance"]["test_key_base64"]
+            v4["provenance"]["test_key_id"]: base64.b64encode(
+                hashlib.sha256(v4["provenance"]["test_key_seed"].encode("utf-8")).digest()
+            ).decode("ascii")
         }),
         "OLA_EVIDENCE_V4_ACTIVE_KEY_ID": v4["provenance"]["test_key_id"],
     }
