@@ -74,8 +74,10 @@ jobs:
           PY
 
       - name: Build OLA image
-        run: docker build --tag ola-ollama-e2e --file Dockerfile .
+        run: docker build --build-arg OLA_SOURCE_COMMIT="${EXPECTED_SOURCE_SHA}" --tag ola-ollama-e2e --file Dockerfile .
 
+      - name: Assert Ollama image source label
+        run: test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' ola-ollama-e2e)" = "${EXPECTED_SOURCE_SHA}"
       - name: Start OLA against live Ollama
         shell: bash
         run: |
