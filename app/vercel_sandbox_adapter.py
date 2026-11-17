@@ -6,7 +6,6 @@ WorkflowEngine and Evidence V4 writer own those responsibilities.
 """
 from datetime import timedelta
 import hashlib
-from contextlib import nullcontext
 
 
 MAX_SOURCE_BYTES = 100_000
