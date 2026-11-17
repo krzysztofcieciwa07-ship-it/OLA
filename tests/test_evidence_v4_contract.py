@@ -245,6 +245,8 @@ def test_provenance_labelled_historical_v1_v2_v3_fixture_and_v4_transition():
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     assert fixture["fixture_schema"] == "ola-evidence-legacy-compatibility-fixture-v1"
     provenance = fixture["provenance"]
+    assert provenance["v1_v2_algorithm_source_commit"] == "c46b469836fc841638654850158c82d728164f3c"
+    assert provenance["v1_v2_algorithm_source_blob"] == "60f12f96bcb0291201b432747cfd16b12921d2c3"
     assert provenance["v3_algorithm_source_commit"] == "c46b469836fc841638654850158c82d728164f3c"
     assert provenance["v3_algorithm_source_blob"] == "60f12f96bcb0291201b432747cfd16b12921d2c3"
     pepper = provenance["v3_test_pepper"]
