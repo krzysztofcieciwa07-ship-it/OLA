@@ -71,7 +71,10 @@ def _verify_sandbox_output(node, output):
         return "sandbox persistence policy invalid"
     if type(output.get("destroy_on_exit")) is not bool or output["destroy_on_exit"] is not True:
         return "sandbox cleanup policy invalid"
-    if output.get("resources") != {"vcpus": 1, "memory_mb": 2048}:
+    resources = output.get("resources")
+    if (not isinstance(resources, dict) or set(resources) != {"vcpus", "memory_mb"}
+            or type(resources.get("vcpus")) is not int or resources.get("vcpus") != 1
+            or type(resources.get("memory_mb")) is not int or resources.get("memory_mb") != 2048):
         return "sandbox resource policy invalid"
     if (type(output.get("timeout_seconds")) is not int
             or not 1 <= output["timeout_seconds"] <= 60):
