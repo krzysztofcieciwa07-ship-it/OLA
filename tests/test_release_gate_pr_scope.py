@@ -1,0 +1,101 @@
+"""Regression tests for exact PR identity binding in release evidence selection."""
+from pathlib import Path
+import unittest
+
+from scripts.release_gate import filter_pull_request_runs
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class PullRequestEvidenceScopeTests(unittest.TestCase):
+    def setUp(self):
+        self.sha = "a" * 40
+        self.base_sha = "b" * 40
+        self.match = {
+            "id": 1,
+            "event": "pull_request",
+            "head_sha": self.sha,
+            "head_branch": "feature/evidence",
+            "pull_requests": [{
+                "number": 253,
+                "head": {"sha": self.sha, "ref": "feature/evidence"},
+                "base": {"sha": self.base_sha, "ref": "main"},
+            }],
+        }
+
+    def test_accepts_only_exact_pr_head_and_base(self):
+        other_pr = {
+            **self.match,
+            "id": 2,
+            "pull_requests": [{
+                "number": 254,
+                "head": {"sha": self.sha, "ref": "feature/evidence"},
+                "base": {"sha": self.base_sha, "ref": "main"},
+            }],
+        }
+        wrong_base_sha = {
+            **self.match,
+            "id": 3,
+            "pull_requests": [{
+                "number": 253,
+                "head": {"sha": self.sha, "ref": "feature/evidence"},
+                "base": {"sha": "c" * 40, "ref": "main"},
+            }],
+        }
+        wrong_base_ref = {
+            **self.match,
+            "id": 4,
+            "pull_requests": [{
+                "number": 253,
+                "head": {"sha": self.sha, "ref": "feature/evidence"},
+                "base": {"sha": self.base_sha, "ref": "release"},
+            }],
+        }
+        wrong_head = {**self.match, "id": 5, "head_sha": "d" * 40}
+        wrong_branch = {**self.match, "id": 6, "head_branch": "other-branch"}
+        wrong_event = {**self.match, "id": 7, "event": "push"}
+        missing_association = {
+            "id": 8,
+            "event": "pull_request",
+            "head_sha": self.sha,
+            "head_branch": "feature/evidence",
+        }
+
+        selected = filter_pull_request_runs(
+            [other_pr, wrong_base_sha, wrong_base_ref, wrong_head,
+             wrong_branch, wrong_event, missing_association, self.match],
+            pr_number=253,
+            target_sha=self.sha,
+            base_ref="main",
+            base_sha=self.base_sha,
+        )
+
+        self.assertEqual([1], [run["id"] for run in selected])
+
+    def test_fails_closed_for_invalid_pr_number(self):
+        with self.assertRaises(ValueError):
+            filter_pull_request_runs(
+                [self.match], pr_number=0, target_sha=self.sha,
+                base_ref="main", base_sha=self.base_sha,
+            )
+
+    def test_fails_closed_for_invalid_source_or_base_sha(self):
+        for target_sha, base_sha in (("not-a-sha", self.base_sha), (self.sha, "not-a-sha")):
+            with self.subTest(target_sha=target_sha, base_sha=base_sha):
+                with self.assertRaises(ValueError):
+                    filter_pull_request_runs(
+                        [self.match], pr_number=253, target_sha=target_sha,
+                        base_ref="main", base_sha=base_sha,
+                    )
+
+    def test_final_gate_passes_exact_pr_identity_to_selector(self):
+        content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("TARGET_SOURCE_SHA: ${{ steps.target.outputs.sha }}", content)
+        self.assertIn("PR_NUMBER: ${{ github.event.pull_request.number || 0 }}", content)
+        self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}", content)
+        self.assertIn("filter_pull_request_runs(", content)
+        self.assertIn('base_sha=os.environ.get("PR_BASE_SHA", "")', content)
+
+
+if __name__ == "__main__":
+    unittest.main()

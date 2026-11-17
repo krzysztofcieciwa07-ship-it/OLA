@@ -56,6 +56,9 @@ jobs:
       - name: Verify required evidence gates
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET_SOURCE_SHA: ${{ steps.target.outputs.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -87,7 +90,9 @@ jobs:
 
             if python - <<'PY'
           import json
+          import os
           import sys
+          from scripts.release_gate import filter_pull_request_runs
 
           required_exact = [
               "Evidence Cryptography V4 Contract",
@@ -120,6 +125,18 @@ jobs:
               exact_data = json.load(stream)
           with open("reference-runs.json", encoding="utf-8") as stream:
               reference_data = json.load(stream)
+
+          # Exact head SHA alone is not a PR identity: the same commit can be
+          # attached to multiple PRs or bases. Bind every PR producer to this
+          # PR number and the exact base snapshot before selecting gate runs.
+          if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
+              exact_data["workflow_runs"] = filter_pull_request_runs(
+                  exact_data.get("workflow_runs", []),
+                  pr_number=int(os.environ.get("PR_NUMBER", "0")),
+                  target_sha=os.environ.get("TARGET_SOURCE_SHA", ""),
+                  base_ref="main",
+                  base_sha=os.environ.get("PR_BASE_SHA", ""),
+              )
 
           def newest_by_name(data):
               newest = {}
