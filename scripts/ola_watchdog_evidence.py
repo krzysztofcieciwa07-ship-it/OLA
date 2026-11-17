@@ -119,6 +119,47 @@ def verify_sha256_manifest(base: Path, manifest: Path, expected: set[str]) -> tu
     return True, "verified"
 
 
+def verify_mapped_sha256_manifest(
+    manifest: Path,
+    files_by_name: dict[str, Path],
+    expected: set[str],
+) -> tuple[bool, str]:
+    """Verify a source manifest when an evidence bundle relocates named files."""
+    try:
+        lines = manifest.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return False, "nested_checksum_manifest_missing"
+    if not lines or len(lines) != len(expected) or set(files_by_name) != expected:
+        return False, "nested_checksum_manifest_invalid"
+
+    seen: set[str] = set()
+    for line in lines:
+        if len(line) < 67 or line[64:66] != "  ":
+            return False, "nested_checksum_manifest_invalid"
+        supplied, name = line[:64].lower(), line[66:]
+        path = PurePosixPath(name)
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", supplied)
+            or not name or "\\" in name or path.is_absolute() or not path.parts
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or ":" in path.parts[0] or name in seen or name not in expected
+        ):
+            return False, "nested_checksum_manifest_unsafe_path"
+        candidate = files_by_name[name]
+        if candidate.is_symlink() or not candidate.is_file():
+            return False, "nested_checksum_manifest_file_missing"
+        try:
+            actual = _digest(candidate)
+        except OSError:
+            return False, "nested_checksum_manifest_file_unreadable"
+        if not hmac.compare_digest(actual, supplied):
+            return False, "nested_checksum_manifest_digest_mismatch"
+        seen.add(name)
+    if seen != expected:
+        return False, "nested_checksum_manifest_coverage_mismatch"
+    return True, "verified"
+
+
 def _tree(root: Path) -> dict[str, str] | None:
     if not root.is_dir() or root.is_symlink():
         return None
@@ -272,7 +313,6 @@ def verify_nested_evidence(
 
     checks = (
         (nina, nina / "evidence-files.sha256", NINA_FILES),
-        (bundle / "runtime", bundle / "integrity/evidence-files.sha256", NINA_FILES),
         (igor, bundle / "integrity/bundle-files.sha256", IGOR_BUNDLE_FILES),
         (igor, igor / "igor-ollama-evidence-bundle.sha256", {"igor-ollama-evidence-bundle.tar.gz"}),
     )
@@ -280,6 +320,28 @@ def verify_nested_evidence(
         ok, reason = verify_sha256_manifest(base, manifest, expected)
         if not ok:
             return False, reason
+
+    # IGOR preserves the NINA payload in runtime/, while source/build and
+    # provenance metadata are deliberately stored in their dedicated folders.
+    # Verify the original NINA manifest against this explicit path map.
+    bundle_nina_paths = {
+        "ollama-models.json": bundle / "runtime/ollama-models.json",
+        "nina-igor-ollama-proof.json": bundle / "runtime/nina-igor-ollama-proof.json",
+        "nina-ollama-proof-context.json": bundle / "runtime/nina-ollama-proof-context.json",
+        "nina-ollama-evidence.sqlite3": bundle / "runtime/nina-ollama-evidence.sqlite3",
+        "ola-nina-ollama-runtime.log": bundle / "runtime/ola-nina-ollama-runtime.log",
+        "provenance.txt": bundle / "provenance/provenance.txt",
+        "ola-build-info.json": bundle / "source/ola-build-info.json",
+        "runtime-image-revision.txt": bundle / "source/runtime-image-revision.txt",
+        "runtime-image-id.txt": bundle / "source/runtime-image-id.txt",
+    }
+    ok, reason = verify_mapped_sha256_manifest(
+        bundle / "integrity/evidence-files.sha256",
+        bundle_nina_paths,
+        NINA_FILES,
+    )
+    if not ok:
+        return False, reason
     ok, reason = _verify_tar(igor / "igor-ollama-evidence-bundle.tar.gz", bundle)
     if not ok:
         return False, reason
@@ -391,7 +453,7 @@ def verify_nested_evidence(
         nina_manifest = (nina / "evidence-files.sha256").read_bytes()
         igor_manifest = (bundle / "integrity/evidence-files.sha256").read_bytes()
         same_files = all(
-            (nina / name).read_bytes() == (bundle / "runtime" / name).read_bytes()
+            (nina / name).read_bytes() == bundle_nina_paths[name].read_bytes()
             for name in NINA_FILES
         )
     except OSError:

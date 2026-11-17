@@ -214,6 +214,20 @@ def test_nested_evidence_binds_nina_artifact_digest_to_igor_bundle(tmp_path):
     assert reason == "igor_nested_nina_copy_mismatch"
 
 
+def test_nested_evidence_rejects_mapped_source_metadata_tampering(tmp_path):
+    _write_nested(tmp_path)
+    build_path = tmp_path / "downloaded/independent-igor/evidence-bundle/source/ola-build-info.json"
+    build = json.loads(build_path.read_text(encoding="utf-8"))
+    build["source_commit"] = "b" * 40
+    _json(build_path, build)
+    _refresh_igor_archive(tmp_path)
+
+    ok, reason = verify_nested_evidence(tmp_path, SOURCE_SHA, FLOW_RUN_ID, NINA_DIGEST)
+
+    assert ok is False
+    assert reason == "nested_checksum_manifest_digest_mismatch"
+
+
 def test_nested_artifact_copies_require_exact_original_artifact_trees(tmp_path):
     _write_nested(tmp_path)
     root = tmp_path / "aggregator"
