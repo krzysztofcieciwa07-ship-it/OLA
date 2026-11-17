@@ -29,6 +29,9 @@ def test_end_to_end_workflow_service_records_every_step():
     assert writes[1][1] == "workflow.planned"
     assert writes[0][2]["task_digest"] == writes[1][2]["task_digest"]
     assert writes[-1][2]["task_digest"] == writes[0][2]["task_digest"]
+    assert writes[0][2]["allowed_tools"] == ["safe_expression"]
+    assert writes[1][2]["allowed_tools"] == ["safe_expression"]
+    assert writes[-1][2]["allowed_tools"] == ["safe_expression"]
     assert writes[-2][1] == "workflow.completed"
     assert writes[-1][1] == "execution.run.end"
     assert all(item[0] == "tenantA" for item in writes)
