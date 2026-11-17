@@ -277,6 +277,22 @@ def test_igor_verifies_sandbox_execution_shape_and_source_digest():
     assert report["external_attestation"] == "NOT_ESTABLISHED"
 
 
+@pytest.mark.parametrize("field,value", [
+    ("region", "iad1"),
+    ("network_policy", "allow-all"),
+    ("persistent", True),
+    ("resources", {"vcpus": 2, "memory_mb": 4096}),
+    ("timeout_seconds", 61),
+    ("output_limit_bytes_per_stream", 8193),
+    ("source_bytes", 1),
+])
+def test_igor_blocks_sandbox_policy_mutations(field, value):
+    events = sandbox_events()
+    completed = next(event for event in events if event["event"] == "task.completed")
+    completed["output"][field] = value
+    assert verify_sandbox_events(rehash(events))["status"] == "BLOCK"
+
+
 def test_igor_rejects_sandbox_unpinned_runtime_image_even_with_valid_chain():
     from app.workflow_engine import _digest
 
