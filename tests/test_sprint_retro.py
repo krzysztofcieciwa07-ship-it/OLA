@@ -218,7 +218,7 @@ def test_igor_accepts_fast_nonoverlapping_parallel_reads(monkeypatch):
         synthesizer=compose, append=append_record, fetch_records=read_tenant_evidence)
     rows = read_tenant_evidence(tenant)
     events = [json.loads(row["payload_json"]) for row in rows]
-    completed = {e["node_id"]: e for e in events if e["event"] == "task.completed"}
+    completed = {e["node_id"]: e for e in events if e.get("event") == "task.completed"}
     # Force disjoint valid client intervals, preserving each started < finished.
     completed["linear"]["worker_started_ns"] = 100
     completed["linear"]["worker_finished_ns"] = 200
