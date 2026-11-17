@@ -150,7 +150,8 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
         plan_event = relevant[0]
         if (start_payload.get("requester_id") != plan_event.get("requester_id")
                 or start_payload.get("source_commit") != plan_event.get("commit")
-                or start_payload.get("commit") != plan_event.get("commit")):
+                or start_payload.get("commit") != plan_event.get("commit")
+                or plan_event.get("task_digest") != task_digest):
             return _result("BLOCK", "execution start provenance mismatch")
         if plan_event.get("event") != "workflow.planned":
             return _result("BLOCK", "missing plan")
@@ -180,6 +181,8 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
                 return _result("BLOCK", "planner provenance mismatch")
             if event.get("commit") != plan_event.get("commit"):
                 return _result("BLOCK", "run commit mismatch")
+            if event.get("task_digest") != task_digest:
+                return _result("BLOCK", "run task digest mismatch")
             if expected_commit and event.get("commit") != expected_commit:
                 return _result("BLOCK", "expected commit mismatch")
             if index == 0:
