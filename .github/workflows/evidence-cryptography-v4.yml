@@ -15,6 +15,7 @@ on:
       - "tests/test_evidence_secret_management.py"
       - "tests/test_igor_independent_evidence.py"
       - ".github/workflows/evidence-cryptography-v4.yml"
+      - ".github/workflows/**"
   push:
     branches: [main]
   workflow_dispatch:
