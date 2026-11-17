@@ -710,18 +710,18 @@ def verify_postgres_schema(
     if any(state[2] != migration_role for state in rls_state.values()):
         raise RuntimeError("PostgreSQL tenant tables must be owned by the configured migration role")
     def normalize_policy_expression(expression):
-        value = re.sub(r"\\s+", " ", expression or "").strip()
+        value = re.sub(r"\s+", " ", expression or "").strip()
         value = re.sub(
-            rf'"{re.escape(schema_name)}"\\.ola_tenant_context_matches\\(',
+            rf'"{re.escape(schema_name)}"\.ola_tenant_context_matches\(',
             "ola_tenant_context_matches(",
             value,
         )
         value = re.sub(
-            rf"(?<![A-Za-z0-9_$]){re.escape(schema_name)}\\.ola_tenant_context_matches\\(",
+            rf"(?<![A-Za-z0-9_$]){re.escape(schema_name)}\.ola_tenant_context_matches\(",
             "ola_tenant_context_matches(",
             value,
         )
-        value = re.sub(r"\\(([A-Za-z_][A-Za-z0-9_$]*)\\)(?=::)", r"\\1", value)
+        value = re.sub(r"\(([A-Za-z_][A-Za-z0-9_$]*)\)(?=::)", r"\1", value)
         while value.startswith("(") and value.endswith(")"):
             depth = 0
             wraps_all = True
@@ -1482,14 +1482,7 @@ def migrate_postgres_schema(target_engine, *, runtime_role, worker_role=None):
             "version": "ola_signed_tenant_context_v6",
             "description": "Bind all tenant RLS policies to an HMAC-verified transaction-local tenant claim",
         })
-        conn.execute(text("""
-            INSERT INTO ola_schema_migrations(version, description)
-            VALUES (:version, :description)
-            ON CONFLICT (version) DO NOTHING
-        """), {
-            "version": "ola_signed_tenant_context_v6",
-            "description": "Require database-verified HMAC tenant context for runtime RLS",
-        })
+
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
             VALUES (:version, :description)
