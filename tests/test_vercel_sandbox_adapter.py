@@ -93,6 +93,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert result["region"] == "fra1"
     assert result["network_policy"] == "deny-all"
     assert result["persistent"] is False
+    assert result["destroy_on_exit"] is True
     assert result["resources"] == {"vcpus": 1, "memory_mb": 2048}
     assert result["timeout_seconds"] == 12
     assert result["output_limit_bytes_per_stream"] == 8192
