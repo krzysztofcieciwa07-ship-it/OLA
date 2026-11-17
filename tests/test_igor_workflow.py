@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 from app.hashchain import canonical_json, compute_record_hash, compute_record_hash_v2, sealed_payload_json, EVIDENCE_META_KEY
@@ -122,3 +123,68 @@ def test_v2_type_tamper_is_detected_even_when_hash_is_unchanged():
     forged[0]["record_type"] = "customer.proof"
     assert verify_chain(forged) == (False, "record type or producer binding mismatch")
     assert check(forged)["status"] == "BLOCK"
+
+
+def sandbox_events():
+    source = "print(42)"
+    task = json.dumps({"operation": "python_exec", "source": source}, separators=(",", ":"))
+    output = {
+        "executor": "vercel_sandbox",
+        "operation": "python_exec",
+        "runtime": "python3.14",
+        "sandbox_name": "sandbox-run-123",
+        "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+        "exit_code": 0,
+        "stdout": "42\\n",
+        "stderr": "",
+        "stdout_sha256": hashlib.sha256(b"42\\n").hexdigest(),
+        "stderr_sha256": hashlib.sha256(b"").hexdigest(),
+        "stdout_truncated": False,
+        "stderr_truncated": False,
+    }
+    nodes = validate_plan({"nodes": [
+        {"id": "sandbox", "tool": "vercel_sandbox", "task": task, "needs": []}
+    ]}, allowed_tools={"vercel_sandbox"})
+    events = []
+    WorkflowEngine(max_workers=1).run(
+        nodes,
+        lambda node, deps: output,
+        lambda event: events.append({**event, "requester_id": "person1",
+                                     "planner": {"response_id": "p1"}, "commit": "expected"}),
+        run_id="sandbox-run",
+    )
+    return events
+
+
+def verify_sandbox_events(events):
+    return verify_dag_records(rehash(events), tenant_id="tenant", run_id="sandbox-run",
+                              expected_commit="expected")
+
+
+def test_igor_verifies_sandbox_execution_shape_and_source_digest():
+    report = verify_sandbox_events(sandbox_events())
+    assert report["status"] == "VERIFIED", report
+    assert report["trust_scope"] == "LOCAL_HASH_CHAIN_AND_CAPTURED_RUNTIME_EVENTS"
+    assert report["external_attestation"] == "NOT_ESTABLISHED"
+
+
+def test_igor_rejects_sandbox_output_digest_mismatch_even_with_valid_chain():
+    from app.workflow_engine import _digest
+
+    events = sandbox_events()
+    completed = next(event for event in events if event["event"] == "task.completed")
+    completed["output"]["stdout_sha256"] = "0" * 64
+    completed["output_digest"] = _digest(completed["output"])
+    report = verify_sandbox_events(events)
+    assert report["status"] == "BLOCK"
+
+
+def test_igor_rejects_sandbox_nonzero_exit_code():
+    from app.workflow_engine import _digest
+
+    events = sandbox_events()
+    completed = next(event for event in events if event["event"] == "task.completed")
+    completed["output"]["exit_code"] = 2
+    completed["output_digest"] = _digest(completed["output"])
+    report = verify_sandbox_events(events)
+    assert report["status"] == "BLOCK"
