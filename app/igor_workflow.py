@@ -91,7 +91,7 @@ def _verify_sandbox_output(node, output):
 
 
 def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
-                       require_overlap=False, expected_provider=None):
+                       require_overlap=False, expected_provider=None, require_lifecycle=True):
     if not records:
         return _result("UNKNOWN", "no tenant evidence")
     try:
@@ -101,10 +101,22 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
         if not chain_ok:
             return _result("BLOCK", "tenant chain " + chain_reason)
         relevant = []
+        relevant_rows = []
+        lifecycle = {"execution.run.start": [], "execution.run.end": []}
         for row in records:
+            record_type = row["record_type"]
+            if record_type in lifecycle:
+                payload = json.loads(row["payload_json"])
+                if not isinstance(payload, dict):
+                    return _result("BLOCK", "execution lifecycle payload is not an object")
+                if payload.get("run_id") == run_id:
+                    if not trusted_record(row):
+                        return _result("BLOCK", "legacy or untrusted execution lifecycle producer")
+                    lifecycle[record_type].append((row, payload))
+                continue
             # Validate the complete hash chain, but never parse untrusted
             # customer payload shapes as privileged workflow trace events.
-            if not row["record_type"].startswith(("workflow.", "task.")):
+            if not record_type.startswith(("workflow.", "task.")):
                 continue
             payload = json.loads(row["payload_json"])
             if not isinstance(payload, dict):
@@ -112,12 +124,34 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
             if payload.get("run_id") == run_id:
                 if not trusted_record(row):
                     return _result("BLOCK", "legacy or untrusted workflow producer")
-                if payload.get("event") != row["record_type"]:
+                if payload.get("event") != record_type:
                     return _result("BLOCK", "event type mismatch")
                 relevant.append(payload)
+                relevant_rows.append(row)
         if not relevant:
+            if any(lifecycle.values()):
+                return _result("BLOCK", "execution lifecycle exists without workflow trace")
             return _result("UNKNOWN", "run evidence missing")
+        if len(lifecycle["execution.run.start"]) != 1:
+            return _result("BLOCK", "run must have exactly one durable start record")
+        if len(lifecycle["execution.run.end"]) > 1:
+            return _result("BLOCK", "run has duplicate terminal lifecycle records")
+        if require_lifecycle and len(lifecycle["execution.run.end"]) != 1:
+            return _result("BLOCK", "run is missing its durable end record")
+
+        start_row, start_payload = lifecycle["execution.run.start"][0]
+        task_digest = start_payload.get("task_digest")
+        if (not isinstance(task_digest, str) or len(task_digest) != 64
+                or any(char not in "0123456789abcdef" for char in task_digest)):
+            return _result("BLOCK", "execution start task digest invalid")
+        plan_row = relevant_rows[0]
+        if records.index(start_row) >= records.index(plan_row):
+            return _result("BLOCK", "execution start must precede workflow plan")
         plan_event = relevant[0]
+        if (start_payload.get("requester_id") != plan_event.get("requester_id")
+                or start_payload.get("source_commit") != plan_event.get("commit")
+                or start_payload.get("commit") != plan_event.get("commit")):
+            return _result("BLOCK", "execution start provenance mismatch")
         if plan_event.get("event") != "workflow.planned":
             return _result("BLOCK", "missing plan")
         plan = plan_event.get("nodes")
@@ -205,6 +239,25 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
                 or terminal.get("completed") != sorted(nodes)
                 or terminal.get("failed") != {} or terminal.get("skipped") != []):
             return _result("BLOCK", "terminal summary mismatch or incomplete nodes")
+
+        if require_lifecycle:
+            end_row, end_payload = lifecycle["execution.run.end"][0]
+            terminal_row = relevant_rows[-1]
+            if records.index(end_row) <= records.index(terminal_row):
+                return _result("BLOCK", "execution end must follow workflow terminal event")
+            if (end_payload.get("task_digest") != task_digest
+                    or end_payload.get("source_commit") != plan_event.get("commit")
+                    or end_payload.get("commit") != plan_event.get("commit")
+                    or end_payload.get("requester_id") != plan_event.get("requester_id")):
+                return _result("BLOCK", "execution end provenance mismatch")
+            if (end_payload.get("workflow_status") != terminal.get("status")
+                    or end_payload.get("status") != "COMPLETED"
+                    or end_payload.get("pre_end_igor_status") != "VERIFIED"):
+                return _result("BLOCK", "execution end status or pre-end verification mismatch")
+            if (end_payload.get("completed_node_count") != len(finishes)
+                    or end_payload.get("failed_node_count") != len(terminal.get("failed", {}))
+                    or end_payload.get("skipped_node_count") != len(terminal.get("skipped", []))):
+                return _result("BLOCK", "execution end node counts mismatch")
         overlap = 0
         llm_ids = [nid for nid, node in nodes.items() if node["tool"] == "llm_agent"]
         for index, a in enumerate(llm_ids):
