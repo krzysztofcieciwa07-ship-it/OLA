@@ -42,7 +42,7 @@ def _verify_sandbox_output(node, output):
         return "sandbox source exceeds policy"
 
     required = {
-        "executor", "operation", "runtime", "sandbox_name", "source_sha256",
+        "executor", "operation", "runtime", "sandbox_name", "image", "source_sha256",
         "exit_code", "stdout", "stderr", "stdout_sha256", "stderr_sha256",
         "stdout_truncated", "stderr_truncated",
     }
@@ -54,6 +54,13 @@ def _verify_sandbox_output(node, output):
         return "sandbox executor provenance invalid"
     if not isinstance(output.get("sandbox_name"), str) or not output["sandbox_name"]:
         return "sandbox identity missing"
+    image = output.get("image")
+    if not isinstance(image, str):
+        return "sandbox image missing"
+    prefix, marker, image_digest = image.rpartition("@sha256:")
+    if (not prefix or not marker or len(image_digest) != 64
+            or any(char not in "0123456789abcdef" for char in image_digest)):
+        return "sandbox image is not digest-pinned"
     if type(output.get("exit_code")) is not int:
         return "sandbox exit code invalid"
     if type(output.get("stdout_truncated")) is not bool or type(output.get("stderr_truncated")) is not bool:

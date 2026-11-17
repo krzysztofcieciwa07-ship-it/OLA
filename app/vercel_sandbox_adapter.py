@@ -14,6 +14,15 @@ MAX_TIMEOUT_SECONDS = 60
 RUNTIME_IMAGE = "vercel/sandbox/python:3.14"
 
 
+def _is_digest_pinned_image(image):
+    if not isinstance(image, str):
+        return False
+    prefix, marker, digest = image.rpartition("@sha256:")
+    return bool(prefix) and bool(marker) and len(digest) == 64 and all(
+        char in "0123456789abcdef" for char in digest
+    )
+
+
 class SandboxAdapterError(ValueError):
     """The requested sandbox operation violates the adapter contract."""
 
@@ -103,6 +112,9 @@ def execute_python_source(
             sandbox_name = getattr(sandbox, "name", None)
             if not isinstance(sandbox_name, str) or not sandbox_name:
                 raise SandboxAdapterError("Vercel Sandbox did not return a sandbox identity")
+            image = getattr(sandbox, "image", None)
+            if not _is_digest_pinned_image(image):
+                raise SandboxAdapterError("Vercel Sandbox did not return a digest-pinned image")
             completed = sandbox.run_process(
                 "python3",
                 ["-c", source],
@@ -122,6 +134,7 @@ def execute_python_source(
         "operation": "python_exec",
         "runtime": "python3.14",
         "sandbox_name": sandbox_name,
+        "image": image,
         "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
         "exit_code": exit_code,
         "stdout": stdout.text(),
