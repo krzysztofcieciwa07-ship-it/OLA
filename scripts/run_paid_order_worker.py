@@ -118,6 +118,7 @@ def verify_worker_database_identity(
     expected_role: str,
     runtime_role: str = "ola_runtime",
     migration_role: str | None = None,
+    expected_schema: str | None = None,
 ) -> None:
     """Fail closed unless the worker DSN and claim-function owner are isolated."""
     role_pattern = r"[A-Za-z_][A-Za-z0-9_$]{0,62}"
@@ -130,6 +131,9 @@ def verify_worker_database_identity(
         raise RuntimeError("OLA_DATABASE_MIGRATION_ROLE is invalid")
     if runtime_role == expected_role or migration_role in {runtime_role, expected_role}:
         raise RuntimeError("PostgreSQL runtime, worker and migration roles must be distinct")
+    expected_schema = (expected_schema or os.getenv("OLA_DATABASE_SCHEMA", "public")).strip()
+    if not isinstance(expected_schema, str) or re.fullmatch(role_pattern, expected_schema) is None:
+        raise RuntimeError("OLA_DATABASE_SCHEMA is invalid")
 
     protected_tables = [
         "tenants",
@@ -143,9 +147,40 @@ def verify_worker_database_identity(
         "ola_schema_migrations",
     ]
     with worker_engine.connect() as conn:
-        # Resolve the protected schema from PostgreSQL catalogs, not
-        # current_schema(): PostgreSQL omits schemas without USAGE from
-        # current_schema(), which would make a denied schema look like public.
+        # Authenticate the actual database principal and validate search_path
+        # before resolving the unqualified worker claim function.
+        session_identity = conn.execute(text("""
+            SELECT current_user AS role_name, session_user AS session_role
+        """)).mappings().one()
+        if session_identity["role_name"] != expected_role:
+            raise RuntimeError(
+                "PostgreSQL worker DSN identity mismatch: "
+                f"expected {expected_role}, got {session_identity['role_name']}"
+            )
+        if session_identity["session_role"] != expected_role:
+            raise RuntimeError(
+                "PostgreSQL worker DSN session identity mismatch: "
+                f"expected {expected_role}, got {session_identity['session_role']}"
+            )
+        search_path_state = conn.execute(text("""
+            SELECT current_schema() AS current_schema,
+                   current_setting('search_path') AS search_path,
+                   current_schemas(false) AS effective_schemas,
+                   has_schema_privilege(current_user, :expected_schema, 'USAGE') AS expected_schema_usage
+        """), {"expected_schema": expected_schema}).mappings().one()
+        if search_path_state["current_schema"] != expected_schema:
+            raise RuntimeError(
+                "PostgreSQL worker search_path mismatch: "
+                f"expected schema {expected_schema}, current_schema is "
+                f"{search_path_state['current_schema']!r}; "
+                f"search_path={search_path_state['search_path']!r}, "
+                f"effective_schemas={search_path_state['effective_schemas']!r}, "
+                f"expected_schema_usage={search_path_state['expected_schema_usage']!r}"
+            )
+        if not search_path_state["expected_schema_usage"]:
+            raise RuntimeError("PostgreSQL worker role lacks USAGE on the configured schema")
+        # Catalog-discover again to reject ambiguous duplicate claim functions
+        # or relations even when search_path has the expected current schema.
         schema_matches = conn.execute(text("""
             SELECT n.nspname
             FROM pg_proc AS p
@@ -604,6 +639,7 @@ def _verify_worker_connections(worker_engine, *, worker_role, runtime_role):
     prepare_runtime_schema()
     verify_worker_database_identity(
         worker_engine, worker_role, runtime_role=runtime_role,
+        expected_schema=os.getenv("OLA_DATABASE_SCHEMA", "public"),
     )
 
 
