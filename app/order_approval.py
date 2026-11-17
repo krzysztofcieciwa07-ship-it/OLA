@@ -12,9 +12,8 @@ from .hashchain import (
     GENESIS_HASH,
     compute_record_hash_v2,
     sealed_payload_json,
-    verify_chain,
-    trusted_record,
 )
+from .igor_evidence_verifier import verify_chain, trusted_record
 from .models import ApiKey, CheckoutOrder, CheckoutOrderControl, CheckoutExecutionJob, EvidenceRecord
 from .runtime_provenance import runtime_source_commit
 
