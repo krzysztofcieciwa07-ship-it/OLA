@@ -145,7 +145,7 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         ):
             with self.subTest(workflow=filename):
                 content = (ROOT / filename).read_text(encoding="utf-8")
-                self.assertNotRegex(content, r"(?m)^  (?:pull_request|push):\\n    paths:")
+                self.assertNotIn("    paths:", content)
 
 
 if __name__ == "__main__":
