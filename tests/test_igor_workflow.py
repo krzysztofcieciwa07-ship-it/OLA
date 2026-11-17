@@ -133,7 +133,7 @@ def sandbox_events(node_count=1):
         "operation": "python_exec",
         "runtime": "python3.14",
         "sandbox_name": "sandbox-run-123",
-        "image": "vercel/sandbox/python@sha256:" + "a" * 64,
+        "image": "vercel/sandbox/python@sha256:e678419c0a4463c1f892b44f6f115c3bd8f5ac3f7817841dd5709947e4ed53e8",
         "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
         "exit_code": 0,
         "stdout": "42\\n",
@@ -180,6 +180,18 @@ def test_igor_rejects_sandbox_unpinned_runtime_image_even_with_valid_chain():
     report = verify_sandbox_events(events)
     assert report["status"] == "BLOCK"
     assert "image" in report["reason"]
+
+
+def test_igor_rejects_other_digest_pinned_sandbox_image():
+    from app.workflow_engine import _digest
+
+    events = sandbox_events()
+    completed = next(event for event in events if event["event"] == "task.completed")
+    completed["output"]["image"] = "vercel/sandbox/python@sha256:" + "b" * 64
+    completed["output_digest"] = _digest(completed["output"])
+    report = verify_sandbox_events(events)
+    assert report["status"] == "BLOCK"
+    assert "allowlisted runtime image" in report["reason"]
 
 
 def test_igor_rejects_sandbox_output_digest_mismatch_even_with_valid_chain():
