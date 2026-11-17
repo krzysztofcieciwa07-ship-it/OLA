@@ -160,6 +160,13 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn("ref: " + SOURCE, workflow)
 
 
+    def test_final_gate_push_lookup_is_scoped_to_main(self):
+        content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        self.assertIn('pull_request) event_filter="&event=pull_request" ;;', content)
+        self.assertIn('push) event_filter="&event=push&branch=main" ;;', content)
+        self.assertNotIn('pull_request|push)', content)
+
+
 
 if __name__ == "__main__":
     unittest.main()
