@@ -1,50 +1,18 @@
-"""Narrow, source-bound policy for explicitly justified CodeQL suppressions."""
-from pathlib import Path, PurePosixPath
-import io
-import re
-import tokenize
+"""Fail-closed CodeQL alert exception policy.
 
-_SUPPRESSION = re.compile(r"^#\s*codeql\[([A-Za-z0-9_./-]+)\]\s+(.+?)\s*$")
+Automatic in-source suppressions are deliberately disabled. A source comment
+must never be sufficient authority to exempt a CodeQL finding. Verified false
+positives require an explicit human dismissal in GitHub Code Scanning after
+independent review; the CI workflow only reads the resulting open-alert set.
+"""
 
 
 def source_suppression_reason(repository_root, path, line, rule):
-    """Return a directly-adjacent, rule-exact suppression rationale or None.
+    """Compatibility shim: never authorize an automatic CodeQL suppression.
 
-    The source path must be a repository-relative POSIX path. The marker must
-    be a real Python COMMENT token on the immediately preceding line and
-    include a non-empty rationale.
+    The former implementation accepted any adjacent comment with a matching
+    rule identifier and non-empty rationale. That made an unreviewed source
+    edit sufficient to silence a high-severity alert. Keep the function
+    temporarily so callers fail closed while migration completes.
     """
-    if type(line) is not int or line < 2:
-        return None
-    if not isinstance(path, str) or not path or "\\" in path:
-        return None
-    if not isinstance(rule, str) or not rule:
-        return None
-
-    relative = PurePosixPath(path)
-    if relative.is_absolute() or any(part in ("", ".", "..") for part in relative.parts):
-        return None
-
-    try:
-        root = Path(repository_root).resolve(strict=True)
-        target = (root / Path(*relative.parts)).resolve(strict=True)
-        target.relative_to(root)
-        if not target.is_file():
-            return None
-        source = target.read_text(encoding="utf-8")
-        lines = source.splitlines()
-        comment = next((
-            token.string
-            for token in tokenize.generate_tokens(io.StringIO(source).readline)
-            if token.type == tokenize.COMMENT and token.start[0] == line - 1
-        ), None)
-    except (OSError, RuntimeError, ValueError, UnicodeError, tokenize.TokenError, IndentationError, SyntaxError):
-        return None
-
-    if line > len(lines) or comment is None:
-        return None
-    match = _SUPPRESSION.fullmatch(comment)
-    if match is None or match.group(1) != rule:
-        return None
-    reason = match.group(2).strip()
-    return reason or None
+    return None
