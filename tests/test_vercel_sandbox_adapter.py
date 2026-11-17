@@ -73,6 +73,7 @@ class FakeSDK:
 
     def create_sandbox(self, **kwargs):
         self.create_options = kwargs
+        self.box.execution_time_limit = kwargs["execution_time_limit"]
         return self.box
 
     def close(self):
@@ -93,7 +94,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
 
     assert result["executor"] == "vercel_sandbox"
     assert result["operation"] == "python_exec"
-    assert result["runtime"] == "python3.14"
+    assert result["runtime"] == "python3"
     assert result["sandbox_name"] == box.name
     assert result["image"] == box.image
     assert result["region"] == "fra1"
@@ -103,7 +104,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert result["destroy_on_exit"] is True
     assert result["resources"] == {"vcpus": 1, "memory_mb": 2048}
     assert result["timeout_seconds"] == 12
-    assert result["output_limit_bytes_per_stream"] == 8192
+    assert result["output_limit_bytes_per_stream"] == 3072
     assert result["source_bytes"] == len(source.encode("utf-8"))
     assert result["exit_code"] == 0
     assert result["stdout"] == "42\n"
@@ -142,7 +143,7 @@ def test_adapter_requires_provider_confirmed_region_before_execution():
     with pytest.raises(SandboxAdapterError, match="EU region"):
         execute_python_source("print(1)", sdk=sdk, client=sdk)
 
-    assert box.process_calls == []
+    assert box.calls == []
 
 
 def test_adapter_rejects_unpinned_resolved_image_before_execution():
