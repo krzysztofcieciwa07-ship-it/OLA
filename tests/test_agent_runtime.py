@@ -313,6 +313,8 @@ def test_openai_nina_planner_uses_strict_json_schema(monkeypatch):
     assert nodes["maxItems"] == 4
     assert nodes["items"]["properties"]["tool"]["enum"] == ["llm_agent"]
     assert nodes["items"]["properties"]["needs"]["maxItems"] == 0
+    assert nodes["items"]["properties"]["needs"]["items"]["type"] == "string"
+    assert payload["max_output_tokens"] == 8192
 
 
 def test_ollama_rejects_non_loopback_http_endpoint(monkeypatch):
