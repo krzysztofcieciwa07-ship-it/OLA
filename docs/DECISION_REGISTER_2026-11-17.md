@@ -180,7 +180,8 @@ Merge is permitted only after exact-SHA tests, security/provenance/Evidence Gate
 | BLK-011 | Railway runtime source binding | MISMATCH IN LAST INSPECTED AUDIT | Re-read live build metadata and readiness; deployed revision must equal an accepted exact SHA |
 | BLK-012 | Owner/device auth for Cockpit | NOT_VERIFIED | Persistent owner/device registry, separate credentials, revocation and authenticated action boundary |
 | BLK-013 | Dependency license compliance | NOT_VERIFIED | SBOM, transitive license inventory and legal notice review per release SHA |
-| BLK-014 | Private vulnerability reporting | NOT_VERIFIED | Enable and test the repository's private reporting channel |\n| BLK-015 | S…X cloud execution environment | NOT_VERIFIED / DO_NOT_START | Confirm provider/project/environment/session/snapshot/repo/SHA/image/runtime/network/owner identity; then health + Evidence V4 + IGOR proof |
+| BLK-014 | Private vulnerability reporting | NOT_VERIFIED | Enable and test the repository's private reporting channel |
+| BLK-015 | S…X cloud execution environment | NOT_VERIFIED / DO_NOT_START | Confirm provider/project/environment/session/snapshot/repo/SHA/image/runtime/network/owner identity; then health + Evidence V4 + IGOR proof |
 
 ## S…X — cloud execution environment
 
