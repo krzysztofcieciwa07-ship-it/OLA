@@ -262,6 +262,16 @@ def test_aggregator_bundle_requires_checksum_exact_sha_and_all_evidence(tmp_path
     assert parsed["source_commit"] == SOURCE_SHA
 
 
+def test_aggregator_bundle_rejects_missing_nested_evidence_even_with_valid_summary_checksum(tmp_path):
+    write_bundle(tmp_path, valid_summary())
+
+    ok, reason, parsed = verify_aggregator_bundle(tmp_path, SOURCE_SHA)
+
+    assert ok is False
+    assert reason == "nested_evidence_missing"
+    assert parsed is not None
+
+
 def test_aggregator_bundle_rejects_tampering_and_wrong_source(tmp_path):
     write_bundle(tmp_path, valid_summary())
     summary_path = tmp_path / "ola-auto-evidence.json"
