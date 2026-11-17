@@ -260,3 +260,41 @@ def test_vercel_sandbox_rejects_unstructured_or_unsupported_task(task):
 
     with pytest.raises(WorkflowPlanError):
         execute_registered_node(WorkflowNode("sandbox", "vercel_sandbox", task, ()), {})
+
+
+@pytest.mark.parametrize("duplicate_plan", [
+    '{"nodes":[],"nodes":[{"id":"worker","tool":"llm_agent","task":"x","needs":[]}]}',
+    '{"nodes":[{"id":"worker","tool":"llm_agent","tool":"safe_expression","task":"x","needs":[]}]}',
+])
+def test_planner_rejects_duplicate_json_members_and_replans(monkeypatch, duplicate_plan):
+    import sys
+    from types import ModuleType
+    from app.nina_workflow import model_plan
+
+    mod = ModuleType("app.agent_runtime")
+    requests = []
+
+    def fake_llm(agent, goal, context):
+        requests.append(context)
+        output = duplicate_plan if len(requests) == 1 else (
+            '{"nodes":[{"id":"worker","tool":"llm_agent",'
+            '"task":"valid plan","needs":[]}]}'
+        )
+        return {
+            "invocation_type": "real_llm",
+            "response_id": f"planner-{len(requests)}",
+            "provider": "ollama",
+            "model": "qwen",
+            "output": output,
+        }
+
+    mod._invoke_llm = fake_llm
+    monkeypatch.setitem(sys.modules, "app.agent_runtime", mod)
+
+    nodes, provenance = model_plan("Check the plan", ["llm_agent"])
+
+    assert len(nodes) == 1
+    assert nodes[0].tool == "llm_agent"
+    assert len(requests) == 2
+    assert "duplicate JSON member" in requests[1]["revision"]
+    assert provenance["attempts"] == 2
