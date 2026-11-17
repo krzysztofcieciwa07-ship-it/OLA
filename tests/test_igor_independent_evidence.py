@@ -81,6 +81,56 @@ def test_igor_rejects_cross_tenant_legacy_record():
     assert reason == "tenant boundary mismatch"
 
 
+
+def test_igor_rejects_valid_legacy_privileged_append_after_v4_cutover():
+    legacy = _legacy_fixture()
+    v4 = _v4_fixture()
+    v4_row = dict(v4["record"])
+
+    # V2 uses an unkeyed digest, so an old writer can create a valid record
+    # after a V4 row unless the independent verifier enforces a one-way cutover.
+    record_type = "revenue.execution_completed"
+    payload = {
+        "event": "post-cutover legacy append",
+        independent.V2_META_KEY: {
+            "version": 2,
+            "record_type": record_type,
+            "producer": "ola_runtime",
+        },
+    }
+    payload_json = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    appended = {
+        "tenant_id": v4_row["tenant_id"],
+        "seq": v4_row["seq"] + 1,
+        "prev_hash": v4_row["record_hash"],
+        "record_type": record_type,
+        "payload_json": payload_json,
+    }
+    material = json.dumps(
+        {
+            "domain": "OLA-EVIDENCE-CHAIN-V2",
+            "tenant_id": appended["tenant_id"],
+            "seq": appended["seq"],
+            "prev_hash": appended["prev_hash"],
+            "record_type": appended["record_type"],
+            "producer": "ola_runtime",
+            "payload_json": appended["payload_json"],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    appended["record_hash"] = hashlib.sha256(material).hexdigest()
+
+    assert independent.trusted_record(appended) is True
+    ok, reason = independent.verify_chain(
+        legacy["records"] + [v4_row, appended], _environment(legacy, v4)
+    )
+    assert not ok
+    assert reason == "legacy record after V4 cutover"
+
 def test_igor_verifier_has_no_shared_writer_verifier_imports():
     source = Path(independent.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)

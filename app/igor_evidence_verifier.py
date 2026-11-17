@@ -234,6 +234,7 @@ def verify_chain(records, environ=None):
     expected_prev = GENESIS_HASH
     expected_seq = 0
     expected_tenant = None
+    seen_v4 = False
     try:
         for record in records:
             if not isinstance(record, Mapping):
@@ -265,10 +266,18 @@ def verify_chain(records, environ=None):
                 payload = _json_object(record["payload_json"], strict=True)
                 expected = _v4_digest(record, payload, env)
             else:
+                # Legacy V1/V2/V3 algorithms remain readable only in the
+                # historical prefix. Once an authenticated V4 row appears,
+                # accepting another legacy row would reopen the unkeyed V2
+                # append path after the cryptographic cutover.
+                if seen_v4:
+                    return False, "legacy record after V4 cutover"
                 version, producer = _legacy_metadata(payload, record)
                 expected = _legacy_digest(record, payload, version, producer, env)
             if not hmac.compare_digest(expected, supplied):
                 return False, "record hash mismatch"
+            if version == 4:
+                seen_v4 = True
             expected_prev = supplied
             expected_seq += 1
         return True, "ok"
