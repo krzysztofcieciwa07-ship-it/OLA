@@ -103,7 +103,7 @@ def test_igor_runtime_verifier_accepts_v4_only_after_independent_chain_verificat
         "abc123",
         "fixture task",
         "verified",
-        expected_run_id="fixture-run",
+        expected_run_id="agent-run",
     )
     assert result.status == "VERIFIED"
     assert result.checks["chain"] is True
