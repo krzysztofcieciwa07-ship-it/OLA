@@ -30,7 +30,8 @@ def test_readyz_blocks_if_v4_keyring_missing(monkeypatch):
     response = client().get("/readyz")
     assert response.status_code == 503
     assert "evidence_v4_keyring" in response.json()["failed_checks"]
-    assert "key" not in response.text.lower()
+    assert "OLA_EVIDENCE_V4_KEYRING_JSON" not in response.text
+    assert "V4 keyring unavailable" not in response.text
 
 
 def test_readyz_blocks_if_commit_missing(monkeypatch):
