@@ -1,0 +1,45 @@
+name: TRACEFORGE v0 Proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feat/traceforge-v0"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  traceforge-v0:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install test dependency
+        run: python -m pip install 'pytest>=8,<9'
+      - name: Compile TRACEFORGE
+        run: PYTHONPATH=. python -m compileall -q traceforge scripts/run_traceforge_v0.py tests/test_traceforge_v0.py
+      - name: Contract tests
+        run: PYTHONPATH=. pytest -q tests/test_traceforge_v0.py
+      - name: End-to-end proof with recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'reproducible knowledge\n' > /tmp/traceforge-source.txt
+          PYTHONPATH=. python scripts/run_traceforge_v0.py \
+            --source /tmp/traceforge-source.txt \
+            --root "$RUNNER_TEMP/traceforge-proof" \
+            --query 'CI canonical source' \
+            --exercise-recovery | tee "$RUNNER_TEMP/traceforge-result.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          p = Path(os.environ["RUNNER_TEMP"]) / "traceforge-result.json"
+          data = json.loads(p.read_text())
+          assert data["final_status"] == "VERIFIED", data
+          assert data["manifest"]["event_chain_status"] == "VERIFIED", data
+          PY
