@@ -22,6 +22,8 @@ def _keyring_json(keys):
 
 def _run(code, db_path, keys, active, *, expect_success=True):
     env = os.environ.copy()
+    env.pop("OLA_DATABASE_URL", None)
+    env.pop("DATABASE_URL", None)
     env["PYTHONPATH"] = str(ROOT)
     env["OLA_EG_DB_PATH"] = str(db_path)
     env["OLA_EVIDENCE_V4_KEYRING_JSON"] = _keyring_json(keys)
