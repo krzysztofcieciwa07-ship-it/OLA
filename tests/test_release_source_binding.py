@@ -36,6 +36,20 @@ class ReleaseSourceBindingTest(unittest.TestCase):
                 self.assertIn('if [ "$checked_out" != "$EXPECTED_SOURCE_SHA" ]; then', content)
                 self.assertIn('exit 1', content)
 
+    def test_final_gate_requires_v4_and_runtime_contract_gates(self):
+        content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        start = content.index("required_exact = [")
+        end = content.index("required_reference =", start)
+        required = content[start:end]
+        for gate in (
+            "Evidence Cryptography V4 Contract",
+            "OLA paid-order PostgreSQL contract",
+            "Python package CI",
+            "OLA Local Staging Rehearsal",
+        ):
+            with self.subTest(gate=gate):
+                self.assertIn('"' + gate + '"', required)
+
     def test_release_manifest_never_calls_green_ci_production_verified(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn('status="ATTESTED_PENDING_HUMAN"', content)

@@ -88,6 +88,10 @@ jobs:
           import sys
 
           required_exact = [
+              "Evidence Cryptography V4 Contract",
+              "OLA paid-order PostgreSQL contract",
+              "Python package CI",
+              "OLA Local Staging Rehearsal",
               "Nina TDD",
               "NINA Parallel DAG Gate",
               "OLA Supply Chain Evidence Gate",
