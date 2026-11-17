@@ -176,6 +176,7 @@ def execute_python_source(
             "region": SANDBOX_REGION,
             "network_policy": "deny-all",
             "persistent": False,
+            "destroy_on_exit": True,
             "resources": {"vcpus": SANDBOX_VCPUS, "memory_mb": SANDBOX_MEMORY_MB},
             "timeout_seconds": timeout_seconds,
             "output_limit_bytes_per_stream": output_limit_bytes,
