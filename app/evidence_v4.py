@@ -163,7 +163,11 @@ def _material(record: Mapping[str, Any]) -> bytes:
         raise InvalidRecordError("invalid payload size")
     try:
         payload = json.loads(payload_json, object_pairs_hook=_unique_object)
-    except (TypeError, ValueError) as exc:
+    except ValueError as exc:
+        if "duplicate JSON object key" in str(exc):
+            raise InvalidRecordError(str(exc)) from exc
+        raise InvalidRecordError("payload_json is invalid JSON") from exc
+    except TypeError as exc:
         raise InvalidRecordError("payload_json is invalid JSON") from exc
     if canonical_json(payload) != payload_json:
         raise InvalidRecordError("payload_json is not canonical")
