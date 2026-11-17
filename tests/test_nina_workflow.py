@@ -252,6 +252,7 @@ def test_vercel_sandbox_tool_uses_structured_task_and_registered_adapter(monkeyp
     '{"operation":"shell","source":"id"}',
     '{"operation":"python_exec","source":"print(1)","command":"bash"}',
     '{"operation":"python_exec","source":42}',
+    '{"operation":"python_exec","operation":"python_exec","source":"print(1)"}',
 ])
 def test_vercel_sandbox_rejects_unstructured_or_unsupported_task(task):
     from app.nina_workflow import execute_registered_node
