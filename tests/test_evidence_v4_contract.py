@@ -290,3 +290,33 @@ def test_provenance_labelled_historical_v1_v2_v3_fixture_and_v4_transition():
     v4 = _record(3, legacy[-1]["record_hash"])
     ok, reason = verify_mixed_chain(legacy + [v4], _ring(), legacy_verifier=verify_historical)
     assert ok, reason
+
+
+
+def test_mixed_chain_rejects_cross_tenant_boundary():
+    v1 = _legacy(1, 0, GENESIS_HASH, "1" * 64)
+    v1["tenant_id"] = "tenant-other"
+    ok, reason = verify_mixed_chain(
+        [v1], _ring(), legacy_verifier=lambda _segment, **_anchor: (True, "not enough")
+    )
+    assert not ok
+    assert reason == "tenant boundary mismatch"
+
+
+def test_mixed_chain_rejects_boolean_sequence():
+    v1 = _legacy(1, 0, GENESIS_HASH, "1" * 64)
+    v1["seq"] = False
+    ok, reason = verify_mixed_chain(
+        [v1], _ring(), legacy_verifier=lambda _segment, **_anchor: (True, "not enough")
+    )
+    assert not ok
+    assert reason == "sequence mismatch"
+
+
+def test_v4_rejects_ambiguous_v2_and_v4_metadata():
+    row = _record()
+    payload = json.loads(row["payload_json"])
+    payload[V2_META_KEY] = {"version": 2, "record_type": row["record_type"], "producer": "ola_runtime"}
+    row["payload_json"] = canonical_json(payload)
+    with pytest.raises(ValueError, match="legacy V2 metadata"):
+        verify_record(row, _ring())
