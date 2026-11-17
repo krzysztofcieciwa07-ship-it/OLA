@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>OLA di-OS — staging console</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#080c11;color:#eef2f6}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#1a2936 0,#080c11 48%);min-height:100vh}
+main{max-width:900px;margin:0 auto;padding:42px 22px 72px}
+a{color:#dce8f5}h1{font-size:clamp(30px,5vw,46px);letter-spacing:-1.5px;margin:10px 0}
+.lead{color:#aab5c0;line-height:1.6;max-width:700px}
+.eyebrow{letter-spacing:2px;text-transform:uppercase;color:#8c9aa8;font-size:11px}
+.panel{border:1px solid #283542;background:rgba(8,13,18,.82);border-radius:16px;padding:22px;margin:22px 0;box-shadow:0 18px 70px #0005}
+.row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+button{border:1px solid #718396;background:#dce7f1;color:#0b1118;padding:11px 17px;border-radius:9px;font-weight:700;cursor:pointer}
+button.secondary{background:#111a23;color:#e8eef4;border-color:#405365}
+button:disabled{opacity:.55;cursor:wait}
+textarea{width:100%;min-height:150px;margin:14px 0;background:#05090d;color:#eef2f6;border:1px solid #405365;border-radius:10px;padding:14px;font:inherit;line-height:1.5;resize:vertical}
+small,.muted{color:#92a0ae;line-height:1.5}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#030609;border:1px solid #263441;border-radius:10px;padding:14px;min-height:90px;max-height:520px;overflow:auto;color:#d7e1eb;font-size:12px;line-height:1.55}
+.status{display:inline-block;border:1px solid #405365;border-radius:999px;padding:5px 10px;color:#ced9e4;font-size:12px}
+.warning{color:#e7c58a}.footer{margin-top:35px;color:#7e8a96;font-size:12px}
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">OLA di-OS · isolated staging</div>
+  <h1>Execution Console</h1>
+  <p class="lead">Rzeczywisty testowy przepływ NINA → Evidence → IGOR. Ta konsola łączy się wyłącznie ze stagingowym FastAPI. Nie uruchamia Stripe, checkoutu ani produkcji.</p>
+
+  <section class="panel" aria-labelledby="health-title">
+    <div class="row">
+      <div><h2 id="health-title">Stan backendu</h2><p class="muted">Oddzielnie sprawdzamy liveness i /readyz. READY oznacza gotowość CORE, nie akceptację całego systemu.</p></div>
+      <button class="secondary" id="healthBtn" type="button">Sprawdź API</button>
+    </div>
+    <div id="healthState" class="status" role="status">Nie sprawdzono</div>
+    <pre id="healthOutput">Naciśnij „Sprawdź API”, aby pobrać rzeczywisty stan FastAPI.</pre>
+  </section>
+
+  <section class="panel" aria-labelledby="run-title">
+    <h2 id="run-title">Uruchom zadanie</h2>
+    <p class="muted">Wykonanie wymaga klucza usługi po stronie BFF. Raport pokazuje rzeczywisty tryb runtime i provenance. VERIFIED w trybie deterministycznym potwierdza ścieżkę Evidence/IGOR, ale nie dowodzi wywołania zewnętrznego LLM.</p>
+    <form id="runForm">
+      <label for="task"><strong>Instrukcja dla OLA</strong></label>
+      <textarea id="task" maxlength="2000" required placeholder="Opisz jedno konkretne zadanie do wykonania…"></textarea>
+      <div class="row">
+        <small>Maksymalnie 2000 znaków · tryb runtime jawny w raporcie · bez checkoutu</small>
+        <button id="runBtn" type="submit">Uruchom na stagingu</button>
+      </div>
+    </form>
+    <div id="runState" class="status" role="status">Gotowa</div>
+    <pre id="runOutput">Wynik rzeczywistego wykonania pojawi się tutaj. Brak odpowiedzi nie będzie interpretowany jako sukces.</pre>
+  </section>
+
+  <p class="footer"><a href="/">← Powrót do strony OLA</a> · Preview chroniony logowaniem. Wynik VERIFIED nie zastępuje Human Gate.</p>
+</main>
+<script>
+const healthBtn = document.getElementById("healthBtn");
+const healthState = document.getElementById("healthState");
+const healthOutput = document.getElementById("healthOutput");
+const runForm = document.getElementById("runForm");
+const runBtn = document.getElementById("runBtn");
+const runState = document.getElementById("runState");
+const runOutput = document.getElementById("runOutput");
+
+function show(node, value) { node.textContent = JSON.stringify(value, null, 2); }
+
+healthBtn.addEventListener("click", async () => {
+  healthBtn.disabled = true;
+  healthState.textContent = "Sprawdzam…";
+  try {
+    const response = await fetch("/api/ola/health", { headers: { "Accept": "application/json" }, cache: "no-store" });
+    const payload = await response.json();
+    healthState.textContent = payload.readiness && payload.readiness.ready ? "CORE READY" : "CORE NOT READY";
+    show(healthOutput, payload);
+  } catch {
+    healthState.textContent = "Błąd połączenia";
+    healthOutput.textContent = "Nie udało się odczytać statusu BFF.";
+  } finally {
+    healthBtn.disabled = false;
+  }
+});
+
+runForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const task = document.getElementById("task").value.trim();
+  if (!task) return;
+  runBtn.disabled = true;
+  runState.textContent = "Wysyłam zadanie…";
+  runOutput.textContent = "Oczekiwanie na wynik z backendu…";
+  try {
+    const response = await fetch("/api/ola/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ task })
+    });
+    const payload = await response.json();
+    const ninaOk = payload.nina && payload.nina.status === "VERIFIED";
+    const igorOk = payload.igor && payload.igor.status === "VERIFIED";
+    const provenanceOk = payload.provenance && payload.provenance.status === "VERIFIED";
+    const replayOk = payload.replay_verification && payload.replay_verification.status === "VERIFIED";
+    const integrityProofsOk = response.ok && ninaOk && igorOk && provenanceOk && replayOk;
+    const invocationType = payload.provenance && payload.provenance.invocation_type;
+    const realLlmVerified = invocationType === "real_llm";
+    const humanGateStatus = payload.human_gate && payload.human_gate.status
+      ? payload.human_gate.status
+      : "UNKNOWN";
+    if (integrityProofsOk && realLlmVerified) {
+      runState.textContent = humanGateStatus === "APPROVED"
+        ? "NINA / IGOR / provenance / replay VERIFIED — real LLM confirmed"
+        : "NINA / IGOR / provenance / replay VERIFIED — Human Gate nadal wymaga zatwierdzenia";
+    } else if (integrityProofsOk) {
+      runState.textContent = "Evidence / IGOR VERIFIED — tryb runtime: "
+        + (invocationType || "UNKNOWN")
+        + "; wywołanie realnego LLM nie jest potwierdzone; Human Gate: "
+        + humanGateStatus;
+    } else {
+      runState.textContent = "Wynik nie został w pełni zweryfikowany";
+    }
+    show(runOutput, { http_status: response.status, ...payload });
+  } catch {
+    runState.textContent = "Błąd połączenia";
+    runOutput.textContent = "Nie udało się połączyć z BFF.";
+  } finally {
+    runBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
