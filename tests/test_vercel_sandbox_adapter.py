@@ -47,10 +47,14 @@ class FakeSDK:
     def __init__(self, box):
         self.box = box
         self.create_options = None
+        self.closed = False
 
     def create_sandbox(self, **kwargs):
         self.create_options = kwargs
         return self.box
+
+    def close(self):
+        self.closed = True
 
 
 def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
@@ -61,7 +65,7 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     result = execute_python_source(
         source,
         sdk=sdk,
-        session_factory=nullcontext,
+        client=sdk,
         timeout_seconds=12,
     )
 
@@ -92,6 +96,8 @@ def test_adapter_uses_ephemeral_deny_all_sandbox_and_fixed_python_argv():
     assert kwargs["kill_after"] == timedelta(seconds=12)
     assert kwargs["stdout"] is not None and kwargs["stderr"] is not None
     assert box.exited is True
+    assert sdk.closed is True
+    assert options["destroy"] is True
 
 
 def test_adapter_caps_retained_output_and_marks_truncation():
@@ -99,7 +105,7 @@ def test_adapter_caps_retained_output_and_marks_truncation():
     result = execute_python_source(
         "print('x')",
         sdk=FakeSDK(box),
-        session_factory=nullcontext,
+        client=FakeSDK(box),
         output_limit_bytes=5,
     )
     assert result["stdout"] == "xxxxx"
@@ -125,7 +131,7 @@ def test_adapter_rejects_invalid_bounds_before_provider_call(source, timeout, ou
         execute_python_source(
             source,
             sdk=sdk,
-            session_factory=nullcontext,
+            client=sdk,
             timeout_seconds=timeout,
             output_limit_bytes=output_limit,
         )
@@ -138,6 +144,6 @@ def test_adapter_rejects_source_over_limit_before_provider_call():
         execute_python_source(
             "x" * 100_001,
             sdk=sdk,
-            session_factory=nullcontext,
+            client=sdk,
         )
     assert sdk.create_options is None
