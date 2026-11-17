@@ -257,9 +257,13 @@ def verify_dag_records(records, *, tenant_id, run_id, expected_commit=None,
                     or end_payload.get("status") != "COMPLETED"
                     or end_payload.get("pre_end_igor_status") != "VERIFIED"):
                 return _result("BLOCK", "execution end status or pre-end verification mismatch")
-            if (end_payload.get("completed_node_count") != len(finishes)
-                    or end_payload.get("failed_node_count") != len(terminal.get("failed", {}))
-                    or end_payload.get("skipped_node_count") != len(terminal.get("skipped", []))):
+            expected_counts = {
+                "completed_node_count": len(finishes),
+                "failed_node_count": len(terminal.get("failed", {})),
+                "skipped_node_count": len(terminal.get("skipped", [])),
+            }
+            if any(type(end_payload.get(key)) is not int or end_payload.get(key) != value
+                   for key, value in expected_counts.items()):
                 return _result("BLOCK", "execution end node counts mismatch")
         overlap = 0
         llm_ids = [nid for nid, node in nodes.items() if node["tool"] == "llm_agent"]
