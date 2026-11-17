@@ -1,6 +1,8 @@
 import hashlib
 import json
 
+import pytest
+
 from app.hashchain import canonical_json, compute_record_hash, compute_record_hash_v2, sealed_payload_json, EVIDENCE_META_KEY
 from app.igor_workflow import verify_dag_records
 from app.workflow_engine import WorkflowEngine, validate_plan
