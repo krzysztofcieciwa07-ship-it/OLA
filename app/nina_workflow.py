@@ -22,6 +22,9 @@ def model_plan(goal, tools, *, independent_only=False):
         'Every needs entry MUST match an actual id of another node in the '
         'same plan; for independent nodes use needs:[]. '
         'No code fences, no prose. Never request tools outside allowed_tools.'
+        ' For vercel_sandbox, task MUST be a JSON string containing exactly '
+        '{"operation":"python_exec","source":"..."}; do not request a shell, '
+        'arbitrary executable, network access, or extra task fields.'
     )
     if independent_only:
         contract += (
@@ -82,6 +85,12 @@ def execute_registered_node(node, deps):
         from .agent_runtime import _mcp_tool_call
         value = json.dumps(deps, sort_keys=True) if deps else node.task
         return _mcp_tool_call("sha256", {"value": value})
+    if node.tool == "vercel_sandbox":
+        from .vercel_sandbox_adapter import SandboxAdapterError, execute_sandbox_task
+        try:
+            return execute_sandbox_task(node.task)
+        except SandboxAdapterError as exc:
+            raise WorkflowPlanError("Vercel Sandbox task rejected") from exc
     if node.tool == "llm_agent":
         from .agent_runtime import _invoke_llm
         response = _invoke_llm(node.id, node.task, {"upstream_results": deps})
@@ -97,7 +106,7 @@ def run_nina_workflow(*, tenant_id, requester_id, goal, allowed_tools, append,
                       planner=model_plan, executor=execute_registered_node,
                       fetch_records=None, require_overlap=False, expected_provider=None):
     # The route checks NINA policy before calling this service. Defence in depth.
-    supported = {"safe_expression", "local_mcp_tool_registry.sha256", "llm_agent"}
+    supported = {"safe_expression", "local_mcp_tool_registry.sha256", "llm_agent", "vercel_sandbox"}
     if not set(allowed_tools) <= supported:
         raise WorkflowPlanError("unregistered workflow tool")
     nodes, provenance = planner(goal, tuple(allowed_tools))
