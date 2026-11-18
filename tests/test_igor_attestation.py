@@ -243,6 +243,7 @@ class IgorBundleAttestationTests(unittest.TestCase):
                 },
                 "IGOR Independent Ollama Evidence Gate": {
                     "id": 2001,
+                    "html_url": f"https://github.com/{REPOSITORY}/actions/runs/1001/job/2001",
                     "head_sha": SOURCE_SHA,
                     "status": "completed",
                     "conclusion": "success",
@@ -255,6 +256,45 @@ class IgorBundleAttestationTests(unittest.TestCase):
             (root / "gate-status.json").write_text(json.dumps(gate_status), encoding="utf-8")
             result = resolve_flow_run(root / "required-runs.json", root / "gate-status.json", SOURCE_SHA)
         self.assertEqual(1001, result)
+
+    def test_rejects_nested_igor_job_from_a_different_flow_run(self):
+        flow = {
+            "id": 1001,
+            "name": "OLA 12h Autonomous Evidence Flow",
+            "path": FLOW_PATH,
+            "workflow_id": 55,
+            "head_sha": SOURCE_SHA,
+            "head_branch": "main",
+            "event": "push",
+            "status": "completed",
+            "conclusion": "success",
+        }
+        gate_status = {
+            "exact_source_gates": {
+                "OLA 12h Autonomous Evidence Flow": {
+                    "id": 1001,
+                    "path": FLOW_PATH,
+                    "workflow_id": 55,
+                    "head_sha": SOURCE_SHA,
+                    "event": "push",
+                    "status": "completed",
+                    "conclusion": "success",
+                },
+                "IGOR Independent Ollama Evidence Gate": {
+                    "id": 2001,
+                    "html_url": f"https://github.com/{REPOSITORY}/actions/runs/9999/job/2001",
+                    "head_sha": SOURCE_SHA,
+                    "status": "completed",
+                    "conclusion": "success",
+                },
+            }
+        }
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "required-runs.json").write_text(json.dumps({"workflow_runs": [flow]}), encoding="utf-8")
+            (root / "gate-status.json").write_text(json.dumps(gate_status), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "not bound to the exact 12h flow run"):
+                resolve_flow_run(root / "required-runs.json", root / "gate-status.json", SOURCE_SHA)
 
     def test_rejects_same_sha_push_from_non_main_branch(self):
         flow = {
