@@ -1,0 +1,98 @@
+name: OLA CI Failure Notifier
+
+on:
+  workflow_run:
+    workflows:
+      - "Python package CI"
+      - "OLA FINAL PRODUCTION GATE"
+    types:
+      - completed
+
+permissions: {}
+
+jobs:
+  notify:
+    name: Record failed or cancelled CI run
+    if: ${{ github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      REPOSITORY_OWNER: ${{ github.repository_owner }}
+      WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+      RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      ACTOR: ${{ github.event.workflow_run.actor.login }}
+    steps:
+      - name: Create or update source-bound CI incident
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid source SHA in completed workflow event"
+            exit 1
+          fi
+          if [[ ! "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid workflow run ID"
+            exit 1
+          fi
+          if [[ "$RUN_CONCLUSION" == "success" || -z "$RUN_CONCLUSION" ]]; then
+            echo "::error::Notifier invoked for an invalid conclusion"
+            exit 1
+          fi
+
+          run_json="$(gh run view "$RUN_ID" --repo "$REPOSITORY" --json url,name,headSha,headBranch,event,conclusion,jobs)"
+          actual_sha="$(printf '%s' "$run_json" | jq -r '.headSha')"
+          actual_name="$(printf '%s' "$run_json" | jq -r '.name')"
+          actual_branch="$(printf '%s' "$run_json" | jq -r '.headBranch')"
+          actual_conclusion="$(printf '%s' "$run_json" | jq -r '.conclusion')"
+
+          test "$actual_sha" = "$SOURCE_SHA"
+          test "$actual_name" = "$WORKFLOW_NAME"
+          test "$actual_branch" = "$BRANCH"
+          test "$actual_conclusion" = "$RUN_CONCLUSION"
+
+          failed_jobs="$(printf '%s' "$run_json" | jq -r '[.jobs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped") | .name] | unique | join(", ")')"
+          safe_workflow="${WORKFLOW_NAME:0:70}"
+          safe_branch="${BRANCH:0:120}"
+          ALERT_TITLE="[CI INCIDENT] ${safe_workflow} | ${safe_branch}"
+          export ALERT_TITLE
+
+          body="$(cat <<EOF
+          **Automated CI incident**
+
+          - Workflow: $WORKFLOW_NAME
+          - Conclusion: $RUN_CONCLUSION
+          - Branch: $BRANCH
+          - Exact source SHA: $SOURCE_SHA
+          - Run ID: $RUN_ID
+          - Run attempt: $RUN_ATTEMPT
+          - Non-success job(s): ${failed_jobs:-not reported by GitHub}
+          - Triggered by: @$ACTOR
+          - Run: $RUN_URL
+
+          This incident is deduplicated by workflow and branch. The recorded run identity is re-read from GitHub and checked against the event before this issue is updated.
+          EOF
+          )"
+
+          existing="$(gh issue list --repo "$REPOSITORY" --state open --search "in:title $safe_workflow" --json number,title --jq '.[] | select(.title == env.ALERT_TITLE) | .number' --limit 100 | head -n 1)"
+          if [ -n "$existing" ]; then
+            issue_number="$existing"
+            gh issue comment "$issue_number" --repo "$REPOSITORY" --body "$body"
+            gh issue edit "$issue_number" --repo "$REPOSITORY" --add-assignee "$REPOSITORY_OWNER"
+          else
+            issue_url="$(gh issue create --repo "$REPOSITORY" --title "$ALERT_TITLE" --body "$body" --assignee "$REPOSITORY_OWNER")"
+            issue_number="${issue_url##*/}"
+          fi
+
+          confirmed="$(gh issue view "$issue_number" --repo "$REPOSITORY" --json number,title --jq '.number')"
+          test "$confirmed" = "$issue_number"
+          echo "CI_INCIDENT=RECORDED issue=$issue_number run=$RUN_ID conclusion=$RUN_CONCLUSION source=$SOURCE_SHA"
