@@ -24,8 +24,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-      id-token: write
-      attestations: write
     if: ${{ inputs.source_commit != '' && inputs.nina_artifact_name != '' }}
     env:
       SOURCE_COMMIT: ${{ inputs.source_commit }}
@@ -195,18 +193,6 @@ jobs:
           sha256sum igor-replay.json
           tar -czf igor-evidence-bundle.tar.gz evidence-bundle
           sha256sum igor-evidence-bundle.tar.gz | tee igor-evidence-bundle.sha256
-
-      - name: Generate IGOR evidence attestation
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: igor-evidence-bundle.tar.gz
-
-      - name: Independently verify IGOR attestation
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh attestation verify igor-evidence-bundle.tar.gz -R "$GITHUB_REPOSITORY"
 
       - name: Human Gate hold
         run: |

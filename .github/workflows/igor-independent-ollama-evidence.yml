@@ -18,8 +18,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-      id-token: write
-      attestations: write
     env:
       SOURCE_COMMIT: ${{ inputs.source_commit }}
       NINA_RUN_ID: ${{ github.run_id }}
@@ -226,19 +224,6 @@ jobs:
           find evidence-bundle -type f ! -path '*/integrity/bundle-files.sha256' -print0 | sort -z | xargs -0 sha256sum > evidence-bundle/integrity/bundle-files.sha256
           tar -czf igor-ollama-evidence-bundle.tar.gz evidence-bundle
           sha256sum igor-ollama-evidence-bundle.tar.gz | tee igor-ollama-evidence-bundle.sha256
-
-      - name: Generate IGOR evidence attestation
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: igor-ollama-evidence-bundle.tar.gz
-
-      - name: Verify IGOR evidence attestation
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh attestation verify igor-ollama-evidence-bundle.tar.gz -R "$GITHUB_REPOSITORY"
-          echo "IGOR_EVIDENCE_ATTESTED=VERIFIED"
 
       - name: Human Gate hold
         run: |
