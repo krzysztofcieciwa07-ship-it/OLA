@@ -50,7 +50,11 @@ def choose_flow_action(
     runs: list[dict[str, Any]], source_sha: str
 ) -> dict[str, Any]:
     """Choose a safe action using only main-branch runs and exact source SHA."""
-    main_runs = [item for item in runs if item.get("headBranch") == "main"]
+    main_runs = [
+        item for item in runs
+        if item.get("headBranch") == "main"
+        and item.get("event") in {"push", "schedule", "workflow_dispatch"}
+    ]
     active = [
         item for item in main_runs
         if str(item.get("status", "")).lower() in ACTIVE_STATUSES
@@ -456,7 +460,7 @@ def run_watchdog() -> dict[str, Any]:
             "--workflow", FLOW_WORKFLOW,
             "--branch", "main",
             "--limit", "100",
-            "--json", "databaseId,status,conclusion,createdAt,updatedAt,headSha,headBranch",
+            "--json", "databaseId,status,conclusion,createdAt,updatedAt,headSha,headBranch,event",
         ])
         selection = choose_flow_action(runs, source_sha)
         selected = selection.get("run")
