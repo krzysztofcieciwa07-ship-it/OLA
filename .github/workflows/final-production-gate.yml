@@ -92,7 +92,7 @@ jobs:
           import json
           import os
           import sys
-          from scripts.release_gate import filter_main_runs, filter_pull_request_runs
+          from scripts.release_gate import (\n    REFERENCE_WORKFLOW_PATHS,\n    REQUIRED_WORKFLOW_PATHS,\n    filter_expected_workflow_paths,\n    filter_main_runs,\n    filter_pull_request_runs,\n)
 
           required_exact = [
               "Evidence Cryptography V4 Contract",
@@ -121,6 +121,11 @@ jobs:
               "OLA Frontier Baseline",
           ]
 
+          if set(required_exact) != set(REQUIRED_WORKFLOW_PATHS):
+              raise SystemExit("required workflow names and canonical path map differ")
+          if set(required_reference) != set(REFERENCE_WORKFLOW_PATHS):
+              raise SystemExit("reference workflow names and canonical path map differ")
+
           with open("required-runs.json", encoding="utf-8") as stream:
               exact_data = json.load(stream)
           with open("reference-runs.json", encoding="utf-8") as stream:
@@ -145,6 +150,15 @@ jobs:
                   target_sha=os.environ.get("TARGET_SOURCE_SHA", ""),
               )
 
+          # A workflow name is mutable and not an identity. Reject a different
+          # workflow file that reuses a required gate's display name.
+          exact_data["workflow_runs"] = filter_expected_workflow_paths(
+              exact_data.get("workflow_runs", []), REQUIRED_WORKFLOW_PATHS
+          )
+          reference_data["workflow_runs"] = filter_expected_workflow_paths(
+              reference_data.get("workflow_runs", []), REFERENCE_WORKFLOW_PATHS
+          )
+
           def newest_by_name(data):
               newest = {}
               for run in data.get("workflow_runs", []):
@@ -157,6 +171,8 @@ jobs:
                           "head_sha": run.get("head_sha"),
                           "event": run.get("event"),
                           "html_url": run.get("html_url"),
+                          "path": run.get("path"),
+                          "workflow_id": run.get("workflow_id"),
                       }
               return newest
 

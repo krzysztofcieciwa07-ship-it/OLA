@@ -154,6 +154,21 @@ class PullRequestEvidenceScopeTests(unittest.TestCase):
         )
         self.assertEqual([], selected)
 
+    def test_expected_workflow_path_filter_rejects_unsafe_or_duplicate_paths(self):
+        with self.assertRaises(ValueError):
+            filter_expected_workflow_paths(
+                [self.match],
+                {"Python package CI": "../attacker.yml"},
+            )
+        with self.assertRaises(ValueError):
+            filter_expected_workflow_paths(
+                [self.match],
+                {
+                    "Python package CI": ".github/workflows/shared.yml",
+                    "OLA CodeQL": ".github/workflows/shared.yml",
+                },
+            )
+
     def test_final_gate_filters_expected_workflow_paths_before_name_selection(self):
         content = (ROOT / ".github" / "workflows" / "final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn("filter_expected_workflow_paths", content)

@@ -2,9 +2,38 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 _SHA1 = re.compile(r"^[0-9a-f]{40}$")
+
+REQUIRED_WORKFLOW_PATHS: dict[str, str] = {
+    "Evidence Cryptography V4 Contract": ".github/workflows/evidence-cryptography-v4.yml",
+    "OLA paid-order PostgreSQL contract": ".github/workflows/paid-order-postgres.yml",
+    "Python package CI": ".github/workflows/python-package-conda.yml",
+    "OLA Local Staging Rehearsal": ".github/workflows/staging-rehearsal.yml",
+    "Nina TDD": ".github/workflows/nina-tdd.yml",
+    "NINA Parallel DAG Gate": ".github/workflows/nina-parallel-dag.yml",
+    "OLA Supply Chain Evidence Gate": ".github/workflows/supply-chain-evidence.yml",
+    "OLA CodeQL": ".github/workflows/codeql.yml",
+    "OLA DI-OS Product Gate": ".github/workflows/ola-product-gate.yml",
+    "OLA 12h Autonomous Evidence Flow": ".github/workflows/ola-12h-autoflow.yml",
+    "OLA Decision Evidence Gate": ".github/workflows/decision-evidence-gate.yml",
+    "Revenue Surface Gate": ".github/workflows/revenue-surface.yml",
+    "OLA E2E Gate": ".github/workflows/e2e.yml",
+    "Evidence Graph v0.1": ".github/workflows/evidence-graph.yml",
+    "Real LLM Ollama Runtime Gate": ".github/workflows/ollama-real-runtime.yml",
+    "Provenance Mutation Gate": ".github/workflows/provenance-mutation.yml",
+    "Provenance Gate Final": ".github/workflows/provenance-gate-final.yml",
+    "Nina Igor Gate": ".github/workflows/nina-igor-gate.yml",
+    "Nina Real Runtime Provenance Gate (OpenAI optional)": ".github/workflows/nina-real-runtime-provenance.yml",
+    "OLA State Continuity and Stability": ".github/workflows/state-continuity.yml",
+    "OLA Real Runtime Stress Gate": ".github/workflows/runtime-stress.yml",
+}
+
+REFERENCE_WORKFLOW_PATHS: dict[str, str] = {
+    "OLA Frontier Baseline": ".github/workflows/frontier-baseline.yml",
+}
 
 
 def filter_pull_request_runs(
@@ -54,6 +83,43 @@ def filter_pull_request_runs(
                 break
     return selected
 
+
+
+
+def filter_expected_workflow_paths(
+    runs: list[dict[str, Any]],
+    expected_paths: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    """Keep only named runs emitted by their canonical workflow file path."""
+    if not isinstance(runs, list):
+        raise ValueError("workflow runs must be a list")
+    if not isinstance(expected_paths, Mapping) or not expected_paths:
+        raise ValueError("expected workflow paths must be a nonempty mapping")
+
+    normalized: dict[str, str] = {}
+    for name, path in expected_paths.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("invalid expected workflow name")
+        if (
+            not isinstance(path, str)
+            or not path.startswith(".github/workflows/")
+            or "\\" in path
+            or any(part in {"", ".", ".."} for part in path.split("/"))
+            or not path.endswith((".yml", ".yaml"))
+        ):
+            raise ValueError("invalid expected workflow path")
+        normalized[name] = path
+
+    if len(set(normalized.values())) != len(normalized):
+        raise ValueError("expected workflow paths must be unique")
+
+    return [
+        run for run in runs
+        if isinstance(run, dict)
+        and isinstance(run.get("name"), str)
+        and run["name"] in normalized
+        and run.get("path") == normalized[run["name"]]
+    ]
 
 
 def filter_main_runs(
