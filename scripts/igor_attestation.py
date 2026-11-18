@@ -7,9 +7,11 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import re
 import sys
 import tarfile
+import urllib.request
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -29,6 +31,7 @@ _MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 _MAX_MEMBER_BYTES = 64 * 1024 * 1024
 _MAX_TOTAL_BYTES = 128 * 1024 * 1024
 _MAX_MEMBERS = 1024
+_ARTIFACT_DIGEST = re.compile(r"^sha256:([0-9a-f]{64})$")
 
 
 def _require_sha1(value: str) -> None:
@@ -49,6 +52,12 @@ def _require_repository(value: str) -> None:
 def _require_run_id(value: Any, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{label} must be a positive integer")
+    return value
+
+
+def _require_artifact_digest(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not _ARTIFACT_DIGEST.fullmatch(value):
+        raise ValueError(f"{label} must be a GitHub sha256 artifact digest")
     return value
 
 
@@ -289,6 +298,60 @@ def resolve_flow_run(
     return flow_id
 
 
+def resolve_artifact_bindings(artifact_data: Any, *, source_sha: str, flow_run_id: int) -> dict[str, dict[str, Any]]:
+    """Resolve immutable AUTO and IGOR artifact identities from one exact main run."""
+    _require_sha1(source_sha)
+    _require_run_id(flow_run_id, "12h flow run ID")
+    artifacts = artifact_data.get("artifacts") if isinstance(artifact_data, dict) else None
+    if not isinstance(artifacts, list):
+        raise ValueError("GitHub artifact API response has no artifacts list")
+    names = {
+        "auto": f"ola-auto-evidence-{source_sha}",
+        "igor": f"igor-independent-ollama-evidence-{source_sha}",
+    }
+    resolved: dict[str, dict[str, Any]] = {}
+    for label, expected_name in names.items():
+        matches = [x for x in artifacts if isinstance(x, dict) and x.get("name") == expected_name]
+        if len(matches) != 1:
+            raise ValueError(f"expected exactly one {label} artifact named {expected_name}")
+        artifact = matches[0]
+        if artifact.get("expired") is not False:
+            raise ValueError(f"{label} artifact is expired or has no explicit unexpired status")
+        run = artifact.get("workflow_run")
+        if not isinstance(run, dict) or run.get("id") != flow_run_id:
+            raise ValueError(f"{label} artifact belongs to a different workflow run")
+        if run.get("head_sha") != source_sha or run.get("head_branch") != "main":
+            raise ValueError(f"{label} artifact is not bound to the exact main source SHA")
+        artifact_id = _require_run_id(artifact.get("id"), f"{label} artifact ID")
+        digest = _require_artifact_digest(artifact.get("digest"), f"{label} artifact digest")
+        size = artifact.get("size_in_bytes")
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+            raise ValueError(f"{label} artifact has an invalid size")
+        resolved[label] = {"id": artifact_id, "name": expected_name, "digest": digest, "size_in_bytes": size}
+    if resolved["auto"]["id"] == resolved["igor"]["id"]:
+        raise ValueError("AUTO and IGOR artifact IDs must be distinct")
+    return resolved
+
+
+def fetch_artifact_bindings(repository: str, flow_run_id: int, source_sha: str) -> dict[str, dict[str, Any]]:
+    _require_repository(repository)
+    token = os.environ.get("GH_TOKEN", "")
+    if not token:
+        raise ValueError("GH_TOKEN is required to resolve exact workflow artifact metadata")
+    url = f"https://api.github.com/repos/{repository}/actions/runs/{flow_run_id}/artifacts?per_page=100"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        payload = json.load(response)
+    return resolve_artifact_bindings(payload, source_sha=source_sha, flow_run_id=flow_run_id)
+
+
 def build_predicate(
     *,
     source_sha: str,
@@ -306,6 +369,16 @@ def build_predicate(
     _require_sha256(bundle_info.get("bundle_sha256"))
     _require_sha256(bundle_info.get("manifest_sha256"))
     _require_sha256(bundle_info.get("result_sha256"))
+    igor_id = _require_run_id(bundle_info.get("igor_artifact_id"), "IGOR artifact ID")
+    auto_id = _require_run_id(bundle_info.get("auto_artifact_id"), "AUTO artifact ID")
+    igor_digest = _require_artifact_digest(bundle_info.get("igor_artifact_digest"), "IGOR artifact digest")
+    auto_digest = _require_artifact_digest(bundle_info.get("auto_artifact_digest"), "AUTO artifact digest")
+    igor_name = f"igor-independent-ollama-evidence-{source_sha}"
+    auto_name = f"ola-auto-evidence-{source_sha}"
+    if bundle_info.get("igor_artifact_name") != igor_name or bundle_info.get("auto_artifact_name") != auto_name:
+        raise ValueError("producer artifact names are not bound to the exact source SHA")
+    if igor_id == auto_id:
+        raise ValueError("AUTO and IGOR artifact IDs must be distinct")
     return {
         "schema": _PREDICATE_TYPE,
         "source": {"repository": repository, "commit": source_sha},
@@ -318,7 +391,8 @@ def build_predicate(
         "producer": {
             "workflow_path": _FLOW_WORKFLOW_PATH,
             "run_id": flow_run_id,
-            "artifact_name": f"ola-auto-evidence-{source_sha}",
+            "auto_artifact": {"id": auto_id, "name": auto_name, "archive_digest": auto_digest},
+            "igor_artifact": {"id": igor_id, "name": igor_name, "archive_digest": igor_digest},
         },
         "evidence": {
             "bundle_sha256": bundle_info["bundle_sha256"],
@@ -345,6 +419,10 @@ def verify_attestation_data(
     expected_flow_run_id: int,
     expected_final_run_id: int,
     expected_subject_sha256: str,
+    expected_igor_artifact_id: int,
+    expected_igor_artifact_digest: str,
+    expected_auto_artifact_id: int,
+    expected_auto_artifact_digest: str,
     expected_workflow_path: str = _FINAL_WORKFLOW_PATH,
     expected_workflow_ref: str = _FINAL_WORKFLOW_REF,
     expected_workflow_name: str = _FINAL_WORKFLOW_NAME,
@@ -354,6 +432,10 @@ def verify_attestation_data(
     _require_run_id(expected_flow_run_id, "expected 12h flow run ID")
     _require_run_id(expected_final_run_id, "expected final gate run ID")
     _require_sha256(expected_subject_sha256)
+    _require_run_id(expected_igor_artifact_id, "expected IGOR artifact ID")
+    _require_run_id(expected_auto_artifact_id, "expected AUTO artifact ID")
+    _require_artifact_digest(expected_igor_artifact_digest, "expected IGOR artifact digest")
+    _require_artifact_digest(expected_auto_artifact_digest, "expected AUTO artifact digest")
     if expected_workflow_path != _FINAL_WORKFLOW_PATH or expected_workflow_ref != _FINAL_WORKFLOW_REF:
         raise ValueError("IGOR attestation verification is restricted to the canonical main workflow")
     if expected_workflow_name != _FINAL_WORKFLOW_NAME:
@@ -427,7 +509,16 @@ def verify_attestation_data(
         if producer != {
             "workflow_path": _FLOW_WORKFLOW_PATH,
             "run_id": expected_flow_run_id,
-            "artifact_name": f"ola-auto-evidence-{expected_source_sha}",
+            "auto_artifact": {
+                "id": expected_auto_artifact_id,
+                "name": f"ola-auto-evidence-{expected_source_sha}",
+                "archive_digest": expected_auto_artifact_digest,
+            },
+            "igor_artifact": {
+                "id": expected_igor_artifact_id,
+                "name": f"igor-independent-ollama-evidence-{expected_source_sha}",
+                "archive_digest": expected_igor_artifact_digest,
+            },
         }:
             continue
         if evidence.get("bundle_sha256") != expected_subject_sha256:
@@ -487,26 +578,62 @@ def _prepare(args: argparse.Namespace) -> int:
         Path(args.gate_status),
         args.source_sha,
     )
+    artifact_bindings = fetch_artifact_bindings(args.repository, flow_run_id, args.source_sha)
     if args.resolve_only:
         binding = {
             "source_sha": args.source_sha,
             "flow_run_id": flow_run_id,
             "workflow_path": _FLOW_WORKFLOW_PATH,
-            "artifact_name": f"ola-auto-evidence-{args.source_sha}",
+            "artifacts": artifact_bindings,
         }
         _write_json(Path(args.output), binding)
-        _append_output(args.github_output, {"flow_run_id": flow_run_id})
+        _append_output(args.github_output, {
+            "flow_run_id": flow_run_id,
+            "auto_artifact_id": artifact_bindings["auto"]["id"],
+            "auto_artifact_digest": artifact_bindings["auto"]["digest"],
+            "igor_artifact_id": artifact_bindings["igor"]["id"],
+            "igor_artifact_digest": artifact_bindings["igor"]["digest"],
+        })
         print(json.dumps(binding, sort_keys=True))
         return 0
     if args.flow_run_id != flow_run_id:
         raise ValueError("downloaded 12h flow run ID differs from the final-gate run binding")
     final_run_id = _require_run_id(args.final_run_id, "final gate run ID")
+    expected_outputs = {
+        "auto_artifact_id": artifact_bindings["auto"]["id"],
+        "auto_artifact_digest": artifact_bindings["auto"]["digest"],
+        "igor_artifact_id": artifact_bindings["igor"]["id"],
+        "igor_artifact_digest": artifact_bindings["igor"]["digest"],
+    }
+    supplied_outputs = {
+        "auto_artifact_id": args.auto_artifact_id,
+        "auto_artifact_digest": args.auto_artifact_digest,
+        "igor_artifact_id": args.igor_artifact_id,
+        "igor_artifact_digest": args.igor_artifact_digest,
+    }
+    if supplied_outputs != expected_outputs:
+        raise ValueError("artifact metadata changed between resolution and exact-ID download")
     auto_dir = Path(args.auto_evidence_dir)
     auto_digest = verify_auto_evidence(auto_dir, args.source_sha)
     independent = auto_dir / "downloaded" / "independent-igor"
     bundle_path = independent / "igor-ollama-evidence-bundle.tar.gz"
     checksum_path = independent / "igor-ollama-evidence-bundle.sha256"
     bundle_info = verify_igor_bundle(bundle_path, checksum_path, args.source_sha)
+    igor_name = f"igor-independent-ollama-evidence-{args.source_sha}"
+    original_dir = Path(args.original_igor_artifact_dir) / igor_name
+    original_bundle = original_dir / "igor-ollama-evidence-bundle.tar.gz"
+    original_checksum = original_dir / "igor-ollama-evidence-bundle.sha256"
+    original_info = verify_igor_bundle(original_bundle, original_checksum, args.source_sha)
+    if original_info != bundle_info:
+        raise ValueError("IGOR bundle copied into AUTO artifact differs from the exact-ID IGOR artifact")
+    bundle_info.update({
+        "auto_artifact_id": artifact_bindings["auto"]["id"],
+        "auto_artifact_name": artifact_bindings["auto"]["name"],
+        "auto_artifact_digest": artifact_bindings["auto"]["digest"],
+        "igor_artifact_id": artifact_bindings["igor"]["id"],
+        "igor_artifact_name": artifact_bindings["igor"]["name"],
+        "igor_artifact_digest": artifact_bindings["igor"]["digest"],
+    })
     predicate = build_predicate(
         source_sha=args.source_sha,
         repository=args.repository,
@@ -538,6 +665,10 @@ def _verify(args: argparse.Namespace) -> int:
         expected_flow_run_id=args.expected_flow_run_id,
         expected_final_run_id=args.expected_final_run_id,
         expected_subject_sha256=subject_sha,
+        expected_igor_artifact_id=args.expected_igor_artifact_id,
+        expected_igor_artifact_digest=args.expected_igor_artifact_digest,
+        expected_auto_artifact_id=args.expected_auto_artifact_id,
+        expected_auto_artifact_digest=args.expected_auto_artifact_digest,
     )
     print(json.dumps(result, sort_keys=True))
     return 0
@@ -557,6 +688,11 @@ def main(argv: list[str] | None = None) -> int:
     prepare.add_argument("--flow-run-id", type=int)
     prepare.add_argument("--final-run-id", type=int)
     prepare.add_argument("--auto-evidence-dir")
+    prepare.add_argument("--original-igor-artifact-dir")
+    prepare.add_argument("--auto-artifact-id", type=int)
+    prepare.add_argument("--auto-artifact-digest")
+    prepare.add_argument("--igor-artifact-id", type=int)
+    prepare.add_argument("--igor-artifact-digest")
     verify = subparsers.add_parser("verify", help="verify gh attestation verify output and exact source bindings")
     verify.add_argument("--attestation", required=True)
     verify.add_argument("--subject", required=True)
@@ -564,6 +700,10 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("--expected-repository", required=True)
     verify.add_argument("--expected-flow-run-id", required=True, type=int)
     verify.add_argument("--expected-final-run-id", required=True, type=int)
+    verify.add_argument("--expected-igor-artifact-id", required=True, type=int)
+    verify.add_argument("--expected-igor-artifact-digest", required=True)
+    verify.add_argument("--expected-auto-artifact-id", required=True, type=int)
+    verify.add_argument("--expected-auto-artifact-digest", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "prepare":
