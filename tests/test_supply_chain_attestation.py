@@ -1,5 +1,4 @@
 from pathlib import Path
-import copy
 import unittest
 
 from scripts.verify_supply_chain_attestation import verify_attestation_data
@@ -18,6 +17,9 @@ def make_attestation(source_sha, subject_sha, *, workflow_ref="refs/heads/main",
             "signature": {
                 "certificate": {
                     "sourceRepositoryDigest": source_sha,
+                    "sourceRepositoryURI": f"https://github.com/{repository}",
+                    "sourceRepositoryRef": workflow_ref,
+                    "githubWorkflowSHA": source_sha,
                     "githubWorkflowRepository": repository,
                     "githubWorkflowRef": workflow_ref,
                     "githubWorkflowTrigger": trigger,
@@ -34,6 +36,13 @@ def make_attestation(source_sha, subject_sha, *, workflow_ref="refs/heads/main",
                 "subject": [{"name": "ola-image.tar", "digest": {"sha256": subject_sha}}],
                 "predicate": {
                     "buildDefinition": {
+                        "externalParameters": {
+                            "workflow": {
+                                "path": workflow_path,
+                                "ref": workflow_ref,
+                                "repository": f"https://github.com/{repository}",
+                            }
+                        },
                         "resolvedDependencies": [
                             {"uri": f"git+https://github.com/{repository}@{workflow_ref}",
                              "digest": {"gitCommit": source_sha}}
