@@ -90,7 +90,7 @@ def filter_expected_workflow_paths(
     runs: list[dict[str, Any]],
     expected_paths: Mapping[str, str],
 ) -> list[dict[str, Any]]:
-    """Keep only named runs emitted by their canonical workflow file path."""
+    """Keep only canonical workflow paths; a display name is not an identity."""
     if not isinstance(runs, list):
         raise ValueError("workflow runs must be a list")
     if not isinstance(expected_paths, Mapping) or not expected_paths:
