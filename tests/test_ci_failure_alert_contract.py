@@ -14,6 +14,32 @@ class CIFailureAlertContractTests(unittest.TestCase):
         self.assertIn("      issues: write", workflow)
         self.assertIn("      actions: read", workflow)
 
+    def test_python_failure_alert_skips_unwritable_fork_pull_requests(self):
+        workflow = (ROOT / ".github/workflows/python-package-conda.yml").read_text(encoding="utf-8")
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
+
+    def test_main_release_gate_failure_creates_a_source_bound_incident(self):
+        workflow = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("  notify-release-failure:", workflow)
+        self.assertIn("needs.final-production.result == 'failure'", workflow)
+        self.assertIn("github.event_name == 'push'", workflow)
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        for contract in (
+            "issues: write",
+            "gh run view",
+            "gh issue list",
+            "gh issue create",
+            "gh issue comment",
+            "gh issue view",
+            "SOURCE_SHA:",
+            "RUN_ID:",
+            "RUN_ATTEMPT:",
+            "RUN_URL:",
+            "OLA_RELEASE_FAILURE_ALERT=RECORDED",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, workflow)
+
     def test_alert_is_deduplicated_and_contains_exact_run_identity(self):
         workflow = (ROOT / ".github/workflows/python-package-conda.yml").read_text(encoding="utf-8")
         for contract in (

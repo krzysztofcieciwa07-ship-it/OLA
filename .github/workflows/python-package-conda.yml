@@ -43,7 +43,7 @@ jobs:
 
   notify-failure:
     name: Notify CI failure
-    if: ${{ always() && needs.build-linux.result == 'failure' }}
+    if: ${{ always() && needs.build-linux.result == 'failure' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: build-linux
     runs-on: ubuntu-latest
     permissions:

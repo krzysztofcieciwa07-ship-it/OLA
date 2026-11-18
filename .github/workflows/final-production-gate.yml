@@ -537,3 +537,58 @@ jobs:
           path: candidate/
           if-no-files-found: warn
           retention-days: 90
+
+  notify-release-failure:
+    name: Notify main release gate failure
+    if: ${{ always() && needs.final-production.result == 'failure' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: final-production
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: Create or update release-block incident
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          BRANCH: ${{ github.ref_name }}
+          ALERT_TITLE: "[OLA RELEASE FAILURE] main"
+          SOURCE_SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_json="$(gh run view "$RUN_ID" --repo "$REPOSITORY" --json url,name,headSha,headBranch,event,conclusion,jobs)"
+          failed_jobs="$(printf '%s' "$run_json" | jq -r '[.jobs[] | select(.conclusion == "failure") | .name] | join(", ")')"
+          body="$(cat <<EOF
+          **Automated OLA release-gate failure**
+
+          - Workflow: OLA FINAL PRODUCTION GATE
+          - Branch: $BRANCH
+          - Source SHA: $SOURCE_SHA
+          - Failed job(s): ${failed_jobs:-unknown}
+          - Run attempt: $RUN_ATTEMPT
+          - Triggered by: @$ACTOR
+          - Run: $RUN_URL
+
+          Release is blocked until the exact-source gate is green and independently reviewed.
+          EOF
+          )"
+
+          existing="$(gh issue list --repo "$REPOSITORY" --state open --search "in:title [OLA RELEASE FAILURE]" --json number,title --jq '.[] | select(.title == env.ALERT_TITLE) | .number' 2>/dev/null || true)"
+          if [ -n "$existing" ]; then
+            issue_number="$existing"
+            gh issue comment "$issue_number" --repo "$REPOSITORY" --body "$body"
+            gh issue edit "$issue_number" --repo "$REPOSITORY" --add-assignee "$REPOSITORY_OWNER"
+          else
+            issue_url="$(gh issue create --repo "$REPOSITORY" --title "$ALERT_TITLE" --body "$body" --assignee "$REPOSITORY_OWNER")"
+            issue_number="$(printf '%s' "$issue_url" | awk -F/ '{print $NF}')"
+          fi
+
+          confirmed="$(gh issue view "$issue_number" --repo "$REPOSITORY" --json number,title,assignees --jq '.number')"
+          test "$confirmed" = "$issue_number"
+          echo "OLA_RELEASE_FAILURE_ALERT=RECORDED issue=$issue_number run=$RUN_ID source=$SOURCE_SHA"
