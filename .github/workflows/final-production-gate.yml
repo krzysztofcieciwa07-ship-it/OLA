@@ -56,13 +56,17 @@ jobs:
       - name: Verify required evidence gates
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET_SOURCE_SHA: ${{ steps.target.outputs.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
         shell: bash
         run: |
           set -euo pipefail
           target_sha="${{ steps.target.outputs.sha }}"
           event_filter=""
           case "${GITHUB_EVENT_NAME}" in
-            pull_request|push) event_filter="&event=${GITHUB_EVENT_NAME}" ;;
+            pull_request) event_filter="&event=pull_request" ;;
+            push) event_filter="&event=push&branch=main" ;;
+            workflow_dispatch) event_filter="&branch=${GITHUB_REF_NAME}" ;;
           esac
           # Producer DAG gate permits up to 25 min; cover it plus queue latency.
           max_attempts=120
@@ -85,6 +89,7 @@ jobs:
 
             if python - <<'PY'
           import json
+          import os
           import sys
 
           required_exact = [
@@ -119,10 +124,73 @@ jobs:
           with open("reference-runs.json", encoding="utf-8") as stream:
               reference_data = json.load(stream)
 
+          # GitHub can return runs for the same commit from several branches
+          # and PRs. Bind every producer run to this release event context.
+          event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+          target_sha = os.environ.get("TARGET_SOURCE_SHA", "")
+          target_branch = os.environ.get("GITHUB_REF_NAME", "")
+          pr_number = int(os.environ.get("PR_NUMBER", "0"))
+
+          def belongs_to_target_context(run):
+              if run.get("head_sha") != target_sha:
+                  return False
+              if event_name == "push":
+                  return run.get("event") == "push" and run.get("head_branch") == "main"
+              if event_name == "pull_request":
+                  if run.get("event") != "pull_request":
+                      return False
+                  for associated_pr in run.get("pull_requests", []):
+                      if int(associated_pr.get("number") or 0) != pr_number:
+                          continue
+                      head = associated_pr.get("head") or {}
+                      base = associated_pr.get("base") or {}
+                      if head.get("sha") == target_sha and base.get("ref") == "main":
+                          return True
+                  return False
+              if event_name == "workflow_dispatch":
+                  return (
+                      run.get("head_branch") == target_branch
+                      and run.get("event") in {"push", "schedule", "workflow_dispatch"}
+                  )
+              return False
+
+          exact_data["workflow_runs"] = [
+              run for run in exact_data.get("workflow_runs", [])
+              if belongs_to_target_context(run)
+          ]
+
+          expected_workflow_paths = {
+              "Evidence Cryptography V4 Contract": ".github/workflows/evidence-cryptography-v4.yml",
+              "OLA paid-order PostgreSQL contract": ".github/workflows/paid-order-postgres.yml",
+              "Python package CI": ".github/workflows/python-package-conda.yml",
+              "OLA Local Staging Rehearsal": ".github/workflows/staging-rehearsal.yml",
+              "Nina TDD": ".github/workflows/nina-tdd.yml",
+              "NINA Parallel DAG Gate": ".github/workflows/nina-parallel-dag.yml",
+              "OLA Supply Chain Evidence Gate": ".github/workflows/supply-chain-evidence.yml",
+              "OLA CodeQL": ".github/workflows/codeql.yml",
+              "OLA DI-OS Product Gate": ".github/workflows/ola-product-gate.yml",
+              "OLA 12h Autonomous Evidence Flow": ".github/workflows/ola-12h-autoflow.yml",
+              "OLA Decision Evidence Gate": ".github/workflows/decision-evidence-gate.yml",
+              "Revenue Surface Gate": ".github/workflows/revenue-surface.yml",
+              "OLA E2E Gate": ".github/workflows/e2e.yml",
+              "Evidence Graph v0.1": ".github/workflows/evidence-graph.yml",
+              "Real LLM Ollama Runtime Gate": ".github/workflows/ollama-real-runtime.yml",
+              "Provenance Mutation Gate": ".github/workflows/provenance-mutation.yml",
+              "Provenance Gate Final": ".github/workflows/provenance-gate-final.yml",
+              "Nina Igor Gate": ".github/workflows/nina-igor-gate.yml",
+              "Nina Real Runtime Provenance Gate (OpenAI optional)": ".github/workflows/nina-real-runtime-provenance.yml",
+              "OLA State Continuity and Stability": ".github/workflows/state-continuity.yml",
+              "OLA Real Runtime Stress Gate": ".github/workflows/runtime-stress.yml",
+              "OLA Frontier Baseline": ".github/workflows/frontier-baseline.yml",
+          }
+
           def newest_by_name(data):
               newest = {}
               for run in data.get("workflow_runs", []):
                   name = run.get("name")
+                  expected_path = expected_workflow_paths.get(name)
+                  if not expected_path or run.get("path") != expected_path:
+                      continue
                   if name and name not in newest:
                       newest[name] = {
                           "id": run.get("id"),
