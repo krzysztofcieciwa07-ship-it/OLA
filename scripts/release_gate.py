@@ -53,3 +53,29 @@ def filter_pull_request_runs(
                 selected.append(run)
                 break
     return selected
+
+
+
+def filter_main_runs(
+    runs: list[dict[str, Any]],
+    *,
+    target_sha: str,
+    allowed_events: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Keep only exact-SHA runs executed from main, never PR evidence."""
+    if not isinstance(target_sha, str) or not _SHA1.fullmatch(target_sha):
+        raise ValueError("invalid target source SHA")
+    if not isinstance(runs, list):
+        raise ValueError("workflow runs must be a list")
+    events = allowed_events if allowed_events is not None else {"push", "workflow_dispatch", "schedule"}
+    if not isinstance(events, set) or not events or not all(
+        event in {"push", "workflow_dispatch", "schedule"} for event in events
+    ):
+        raise ValueError("invalid main workflow event allowlist")
+    return [
+        run for run in runs
+        if isinstance(run, dict)
+        and run.get("head_sha") == target_sha
+        and run.get("head_branch") == "main"
+        and run.get("event") in events
+    ]

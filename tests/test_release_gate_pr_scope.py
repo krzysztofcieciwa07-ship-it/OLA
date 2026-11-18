@@ -2,7 +2,7 @@
 from pathlib import Path
 import unittest
 
-from scripts.release_gate import filter_pull_request_runs
+from scripts.release_gate import filter_main_runs, filter_pull_request_runs
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -88,12 +88,32 @@ class PullRequestEvidenceScopeTests(unittest.TestCase):
                         base_ref="main", base_sha=base_sha,
                     )
 
+    def test_main_release_excludes_pull_request_and_other_branch_runs(self):
+        main_push = {**self.match, "id": 10, "event": "push", "head_branch": "main"}
+        main_dispatch = {**self.match, "id": 11, "event": "workflow_dispatch", "head_branch": "main"}
+        main_schedule = {**self.match, "id": 12, "event": "schedule", "head_branch": "main"}
+        pr_same_sha = {**self.match, "id": 13}
+        other_branch = {**main_push, "id": 14, "head_branch": "release"}
+        other_sha = {**main_push, "id": 15, "head_sha": "d" * 40}
+        selected = filter_main_runs(
+            [pr_same_sha, other_branch, other_sha, main_push, main_dispatch, main_schedule],
+            target_sha=self.sha,
+        )
+        self.assertEqual([10, 11, 12], [run["id"] for run in selected])
+
+    def test_main_release_fails_closed_for_invalid_sha_or_event_allowlist(self):
+        with self.assertRaises(ValueError):
+            filter_main_runs([self.match], target_sha="not-a-sha")
+        with self.assertRaises(ValueError):
+            filter_main_runs([self.match], target_sha=self.sha, allowed_events={"pull_request"})
+
     def test_final_gate_passes_exact_pr_identity_to_selector(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn("TARGET_SOURCE_SHA: ${{ steps.target.outputs.sha }}", content)
         self.assertIn("PR_NUMBER: ${{ github.event.pull_request.number || 0 }}", content)
         self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}", content)
         self.assertIn("filter_pull_request_runs(", content)
+        self.assertIn("filter_main_runs(", content)
         self.assertIn('base_sha=os.environ.get("PR_BASE_SHA", "")', content)
 
 

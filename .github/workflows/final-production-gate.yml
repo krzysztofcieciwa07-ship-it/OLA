@@ -92,7 +92,7 @@ jobs:
           import json
           import os
           import sys
-          from scripts.release_gate import filter_pull_request_runs
+          from scripts.release_gate import filter_main_runs, filter_pull_request_runs
 
           required_exact = [
               "Evidence Cryptography V4 Contract",
@@ -136,6 +136,13 @@ jobs:
                   target_sha=os.environ.get("TARGET_SOURCE_SHA", ""),
                   base_ref="main",
                   base_sha=os.environ.get("PR_BASE_SHA", ""),
+              )
+          else:
+              # Manual main releases may consume push, scheduled or manual
+              # evidence from main, but never a PR run that happens to share SHA.
+              exact_data["workflow_runs"] = filter_main_runs(
+                  exact_data.get("workflow_runs", []),
+                  target_sha=os.environ.get("TARGET_SOURCE_SHA", ""),
               )
 
           def newest_by_name(data):
