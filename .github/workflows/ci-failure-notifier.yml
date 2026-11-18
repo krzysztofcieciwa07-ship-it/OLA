@@ -1,6 +1,6 @@
 name: OLA CI Failure Notifier
 
-on:
+on: # zizmor: ignore[dangerous-triggers] scoped to fixed same-repo workflow IDs/paths; exact run identity is revalidated; no PR code or artifacts are executed
   workflow_run:
     workflows:
       - "Python package CI"
@@ -28,6 +28,7 @@ jobs:
       RUN_ID: ${{ github.event.workflow_run.id }}
       RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
       RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RUN_EVENT: ${{ github.event.workflow_run.event }}
       RUN_URL: ${{ github.event.workflow_run.html_url }}
       ACTOR: ${{ github.event.workflow_run.actor.login }}
     steps:
@@ -49,16 +50,41 @@ jobs:
             exit 1
           fi
 
-          run_json="$(gh run view "$RUN_ID" --repo "$REPOSITORY" --json url,name,headSha,headBranch,event,conclusion,jobs)"
-          actual_sha="$(printf '%s' "$run_json" | jq -r '.headSha')"
-          actual_name="$(printf '%s' "$run_json" | jq -r '.name')"
-          actual_branch="$(printf '%s' "$run_json" | jq -r '.headBranch')"
-          actual_conclusion="$(printf '%s' "$run_json" | jq -r '.conclusion')"
+          case "$WORKFLOW_NAME" in
+            "Python package CI")
+              expected_workflow_id="396626525"
+              expected_workflow_path=".github/workflows/python-package-conda.yml"
+              ;;
+            "OLA FINAL PRODUCTION GATE")
+              expected_workflow_id="371357685"
+              expected_workflow_path=".github/workflows/final-production-gate.yml"
+              ;;
+            *)
+              echo "::error::Unexpected workflow name from workflow_run event"
+              exit 1
+              ;;
+          esac
+
+          run_json="$(gh api "/repos/$REPOSITORY/actions/runs/$RUN_ID")"
+          actual_sha="$(printf '%s' "$run_json" | jq -r '.head_sha // empty')"
+          actual_name="$(printf '%s' "$run_json" | jq -r '.name // empty')"
+          actual_branch="$(printf '%s' "$run_json" | jq -r '.head_branch // empty')"
+          actual_event="$(printf '%s' "$run_json" | jq -r '.event // empty')"
+          actual_conclusion="$(printf '%s' "$run_json" | jq -r '.conclusion // empty')"
+          actual_attempt="$(printf '%s' "$run_json" | jq -r '.run_attempt // empty')"
+          actual_workflow_id="$(printf '%s' "$run_json" | jq -r '.workflow_id // empty')"
+          actual_workflow_path="$(printf '%s' "$run_json" | jq -r '.path // empty')"
+          actual_head_repository="$(printf '%s' "$run_json" | jq -r '.head_repository.full_name // empty')"
 
           test "$actual_sha" = "$SOURCE_SHA"
           test "$actual_name" = "$WORKFLOW_NAME"
           test "$actual_branch" = "$BRANCH"
+          test "$actual_event" = "$RUN_EVENT"
           test "$actual_conclusion" = "$RUN_CONCLUSION"
+          test "$actual_attempt" = "$RUN_ATTEMPT"
+          test "$actual_workflow_id" = "$expected_workflow_id"
+          test "$actual_workflow_path" = "$expected_workflow_path"
+          test "$actual_head_repository" = "$REPOSITORY"
 
           failed_jobs="$(printf '%s' "$run_json" | jq -r '[.jobs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped") | .name] | unique | join(", ")')"
           safe_workflow="${WORKFLOW_NAME:0:70}"
