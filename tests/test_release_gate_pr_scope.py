@@ -121,6 +121,7 @@ class PullRequestEvidenceScopeTests(unittest.TestCase):
         self.assertIn('base_sha=os.environ.get("PR_BASE_SHA", "")', content)
 
     def test_pr_run_with_spoofed_workflow_name_is_rejected_by_path(self):
+        """Reject display-name collisions from non-canonical workflow files."""
         malicious = {
             **self.match,
             "id": 20,
