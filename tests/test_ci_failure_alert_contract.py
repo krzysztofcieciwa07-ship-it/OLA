@@ -37,7 +37,7 @@ class CIFailureAlertContractTests(unittest.TestCase):
     def test_incident_contains_exact_run_and_conclusion_and_is_deduplicated(self):
         workflow = (ROOT / ".github/workflows/ci-failure-notifier.yml").read_text(encoding="utf-8")
         for contract in (
-            "gh run view",
+            "gh api",
             "gh issue list",
             "gh issue create",
             "gh issue comment",
