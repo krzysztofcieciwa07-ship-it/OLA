@@ -16,7 +16,7 @@ class CIFailureAlertContractTests(unittest.TestCase):
         self.assertIn("workflow_run:", workflow)
         self.assertIn('"Python package CI"', workflow)
         self.assertIn('"OLA FINAL PRODUCTION GATE"', workflow)
-        self.assertRegex(workflow, r"types:\\s*-\\s*completed")
+        self.assertIn("    types:\\n      - completed", workflow)
         self.assertIn("github.event.workflow_run.conclusion != 'success'", workflow)
         self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", workflow)
 
