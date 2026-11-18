@@ -338,5 +338,33 @@ class IgorBundleAttestationTests(unittest.TestCase):
         self.assertEqual("PENDING", result["evidence"]["human_gate"])
 
 
+    def test_build_predicate_binds_exact_github_artifact_ids_and_archive_digests(self):
+        info = {
+            "bundle_sha256": "a" * 64,
+            "manifest_sha256": "b" * 64,
+            "result_sha256": "c" * 64,
+            "model": "qwen2.5:0.5b-instruct",
+            "igor_artifact_id": 14458759888,
+            "igor_artifact_name": f"igor-independent-ollama-evidence-{SOURCE_SHA}",
+            "igor_artifact_digest": "sha256:" + "d" * 64,
+            "auto_artifact_id": 14459024940,
+            "auto_artifact_name": f"ola-auto-evidence-{SOURCE_SHA}",
+            "auto_artifact_digest": "sha256:" + "e" * 64,
+        }
+        result = build_predicate(
+            source_sha=SOURCE_SHA,
+            repository=REPOSITORY,
+            final_run_id=2001,
+            flow_run_id=1001,
+            auto_evidence_sha256="f" * 64,
+            bundle_info=info,
+        )
+        producer = result["producer"]
+        self.assertEqual(14458759888, producer["igor_artifact_id"])
+        self.assertEqual("sha256:" + "d" * 64, producer["igor_artifact_digest"])
+        self.assertEqual(14459024940, producer["auto_artifact_id"])
+        self.assertEqual("sha256:" + "e" * 64, producer["auto_artifact_digest"])
+
+
 if __name__ == "__main__":
     unittest.main()
