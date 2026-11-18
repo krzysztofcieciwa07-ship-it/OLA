@@ -278,22 +278,6 @@ def resolve_flow_run(
         raise ValueError("independent IGOR nested job is not successful on the exact source SHA")
     flow_id = _require_run_id(flow.get("id"), "12h flow run ID")
     workflow_id = _require_run_id(flow.get("workflow_id"), "12h workflow ID")
-    igor_job_id = _require_run_id(igor.get("id"), "IGOR nested job ID")
-    job_url = igor.get("html_url")
-    try:
-        parsed_job_url = urlsplit(job_url) if isinstance(job_url, str) else None
-    except ValueError as exc:
-        raise ValueError("IGOR nested job URL is invalid") from exc
-    expected_job_path = f"/{repository}/actions/runs/{flow_id}/job/{igor_job_id}"
-    if (
-        parsed_job_url is None
-        or parsed_job_url.scheme != "https"
-        or parsed_job_url.netloc != "github.com"
-        or parsed_job_url.path != expected_job_path
-        or parsed_job_url.query
-        or parsed_job_url.fragment
-    ):
-        raise ValueError("IGOR nested job is not bound to the exact 12h flow run")
     runs = required.get("workflow_runs") if isinstance(required, dict) else None
     if not isinstance(runs, list):
         raise ValueError("required-runs evidence does not contain a workflow_runs list")
@@ -314,6 +298,22 @@ def resolve_flow_run(
     for key, value in expected.items():
         if run.get(key) != value:
             raise ValueError(f"12h flow run identity mismatch for {key}")
+    igor_job_id = _require_run_id(igor.get("id"), "IGOR nested job ID")
+    job_url = igor.get("html_url")
+    try:
+        parsed_job_url = urlsplit(job_url) if isinstance(job_url, str) else None
+    except ValueError as exc:
+        raise ValueError("IGOR nested job URL is invalid") from exc
+    expected_job_path = f"/{repository}/actions/runs/{flow_id}/job/{igor_job_id}"
+    if (
+        parsed_job_url is None
+        or parsed_job_url.scheme != "https"
+        or parsed_job_url.netloc != "github.com"
+        or parsed_job_url.path != expected_job_path
+        or parsed_job_url.query
+        or parsed_job_url.fragment
+    ):
+        raise ValueError("IGOR nested job is not bound to the exact 12h flow run")
     return flow_id
 
 
