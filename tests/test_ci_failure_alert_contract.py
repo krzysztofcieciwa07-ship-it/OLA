@@ -19,6 +19,10 @@ class CIFailureAlertContractTests(unittest.TestCase):
         self.assertIn("    types:\n      - completed", workflow)
         self.assertIn("github.event.workflow_run.conclusion != 'success'", workflow)
         self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", workflow)
+        self.assertIn("zizmor: ignore[dangerous-triggers]", workflow)
+        self.assertIn("expected_workflow_id=\"396626525\"", workflow)
+        self.assertIn("expected_workflow_id=\"371357685\"", workflow)
+        self.assertIn("expected_workflow_path=", workflow)
 
     def test_notifier_has_minimal_permissions_and_never_executes_pr_artifacts(self):
         workflow = (ROOT / ".github/workflows/ci-failure-notifier.yml").read_text(encoding="utf-8")
@@ -43,6 +47,10 @@ class CIFailureAlertContractTests(unittest.TestCase):
             "RUN_ATTEMPT:",
             "RUN_URL:",
             "RUN_CONCLUSION:",
+            "RUN_EVENT:",
+            "actual_workflow_id",
+            "actual_workflow_path",
+            "actual_head_repository",
             "CI_INCIDENT=RECORDED",
         ):
             with self.subTest(contract=contract):
