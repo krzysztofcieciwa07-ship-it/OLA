@@ -5,6 +5,28 @@ on: # zizmor: ignore[dangerous-triggers] scoped to fixed same-repo workflow IDs/
     workflows:
       - "Python package CI"
       - "OLA FINAL PRODUCTION GATE"
+      - "Evidence Cryptography V4 Contract"
+      - "OLA Supply Chain Evidence Gate"
+      - "OLA 12h Autonomous Evidence Flow"
+      - "OLA 24x7 Watchdog"
+      - "Real LLM Ollama Runtime Gate"
+      - "OLA E2E Gate"
+      - "OLA Local Staging Rehearsal"
+      - "Provenance Mutation Gate"
+      - "OLA Real Runtime Stress Gate"
+      - "OLA State Continuity and Stability"
+      - "OLA CodeQL"
+      - "OLA paid-order PostgreSQL contract"
+      - "OLA DI-OS Product Gate"
+      - "OLA Decision Evidence Gate"
+      - "Provenance Gate Final"
+      - "Nina Igor Gate"
+      - "Nina TDD"
+      - "NINA Parallel DAG Gate"
+      - "Evidence Graph v0.1"
+      - "Revenue Surface Gate"
+      - "Nina Real Runtime Provenance Gate (OpenAI optional)"
+      - "OLA Frontier Baseline"
     types:
       - completed
 
@@ -58,6 +80,94 @@ jobs:
             "OLA FINAL PRODUCTION GATE")
               expected_workflow_id="371357685"
               expected_workflow_path=".github/workflows/final-production-gate.yml"
+              ;;
+            "Evidence Cryptography V4 Contract")
+              expected_workflow_id="420904854"
+              expected_workflow_path=".github/workflows/evidence-cryptography-v4.yml"
+              ;;
+            "OLA Supply Chain Evidence Gate")
+              expected_workflow_id="372525275"
+              expected_workflow_path=".github/workflows/supply-chain-evidence.yml"
+              ;;
+            "OLA 12h Autonomous Evidence Flow")
+              expected_workflow_id="364887427"
+              expected_workflow_path=".github/workflows/ola-12h-autoflow.yml"
+              ;;
+            "OLA 24x7 Watchdog")
+              expected_workflow_id="365831610"
+              expected_workflow_path=".github/workflows/ola-24x7-watchdog.yml"
+              ;;
+            "Real LLM Ollama Runtime Gate")
+              expected_workflow_id="369544728"
+              expected_workflow_path=".github/workflows/ollama-real-runtime.yml"
+              ;;
+            "OLA E2E Gate")
+              expected_workflow_id="357357114"
+              expected_workflow_path=".github/workflows/e2e.yml"
+              ;;
+            "OLA Local Staging Rehearsal")
+              expected_workflow_id="405088306"
+              expected_workflow_path=".github/workflows/staging-rehearsal.yml"
+              ;;
+            "Provenance Mutation Gate")
+              expected_workflow_id="359127799"
+              expected_workflow_path=".github/workflows/provenance-mutation.yml"
+              ;;
+            "OLA Real Runtime Stress Gate")
+              expected_workflow_id="371357688"
+              expected_workflow_path=".github/workflows/runtime-stress.yml"
+              ;;
+            "OLA State Continuity and Stability")
+              expected_workflow_id="371357683"
+              expected_workflow_path=".github/workflows/state-continuity.yml"
+              ;;
+            "OLA CodeQL")
+              expected_workflow_id="369195481"
+              expected_workflow_path=".github/workflows/codeql.yml"
+              ;;
+            "OLA paid-order PostgreSQL contract")
+              expected_workflow_id="410079547"
+              expected_workflow_path=".github/workflows/paid-order-postgres.yml"
+              ;;
+            "OLA DI-OS Product Gate")
+              expected_workflow_id="363759316"
+              expected_workflow_path=".github/workflows/ola-product-gate.yml"
+              ;;
+            "OLA Decision Evidence Gate")
+              expected_workflow_id="365083925"
+              expected_workflow_path=".github/workflows/decision-evidence-gate.yml"
+              ;;
+            "Provenance Gate Final")
+              expected_workflow_id="359332631"
+              expected_workflow_path=".github/workflows/provenance-gate-final.yml"
+              ;;
+            "Nina Igor Gate")
+              expected_workflow_id="361712153"
+              expected_workflow_path=".github/workflows/nina-igor-gate.yml"
+              ;;
+            "Nina TDD")
+              expected_workflow_id="361710932"
+              expected_workflow_path=".github/workflows/nina-tdd.yml"
+              ;;
+            "NINA Parallel DAG Gate")
+              expected_workflow_id="387920095"
+              expected_workflow_path=".github/workflows/nina-parallel-dag.yml"
+              ;;
+            "Evidence Graph v0.1")
+              expected_workflow_id="369517905"
+              expected_workflow_path=".github/workflows/evidence-graph.yml"
+              ;;
+            "Revenue Surface Gate")
+              expected_workflow_id="362005656"
+              expected_workflow_path=".github/workflows/revenue-surface.yml"
+              ;;
+            "Nina Real Runtime Provenance Gate (OpenAI optional)")
+              expected_workflow_id="361725608"
+              expected_workflow_path=".github/workflows/nina-real-runtime-provenance.yml"
+              ;;
+            "OLA Frontier Baseline")
+              expected_workflow_id="365085238"
+              expected_workflow_path=".github/workflows/frontier-baseline.yml"
               ;;
             *)
               echo "::error::Unexpected workflow name from workflow_run event"
