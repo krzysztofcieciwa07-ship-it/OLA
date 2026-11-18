@@ -435,6 +435,7 @@ jobs:
       - name: Resolve exact main 12h evidence run
         id: resolve-flow
         env:
+          GH_TOKEN: ${{ github.token }}
           TARGET_SOURCE_SHA: ${{ github.sha }}
           EXPECTED_REPOSITORY: ${{ github.repository }}
         shell: bash
@@ -448,14 +449,23 @@ jobs:
             --output candidate/igor-flow-run.json \
             --github-output "$GITHUB_OUTPUT"
 
-      - name: Download AUTO evidence from the exact 12h run
+      - name: Download AUTO evidence by exact GitHub artifact ID
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: ola-auto-evidence-${{ github.sha }}
+          artifact-ids: ${{ steps.resolve-flow.outputs.auto_artifact_id }}
           repository: ${{ github.repository }}
           run-id: ${{ steps.resolve-flow.outputs.flow_run_id }}
           github-token: ${{ github.token }}
           path: candidate/auto-evidence
+
+      - name: Download standalone IGOR evidence by exact GitHub artifact ID
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ steps.resolve-flow.outputs.igor_artifact_id }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.resolve-flow.outputs.flow_run_id }}
+          github-token: ${{ github.token }}
+          path: candidate/original-igor
 
       - name: Prepare and independently validate IGOR bundle predicate
         id: prepare-igor
@@ -464,6 +474,11 @@ jobs:
           EXPECTED_REPOSITORY: ${{ github.repository }}
           FLOW_RUN_ID: ${{ steps.resolve-flow.outputs.flow_run_id }}
           FINAL_RUN_ID: ${{ github.run_id }}
+          AUTO_ARTIFACT_ID: ${{ steps.resolve-flow.outputs.auto_artifact_id }}
+          AUTO_ARTIFACT_DIGEST: ${{ steps.resolve-flow.outputs.auto_artifact_digest }}
+          IGOR_ARTIFACT_ID: ${{ steps.resolve-flow.outputs.igor_artifact_id }}
+          IGOR_ARTIFACT_DIGEST: ${{ steps.resolve-flow.outputs.igor_artifact_digest }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -474,7 +489,12 @@ jobs:
             --repository "$EXPECTED_REPOSITORY" \
             --flow-run-id "$FLOW_RUN_ID" \
             --final-run-id "$FINAL_RUN_ID" \
-            --auto-evidence-dir candidate/auto-evidence \
+            --auto-evidence-dir "candidate/auto-evidence/ola-auto-evidence-${TARGET_SOURCE_SHA}" \
+            --original-igor-artifact-dir candidate/original-igor \
+            --auto-artifact-id "$AUTO_ARTIFACT_ID" \
+            --auto-artifact-digest "$AUTO_ARTIFACT_DIGEST" \
+            --igor-artifact-id "$IGOR_ARTIFACT_ID" \
+            --igor-artifact-digest "$IGOR_ARTIFACT_DIGEST" \
             --output candidate/igor-attestation-predicate.json \
             --github-output "$GITHUB_OUTPUT"
 
@@ -494,7 +514,7 @@ jobs:
         id: attest-igor
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
         with:
-          subject-path: candidate/auto-evidence/downloaded/independent-igor/igor-ollama-evidence-bundle.tar.gz
+          subject-path: candidate/auto-evidence/ola-auto-evidence-${{ github.sha }}/downloaded/independent-igor/igor-ollama-evidence-bundle.tar.gz
           predicate-type: https://ola-di-os.dev/attestation/igor-evidence/v1
           predicate-path: candidate/igor-attestation-predicate.json
 
@@ -544,10 +564,14 @@ jobs:
           EXPECTED_REPOSITORY: ${{ github.repository }}
           FLOW_RUN_ID: ${{ steps.resolve-flow.outputs.flow_run_id }}
           FINAL_RUN_ID: ${{ github.run_id }}
+          IGOR_ARTIFACT_ID: ${{ steps.resolve-flow.outputs.igor_artifact_id }}
+          IGOR_ARTIFACT_DIGEST: ${{ steps.resolve-flow.outputs.igor_artifact_digest }}
+          AUTO_ARTIFACT_ID: ${{ steps.resolve-flow.outputs.auto_artifact_id }}
+          AUTO_ARTIFACT_DIGEST: ${{ steps.resolve-flow.outputs.auto_artifact_digest }}
         shell: bash
         run: |
           set -euo pipefail
-          bundle="candidate/auto-evidence/downloaded/independent-igor/igor-ollama-evidence-bundle.tar.gz"
+          bundle="candidate/auto-evidence/ola-auto-evidence-${TARGET_SOURCE_SHA}/downloaded/independent-igor/igor-ollama-evidence-bundle.tar.gz"
           gh attestation verify --format json --repo "$EXPECTED_REPOSITORY" \
             "$bundle" > candidate/igor-attestation-verification.json
           python scripts/igor_attestation.py verify \
@@ -557,6 +581,10 @@ jobs:
             --expected-repository "$EXPECTED_REPOSITORY" \
             --expected-flow-run-id "$FLOW_RUN_ID" \
             --expected-final-run-id "$FINAL_RUN_ID" \
+            --expected-igor-artifact-id "$IGOR_ARTIFACT_ID" \
+            --expected-igor-artifact-digest "$IGOR_ARTIFACT_DIGEST" \
+            --expected-auto-artifact-id "$AUTO_ARTIFACT_ID" \
+            --expected-auto-artifact-digest "$AUTO_ARTIFACT_DIGEST" \
             | tee candidate/igor-attestation-verification-summary.json
           echo "status=VERIFIED" >> "$GITHUB_OUTPUT"
 
@@ -568,6 +596,10 @@ jobs:
           IGOR_ATTESTATION_STATUS: ${{ steps.verify-igor.outputs.status || 'NOT_VERIFIED' }}
           IGOR_FLOW_RUN_ID: ${{ steps.resolve-flow.outputs.flow_run_id || '' }}
           IGOR_BUNDLE_SHA256: ${{ steps.prepare-igor.outputs.bundle_sha256 || '' }}
+          IGOR_ARTIFACT_ID: ${{ steps.resolve-flow.outputs.igor_artifact_id || '' }}
+          IGOR_ARTIFACT_DIGEST: ${{ steps.resolve-flow.outputs.igor_artifact_digest || '' }}
+          AUTO_ARTIFACT_ID: ${{ steps.resolve-flow.outputs.auto_artifact_id || '' }}
+          AUTO_ARTIFACT_DIGEST: ${{ steps.resolve-flow.outputs.auto_artifact_digest || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -594,6 +626,10 @@ jobs:
             "image_attestation": "$image_attestation",
             "igor_bundle_attestation": "$igor_bundle_attestation",
             "igor_bundle_sha256": "$IGOR_BUNDLE_SHA256",
+            "igor_artifact_id": "$IGOR_ARTIFACT_ID",
+            "igor_artifact_digest": "$IGOR_ARTIFACT_DIGEST",
+            "auto_artifact_id": "$AUTO_ARTIFACT_ID",
+            "auto_artifact_digest": "$AUTO_ARTIFACT_DIGEST",
             "igor_flow_run_id": "$IGOR_FLOW_RUN_ID",
             "final_gate_run_id": "${GITHUB_RUN_ID}",
             "required_gates": ["ci","state-continuity","stability","provenance","signatures","real-runtime","stress","tamper","replay","igor-bundle-attestation","human-gate"],
