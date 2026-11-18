@@ -9,10 +9,13 @@ class CIFailureAlertContractTests(unittest.TestCase):
     def test_failure_alert_runs_after_the_test_job_fails(self):
         workflow = (ROOT / ".github/workflows/python-package-conda.yml").read_text(encoding="utf-8")
         self.assertIn("  notify-failure:", workflow)
-        self.assertIn("if: ${{ always() && needs.build-linux.result == 'failure' }}", workflow)
-        self.assertIn("    needs: build-linux", workflow)
-        self.assertIn("      issues: write", workflow)
-        self.assertIn("      actions: read", workflow)
+        notify_job = workflow.split("  notify-failure:", 1)[1]
+        self.assertIn("always()", notify_job)
+        self.assertIn("needs.build-linux.result == 'failure'", notify_job)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", notify_job)
+        self.assertIn("    needs: build-linux", notify_job)
+        self.assertIn("      issues: write", notify_job)
+        self.assertIn("      actions: read", notify_job)
 
     def test_python_failure_alert_skips_unwritable_fork_pull_requests(self):
         workflow = (ROOT / ".github/workflows/python-package-conda.yml").read_text(encoding="utf-8")
