@@ -179,6 +179,19 @@ class IgorBundleAttestationTests(unittest.TestCase):
         self.assertEqual("VERIFIED", result["replay"])
         self.assertEqual("PENDING", result["human_gate"])
 
+    def test_rejects_oversized_bundle_before_unbounded_read(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = root / "igor-ollama-evidence-bundle.tar.gz"
+            checksum = root / "igor-ollama-evidence-bundle.sha256"
+            bundle.write_bytes(b"x" * 128)
+            checksum.write_text("0" * 64 + "  " + bundle.name + "\n", encoding="utf-8")
+
+            with patch.object(igor_attestation, "_MAX_ARCHIVE_BYTES", 64):
+                with patch.object(Path, "read_bytes", side_effect=AssertionError("unbounded read")):
+                    with self.assertRaisesRegex(ValueError, "compressed-size limit"):
+                        verify_igor_bundle(bundle, checksum, SOURCE_SHA)
+
     def test_rejects_outer_checksum_mismatch(self):
         with TemporaryDirectory() as tmp:
             bundle, checksum = _write_bundle(Path(tmp))
