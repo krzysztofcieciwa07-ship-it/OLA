@@ -13,7 +13,14 @@ class ReleaseSourceBindingTest(unittest.TestCase):
             ".github/workflows/supply-chain-evidence.yml",
         ):
             with self.subTest(workflow=filename):
-                lines = (ROOT / filename).read_text(encoding="utf-8").splitlines()
+                content = (ROOT / filename).read_text(encoding="utf-8")
+                scan_content = content
+                attest_content = None
+                if filename.endswith("supply-chain-evidence.yml") and "\n  attest-main:\n" in content:
+                    scan_content, attest_content = content.split("\n  attest-main:\n", 1)
+                    attest_content = "  attest-main:\n" + attest_content
+
+                lines = scan_content.splitlines()
                 count = 0
                 for index, line in enumerate(lines):
                     if "uses: actions/checkout@" not in line:
@@ -23,6 +30,23 @@ class ReleaseSourceBindingTest(unittest.TestCase):
                     self.assertIn("ref: " + SOURCE, block)
                     self.assertIn("persist-credentials: false", block)
                 self.assertGreater(count, 0)
+
+                # The attestation job is deliberately main-only and therefore
+                # must pin the exact workflow commit, not the PR/head fallback.
+                if attest_content is not None:
+                    self.assertIn(
+                        "if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'",
+                        attest_content,
+                    )
+                    attest_lines = attest_content.splitlines()
+                    attest_checkouts = [
+                        "\n".join(attest_lines[index + 1:index + 9])
+                        for index, line in enumerate(attest_lines)
+                        if "uses: actions/checkout@" in line
+                    ]
+                    self.assertEqual(len(attest_checkouts), 1)
+                    self.assertIn("ref: ${{ github.sha }}", attest_checkouts[0])
+                    self.assertIn("persist-credentials: false", attest_checkouts[0])
 
     def test_scan_producers_check_actual_git_head(self):
         for filename in (
