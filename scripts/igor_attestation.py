@@ -30,6 +30,8 @@ _FLOW_WORKFLOW_NAME = "OLA 12h Autonomous Evidence Flow"
 _FLOW_GATE_NAME = "OLA 12h Autonomous Evidence Flow"
 _IGOR_GATE_NAME = "IGOR Independent Ollama Evidence Gate"
 _MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
+_MAX_CHECKSUM_FILE_BYTES = 4096
+_MAX_AUTO_SUMMARY_BYTES = 4 * 1024 * 1024
 _MAX_MEMBER_BYTES = 64 * 1024 * 1024
 _MAX_TOTAL_BYTES = 128 * 1024 * 1024
 # Bound the complete decompressed TAR stream, including PAX/GNU extension
@@ -78,7 +80,11 @@ def _require_artifact_digest(value: Any, label: str) -> str:
 
 
 def _read_checksum(path: Path, expected_name: str) -> str:
-    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with path.open("rb") as stream:
+        raw = stream.read(_MAX_CHECKSUM_FILE_BYTES + 1)
+    if len(raw) > _MAX_CHECKSUM_FILE_BYTES:
+        raise ValueError(f"{path.name} exceeds the checksum-file size limit")
+    lines = [line for line in raw.decode("utf-8").splitlines() if line.strip()]
     if len(lines) != 1:
         raise ValueError(f"{path.name} must contain exactly one checksum line")
     match = re.fullmatch(r"([0-9a-f]{64})  (.+)", lines[0])
@@ -173,7 +179,12 @@ def _read_tar_files(bundle_bytes: bytes) -> dict[str, bytes]:
 def verify_igor_bundle(bundle_path: Path, checksum_path: Path, source_sha: str) -> dict[str, Any]:
     """Verify the outer checksum, safe archive layout, inner file hashes and IGOR claims."""
     _require_sha1(source_sha)
-    bundle_bytes = bundle_path.read_bytes()
+    # Never read an artifact archive into memory before enforcing its compressed
+    # byte budget. The TAR parser applies a second, decompressed-stream limit.
+    with bundle_path.open("rb") as stream:
+        bundle_bytes = stream.read(_MAX_ARCHIVE_BYTES + 1)
+    if not bundle_bytes or len(bundle_bytes) > _MAX_ARCHIVE_BYTES:
+        raise ValueError("IGOR bundle archive is empty or exceeds the compressed-size limit")
     expected_bundle_sha = _read_checksum(checksum_path, bundle_path.name)
     actual_bundle_sha = hashlib.sha256(bundle_bytes).hexdigest()
     if actual_bundle_sha != expected_bundle_sha:
@@ -264,7 +275,10 @@ def verify_auto_evidence(auto_dir: Path, source_sha: str) -> str:
     if not summary_path.is_file() or not checksum_path.is_file():
         raise ValueError("exact-SHA AUTO evidence summary or checksum is missing")
     expected = _read_checksum(checksum_path, summary_path.name)
-    raw = summary_path.read_bytes()
+    with summary_path.open("rb") as stream:
+        raw = stream.read(_MAX_AUTO_SUMMARY_BYTES + 1)
+    if not raw or len(raw) > _MAX_AUTO_SUMMARY_BYTES:
+        raise ValueError("AUTO evidence summary is empty or exceeds the size limit")
     actual = hashlib.sha256(raw).hexdigest()
     if actual != expected:
         raise ValueError("AUTO evidence summary SHA-256 mismatch")
