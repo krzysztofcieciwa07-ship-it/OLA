@@ -355,5 +355,123 @@
         "reason": "PR #14 head is 8 commits ahead and 0 behind PR #13 head; all PR #13 history is included. Branch preserved."
       }
     ]
+  },
+  "latest_revalidation_2026_11_18": {
+    "snapshot_timestamp_utc": "2026-11-18T22:52:00Z",
+    "canonical_main": {
+      "OLA": {
+        "sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+        "open_pull_requests": 91,
+        "active_candidate": {
+          "pr": 262,
+          "head_sha": "6b942b58b0b28aaa246e7dbf4a0f2627616946f7",
+          "draft": true,
+          "workflow_runs": 22,
+          "success": 22,
+          "failed": 0,
+          "main_only_attestation": "SKIPPED_ON_PR",
+          "independent_review": "PENDING"
+        }
+      },
+      "vantage": {
+        "sha": "991445100a3ddfae85bef0d0f9f7680373658d5f",
+        "open_pull_requests": 7,
+        "active_candidate": {
+          "pr": 38,
+          "head_sha": "8e4bd224d6f6cb82d26914b1e8d6eb05dce02a1a",
+          "draft": true,
+          "workflow_runs": 2,
+          "success": 2,
+          "failed": 0,
+          "independent_review": "NOT_ESTABLISHED"
+        },
+        "integration_candidate": {
+          "pr": 14,
+          "head_sha": "d18b97cdcebd6ec41bd5e73fbb4ea61fc0df5050",
+          "draft": true,
+          "ahead_of_main": 16,
+          "behind_main": 6
+        }
+      },
+      "quantum-ai-chatbot": {
+        "sha": "8ae603dcefd7eebdd54acc36954225bf1454d928",
+        "open_pull_requests": 1,
+        "active_candidate": {
+          "pr": 5,
+          "head_sha": "43826ca3098b7ebd0120377d76491f7d1ca0ccf4",
+          "draft": true,
+          "security_gate": "SUCCESS",
+          "run_id": 44414964068,
+          "cleanup": "BOUNDED_1000_ROW_FUNCTION_PLUS_15_MIN_PG_CRON",
+          "migration": "NOT_APPLIED",
+          "live_oauth_e2e": "NOT_VERIFIED"
+        }
+      },
+      "ola-evidence-gateway": {
+        "sha": "0f13cb6aa20bb933524a79f7458ad9aec82178cf",
+        "open_pull_requests": 1,
+        "classification": "SPECIFICATION_ONLY",
+        "active_candidate": {
+          "pr": 5,
+          "head_sha": "01107b8c47d66b740620d35da0baf4c3a41e20ff",
+          "draft": true,
+          "documentation_only": true
+        }
+      }
+    },
+    "closed_superseded_pull_requests": [
+      {
+        "repository": "krzysztofcieciwa07-ship-it/OLA",
+        "pr": 253,
+        "replacement": 262,
+        "reason": "All commits included in PR #262; replacement is 16 commits ahead and 0 behind PR #253 head."
+      },
+      {
+        "repository": "krzysztofcieciwa07-ship-it/OLA",
+        "pr": 257,
+        "replacement": 262,
+        "reason": "Only changed file has identical blob SHA on PR #262."
+      },
+      {
+        "repository": "krzysztofcieciwa07-ship-it/OLA",
+        "pr": 258,
+        "replacement": 262,
+        "reason": "All 17 changed paths represented in integrated PR #262; superseded workflow/attestation/notifier implementations reconciled."
+      },
+      {
+        "repository": "krzysztofcieciwa07-ship-it/vantage",
+        "pr": 12,
+        "replacement": 38,
+        "reason": "CFR-18 syntax fix and regression tests superseded by exact-source main-based PR #38."
+      },
+      {
+        "repository": "krzysztofcieciwa07-ship-it/quantum-ai-chatbot",
+        "pr": 2,
+        "replacement": 5,
+        "reason": "OAuth changes rebased onto current main in PR #5."
+      },
+      {
+        "repository": "krzysztofcieciwa07-ship-it/ola-evidence-gateway",
+        "pr": 1,
+        "replacement": 5,
+        "reason": "Historical implementation status superseded by refreshed status record."
+      },
+      {
+        "repository": "krzysztofcieciwa07-ship-it/ola-evidence-gateway",
+        "pr": 2,
+        "replacement": 5,
+        "reason": "Historical implementation status superseded by refreshed status record."
+      },
+      {
+        "repository": "krzysztofcieciwa07-ship-it/ola-evidence-gateway",
+        "pr": 3,
+        "replacement": 5,
+        "reason": "README status superseded by current main README and refreshed status record."
+      }
+    ],
+    "metadata_changes_applied": false,
+    "about_descriptions": "PROPOSED_ONLY",
+    "production_release": "NO_GO",
+    "scope_note": "This is a current revalidation delta. Historical branch counts, secondary-account fork facts and other snapshot fields above remain tied to the original 2026-11-12 snapshot and were not silently refreshed."
   }
 }
