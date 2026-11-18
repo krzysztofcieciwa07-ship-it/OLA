@@ -69,7 +69,7 @@ def verify_attestation_data(
         signature = verification.get("signature")
         certificate = signature.get("certificate") if isinstance(signature, dict) else None
         statement = verification.get("statement")
-        if not isinstance(identity, dict) or not identity:
+        if not isinstance(identity, dict) or identity.get("subjectAlternativeName") != signer_uri:
             continue
         if not isinstance(timestamps, list) or not timestamps:
             continue
@@ -159,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-repository", required=True)
     parser.add_argument("--expected-workflow-path", required=True)
     parser.add_argument("--expected-workflow-ref", required=True)
+    parser.add_argument("--expected-workflow-name", default=_DEFAULT_WORKFLOW_NAME)
     args = parser.parse_args(argv)
 
     try:
@@ -171,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
             expected_workflow_path=args.expected_workflow_path,
             expected_workflow_ref=args.expected_workflow_ref,
             expected_subject_sha256=subject_sha256,
+            expected_workflow_name=args.expected_workflow_name,
         )
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         print(f"SUPPLY_CHAIN_ATTESTATION=FAIL reason={exc}", file=sys.stderr)

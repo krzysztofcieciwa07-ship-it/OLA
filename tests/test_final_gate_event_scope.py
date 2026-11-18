@@ -40,6 +40,22 @@ class FinalGateEventScopeTests(unittest.TestCase):
                 self.assertIn("  push:", content)
 
 
+    def test_final_gate_oidc_permissions_are_confined_to_main_attestation_job(self):
+        workflow = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        release_job = workflow.split("  final-production:\\n", 1)[1].split("  attest-production:\\n", 1)[0]
+        self.assertNotIn("id-token: write", release_job)
+        self.assertNotIn("attestations: write", release_job)
+        self.assertIn("RELEASE_GATES_PASSED_PENDING_ATTESTATION", release_job)
+
+        attest_job = workflow.split("  attest-production:", 1)[1]
+        self.assertIn("github.event_name == 'push'", attest_job)
+        self.assertIn("github.ref == 'refs/heads/main'", attest_job)
+        self.assertIn("needs.final-production.result == 'success'", attest_job)
+        self.assertIn("id-token: write", attest_job)
+        self.assertIn("attestations: write", attest_job)
+        self.assertIn("verify_supply_chain_attestation.py", attest_job)
+        self.assertIn("actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093", attest_job)
+
     def test_local_staging_rehearsal_runs_on_main_push_and_pr(self):
         workflow = (ROOT / ".github/workflows/staging-rehearsal.yml").read_text(encoding="utf-8")
         trigger_block = workflow.split("permissions:", 1)[0]

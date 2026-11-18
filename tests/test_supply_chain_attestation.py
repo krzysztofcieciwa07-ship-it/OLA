@@ -110,6 +110,14 @@ class SupplyChainAttestationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify_attestation_data(data, **self.expected)
 
+    def test_rejects_identity_subject_alternative_name_mismatch(self):
+        data = make_attestation(self.source_sha, self.subject_sha)
+        data[0]["verificationResult"]["verifiedIdentity"]["subjectAlternativeName"] = (
+            "https://example.invalid/untrusted-workflow"
+        )
+        with self.assertRaises(ValueError):
+            verify_attestation_data(data, **self.expected)
+
     def test_supply_chain_workflow_limits_attestation_permissions_to_main(self):
         workflow = (ROOT / ".github" / "workflows" / "supply-chain-evidence.yml").read_text(encoding="utf-8")
         self.assertIn('docker build --pull --build-arg OLA_SOURCE_COMMIT="$EXPECTED_SOURCE_SHA"', workflow)
