@@ -14,6 +14,7 @@ from scripts.igor_attestation import (
     resolve_flow_run,
     verify_attestation_data,
     verify_igor_bundle,
+    resolve_artifact_bindings,
 )
 
 
@@ -22,6 +23,10 @@ REPOSITORY = "krzysztofcieciwa07-ship-it/OLA"
 FLOW_PATH = ".github/workflows/ola-12h-autoflow.yml"
 FINAL_PATH = ".github/workflows/final-production-gate.yml"
 FINAL_NAME = "OLA FINAL PRODUCTION GATE"
+AUTO_ARTIFACT_ID = 10001
+IGOR_ARTIFACT_ID = 10002
+AUTO_ARTIFACT_DIGEST = "sha256:" + "d" * 64
+IGOR_ARTIFACT_DIGEST = "sha256:" + "e" * 64
 
 
 def _bundle_files(source_sha: str) -> dict[str, bytes]:
@@ -101,7 +106,16 @@ def _valid_predicate(source_sha: str, flow_run_id: int, final_run_id: int, subje
         "producer": {
             "workflow_path": FLOW_PATH,
             "run_id": flow_run_id,
-            "artifact_name": f"ola-auto-evidence-{source_sha}",
+            "auto_artifact": {
+                "id": AUTO_ARTIFACT_ID,
+                "name": f"ola-auto-evidence-{source_sha}",
+                "archive_digest": AUTO_ARTIFACT_DIGEST,
+            },
+            "igor_artifact": {
+                "id": IGOR_ARTIFACT_ID,
+                "name": f"igor-independent-ollama-evidence-{source_sha}",
+                "archive_digest": IGOR_ARTIFACT_DIGEST,
+            },
         },
         "evidence": {
             "bundle_sha256": subject_sha,
@@ -290,6 +304,10 @@ class IgorBundleAttestationTests(unittest.TestCase):
             expected_flow_run_id=1001,
             expected_final_run_id=2001,
             expected_subject_sha256=subject_sha,
+            expected_igor_artifact_id=IGOR_ARTIFACT_ID,
+            expected_igor_artifact_digest=IGOR_ARTIFACT_DIGEST,
+            expected_auto_artifact_id=AUTO_ARTIFACT_ID,
+            expected_auto_artifact_digest=AUTO_ARTIFACT_DIGEST,
         )
         self.assertEqual("VERIFIED", result["status"])
         self.assertEqual("PENDING", result["human_gate"])
@@ -304,6 +322,10 @@ class IgorBundleAttestationTests(unittest.TestCase):
                 expected_flow_run_id=1001,
                 expected_final_run_id=2001,
                 expected_subject_sha256="e" * 64,
+                expected_igor_artifact_id=IGOR_ARTIFACT_ID,
+                expected_igor_artifact_digest=IGOR_ARTIFACT_DIGEST,
+                expected_auto_artifact_id=AUTO_ARTIFACT_ID,
+                expected_auto_artifact_digest=AUTO_ARTIFACT_DIGEST,
             )
 
     def test_rejects_wrong_flow_run_identity(self):
@@ -316,6 +338,10 @@ class IgorBundleAttestationTests(unittest.TestCase):
                 expected_flow_run_id=1002,
                 expected_final_run_id=2001,
                 expected_subject_sha256="e" * 64,
+                expected_igor_artifact_id=IGOR_ARTIFACT_ID,
+                expected_igor_artifact_digest=IGOR_ARTIFACT_DIGEST,
+                expected_auto_artifact_id=AUTO_ARTIFACT_ID,
+                expected_auto_artifact_digest=AUTO_ARTIFACT_DIGEST,
             )
 
     def test_builds_predicate_with_exact_run_and_bundle_digests(self):
@@ -324,6 +350,12 @@ class IgorBundleAttestationTests(unittest.TestCase):
             "manifest_sha256": "b" * 64,
             "result_sha256": "c" * 64,
             "model": "qwen2.5:0.5b-instruct",
+            "igor_artifact_id": IGOR_ARTIFACT_ID,
+            "igor_artifact_name": f"igor-independent-ollama-evidence-{SOURCE_SHA}",
+            "igor_artifact_digest": IGOR_ARTIFACT_DIGEST,
+            "auto_artifact_id": AUTO_ARTIFACT_ID,
+            "auto_artifact_name": f"ola-auto-evidence-{SOURCE_SHA}",
+            "auto_artifact_digest": AUTO_ARTIFACT_DIGEST,
         }
         result = build_predicate(
             source_sha=SOURCE_SHA,
@@ -334,6 +366,8 @@ class IgorBundleAttestationTests(unittest.TestCase):
             bundle_info=info,
         )
         self.assertEqual(1001, result["producer"]["run_id"])
+        self.assertEqual(IGOR_ARTIFACT_ID, result["producer"]["igor_artifact"]["id"])
+        self.assertEqual(AUTO_ARTIFACT_ID, result["producer"]["auto_artifact"]["id"])
         self.assertEqual("a" * 64, result["evidence"]["bundle_sha256"])
         self.assertEqual("PENDING", result["evidence"]["human_gate"])
 
@@ -360,10 +394,90 @@ class IgorBundleAttestationTests(unittest.TestCase):
             bundle_info=info,
         )
         producer = result["producer"]
-        self.assertEqual(14458759888, producer["igor_artifact_id"])
-        self.assertEqual("sha256:" + "d" * 64, producer["igor_artifact_digest"])
-        self.assertEqual(14459024940, producer["auto_artifact_id"])
-        self.assertEqual("sha256:" + "e" * 64, producer["auto_artifact_digest"])
+        self.assertEqual(14458759888, producer["igor_artifact"]["id"])
+        self.assertEqual("sha256:" + "d" * 64, producer["igor_artifact"]["archive_digest"])
+        self.assertEqual(14459024940, producer["auto_artifact"]["id"])
+        self.assertEqual("sha256:" + "e" * 64, producer["auto_artifact"]["archive_digest"])
+
+
+    def test_resolves_exact_main_artifact_ids_and_archive_digests(self):
+        flow_run_id = 1001
+        rows = [
+            {
+                "id": AUTO_ARTIFACT_ID,
+                "name": f"ola-auto-evidence-{SOURCE_SHA}",
+                "digest": AUTO_ARTIFACT_DIGEST,
+                "size_in_bytes": 123,
+                "expired": False,
+                "workflow_run": {"id": flow_run_id, "head_sha": SOURCE_SHA, "head_branch": "main"},
+            },
+            {
+                "id": IGOR_ARTIFACT_ID,
+                "name": f"igor-independent-ollama-evidence-{SOURCE_SHA}",
+                "digest": IGOR_ARTIFACT_DIGEST,
+                "size_in_bytes": 456,
+                "expired": False,
+                "workflow_run": {"id": flow_run_id, "head_sha": SOURCE_SHA, "head_branch": "main"},
+            },
+        ]
+        result = resolve_artifact_bindings(
+            {"total_count": 2, "artifacts": rows},
+            source_sha=SOURCE_SHA,
+            flow_run_id=flow_run_id,
+        )
+        self.assertEqual(AUTO_ARTIFACT_ID, result["auto"]["id"])
+        self.assertEqual(AUTO_ARTIFACT_DIGEST, result["auto"]["digest"])
+        self.assertEqual(IGOR_ARTIFACT_ID, result["igor"]["id"])
+        self.assertEqual(IGOR_ARTIFACT_DIGEST, result["igor"]["digest"])
+
+    def test_rejects_artifact_from_wrong_run(self):
+        auto = {
+            "id": AUTO_ARTIFACT_ID,
+            "name": f"ola-auto-evidence-{SOURCE_SHA}",
+            "digest": AUTO_ARTIFACT_DIGEST,
+            "size_in_bytes": 123,
+            "expired": False,
+            "workflow_run": {"id": 1001, "head_sha": SOURCE_SHA, "head_branch": "main"},
+        }
+        igor = {
+            "id": IGOR_ARTIFACT_ID,
+            "name": f"igor-independent-ollama-evidence-{SOURCE_SHA}",
+            "digest": IGOR_ARTIFACT_DIGEST,
+            "size_in_bytes": 456,
+            "expired": False,
+            "workflow_run": {"id": 9999, "head_sha": SOURCE_SHA, "head_branch": "main"},
+        }
+        with self.assertRaisesRegex(ValueError, "different workflow run"):
+            resolve_artifact_bindings(
+                {"artifacts": [auto, igor]},
+                source_sha=SOURCE_SHA,
+                flow_run_id=1001,
+            )
+
+    def test_rejects_duplicate_artifact_names(self):
+        auto = {
+            "id": AUTO_ARTIFACT_ID,
+            "name": f"ola-auto-evidence-{SOURCE_SHA}",
+            "digest": AUTO_ARTIFACT_DIGEST,
+            "size_in_bytes": 123,
+            "expired": False,
+            "workflow_run": {"id": 1001, "head_sha": SOURCE_SHA, "head_branch": "main"},
+        }
+        igor = {
+            "id": IGOR_ARTIFACT_ID,
+            "name": f"igor-independent-ollama-evidence-{SOURCE_SHA}",
+            "digest": IGOR_ARTIFACT_DIGEST,
+            "size_in_bytes": 456,
+            "expired": False,
+            "workflow_run": {"id": 1001, "head_sha": SOURCE_SHA, "head_branch": "main"},
+        }
+        with self.assertRaisesRegex(ValueError, "exactly one auto artifact"):
+            resolve_artifact_bindings(
+                {"artifacts": [auto, auto.copy(), igor]},
+                source_sha=SOURCE_SHA,
+                flow_run_id=1001,
+            )
+
 
 
 if __name__ == "__main__":
