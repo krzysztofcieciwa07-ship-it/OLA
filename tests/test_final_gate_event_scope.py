@@ -28,6 +28,18 @@ class FinalGateEventScopeTests(unittest.TestCase):
             with self.subTest(contract=contract):
                 self.assertIn(contract, workflow)
 
+    def test_required_evidence_producers_are_not_path_filtered(self):
+        for filename in (
+            ".github/workflows/evidence-cryptography-v4.yml",
+            ".github/workflows/paid-order-postgres.yml",
+        ):
+            with self.subTest(workflow=filename):
+                content = (ROOT / filename).read_text(encoding="utf-8")
+                self.assertNotIn("    paths:", content)
+                self.assertIn("  pull_request:", content)
+                self.assertIn("  push:", content)
+
+
     def test_local_staging_rehearsal_runs_on_main_push_and_pr(self):
         workflow = (ROOT / ".github/workflows/staging-rehearsal.yml").read_text(encoding="utf-8")
         trigger_block = workflow.split("permissions:", 1)[0]
