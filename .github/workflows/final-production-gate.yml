@@ -506,6 +506,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p candidate
           status="BLOCKED"
           source_attestation="NOT_VERIFIED"
           image_attestation="NOT_VERIFIED"

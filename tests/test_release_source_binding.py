@@ -153,10 +153,20 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn("source_commit: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
     def test_pull_request_manifest_never_claims_attestation(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
-        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main' && success()", content)
-        self.assertIn('source_attestation="NOT_PERFORMED"', content)
-        self.assertIn('image_attestation="NOT_PERFORMED"', content)
-        self.assertIn('status="PREMERGE_CI_PASSED"', content)
+        release_job = content.split("  final-production:", 1)[1].split("  attest-production:", 1)[0]
+        self.assertIn('source_attestation="NOT_PERFORMED"', release_job)
+        self.assertIn('image_attestation="NOT_PERFORMED"', release_job)
+        self.assertIn('status="PREMERGE_CI_PASSED"', release_job)
+        self.assertNotIn("attestations: write", release_job)
+        self.assertNotIn("id-token: write", release_job)
+
+        attestation_job = content.split("  attest-production:", 1)[1]
+        self.assertIn(
+            "if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.final-production.result == 'success' }}",
+            attestation_job,
+        )
+        self.assertIn("attestations: write", attestation_job)
+        self.assertIn("id-token: write", attestation_job)
 
 
 if __name__ == "__main__":

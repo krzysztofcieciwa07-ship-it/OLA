@@ -42,7 +42,7 @@ class FinalGateEventScopeTests(unittest.TestCase):
 
     def test_final_gate_oidc_permissions_are_confined_to_main_attestation_job(self):
         workflow = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
-        release_job = workflow.split("  final-production:\\n", 1)[1].split("  attest-production:\\n", 1)[0]
+        release_job = workflow.split("  final-production:", 1)[1].split("  attest-production:", 1)[0]
         self.assertNotIn("id-token: write", release_job)
         self.assertNotIn("attestations: write", release_job)
         self.assertIn("RELEASE_GATES_PASSED_PENDING_ATTESTATION", release_job)
