@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import io
 import json
@@ -31,6 +32,10 @@ _IGOR_GATE_NAME = "IGOR Independent Ollama Evidence Gate"
 _MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 _MAX_MEMBER_BYTES = 64 * 1024 * 1024
 _MAX_TOTAL_BYTES = 128 * 1024 * 1024
+# Bound the complete decompressed TAR stream, including PAX/GNU extension
+# headers, member headers, padding and end markers. Regular-file limits alone
+# do not constrain attacker-controlled extension metadata.
+_MAX_TAR_STREAM_BYTES = _MAX_TOTAL_BYTES + 16 * 1024 * 1024
 _MAX_MEMBERS = 1024
 _ARTIFACT_DIGEST = re.compile(r"^sha256:([0-9a-f]{64})$")
 
@@ -96,6 +101,28 @@ def _validate_tar_name(name: str, is_directory: bool) -> str:
     return normalized
 
 
+class _TarStreamLimitExceeded(Exception):
+    """Raised when decompressed TAR bytes exceed the archive-wide budget."""
+
+
+class _BoundedReader:
+    """Limit bytes read from the decompressed TAR stream, including headers."""
+
+    def __init__(self, stream: Any, limit: int):
+        self._stream = stream
+        self._limit = limit
+        self._read = 0
+
+    def read(self, size: int = -1) -> bytes:
+        remaining = self._limit - self._read
+        requested = remaining + 1 if size is None or size < 0 else min(size, remaining + 1)
+        data = self._stream.read(requested)
+        if len(data) > remaining:
+            raise _TarStreamLimitExceeded
+        self._read += len(data)
+        return data
+
+
 def _read_tar_files(bundle_bytes: bytes) -> dict[str, bytes]:
     if not bundle_bytes or len(bundle_bytes) > _MAX_ARCHIVE_BYTES:
         raise ValueError("IGOR bundle archive is empty or exceeds the compressed-size limit")
@@ -103,36 +130,42 @@ def _read_tar_files(bundle_bytes: bytes) -> dict[str, bytes]:
     seen: set[str] = set()
     total_size = 0
     try:
-        with tarfile.open(fileobj=io.BytesIO(bundle_bytes), mode="r:gz") as archive:
-            members = archive.getmembers()
-            if not members or len(members) > _MAX_MEMBERS:
-                raise ValueError("IGOR bundle member count is outside the allowed range")
-            for member in members:
-                normalized = _validate_tar_name(member.name, member.isdir())
-                if normalized in seen:
-                    raise ValueError("IGOR bundle contains duplicate archive paths")
-                seen.add(normalized)
-                if member.isdir():
-                    continue
-                if not member.isfile():
-                    raise ValueError("IGOR bundle contains a link or non-regular archive member")
-                if member.size < 0 or member.size > _MAX_MEMBER_BYTES:
-                    raise ValueError("IGOR bundle member exceeds the size limit")
-                total_size += member.size
-                if total_size > _MAX_TOTAL_BYTES:
-                    raise ValueError("IGOR bundle exceeds the total uncompressed-size limit")
-                if getattr(member, "sparse", None):
-                    raise ValueError("sparse archive members are not accepted")
-                if any(key in {"linkpath", "GNU.sparse.map", "GNU.sparse.size"} for key in member.pax_headers):
-                    raise ValueError("extended link or sparse archive metadata is not accepted")
-                stream = archive.extractfile(member)
-                if stream is None:
-                    raise ValueError("IGOR bundle member could not be read")
-                payload = stream.read(_MAX_MEMBER_BYTES + 1)
-                if len(payload) != member.size:
-                    raise ValueError("IGOR bundle member size does not match its archive header")
-                files[normalized] = payload
-    except (tarfile.TarError, OSError) as exc:
+        # Stream decompression through a hard byte budget. Using r:gz/getmembers()
+        # first materializes PAX extension records before member-size checks and
+        # therefore permits highly-compressible metadata bombs.
+        with gzip.GzipFile(fileobj=io.BytesIO(bundle_bytes), mode="rb") as compressed:
+            bounded = _BoundedReader(compressed, _MAX_TAR_STREAM_BYTES)
+            with tarfile.open(fileobj=bounded, mode="r|") as archive:
+                for member in archive:
+                    if len(seen) >= _MAX_MEMBERS:
+                        raise ValueError("IGOR bundle member count is outside the allowed range")
+                    normalized = _validate_tar_name(member.name, member.isdir())
+                    if normalized in seen:
+                        raise ValueError("IGOR bundle contains duplicate archive paths")
+                    seen.add(normalized)
+                    if member.isdir():
+                        continue
+                    if not member.isfile():
+                        raise ValueError("IGOR bundle contains a link or non-regular archive member")
+                    if member.size < 0 or member.size > _MAX_MEMBER_BYTES:
+                        raise ValueError("IGOR bundle member exceeds the size limit")
+                    total_size += member.size
+                    if total_size > _MAX_TOTAL_BYTES:
+                        raise ValueError("IGOR bundle exceeds the total uncompressed-size limit")
+                    if getattr(member, "sparse", None):
+                        raise ValueError("IGOR bundle contains a sparse archive member")
+                    if any(key in {"linkpath", "GNU.sparse.map", "GNU.sparse.size"} for key in member.pax_headers):
+                        raise ValueError("IGOR bundle contains extended link or sparse archive metadata")
+                    stream = archive.extractfile(member)
+                    if stream is None:
+                        raise ValueError("IGOR bundle member could not be read")
+                    payload = stream.read(_MAX_MEMBER_BYTES + 1)
+                    if len(payload) != member.size:
+                        raise ValueError("IGOR bundle member size does not match its archive header")
+                    files[normalized] = payload
+    except _TarStreamLimitExceeded as exc:
+        raise ValueError("IGOR bundle exceeds the decompressed TAR stream limit") from exc
+    except (tarfile.TarError, gzip.BadGzipFile, EOFError, OSError) as exc:
         raise ValueError(f"IGOR bundle is not a valid gzip tar archive: {exc}") from exc
     return files
 
