@@ -92,7 +92,13 @@ jobs:
           import json
           import os
           import sys
-          from scripts.release_gate import (\n    REFERENCE_WORKFLOW_PATHS,\n    REQUIRED_WORKFLOW_PATHS,\n    filter_expected_workflow_paths,\n    filter_main_runs,\n    filter_pull_request_runs,\n)
+          from scripts.release_gate import (
+              REFERENCE_WORKFLOW_PATHS,
+              REQUIRED_WORKFLOW_PATHS,
+              filter_expected_workflow_paths,
+              filter_main_runs,
+              filter_pull_request_runs,
+          )
 
           required_exact = [
               "Evidence Cryptography V4 Contract",
