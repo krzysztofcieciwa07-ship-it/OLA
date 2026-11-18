@@ -583,7 +583,7 @@ class IgorBundleAttestationTests(unittest.TestCase):
             (root / "ola-auto-evidence.json").write_bytes(raw)
             digest = hashlib.sha256(raw).hexdigest()
             (root / "ola-auto-evidence.sha256").write_text(
-                f"{digest}  ola-auto-evidence.json\\n", encoding="utf-8"
+                f"{digest}  ola-auto-evidence.json\n", encoding="utf-8"
             )
 
             with self.assertRaisesRegex(ValueError, "duplicate JSON member"):
