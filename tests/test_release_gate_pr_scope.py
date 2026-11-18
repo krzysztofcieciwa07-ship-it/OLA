@@ -2,7 +2,11 @@
 from pathlib import Path
 import unittest
 
-from scripts.release_gate import filter_main_runs, filter_pull_request_runs
+from scripts.release_gate import (
+    filter_expected_workflow_paths,
+    filter_main_runs,
+    filter_pull_request_runs,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -115,6 +119,46 @@ class PullRequestEvidenceScopeTests(unittest.TestCase):
         self.assertIn("filter_pull_request_runs(", content)
         self.assertIn("filter_main_runs(", content)
         self.assertIn('base_sha=os.environ.get("PR_BASE_SHA", "")', content)
+
+    def test_pr_run_with_spoofed_workflow_name_is_rejected_by_path(self):
+        malicious = {
+            **self.match,
+            "id": 20,
+            "name": "Python package CI",
+            "path": ".github/workflows/attacker.yml",
+        }
+        trusted = {
+            **self.match,
+            "id": 21,
+            "name": "Python package CI",
+            "path": ".github/workflows/python-package-conda.yml",
+        }
+        pr_scoped = filter_pull_request_runs(
+            [malicious, trusted],
+            pr_number=253,
+            target_sha=self.sha,
+            base_ref="main",
+            base_sha=self.base_sha,
+        )
+        selected = filter_expected_workflow_paths(
+            pr_scoped,
+            {"Python package CI": ".github/workflows/python-package-conda.yml"},
+        )
+        self.assertEqual([21], [run["id"] for run in selected])
+
+    def test_expected_workflow_path_filter_fails_closed_on_missing_path(self):
+        missing_path = {**self.match, "name": "Python package CI"}
+        selected = filter_expected_workflow_paths(
+            [missing_path],
+            {"Python package CI": ".github/workflows/python-package-conda.yml"},
+        )
+        self.assertEqual([], selected)
+
+    def test_final_gate_filters_expected_workflow_paths_before_name_selection(self):
+        content = (ROOT / ".github" / "workflows" / "final-production-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("filter_expected_workflow_paths", content)
+        self.assertIn('exact_data["workflow_runs"] = filter_expected_workflow_paths', content)
+        self.assertIn('reference_data["workflow_runs"] = filter_expected_workflow_paths', content)
 
 
 if __name__ == "__main__":
