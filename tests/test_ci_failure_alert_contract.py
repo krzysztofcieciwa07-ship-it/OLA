@@ -51,6 +51,7 @@ class CIFailureAlertContractTests(unittest.TestCase):
             "actual_workflow_id",
             "actual_workflow_path",
             "actual_head_repository",
+            "actions/runs/$RUN_ID/jobs?per_page=100",
             "CI_INCIDENT=RECORDED",
         ):
             with self.subTest(contract=contract):
