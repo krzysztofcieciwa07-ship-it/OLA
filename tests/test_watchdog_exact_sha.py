@@ -32,6 +32,7 @@ def flow_run(
 ) -> dict:
     return {
         "databaseId": run_id,
+        "event": "schedule",
         "headBranch": "main",
         "headSha": sha,
         "status": status,
@@ -73,6 +74,16 @@ def test_successful_exact_sha_run_requires_artifact_verification():
 
     assert result["action"] == "VERIFY"
     assert result["run"]["headSha"] == SOURCE_SHA
+
+
+def test_pull_request_run_on_branch_named_main_cannot_satisfy_main_evidence():
+    pr_run = flow_run()
+    pr_run["event"] = "pull_request"
+
+    result = choose_flow_action([pr_run], SOURCE_SHA)
+
+    assert result["action"] == "DISPATCH"
+    assert result["reason"] == "no_exact_sha_run"
 
 
 def test_verified_flow_freshness_uses_completion_update_and_12h_cadence():
