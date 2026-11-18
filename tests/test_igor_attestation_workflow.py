@@ -22,3 +22,17 @@ def test_final_manifest_cannot_claim_attested_without_verified_igor_bundle():
     assert "IGOR_ATTESTATION_STATUS" in workflow
     assert '"igor_bundle_attestation"' in workflow
     assert "ATTESTED_PENDING_HUMAN" in workflow
+
+
+def test_final_gate_downloads_exact_artifact_ids_and_binds_metadata():
+    workflow = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+    attestor = workflow.split("  attest-production:\n", 1)[1]
+
+    assert "artifact-ids: ${{ steps.resolve-flow.outputs.auto_artifact_id }}" in attestor
+    assert "artifact-ids: ${{ steps.resolve-flow.outputs.igor_artifact_id }}" in attestor
+    assert "--auto-artifact-id" in attestor
+    assert "--igor-artifact-id" in attestor
+    assert "--expected-auto-artifact-digest" in attestor
+    assert "--expected-igor-artifact-digest" in attestor
+    assert '"igor_artifact_id": "$IGOR_ARTIFACT_ID"' in attestor
+    assert '"auto_artifact_id": "$AUTO_ARTIFACT_ID"' in attestor
