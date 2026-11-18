@@ -105,6 +105,46 @@ class PullRequestEvidenceScopeTests(unittest.TestCase):
         )
         self.assertEqual([10, 11, 12], [run["id"] for run in selected])
 
+    def test_main_release_rejects_pr_runs_on_main_branch_at_any_status(self):
+        # A PR may have a head branch literally named "main". Its event identity,
+        # not its branch label or run status, must keep it out of main evidence.
+        pr_head_on_main = {
+            **self.match,
+            "head_branch": "main",
+            "pull_requests": [{
+                "number": 253,
+                "head": {"sha": self.sha, "ref": "main"},
+                "base": {"sha": self.base_sha, "ref": "main"},
+            }],
+        }
+        pr_completed_success = {
+            **pr_head_on_main,
+            "id": 20,
+            "status": "completed",
+            "conclusion": "success",
+        }
+        pr_in_progress = {
+            **pr_head_on_main,
+            "id": 21,
+            "status": "in_progress",
+            "conclusion": None,
+        }
+        main_push = {
+            **self.match,
+            "id": 22,
+            "event": "push",
+            "head_branch": "main",
+            "status": "completed",
+            "conclusion": "success",
+        }
+
+        selected = filter_main_runs(
+            [pr_completed_success, pr_in_progress, main_push],
+            target_sha=self.sha,
+        )
+
+        self.assertEqual([22], [run["id"] for run in selected])
+
     def test_main_release_fails_closed_for_invalid_sha_or_event_allowlist(self):
         with self.assertRaises(ValueError):
             filter_main_runs([self.match], target_sha="not-a-sha")
