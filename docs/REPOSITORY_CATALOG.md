@@ -4,6 +4,48 @@ Snapshot: **2026-11-12 11:54 UTC** · kontrolowane konto GitHub: **krzysztofciec
 
 > Ten dokument jest rejestrem pochodzenia i odpowiedzialności, nie deklaracją gotowości produktu. STATUS ≠ CI ≠ RUNTIME ≠ VERIFIED. Wartości SHA oraz liczby gałęzi/PR zostały odświeżone z GitHub API 2026-11-12 11:54 UTC. Nie wolno podejmować merge, usuwania repozytorium ani synchronizacji forków na podstawie samej nazwy.
 
+
+
+## Revalidation delta — 2026-11-18 22:50 UTC
+
+This section supersedes the corresponding 2026-11-12 snapshot values below where they differ. Branch counts have **not** been refreshed in this delta; old branch counts remain historical only.
+
+### Current canonical main and open PR state
+
+| Repository | Current main SHA | Open PRs | Current verified engineering status |
+|---|---|---:|---|
+| [OLA](https://github.com/krzysztofcieciwa07-ship-it/OLA) | `8adf30cd5e41a18a5345f66e67f5ddcdbc164862` | 93 | Canonical FastAPI runtime. PR [#262](https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/262) is draft, 65 commits ahead / 0 behind, 31 files changed; 22/22 observed workflows passed on exact head `6b942b58b0b28aaa246e7dbf4a0f2627616946f7`. Main-only production attestation was skipped on PR; no independent review; production NO-GO. |
+| [Vantage](https://github.com/krzysztofcieciwa07-ship-it/vantage) | `991445100a3ddfae85bef0d0f9f7680373658d5f` | 7 | Canonical prototype. PR [#38](https://github.com/krzysztofcieciwa07-ship-it/vantage/pull/38) is draft, 2 commits ahead / 0 behind; CFR-18 and Vantage Verify passed on exact head `8e4bd224d6f6cb82d26914b1e8d6eb05dce02a1a`. PR #14 was returned to draft because its integration branch is 16 commits ahead / 6 behind current main. |
+| [Quantumy](https://github.com/krzysztofcieciwa07-ship-it/quantum-ai-chatbot) | `8ae603dcefd7eebdd54acc36954225bf1454d928` | 1 | Separate chatbot experiment, not OLA/NOVA. PR [#5](https://github.com/krzysztofcieciwa07-ship-it/quantum-ai-chatbot/pull/5) is draft, 19 commits ahead / 0 behind; Security Gate passed on exact head `43826ca3098b7ebd0120377d76491f7d1ca0ccf4`. OAuth state cleanup and a 15-minute pg_cron job are in the branch; Supabase migration, effective grants and live OAuth E2E are not verified. |
+| [OLA Evidence Gateway](https://github.com/krzysztofcieciwa07-ship-it/ola-evidence-gateway) | `0f13cb6aa20bb933524a79f7458ad9aec82178cf` | 1 | Specification only. PR [#5](https://github.com/krzysztofcieciwa07-ship-it/ola-evidence-gateway/pull/5) adds a current implementation-status record and README link. No executable gateway exists. Old documentation PRs #1–#3 were closed as superseded; no runtime or production claim. |
+
+### Portfolio role and repository description guidance
+
+| Repository | Role | Recommended GitHub About description |
+|---|---|---|
+| OLA | Canonical product runtime | `OLA di-OS core: FastAPI execution gates, tenant-scoped evidence, NINA orchestration and IGOR verification (development).` |
+| vantage | Canonical security-gate prototype | `Vantage prototype: deterministic instruction-risk gate, guarded LLM invocation and CFR-18 forensic verification.` |
+| Vantage-v0.3 (private) | Reserved placeholder | `Reserved inactive placeholder for a future Vantage v0.3 release; no application source or deployment.` |
+| quantum-ai-chatbot | Separate application experiment | `Experimental mobile-first AI workspace using React, Vite, Vercel Functions and Supabase; OAuth hardening under review.` |
+| ola-evidence-gateway | Specification only | `OLA Evidence Gateway specification and evidence model; documentation only, not a running service.` |
+| ai | External Vercel AI SDK fork | `Fork of Vercel AI SDK for TypeScript; upstream reference code, not an integrated OLA service.` |
+| cli | External GitHub CLI fork | `Fork of GitHub CLI (gh); external developer tooling, not Codex CLI or an OLA component.` |
+| MetaGPT | External multi-agent framework fork | `Fork of MetaGPT multi-agent framework; research/reference code, not an integrated OLA runtime.` |
+| swarmclaw | External AI-agent runtime fork | `Fork of SwarmClaw self-hosted AI agent runtime; external reference, not an integrated OLA module.` |
+| uygulamali-kriptografi | Educational reference fork | `Turkish-language applied cryptography learning material; educational reference, not a production OLA component.` |
+
+The `ai`, `cli`, `MetaGPT`, `swarmclaw`, and `uygulamali-kriptografi` repositories are external-reference forks, not proprietary OLA subsystems. Keep their upstream attribution and licensing intact. The `ai` repository's package metadata identifies the Vercel AI SDK monorepo; its README could not be retrieved, so the description is based on package metadata and fork provenance.
+
+The public About descriptions, topics and homepage fields remain **proposals only**. No GitHub About metadata was changed by this refresh. Use Settings → General → About for manual updates and verify upstream attribution before presenting a fork as an owned product.
+
+### PR hygiene changes in this snapshot
+
+- Quantumy PR #2 was closed as superseded by rebased PR #5.
+- Evidence Gateway PRs #1, #2 and #3 were closed as superseded by current main and replacement PR #5.
+- Vantage PR #12 was closed as superseded by main-based PR #38.
+- Vantage PR #14 was converted back to draft because it is stacked on a non-main base and diverges from current main.
+- No source PR was merged and no production deployment or Supabase migration was performed.
+
 ## 1. Jedno źródło prawdy dla własnych produktów
 
 | Produkt | Kanoniczne repozytorium | Główna gałąź / SHA | Gałęzie | Otwarte PR-y | Decyzja |
