@@ -13,6 +13,7 @@ from scripts.igor_attestation import (
     build_predicate,
     resolve_flow_run,
     verify_attestation_data,
+    verify_auto_evidence,
     verify_igor_bundle,
     resolve_artifact_bindings,
 )
@@ -563,6 +564,30 @@ class IgorBundleAttestationTests(unittest.TestCase):
                     SOURCE_SHA,
                     REPOSITORY,
                 )
+
+
+    def test_verify_auto_evidence_rejects_duplicate_json_members(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw = (
+                '{"schema":"ola-auto-evidence-v3",'
+                f'"source_commit":"{SOURCE_SHA}",'
+                f'"source_commit":"{SOURCE_SHA}",'
+                '"trigger":"push","provider":"ollama",'
+                '"status":"RUNTIME_CHAIN_VERIFIED",'
+                '"verified_claim":true,"fail_closed":true,'
+                '"preflight_artifact_integrity":"VERIFIED",'
+                '"ollama_artifact_integrity":"VERIFIED",'
+                '"independent_igor_artifact_integrity":"VERIFIED"}'
+            ).encode("utf-8")
+            (root / "ola-auto-evidence.json").write_bytes(raw)
+            digest = hashlib.sha256(raw).hexdigest()
+            (root / "ola-auto-evidence.sha256").write_text(
+                f"{digest}  ola-auto-evidence.json\\n", encoding="utf-8"
+            )
+
+            with self.assertRaisesRegex(ValueError, "duplicate JSON member"):
+                verify_auto_evidence(root, SOURCE_SHA)
 
 
 

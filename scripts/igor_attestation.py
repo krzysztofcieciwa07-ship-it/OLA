@@ -35,6 +35,16 @@ _MAX_MEMBERS = 1024
 _ARTIFACT_DIGEST = re.compile(r"^sha256:([0-9a-f]{64})$")
 
 
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject duplicate JSON members instead of accepting parser-dependent values."""
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON member")
+        result[key] = value
+    return result
+
+
 def _require_sha1(value: str) -> None:
     if not isinstance(value, str) or not _SHA1.fullmatch(value):
         raise ValueError("source SHA must be 40 lowercase hexadecimal characters")
@@ -226,8 +236,8 @@ def verify_auto_evidence(auto_dir: Path, source_sha: str) -> str:
     if actual != expected:
         raise ValueError("AUTO evidence summary SHA-256 mismatch")
     try:
-        summary = json.loads(raw)
-    except json.JSONDecodeError as exc:
+        summary = json.loads(raw, object_pairs_hook=_unique_object)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise ValueError("AUTO evidence summary is not valid JSON") from exc
     if not isinstance(summary, dict):
         raise ValueError("AUTO evidence summary must be a JSON object")
