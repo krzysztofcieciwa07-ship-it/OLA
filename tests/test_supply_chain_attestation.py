@@ -137,5 +137,12 @@ class SupplyChainAttestationTests(unittest.TestCase):
         self.assertIn("verify_supply_chain_attestation.py", attest_job)
 
 
+
+    def test_main_attestation_waits_for_all_security_scans(self):
+        workflow = (ROOT / ".github" / "workflows" / "supply-chain-evidence.yml").read_text(encoding="utf-8")
+        attest_job = workflow.split("  attest-main:", 1)[1]
+        self.assertIn("needs: [gitleaks, zizmor, security-image]", attest_job)
+
+
 if __name__ == "__main__":
     unittest.main()

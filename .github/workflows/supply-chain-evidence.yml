@@ -235,7 +235,7 @@ jobs:
 
   attest-main:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: security-image
+    needs: [gitleaks, zizmor, security-image]
     runs-on: ubuntu-latest
     permissions:
       contents: read
