@@ -171,7 +171,7 @@ jobs:
             echo "::error::Supply-chain image source $image_source does not match $EXPECTED_SOURCE_SHA"
             exit 1
           fi
-          printf '%s\\n' "$image_source" > image-source-revision.txt
+          printf '%s\n' "$image_source" > image-source-revision.txt
 
       - name: Trivy filesystem and config report
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -292,12 +292,12 @@ jobs:
         run: |
           set -euo pipefail
           gh attestation verify ola-image.tar -R "$EXPECTED_REPOSITORY" --format json > attestation-verification.json
-          python scripts/verify_supply_chain_attestation.py \\
-            --attestation attestation-verification.json \\
-            --subject ola-image.tar \\
-            --expected-source-sha "$EXPECTED_SOURCE_SHA" \\
-            --expected-repository "$EXPECTED_REPOSITORY" \\
-            --expected-workflow-path "$EXPECTED_WORKFLOW_PATH" \\
+          python scripts/verify_supply_chain_attestation.py \
+            --attestation attestation-verification.json \
+            --subject ola-image.tar \
+            --expected-source-sha "$EXPECTED_SOURCE_SHA" \
+            --expected-repository "$EXPECTED_REPOSITORY" \
+            --expected-workflow-path "$EXPECTED_WORKFLOW_PATH" \
             --expected-workflow-ref "$EXPECTED_WORKFLOW_REF" | tee attestation-summary.json
 
       - name: Upload verified attestation evidence

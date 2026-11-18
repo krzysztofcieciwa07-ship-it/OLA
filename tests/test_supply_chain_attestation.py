@@ -114,8 +114,8 @@ class SupplyChainAttestationTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "supply-chain-evidence.yml").read_text(encoding="utf-8")
         self.assertIn('docker build --pull --build-arg OLA_SOURCE_COMMIT="$EXPECTED_SOURCE_SHA"', workflow)
         self.assertIn("image_source=", workflow)
-        security_job = workflow.split("  security-image:\\n", 1)[1]
-        if "  attest-main:\\n" in security_job:
+        security_job = workflow.split("  security-image:\n", 1)[1]
+        if "  attest-main:\n" in security_job:
             security_job = security_job.split("  attest-main:\\n", 1)[0]
         self.assertNotIn("attestations: write", security_job)
         self.assertNotIn("id-token: write", security_job)
