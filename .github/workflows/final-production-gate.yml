@@ -17,8 +17,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-      id-token: write
-      attestations: write
     timeout-minutes: 45
     steps:
       - name: Resolve target source SHA
@@ -309,27 +307,6 @@ jobs:
           sha256sum "ola-source-${{ steps.target.outputs.sha }}.tar.gz" | tee source-sha256.txt
           sha256sum ola-release-image.tar | tee image-sha256.txt
 
-      - name: Attest source snapshot
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
-        with:
-          subject-path: "ola-source-${{ steps.target.outputs.sha }}.tar.gz"
-
-      - name: Attest release image archive
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
-        with:
-          subject-path: ola-release-image.tar
-
-      - name: Independently verify source and image attestations
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh attestation verify "ola-source-${{ steps.target.outputs.sha }}.tar.gz" --repo "$GITHUB_REPOSITORY"
-          gh attestation verify ola-release-image.tar --repo "$GITHUB_REPOSITORY"
-
       - name: Verify release image source-bound readiness
         shell: bash
         env:
@@ -371,9 +348,9 @@ jobs:
           source_attestation="NOT_PERFORMED"
           image_attestation="NOT_PERFORMED"
           if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ] && [ "${{ job.status }}" = "success" ]; then
-            status="ATTESTED_PENDING_HUMAN"
-            source_attestation="VERIFIED_BY_GITHUB_ACTIONS_ATTESTATION"
-            image_attestation="VERIFIED_BY_GITHUB_ACTIONS_ATTESTATION"
+            status="RELEASE_GATES_PASSED_PENDING_ATTESTATION"
+            source_attestation="PENDING_MAIN_ONLY_ATTESTATION_JOB"
+            image_attestation="PENDING_MAIN_ONLY_ATTESTATION_JOB"
           elif [ "${{ job.status }}" = "success" ]; then
             status="PREMERGE_CI_PASSED"
           fi
@@ -395,7 +372,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ola-final-production-${{ steps.target.outputs.sha }}
+          name: ola-final-production-candidate-${{ steps.target.outputs.sha }}
           path: |
             required-runs.json
             reference-runs.json
@@ -410,3 +387,133 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f ola-final-gate >/dev/null 2>&1 || true
+  attest-production:
+    name: Attest final production source and image (main only)
+    needs: final-production
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.final-production.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout exact main source for the verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download source and image candidate from this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ola-final-production-candidate-${{ github.sha }}
+          path: candidate
+
+      - name: Verify candidate hashes and source binding before attestation
+        env:
+          TARGET_SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd candidate
+            sha256sum -c source-sha256.txt
+            sha256sum -c image-sha256.txt
+          )
+          TARGET_SOURCE_SHA="$TARGET_SOURCE_SHA" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(Path("candidate/production-manifest.json").read_text(encoding="utf-8"))
+          assert manifest.get("commit") == os.environ["TARGET_SOURCE_SHA"], manifest
+          assert manifest.get("final_status") == "RELEASE_GATES_PASSED_PENDING_ATTESTATION", manifest
+          PY
+
+      - name: Attest source snapshot
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: candidate/ola-source-${{ github.sha }}.tar.gz
+
+      - name: Attest release image archive
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: candidate/ola-release-image.tar
+
+      - name: Independently verify source and image attestations against exact SHA and workflow identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SOURCE_SHA: ${{ github.sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_WORKFLOW_PATH: .github/workflows/final-production-gate.yml
+          EXPECTED_WORKFLOW_REF: refs/heads/main
+          EXPECTED_WORKFLOW_NAME: OLA FINAL PRODUCTION GATE
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh attestation verify --format json --repo "$EXPECTED_REPOSITORY" \
+            "candidate/ola-source-$TARGET_SOURCE_SHA.tar.gz" > candidate/source-attestation.json
+          gh attestation verify --format json --repo "$EXPECTED_REPOSITORY" \
+            candidate/ola-release-image.tar > candidate/image-attestation.json
+
+          python scripts/verify_supply_chain_attestation.py \
+            --attestation candidate/source-attestation.json \
+            --subject "candidate/ola-source-$TARGET_SOURCE_SHA.tar.gz" \
+            --expected-source-sha "$TARGET_SOURCE_SHA" \
+            --expected-repository "$EXPECTED_REPOSITORY" \
+            --expected-workflow-path "$EXPECTED_WORKFLOW_PATH" \
+            --expected-workflow-ref "$EXPECTED_WORKFLOW_REF" \
+            --expected-workflow-name "$EXPECTED_WORKFLOW_NAME" \
+            > candidate/source-attestation-verification.json
+
+          python scripts/verify_supply_chain_attestation.py \
+            --attestation candidate/image-attestation.json \
+            --subject candidate/ola-release-image.tar \
+            --expected-source-sha "$TARGET_SOURCE_SHA" \
+            --expected-repository "$EXPECTED_REPOSITORY" \
+            --expected-workflow-path "$EXPECTED_WORKFLOW_PATH" \
+            --expected-workflow-ref "$EXPECTED_WORKFLOW_REF" \
+            --expected-workflow-name "$EXPECTED_WORKFLOW_NAME" \
+            > candidate/image-attestation-verification.json
+
+      - name: Generate final attested production manifest
+        if: always()
+        env:
+          TARGET_SOURCE_SHA: ${{ github.sha }}
+          ATTESTATION_JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidate
+          status="BLOCKED"
+          source_attestation="NOT_VERIFIED"
+          image_attestation="NOT_VERIFIED"
+          if [ "$ATTESTATION_JOB_STATUS" = "success" ]; then
+            status="ATTESTED_PENDING_HUMAN"
+            source_attestation="VERIFIED_BY_GITHUB_ACTIONS_ATTESTATION"
+            image_attestation="VERIFIED_BY_GITHUB_ACTIONS_ATTESTATION"
+          fi
+          cat > candidate/final-production-manifest.json <<EOF
+          {
+            "schema": "ola-production-evidence-v1",
+            "commit": "$TARGET_SOURCE_SHA",
+            "source_snapshot": "ola-source-$TARGET_SOURCE_SHA.tar.gz",
+            "release_image": "ola-release-image.tar",
+            "source_attestation": "$source_attestation",
+            "image_attestation": "$image_attestation",
+            "required_gates": ["ci","state-continuity","stability","provenance","signatures","real-runtime","stress","tamper","replay","human-gate"],
+            "final_status": "$status"
+          }
+          EOF
+          sha256sum candidate/final-production-manifest.json | tee candidate/final-production-manifest-sha256.txt
+
+      - name: Publish signed production evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-final-production-attestation-${{ github.sha }}
+          path: candidate/
+          if-no-files-found: warn
+          retention-days: 90
+

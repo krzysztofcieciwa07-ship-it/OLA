@@ -24,11 +24,34 @@ class OllamaIndependentEvidenceContractTest(unittest.TestCase):
             "--db-path",
             "nina-ollama-evidence.sqlite3",
             "TAMPER_MUTATION=BLOCK",
-            "ATTESTED",
+            "TAMPER_MUTATION=BLOCK",
             "HUMAN_GATE=PENDING",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, workflow)
+
+    def test_pr_igor_chain_is_unprivileged_and_emits_unsigned_evidence(self):
+        for filename in (
+            ".github/workflows/ola-12h-autoflow.yml",
+            ".github/workflows/nina-igor-ollama.yml",
+            ".github/workflows/igor-independent-ollama-evidence.yml",
+            ".github/workflows/nina-real-runtime-provenance.yml",
+            ".github/workflows/igor-independent-evidence.yml",
+        ):
+            with self.subTest(workflow=filename):
+                workflow = (ROOT / filename).read_text(encoding="utf-8")
+                self.assertNotIn("id-token: write", workflow)
+                self.assertNotIn("attestations: write", workflow)
+                self.assertNotIn("actions/attest@", workflow)
+
+    def test_igor_evidence_remains_bound_and_human_gated(self):
+        workflow = (ROOT / ".github/workflows/igor-independent-ollama-evidence.yml").read_text(encoding="utf-8")
+        self.assertIn("SOURCE_COMMIT: ${{ inputs.source_commit }}", workflow)
+        self.assertIn('test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"', workflow)
+        self.assertIn("TAMPER_MUTATION=BLOCK", workflow)
+        self.assertIn('"human_gate":"PENDING"', workflow)
+        self.assertIn("Human Gate hold", workflow)
+        self.assertIn("Upload IGOR Ollama evidence", workflow)
 
     def test_human_gate_is_never_auto_approved(self):
         workflow = (ROOT / ".github/workflows/igor-independent-ollama-evidence.yml").read_text(encoding="utf-8")
