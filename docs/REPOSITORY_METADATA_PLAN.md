@@ -45,7 +45,7 @@ Opisy repozytoriów `OLA` i `vantage` nadal są puste w odczycie GitHub. Dostęp
 The descriptions and topics above remain **proposals only**; no GitHub About fields, topics, or homepage values were changed.
 
 Current exact repository baselines:
-- OLA main: `8adf30cd5e41a18a5345f66e67f5ddcdbc164862`; 93 open PRs. PR #262 has 22/22 observed workflows successful on its exact PR head, but main-only production attestation and independent review are still missing.
+- OLA main: `8adf30cd5e41a18a5345f66e67f5ddcdbc164862`; 91 open PRs. PR #262 has 22/22 observed workflows successful on its exact PR head, but main-only production attestation and independent review are still missing.
 - Vantage main: `991445100a3ddfae85bef0d0f9f7680373658d5f`; 7 open PRs. PR #38 has 2/2 exact-head workflows successful; it remains draft and requires independent review.
 - Quantumy main: `8ae603dcefd7eebdd54acc36954225bf1454d928`; 1 open PR. Replacement PR #5 passes Security Gate on exact head `43826ca3098b7ebd0120377d76491f7d1ca0ccf4`; Supabase migration, pg_cron execution and live OAuth remain unverified.
 - Evidence Gateway main: `0f13cb6aa20bb933524a79f7458ad9aec82178cf`; 1 open documentation-only PR. The service is not implemented.
