@@ -5,8 +5,11 @@ import io
 import json
 import tarfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+import scripts.igor_attestation as igor_attestation
 
 from scripts.igor_attestation import (
     _PREDICATE_TYPE,
@@ -15,6 +18,7 @@ from scripts.igor_attestation import (
     verify_attestation_data,
     verify_auto_evidence,
     verify_igor_bundle,
+    _read_tar_files,
     resolve_artifact_bindings,
 )
 
@@ -206,6 +210,21 @@ class IgorBundleAttestationTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "internal checksum mismatch"):
                 verify_igor_bundle(bundle, checksum, SOURCE_SHA)
+
+    def test_rejects_pax_metadata_that_exceeds_decompressed_tar_stream_budget(self):
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.PAX_FORMAT) as archive:
+            info = tarfile.TarInfo("evidence-bundle/MANIFEST.json")
+            info.pax_headers = {"comment": "x" * (1024 * 1024)}
+            payload = b'{"ok":true}'
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+
+        # Keep the test small while proving that PAX extension data is charged
+        # against the decompressed stream budget, not just regular-file sizes.
+        with patch.object(igor_attestation, "_MAX_TAR_STREAM_BYTES", 64 * 1024, create=True):
+            with self.assertRaisesRegex(ValueError, "decompressed TAR stream limit"):
+                _read_tar_files(buffer.getvalue())
 
     def test_rejects_path_traversal_member(self):
         with TemporaryDirectory() as tmp:
