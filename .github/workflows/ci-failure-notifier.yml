@@ -86,7 +86,8 @@ jobs:
           test "$actual_workflow_path" = "$expected_workflow_path"
           test "$actual_head_repository" = "$REPOSITORY"
 
-          failed_jobs="$(printf '%s' "$run_json" | jq -r '[.jobs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped") | .name] | unique | join(", ")')"
+          jobs_json="$(gh api "/repos/$REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100")"
+          failed_jobs="$(printf '%s' "$jobs_json" | jq -r '[.jobs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped") | .name] | unique | join(", ")')"
           safe_workflow="${WORKFLOW_NAME:0:70}"
           safe_branch="${BRANCH:0:120}"
           ALERT_TITLE="[CI INCIDENT] ${safe_workflow} | ${safe_branch}"
