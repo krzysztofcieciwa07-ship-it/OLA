@@ -397,6 +397,7 @@ jobs:
       actions: read
       id-token: write
       attestations: write
+      artifact-metadata: write
     steps:
       - name: Checkout exact main source for the verifier
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -431,17 +432,74 @@ jobs:
           assert manifest.get("final_status") == "RELEASE_GATES_PASSED_PENDING_ATTESTATION", manifest
           PY
 
+      - name: Resolve exact main 12h evidence run
+        id: resolve-flow
+        env:
+          TARGET_SOURCE_SHA: ${{ github.sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/igor_attestation.py prepare --resolve-only \
+            --required-runs candidate/required-runs.json \
+            --gate-status candidate/gate-status.json \
+            --source-sha "$TARGET_SOURCE_SHA" \
+            --repository "$EXPECTED_REPOSITORY" \
+            --output candidate/igor-flow-run.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Download AUTO evidence from the exact 12h run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ola-auto-evidence-${{ github.sha }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.resolve-flow.outputs.flow_run_id }}
+          github-token: ${{ github.token }}
+          path: candidate/auto-evidence
+
+      - name: Prepare and independently validate IGOR bundle predicate
+        id: prepare-igor
+        env:
+          TARGET_SOURCE_SHA: ${{ github.sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          FLOW_RUN_ID: ${{ steps.resolve-flow.outputs.flow_run_id }}
+          FINAL_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/igor_attestation.py prepare \
+            --required-runs candidate/required-runs.json \
+            --gate-status candidate/gate-status.json \
+            --source-sha "$TARGET_SOURCE_SHA" \
+            --repository "$EXPECTED_REPOSITORY" \
+            --flow-run-id "$FLOW_RUN_ID" \
+            --final-run-id "$FINAL_RUN_ID" \
+            --auto-evidence-dir candidate/auto-evidence \
+            --output candidate/igor-attestation-predicate.json \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Attest source snapshot
+        id: attest-source
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: candidate/ola-source-${{ github.sha }}.tar.gz
 
       - name: Attest release image archive
+        id: attest-image
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: candidate/ola-release-image.tar
 
+      - name: Attest IGOR evidence bundle
+        id: attest-igor
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-path: candidate/auto-evidence/downloaded/independent-igor/igor-ollama-evidence-bundle.tar.gz
+          predicate-type: https://ola-di-os.dev/attestation/igor-evidence/v1
+          predicate-path: candidate/igor-attestation-predicate.json
+
       - name: Independently verify source and image attestations against exact SHA and workflow identity
+        id: verify-source-image
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SOURCE_SHA: ${{ github.sha }}
@@ -476,12 +534,40 @@ jobs:
             --expected-workflow-ref "$EXPECTED_WORKFLOW_REF" \
             --expected-workflow-name "$EXPECTED_WORKFLOW_NAME" \
             > candidate/image-attestation-verification.json
+          echo "status=VERIFIED" >> "$GITHUB_OUTPUT"
+
+      - name: Independently verify IGOR bundle attestation
+        id: verify-igor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SOURCE_SHA: ${{ github.sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          FLOW_RUN_ID: ${{ steps.resolve-flow.outputs.flow_run_id }}
+          FINAL_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="candidate/auto-evidence/downloaded/independent-igor/igor-ollama-evidence-bundle.tar.gz"
+          gh attestation verify --format json --repo "$EXPECTED_REPOSITORY" \
+            "$bundle" > candidate/igor-attestation-verification.json
+          python scripts/igor_attestation.py verify \
+            --attestation candidate/igor-attestation-verification.json \
+            --subject "$bundle" \
+            --expected-source-sha "$TARGET_SOURCE_SHA" \
+            --expected-repository "$EXPECTED_REPOSITORY" \
+            --expected-flow-run-id "$FLOW_RUN_ID" \
+            --expected-final-run-id "$FINAL_RUN_ID" \
+            | tee candidate/igor-attestation-verification-summary.json
+          echo "status=VERIFIED" >> "$GITHUB_OUTPUT"
 
       - name: Generate final attested production manifest
         if: always()
         env:
           TARGET_SOURCE_SHA: ${{ github.sha }}
           ATTESTATION_JOB_STATUS: ${{ job.status }}
+          IGOR_ATTESTATION_STATUS: ${{ steps.verify-igor.outputs.status || 'NOT_VERIFIED' }}
+          IGOR_FLOW_RUN_ID: ${{ steps.resolve-flow.outputs.flow_run_id || '' }}
+          IGOR_BUNDLE_SHA256: ${{ steps.prepare-igor.outputs.bundle_sha256 || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -489,7 +575,11 @@ jobs:
           status="BLOCKED"
           source_attestation="NOT_VERIFIED"
           image_attestation="NOT_VERIFIED"
-          if [ "$ATTESTATION_JOB_STATUS" = "success" ]; then
+          igor_bundle_attestation="NOT_VERIFIED"
+          if [ "$IGOR_ATTESTATION_STATUS" = "VERIFIED" ]; then
+            igor_bundle_attestation="VERIFIED_BY_GITHUB_ACTIONS_ATTESTATION"
+          fi
+          if [ "$ATTESTATION_JOB_STATUS" = "success" ] && [ "$IGOR_ATTESTATION_STATUS" = "VERIFIED" ]; then
             status="ATTESTED_PENDING_HUMAN"
             source_attestation="VERIFIED_BY_GITHUB_ACTIONS_ATTESTATION"
             image_attestation="VERIFIED_BY_GITHUB_ACTIONS_ATTESTATION"
@@ -502,7 +592,11 @@ jobs:
             "release_image": "ola-release-image.tar",
             "source_attestation": "$source_attestation",
             "image_attestation": "$image_attestation",
-            "required_gates": ["ci","state-continuity","stability","provenance","signatures","real-runtime","stress","tamper","replay","human-gate"],
+            "igor_bundle_attestation": "$igor_bundle_attestation",
+            "igor_bundle_sha256": "$IGOR_BUNDLE_SHA256",
+            "igor_flow_run_id": "$IGOR_FLOW_RUN_ID",
+            "final_gate_run_id": "${GITHUB_RUN_ID}",
+            "required_gates": ["ci","state-continuity","stability","provenance","signatures","real-runtime","stress","tamper","replay","igor-bundle-attestation","human-gate"],
             "final_status": "$status"
           }
           EOF
