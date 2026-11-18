@@ -566,6 +566,55 @@ class IgorBundleAttestationTests(unittest.TestCase):
                 )
 
 
+    def test_verify_igor_bundle_rejects_duplicate_manifest_and_result_members(self):
+        checksum_name = "evidence-bundle/integrity/bundle-files.sha256"
+
+        def write_files(root: Path, files: dict[str, bytes]):
+            checksum_lines = [
+                f"{hashlib.sha256(payload).hexdigest()}  {name}"
+                for name, payload in sorted(files.items())
+                if name != checksum_name
+            ]
+            files[checksum_name] = ("\n".join(checksum_lines) + "\n").encode()
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+                root_info = tarfile.TarInfo("evidence-bundle/")
+                root_info.type = tarfile.DIRTYPE
+                archive.addfile(root_info)
+                for name, payload in files.items():
+                    info = tarfile.TarInfo(name)
+                    info.size = len(payload)
+                    archive.addfile(info, io.BytesIO(payload))
+            bundle = root / "igor-ollama-evidence-bundle.tar.gz"
+            bundle.write_bytes(buffer.getvalue())
+            checksum = root / "igor-ollama-evidence-bundle.sha256"
+            checksum.write_text(
+                f"{hashlib.sha256(bundle.read_bytes()).hexdigest()}  {bundle.name}\n",
+                encoding="utf-8",
+            )
+            return bundle, checksum
+
+        for target, key in (
+            (
+                "evidence-bundle/MANIFEST.json",
+                f'"source_commit": "{SOURCE_SHA}"'.encode(),
+            ),
+            (
+                "evidence-bundle/verification/igor-result.json",
+                b'"status": "VERIFIED"',
+            ),
+        ):
+            with self.subTest(target=target), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                files = _bundle_files(SOURCE_SHA)
+                self.assertIn(key, files[target])
+                files[target] = files[target].replace(key, key + b", " + key, 1)
+                bundle, checksum = write_files(root, files)
+
+                with self.assertRaisesRegex(ValueError, "duplicate JSON member"):
+                    verify_igor_bundle(bundle, checksum, SOURCE_SHA)
+
+
     def test_verify_auto_evidence_rejects_duplicate_json_members(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

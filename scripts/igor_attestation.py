@@ -177,8 +177,8 @@ def verify_igor_bundle(bundle_path: Path, checksum_path: Path, source_sha: str) 
             raise ValueError(f"IGOR internal checksum mismatch: {name}")
 
     try:
-        manifest = json.loads(files[manifest_name])
-        result = json.loads(files[result_name])
+        manifest = json.loads(files[manifest_name], object_pairs_hook=_unique_object)
+        result = json.loads(files[result_name], object_pairs_hook=_unique_object)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("IGOR manifest or result is not valid UTF-8 JSON") from exc
     if not isinstance(manifest, dict) or not isinstance(result, dict):
