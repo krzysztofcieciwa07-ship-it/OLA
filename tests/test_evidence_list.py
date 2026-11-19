@@ -1,4 +1,7 @@
+import asyncio
 import uuid
+
+import httpx
 
 from fastapi.testclient import TestClient
 
@@ -176,4 +179,48 @@ def test_public_evidence_maps_post_envelope_v4_size_failure_to_400():
         json={"record_type": "generic", "payload": payload},
     )
     assert response.status_code == 400, response.text
+    assert _record_count(tenant_id) == before
+
+
+
+def test_public_evidence_rejects_oversized_raw_request_before_json_parse():
+    tenant_id, key = _tenant_with_key()
+    before = _record_count(tenant_id)
+    raw = (
+        b'{"record_type":"generic","payload":{"value":"'
+        + b"x" * (MAX_PAYLOAD_BYTES + 4096 + 1)
+        + b'"}}'
+    )
+    response = CLIENT.post(
+        "/evidence",
+        headers={"X-API-Key": key, "Content-Type": "application/json"},
+        content=raw,
+    )
+    assert response.status_code == 413, response.text
+    assert response.json() == {"detail": "evidence request body too large"}
+    assert _record_count(tenant_id) == before
+
+
+def test_public_evidence_rejects_oversized_chunked_body_without_content_length():
+    tenant_id, key = _tenant_with_key()
+    before = _record_count(tenant_id)
+
+    async def chunks():
+        yield b'{"record_type":"generic","payload":{"value":"'
+        yield b"x" * (MAX_PAYLOAD_BYTES + 4096 + 1)
+        yield b'"}}'
+
+    async def request():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.post(
+                "/evidence",
+                headers={"X-API-Key": key, "Content-Type": "application/json"},
+                content=chunks(),
+            )
+
+    response = asyncio.run(request())
+    assert response.status_code == 413, response.text
+    assert response.json() == {"detail": "evidence request body too large"}
     assert _record_count(tenant_id) == before
