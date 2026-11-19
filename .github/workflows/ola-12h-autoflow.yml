@@ -6,6 +6,8 @@ env:
   OLA_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 on:
+  schedule:
+    - cron: '17 0,12 * * *'
   workflow_dispatch:
   pull_request:
     branches:
@@ -14,8 +16,8 @@ on:
     branches:
       - main
 
-# The 24x7 Watchdog is the sole scheduler for this evidence flow.
-# PR and main pushes still run immediately; the watchdog dispatches only when
+# The 12h schedule is an independent fallback for Watchdog scheduler gaps.
+# PR and main pushes still run immediately; the Watchdog also dispatches when
 # exact-SHA evidence is missing or has exceeded the 12-hour freshness window.
 concurrency:
   group: ola-12h-autoflow-${{ github.event.pull_request.number || github.ref }}
