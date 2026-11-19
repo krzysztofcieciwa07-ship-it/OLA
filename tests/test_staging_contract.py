@@ -35,3 +35,8 @@ def test_staging_workflow_is_unprivileged_and_uses_exact_checkout():
     assert "secrets.token_hex(32)" in ci
     assert "scripts/staging_rehearsal.py" in ci
     assert "staging-proof.json" in ci
+
+
+def test_staging_workflow_runs_on_main_push():
+    ci = (ROOT / ".github/workflows/staging-rehearsal.yml").read_text()
+    assert re.search(r"(?m)^  push:\n    branches:\n      - main$", ci)
