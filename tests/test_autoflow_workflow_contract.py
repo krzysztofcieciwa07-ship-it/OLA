@@ -33,6 +33,7 @@ def test_12h_flow_retains_fallback_schedule_for_main_and_pr_push():
 
     assert "  schedule:" in triggers
     assert "cron: '17 0,12 * * *'" in triggers
+    assert 'timezone: "Europe/Brussels"' in triggers
     assert "  workflow_dispatch:" in triggers
     assert "  pull_request:" in triggers
     assert "  push:" in triggers
