@@ -8,85 +8,151 @@ on:
 
 concurrency:
   group: ola-24x7-watchdog
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   watchdog:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       actions: write
       contents: read
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
-      - name: Checkout
+      - name: Checkout exact main source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Inspect runtime health
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Initialize watchdog lifecycle evidence
         run: |
           set -euo pipefail
-          gh run list --workflow ola-12h-autoflow.yml --branch main --limit 5 --json databaseId,status,conclusion,createdAt,updatedAt > autoflow-runs.json
           python - <<'PY'
-          import json
-          rows=json.load(open("autoflow-runs.json"))
-          print("AUTOFLOW_RECENT_RUNS")
-          for r in rows:
-              print(r)
+          import datetime, json, subprocess
+          source = subprocess.run(
+              ["git", "rev-parse", "HEAD"],
+              check=True, capture_output=True, text=True,
+          ).stdout.strip()
+          report = {
+              "schema": "ola-24x7-watchdog-evidence-v1",
+              "run.start": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+              "run.end": None,
+              "source_sha": source,
+              "decision": "UNKNOWN",
+              "action": "NONE",
+              "reason": "watchdog_preflight_not_completed",
+          }
+          with open("watchdog-evidence.json", "w", encoding="utf-8") as stream:
+              json.dump(report, stream, sort_keys=True, indent=2)
+              stream.write("\n")
           PY
 
-      - name: Run local quality smoke gate
+      - name: Run bounded watchdog regression suite
         run: |
           set -euo pipefail
           python -m pip install -r requirements.txt
-          pytest -q tests/test_decision_report.py tests/test_igor.py tests/test_independent_verifier_tamper.py tests/test_contradiction_replay.py
+          pytest -q tests/test_watchdog_exact_sha.py tests/test_autoflow_workflow_contract.py tests/test_decision_report.py tests/test_igor.py tests/test_independent_verifier_tamper.py tests/test_contradiction_replay.py
 
-      - name: Dispatch full evidence flow when healthy and stale
+      - name: Evaluate exact-source evidence and dispatch once
+        id: watchdog
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python scripts/ola_watchdog.py
+
+      - name: Finalize watchdog lifecycle evidence
+        if: always()
         run: |
           set -euo pipefail
-          set +e
           python - <<'PY'
-          import json, time, datetime
-          rows=json.load(open("autoflow-runs.json"))
-          now=time.time()
-          active=any(r.get("status") in {"queued","in_progress","waiting","requested"} for r in rows)
-          recent=any(
-              r.get("createdAt") and
-              now-datetime.datetime.fromisoformat(r["createdAt"].replace("Z","+00:00")).timestamp() < 900
-              for r in rows
-          )
-          if active or recent:
-              print("FULL_FLOW=NOT_DISPATCHED reason=active_or_recent")
-              raise SystemExit(2)
-          print("FULL_FLOW=DISPATCH")
+          import datetime, json
+          from pathlib import Path
+          path = Path("watchdog-evidence.json")
+          if path.exists():
+              report = json.loads(path.read_text(encoding="utf-8"))
+          else:
+              report = {
+                  "schema": "ola-24x7-watchdog-evidence-v1",
+                  "run.start": None,
+                  "source_sha": "${{ github.sha }}",
+                  "decision": "STOP",
+                  "action": "NONE",
+                  "reason": "watchdog_lifecycle_file_missing",
+              }
+          if not report.get("run.end"):
+              report["run.end"] = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+          if report.get("decision") in {"UNKNOWN", None}:
+              report["decision"] = "STOP"
+              report["action"] = "NONE"
+              report["reason"] = "watchdog_preflight_failed"
+          path.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
           PY
-          status=$?
-          set -e
-          if [ "$status" -eq 0 ]; then
-            gh workflow run ola-12h-autoflow.yml --ref main
-          elif [ "$status" -eq 2 ]; then
-            exit 0
-          else
-            exit "$status"
-          fi
 
-      - name: Record provider policy
+      - name: Enforce watchdog decision
+        if: always()
+        env:
+          DECISION: ${{ steps.watchdog.outputs.decision }}
         run: |
-          echo "24x7 watchdog active"
-          echo "AUTO_PROVIDER=ollama"
-          echo "OPENAI_REQUIRED_FOR_AUTO_FLOW=false"
-          echo "OpenAI remains an optional separate verification lane."
+          set -euo pipefail
+          test -s watchdog-evidence.json
+          cat watchdog-evidence.json
+          test "$DECISION" = "CONTINUE"
 
-      - name: Watchdog result
-        if: ${{ always() }}
+      - name: Upload watchdog lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-24x7-watchdog-${{ github.run_id }}
+          path: watchdog-evidence.json
+          if-no-files-found: error
+
+  reject-non-main-manual-dispatch:
+    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Record rejected manual dispatch lifecycle
+        env:
+          WATCHDOG_SOURCE_SHA: ${{ github.sha }}
+          WATCHDOG_REF: ${{ github.ref }}
+          WATCHDOG_EVENT: ${{ github.event_name }}
+          WATCHDOG_RUN_ID: ${{ github.run_id }}
         run: |
-          echo "OLA_24X7_WATCHDOG=ACTIVE"
-          echo "No UNKNOWN/BLOCKED result is promoted to VERIFIED."
+          set -euo pipefail
+          python - <<'PY'
+          import datetime, json, os
+          from pathlib import Path
+
+          now = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+          report = {
+              "schema": "ola-24x7-watchdog-evidence-v1",
+              "run.start": now(),
+              "source_sha": os.environ["WATCHDOG_SOURCE_SHA"],
+              "event_name": os.environ["WATCHDOG_EVENT"],
+              "git_ref": os.environ["WATCHDOG_REF"],
+              "run_id": os.environ["WATCHDOG_RUN_ID"],
+              "decision": "HUMAN_GATE",
+              "action": "NONE",
+              "reason": "manual_dispatch_ref_not_main",
+              "evidence_status": "BLOCKED",
+          }
+          report["run.end"] = now()
+          Path("watchdog-evidence.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload rejected watchdog lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-24x7-watchdog-rejected-${{ github.run_id }}
+          path: watchdog-evidence.json
+          if-no-files-found: error

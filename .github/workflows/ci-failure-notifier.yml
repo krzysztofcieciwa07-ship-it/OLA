@@ -1,0 +1,235 @@
+name: OLA CI Failure Notifier
+
+on: # zizmor: ignore[dangerous-triggers] scoped to fixed same-repo workflow IDs/paths; exact run identity is revalidated; no PR code or artifacts are executed
+  workflow_run:
+    workflows:
+      - "Python package CI"
+      - "OLA FINAL PRODUCTION GATE"
+      - "Evidence Cryptography V4 Contract"
+      - "OLA Supply Chain Evidence Gate"
+      - "OLA 12h Autonomous Evidence Flow"
+      - "OLA 24x7 Watchdog"
+      - "Real LLM Ollama Runtime Gate"
+      - "OLA E2E Gate"
+      - "OLA Local Staging Rehearsal"
+      - "Provenance Mutation Gate"
+      - "OLA Real Runtime Stress Gate"
+      - "OLA State Continuity and Stability"
+      - "OLA CodeQL"
+      - "OLA paid-order PostgreSQL contract"
+      - "OLA DI-OS Product Gate"
+      - "OLA Decision Evidence Gate"
+      - "Provenance Gate Final"
+      - "Nina Igor Gate"
+      - "Nina TDD"
+      - "NINA Parallel DAG Gate"
+      - "Evidence Graph v0.1"
+      - "Revenue Surface Gate"
+      - "Nina Real Runtime Provenance Gate (OpenAI optional)"
+      - "OLA Frontier Baseline"
+    types:
+      - completed
+
+permissions: {}
+
+jobs:
+  notify:
+    name: Record failed or cancelled CI run
+    if: ${{ github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      REPOSITORY_OWNER: ${{ github.repository_owner }}
+      WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+      RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RUN_EVENT: ${{ github.event.workflow_run.event }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      ACTOR: ${{ github.event.workflow_run.actor.login }}
+    steps:
+      - name: Create or update source-bound CI incident
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid source SHA in completed workflow event"
+            exit 1
+          fi
+          if [[ ! "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid workflow run ID"
+            exit 1
+          fi
+          if [[ "$RUN_CONCLUSION" == "success" || -z "$RUN_CONCLUSION" ]]; then
+            echo "::error::Notifier invoked for an invalid conclusion"
+            exit 1
+          fi
+
+          case "$WORKFLOW_NAME" in
+            "Python package CI")
+              expected_workflow_id="396626525"
+              expected_workflow_path=".github/workflows/python-package-conda.yml"
+              ;;
+            "OLA FINAL PRODUCTION GATE")
+              expected_workflow_id="371357685"
+              expected_workflow_path=".github/workflows/final-production-gate.yml"
+              ;;
+            "Evidence Cryptography V4 Contract")
+              expected_workflow_id="420904854"
+              expected_workflow_path=".github/workflows/evidence-cryptography-v4.yml"
+              ;;
+            "OLA Supply Chain Evidence Gate")
+              expected_workflow_id="372525275"
+              expected_workflow_path=".github/workflows/supply-chain-evidence.yml"
+              ;;
+            "OLA 12h Autonomous Evidence Flow")
+              expected_workflow_id="364887427"
+              expected_workflow_path=".github/workflows/ola-12h-autoflow.yml"
+              ;;
+            "OLA 24x7 Watchdog")
+              expected_workflow_id="365831610"
+              expected_workflow_path=".github/workflows/ola-24x7-watchdog.yml"
+              ;;
+            "Real LLM Ollama Runtime Gate")
+              expected_workflow_id="369544728"
+              expected_workflow_path=".github/workflows/ollama-real-runtime.yml"
+              ;;
+            "OLA E2E Gate")
+              expected_workflow_id="357357114"
+              expected_workflow_path=".github/workflows/e2e.yml"
+              ;;
+            "OLA Local Staging Rehearsal")
+              expected_workflow_id="405088306"
+              expected_workflow_path=".github/workflows/staging-rehearsal.yml"
+              ;;
+            "Provenance Mutation Gate")
+              expected_workflow_id="359127799"
+              expected_workflow_path=".github/workflows/provenance-mutation.yml"
+              ;;
+            "OLA Real Runtime Stress Gate")
+              expected_workflow_id="371357688"
+              expected_workflow_path=".github/workflows/runtime-stress.yml"
+              ;;
+            "OLA State Continuity and Stability")
+              expected_workflow_id="371357683"
+              expected_workflow_path=".github/workflows/state-continuity.yml"
+              ;;
+            "OLA CodeQL")
+              expected_workflow_id="369195481"
+              expected_workflow_path=".github/workflows/codeql.yml"
+              ;;
+            "OLA paid-order PostgreSQL contract")
+              expected_workflow_id="410079547"
+              expected_workflow_path=".github/workflows/paid-order-postgres.yml"
+              ;;
+            "OLA DI-OS Product Gate")
+              expected_workflow_id="363759316"
+              expected_workflow_path=".github/workflows/ola-product-gate.yml"
+              ;;
+            "OLA Decision Evidence Gate")
+              expected_workflow_id="365083925"
+              expected_workflow_path=".github/workflows/decision-evidence-gate.yml"
+              ;;
+            "Provenance Gate Final")
+              expected_workflow_id="359332631"
+              expected_workflow_path=".github/workflows/provenance-gate-final.yml"
+              ;;
+            "Nina Igor Gate")
+              expected_workflow_id="361712153"
+              expected_workflow_path=".github/workflows/nina-igor-gate.yml"
+              ;;
+            "Nina TDD")
+              expected_workflow_id="361710932"
+              expected_workflow_path=".github/workflows/nina-tdd.yml"
+              ;;
+            "NINA Parallel DAG Gate")
+              expected_workflow_id="387920095"
+              expected_workflow_path=".github/workflows/nina-parallel-dag.yml"
+              ;;
+            "Evidence Graph v0.1")
+              expected_workflow_id="369517905"
+              expected_workflow_path=".github/workflows/evidence-graph.yml"
+              ;;
+            "Revenue Surface Gate")
+              expected_workflow_id="362005656"
+              expected_workflow_path=".github/workflows/revenue-surface.yml"
+              ;;
+            "Nina Real Runtime Provenance Gate (OpenAI optional)")
+              expected_workflow_id="361725608"
+              expected_workflow_path=".github/workflows/nina-real-runtime-provenance.yml"
+              ;;
+            "OLA Frontier Baseline")
+              expected_workflow_id="365085238"
+              expected_workflow_path=".github/workflows/frontier-baseline.yml"
+              ;;
+            *)
+              echo "::error::Unexpected workflow name from workflow_run event"
+              exit 1
+              ;;
+          esac
+
+          run_json="$(gh api "/repos/$REPOSITORY/actions/runs/$RUN_ID")"
+          actual_sha="$(printf '%s' "$run_json" | jq -r '.head_sha // empty')"
+          actual_name="$(printf '%s' "$run_json" | jq -r '.name // empty')"
+          actual_branch="$(printf '%s' "$run_json" | jq -r '.head_branch // empty')"
+          actual_event="$(printf '%s' "$run_json" | jq -r '.event // empty')"
+          actual_conclusion="$(printf '%s' "$run_json" | jq -r '.conclusion // empty')"
+          actual_attempt="$(printf '%s' "$run_json" | jq -r '.run_attempt // empty')"
+          actual_workflow_id="$(printf '%s' "$run_json" | jq -r '.workflow_id // empty')"
+          actual_workflow_path="$(printf '%s' "$run_json" | jq -r '.path // empty')"
+          actual_head_repository="$(printf '%s' "$run_json" | jq -r '.head_repository.full_name // empty')"
+
+          test "$actual_sha" = "$SOURCE_SHA"
+          test "$actual_name" = "$WORKFLOW_NAME"
+          test "$actual_branch" = "$BRANCH"
+          test "$actual_event" = "$RUN_EVENT"
+          test "$actual_conclusion" = "$RUN_CONCLUSION"
+          test "$actual_attempt" = "$RUN_ATTEMPT"
+          test "$actual_workflow_id" = "$expected_workflow_id"
+          test "$actual_workflow_path" = "$expected_workflow_path"
+          test "$actual_head_repository" = "$REPOSITORY"
+
+          jobs_json="$(gh api "/repos/$REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100")"
+          failed_jobs="$(printf '%s' "$jobs_json" | jq -r '[.jobs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped") | .name] | unique | join(", ")')"
+          safe_workflow="${WORKFLOW_NAME:0:70}"
+          safe_branch="${BRANCH:0:120}"
+          ALERT_TITLE="[CI INCIDENT] ${safe_workflow} | ${safe_branch}"
+          export ALERT_TITLE
+
+          body="$(cat <<EOF
+          **Automated CI incident**
+
+          - Workflow: $WORKFLOW_NAME
+          - Conclusion: $RUN_CONCLUSION
+          - Branch: $BRANCH
+          - Exact source SHA: $SOURCE_SHA
+          - Run ID: $RUN_ID
+          - Run attempt: $RUN_ATTEMPT
+          - Non-success job(s): ${failed_jobs:-not reported by GitHub}
+          - Triggered by: @$ACTOR
+          - Run: $RUN_URL
+
+          This incident is deduplicated by workflow and branch. The recorded run identity is re-read from GitHub and checked against the event before this issue is updated.
+          EOF
+          )"
+
+          existing="$(gh issue list --repo "$REPOSITORY" --state open --search "in:title $safe_workflow" --json number,title --jq '.[] | select(.title == env.ALERT_TITLE) | .number' --limit 100 | head -n 1)"
+          if [ -n "$existing" ]; then
+            issue_number="$existing"
+            gh issue comment "$issue_number" --repo "$REPOSITORY" --body "$body"
+            gh issue edit "$issue_number" --repo "$REPOSITORY" --add-assignee "$REPOSITORY_OWNER"
+          else
+            issue_url="$(gh issue create --repo "$REPOSITORY" --title "$ALERT_TITLE" --body "$body" --assignee "$REPOSITORY_OWNER")"
+            issue_number="${issue_url##*/}"
+          fi
+
+          confirmed="$(gh issue view "$issue_number" --repo "$REPOSITORY" --json number,title --jq '.number')"
+          test "$confirmed" = "$issue_number"
+          echo "CI_INCIDENT=RECORDED issue=$issue_number run=$RUN_ID conclusion=$RUN_CONCLUSION source=$SOURCE_SHA"

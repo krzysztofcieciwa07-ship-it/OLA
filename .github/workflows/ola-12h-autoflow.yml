@@ -17,9 +17,9 @@ on:
     branches:
       - main
 
-# A PR run must never replace a queued main/scheduled evidence run.
-# All main triggers intentionally share one group to prevent overlapping
-# schedule, push and Watchdog-dispatched full flows.
+# The 12h schedule is an independent fallback for Watchdog scheduler gaps.
+# PR and main pushes still run immediately; the Watchdog also dispatches when
+# exact-SHA evidence is missing or has exceeded the 12-hour freshness window.
 concurrency:
   group: ola-12h-autoflow-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
@@ -85,8 +85,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-      id-token: write
-      attestations: write
     uses: ./.github/workflows/nina-igor-ollama.yml
 
   classify:

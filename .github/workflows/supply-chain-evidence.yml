@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   scorecard:
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -104,20 +104,43 @@ jobs:
             echo "::error::Supply-chain scanned $checked_out instead of $EXPECTED_SOURCE_SHA"
             exit 1
           fi
-      - name: Secret scan
+      - name: Bootstrap Gitleaks CLI (legacy PR API scan is non-authoritative)
+        id: gitleaks_bootstrap
+        continue-on-error: true
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITLEAKS_ENABLE_COMMENTS: "false"
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "true"
-
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_SUMMARY: "false"
+          GITLEAKS_VERSION: "8.24.3"
+      - name: Set up Python for exact-source Gitleaks verifier
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Run Gitleaks against exact source SHA
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          BEFORE_SHA: ${{ github.event.before || '' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
+          LEGACY_GITLEAKS_OUTCOME: ${{ steps.gitleaks_bootstrap.outcome }}
+        run: python scripts/gitleaks_exact_scan.py
+      - name: Upload exact-source Gitleaks evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gitleaks-exact-source-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            gitleaks-exact-scan.json
+            gitleaks-exact-source-results.sarif
+          if-no-files-found: error
+          retention-days: 14
   security-image:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
-      attestations: write
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -138,8 +161,17 @@ jobs:
 
       - name: Build immutable local image
         env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           IMAGE: ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
-        run: docker build --pull --tag "$IMAGE" --file Dockerfile .
+        run: |
+          set -euo pipefail
+          docker build --pull --build-arg OLA_SOURCE_COMMIT="$EXPECTED_SOURCE_SHA" --tag "$IMAGE" --file Dockerfile .
+          image_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")"
+          if [ "$image_source" != "$EXPECTED_SOURCE_SHA" ]; then
+            echo "::error::Supply-chain image source $image_source does not match $EXPECTED_SOURCE_SHA"
+            exit 1
+          fi
+          printf '%s\n' "$image_source" > image-source-revision.txt
 
       - name: Trivy filesystem and config report
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -179,7 +211,65 @@ jobs:
           artifact-name: ola-sbom-${{ github.event.pull_request.head.sha || github.sha }}.spdx.json
 
       - name: Save immutable image subject
-        run: docker save --output ola-image.tar ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
+        env:
+          IMAGE: ola-supply-chain:${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          docker save --output ola-image.tar "$IMAGE"
+          sha256sum ola-image.tar | tee ola-image.sha256
+          sha256sum sbom.spdx.json | tee sbom.sha256
+
+      - name: Upload supply-chain evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ola-supply-chain-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            trivy-fs-results.sarif
+            sbom.spdx.json
+            ola-image.tar
+            image-source-revision.txt
+            ola-image.sha256
+            sbom.sha256
+          retention-days: 30
+
+  attest-main:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [gitleaks, zizmor, security-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Checkout exact main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download image and SBOM subjects from this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ola-supply-chain-evidence-${{ github.sha }}
+          path: .
+
+      - name: Verify exact-source image and SBOM subjects
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.sha }}
+          IMAGE: ola-supply-chain:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(cat image-source-revision.txt)" = "$EXPECTED_SOURCE_SHA"
+          test "$(sha256sum ola-image.tar | awk '{print $1}')" = "$(awk '{print $1}' ola-image.sha256)"
+          test "$(sha256sum sbom.spdx.json | awk '{print $1}')" = "$(awk '{print $1}' sbom.sha256)"
+          docker load --input ola-image.tar
+          image_source="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")"
+          if [ "$image_source" != "$EXPECTED_SOURCE_SHA" ]; then
+            echo "::error::Attested image source $image_source does not match $EXPECTED_SOURCE_SHA"
+            exit 1
+          fi
 
       - name: Generate SLSA provenance attestation
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
@@ -192,47 +282,31 @@ jobs:
           subject-path: ola-image.tar
           sbom-path: sbom.spdx.json
 
-      - name: Independently verify artifact attestation
+      - name: Independently verify exact-source attestation
         env:
           GH_TOKEN: ${{ github.token }}
+          EXPECTED_SOURCE_SHA: ${{ github.sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_WORKFLOW_PATH: .github/workflows/supply-chain-evidence.yml
+          EXPECTED_WORKFLOW_REF: refs/heads/main
         run: |
           set -euo pipefail
-          gh attestation verify ola-image.tar -R "$GITHUB_REPOSITORY" --format json > attestation-verification.json
-          python - <<'PY'
-          import json
-          import sys
+          gh attestation verify ola-image.tar -R "$EXPECTED_REPOSITORY" --format json > attestation-verification.json
+          python scripts/verify_supply_chain_attestation.py \
+            --attestation attestation-verification.json \
+            --subject ola-image.tar \
+            --expected-source-sha "$EXPECTED_SOURCE_SHA" \
+            --expected-repository "$EXPECTED_REPOSITORY" \
+            --expected-workflow-path "$EXPECTED_WORKFLOW_PATH" \
+            --expected-workflow-ref "$EXPECTED_WORKFLOW_REF" | tee attestation-summary.json
 
-          data=json.load(open("attestation-verification.json",encoding="utf-8"))
-          results=[]
-          for item in data:
-              vr=item.get("verificationResult", {})
-              statement=vr.get("statement", {})
-              results.append({
-                  "statement_type": statement.get("_type"),
-                  "predicate_type": statement.get("predicateType"),
-                  "subject": statement.get("subject"),
-              })
-
-          print(json.dumps({"verification":results},sort_keys=True))
-          if not results:
-              sys.exit("No verified attestation statement returned")
-          if not any(x.get("statement_type")=="https://in-toto.io/Statement/v1" for x in results):
-              sys.exit("IN_TOTO_STATEMENT_MISSING")
-          if not any(x.get("predicate_type")=="https://slsa.dev/provenance/v1" for x in results):
-              sys.exit("SLSA_PROVENANCE_MISSING")
-          PY
-          echo "SIGSTORE=VERIFIED"
-          echo "IN_TOTO=VERIFIED"
-          echo "SLSA_PROVENANCE=VERIFIED"
-
-      - name: Upload supply-chain evidence
+      - name: Upload verified attestation evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ola-supply-chain-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          name: ola-supply-chain-attestation-${{ github.sha }}
           path: |
-            trivy-fs-results.sarif
-            sbom.spdx.json
-            ola-image.tar
             attestation-verification.json
+            attestation-summary.json
+          if-no-files-found: error
           retention-days: 30
