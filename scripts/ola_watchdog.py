@@ -28,6 +28,8 @@ from scripts.ola_watchdog_evidence import verify_nested_artifact_copies, verify_
 ACTIVE_STATUSES = {"queued", "pending", "in_progress", "waiting", "requested"}
 FRESHNESS_SECONDS = 12 * 60 * 60
 MAX_ARTIFACT_ARCHIVE_BYTES = 256 * 1024 * 1024
+MAX_AUTO_SUMMARY_BYTES = 4 * 1024 * 1024
+MAX_CHECKSUM_FILE_BYTES = 4096
 FLOW_WORKFLOW = "ola-12h-autoflow.yml"
 
 
@@ -292,10 +294,20 @@ def verify_aggregator_bundle(
     summary_path = root / "ola-auto-evidence.json"
     checksum_path = root / "ola-auto-evidence.sha256"
     try:
-        raw = summary_path.read_bytes()
-        lines = checksum_path.read_text(encoding="utf-8").splitlines()
+        with summary_path.open("rb") as stream:
+            raw = stream.read(MAX_AUTO_SUMMARY_BYTES + 1)
+        if len(raw) > MAX_AUTO_SUMMARY_BYTES:
+            return False, "aggregator_summary_size_limit", None
+
+        with checksum_path.open("rb") as stream:
+            checksum_raw = stream.read(MAX_CHECKSUM_FILE_BYTES + 1)
+        if len(checksum_raw) > MAX_CHECKSUM_FILE_BYTES:
+            return False, "aggregator_checksum_size_limit", None
+        lines = checksum_raw.decode("utf-8").splitlines()
     except OSError:
         return False, "aggregator_files_missing", None
+    except UnicodeDecodeError:
+        return False, "checksum_manifest_invalid", None
 
     if len(lines) != 1:
         return False, "checksum_manifest_invalid", None

@@ -279,6 +279,34 @@ def test_aggregator_bundle_requires_checksum_exact_sha_and_all_evidence(tmp_path
     assert parsed["source_commit"] == SOURCE_SHA
 
 
+def test_aggregator_bundle_rejects_oversized_summary_without_unbounded_read(tmp_path):
+    from unittest.mock import patch
+
+    write_bundle(tmp_path, valid_summary())
+    (tmp_path / "ola-auto-evidence.json").write_bytes(b" " * (4 * 1024 * 1024 + 1))
+
+    with patch.object(Path, "read_bytes", side_effect=AssertionError("unbounded summary read")):
+        ok, reason, parsed = verify_aggregator_bundle(tmp_path, SOURCE_SHA)
+
+    assert ok is False
+    assert reason == "aggregator_summary_size_limit"
+    assert parsed is None
+
+
+def test_aggregator_bundle_rejects_oversized_checksum_without_unbounded_read(tmp_path):
+    from unittest.mock import patch
+
+    write_bundle(tmp_path, valid_summary())
+    (tmp_path / "ola-auto-evidence.sha256").write_bytes(b"x" * (4096 + 1))
+
+    with patch.object(Path, "read_text", side_effect=AssertionError("unbounded checksum read")):
+        ok, reason, parsed = verify_aggregator_bundle(tmp_path, SOURCE_SHA)
+
+    assert ok is False
+    assert reason == "aggregator_checksum_size_limit"
+    assert parsed is None
+
+
 def test_aggregator_bundle_rejects_missing_nested_evidence_even_with_valid_summary_checksum(tmp_path):
     write_bundle(tmp_path, valid_summary())
 
