@@ -27,11 +27,12 @@ def test_nina_ollama_workflow_is_reusable_not_a_second_pr_or_main_push_trigger()
     assert "- main" not in push
 
 
-def test_12h_flow_is_the_single_full_flow_for_pr_and_main_push():
+def test_12h_flow_retains_fallback_schedule_for_main_and_pr_push():
     triggers = trigger_block(workflow("ola-12h-autoflow.yml"), "concurrency")
     watchdog_triggers = trigger_block(workflow("ola-24x7-watchdog.yml"), "concurrency")
 
-    assert "  schedule:" not in triggers
+    assert "  schedule:" in triggers
+    assert "cron: '17 0,12 * * *'" in triggers
     assert "  workflow_dispatch:" in triggers
     assert "  pull_request:" in triggers
     assert "  push:" in triggers
@@ -77,4 +78,3 @@ def test_final_gate_embedded_python_is_syntactically_valid():
         "final-production-gate.yml::<embedded-python>",
         "exec",
     )
-
