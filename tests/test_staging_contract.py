@@ -40,3 +40,15 @@ def test_staging_workflow_is_unprivileged_and_uses_exact_checkout():
 def test_staging_workflow_runs_on_main_push():
     ci = (ROOT / ".github/workflows/staging-rehearsal.yml").read_text()
     assert "push:\n    branches:\n      - main" in ci
+
+
+def test_release_contract_producers_are_unfiltered_for_pull_requests():
+    for filename in (
+        ".github/workflows/evidence-cryptography-v4.yml",
+        ".github/workflows/paid-order-postgres.yml",
+    ):
+        content = (ROOT / filename).read_text(encoding="utf-8")
+        with open(filename, encoding="utf-8") as stream:
+            pass
+        assert "pull_request:" in content
+        assert "paths:" not in content
