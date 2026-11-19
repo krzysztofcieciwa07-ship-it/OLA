@@ -265,11 +265,15 @@ jobs:
             echo "FAIL: service remained responsive while container was paused"; docker unpause ola-e2e || true; exit 1
           fi
           docker unpause ola-e2e
-          for i in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then echo "REAL_RUNTIME_FAULT_RECOVERY=VERIFIED commit=${EXPECTED_COMMIT}"; exit 0; fi
+          for i in $(seq 1 60); do
+            docker_health="$(docker inspect --format '{{.State.Health.Status}}' ola-e2e)"
+            if [ "$docker_health" = "healthy" ] && curl --fail --silent --max-time 2 http://127.0.0.1:8000/health >/dev/null; then
+              echo "REAL_RUNTIME_FAULT_RECOVERY=VERIFIED commit=${EXPECTED_COMMIT} docker_health=${docker_health}"
+              exit 0
+            fi
             sleep 1
           done
-          docker logs ola-e2e; exit 1
+          docker inspect ola-e2e; docker logs ola-e2e; exit 1
 
       - name: Capture runtime proof artifact
         if: always()

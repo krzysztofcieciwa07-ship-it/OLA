@@ -133,6 +133,16 @@ class ReleaseSourceBindingTest(unittest.TestCase):
                 self.assertIn("org.opencontainers.image.revision", content)
                 self.assertIn("OLA_RUNTIME_COMMIT", content)
 
+    def test_e2e_fault_recovery_waits_for_docker_healthcheck_healthy(self):
+        content = (ROOT / ".github/workflows/e2e.yml").read_text(encoding="utf-8")
+        recovery = content.split(
+            "      - name: Real runtime fault injection and recovery", 1
+        )[1].split("      - name: Capture runtime proof artifact", 1)[0]
+        self.assertIn("docker inspect --format '{{.State.Health.Status}}' ola-e2e", recovery)
+        self.assertIn('[ "$docker_health" = "healthy" ]', recovery)
+        self.assertIn("for i in $(seq 1 60)", recovery)
+        self.assertIn("REAL_RUNTIME_FAULT_RECOVERY=VERIFIED", recovery)
+
     def test_independent_igor_uses_the_same_legacy_pepper_source_as_nina(self):
         nina = (ROOT / ".github/workflows/nina-real-runtime-provenance.yml").read_text(encoding="utf-8")
         igor = (ROOT / ".github/workflows/igor-independent-evidence.yml").read_text(encoding="utf-8")
