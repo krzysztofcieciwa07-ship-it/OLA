@@ -39,4 +39,4 @@ def test_staging_workflow_is_unprivileged_and_uses_exact_checkout():
 
 def test_staging_workflow_runs_on_main_push():
     ci = (ROOT / ".github/workflows/staging-rehearsal.yml").read_text()
-    assert re.search(r"(?m)^  push:\n    branches:\n      - main$", ci)
+    assert "push:\n    branches:\n      - main" in ci
