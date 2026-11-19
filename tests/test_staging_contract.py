@@ -48,7 +48,5 @@ def test_release_contract_producers_are_unfiltered_for_pull_requests():
         ".github/workflows/paid-order-postgres.yml",
     ):
         content = (ROOT / filename).read_text(encoding="utf-8")
-        with open(filename, encoding="utf-8") as stream:
-            pass
         assert "pull_request:" in content
         assert "paths:" not in content
