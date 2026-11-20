@@ -1,6 +1,6 @@
-import tempfile, unittest
+import tempfile, unittest, os
 from pathlib import Path
-from crypto_payment_monitor.monitor import Ledger, _address_topic, _topic_address
+from crypto_payment_monitor.monitor import Ledger, Monitor, _address_topic, _topic_address
 from crypto_payment_monitor.config import Config
 
 class MonitorTests(unittest.TestCase):
@@ -28,6 +28,29 @@ class MonitorTests(unittest.TestCase):
         for url in ("http://provider.invalid","https://user:pass@provider.invalid"):
             with self.assertRaises(ValueError):
                 Config(ethereum_rpc_url=url,bitcoin_esplora_url=None).validate()
+    def test_evm_cursor_rescans_overlap(self):
+        with tempfile.TemporaryDirectory() as d:
+            ledger=Ledger(str(Path(d)/"events.jsonl"))
+            m=Monitor(Config(ethereum_rpc_url=None,bitcoin_esplora_url=None),ledger,state_path=str(Path(d)/"state.json"))
+            m.watch_evm=["0x"+"a"*40]
+            m.state={"evm_cursor":100}
+            class RPC:
+                def call(self,method,params): return "0x6d"
+            m.rpc=RPC()
+            ranges=[]
+            m._evm_scan_range=lambda start,end: ranges.append((start,end)) or []
+            old_overlap=os.environ.get("EVM_RESCAN_OVERLAP")
+            old_chunk=os.environ.get("EVM_SCAN_CHUNK")
+            try:
+                os.environ["EVM_RESCAN_OVERLAP"]="10"
+                os.environ["EVM_SCAN_CHUNK"]="100"
+                m.scan_evm()
+                self.assertEqual(ranges,[(90,109)])
+            finally:
+                if old_overlap is None: os.environ.pop("EVM_RESCAN_OVERLAP",None)
+                else: os.environ["EVM_RESCAN_OVERLAP"]=old_overlap
+                if old_chunk is None: os.environ.pop("EVM_SCAN_CHUNK",None)
+                else: os.environ["EVM_SCAN_CHUNK"]=old_chunk
     def test_config_defaults(self):
         Config().validate()
 if __name__=="__main__": unittest.main()
