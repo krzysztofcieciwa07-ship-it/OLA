@@ -28,11 +28,14 @@ def _tenant_with_key():
     return tenant_id, raw_key
 
 
-def _create_evidence(api_key, record_type, value):
+def _create_evidence(api_key, record_type, value, *, run_id=None):
+    payload = {"value": value}
+    if run_id is not None:
+        payload["run_id"] = run_id
     response = CLIENT.post(
         "/evidence",
         headers={"X-API-Key": api_key},
-        json={"record_type": record_type, "payload": {"value": value}},
+        json={"record_type": record_type, "payload": payload},
     )
     assert response.status_code == 200, response.text
     return response.json()
@@ -139,3 +142,86 @@ def test_evidence_list_requires_authentication_and_valid_pagination():
         params={"before_seq": -1},
     )
     assert response.status_code == 400, response.text
+
+
+
+def test_evidence_list_filters_by_run_id_and_preserves_tenant_isolation():
+    tenant_a, key_a = _tenant_with_key()
+    tenant_b, key_b = _tenant_with_key()
+    run_id = str(uuid.uuid4())
+    other_run_id = str(uuid.uuid4())
+
+    first = _create_evidence(key_a, "test.run.started", 1, run_id=run_id)
+    _create_evidence(key_a, "test.run.progress", 2, run_id=other_run_id)
+    second = _create_evidence(key_a, "test.run.completed", 3, run_id=run_id)
+    _create_evidence(key_b, "test.run.completed", 99, run_id=run_id)
+
+    response = CLIENT.get(
+        "/evidence",
+        headers={"X-API-Key": key_a},
+        params={"run_id": run_id, "limit": 20},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["run_id"] == run_id
+    assert body["scope"] == "run_subset"
+    assert body["chain_status"] == "NOT_VERIFIED"
+    assert body["count"] == 2
+    assert [record["seq"] for record in body["records"]] == [
+        second["seq"],
+        first["seq"],
+    ]
+    assert all(record["tenant_id"] == tenant_a for record in body["records"])
+    assert all(record["payload"]["run_id"] == run_id for record in body["records"])
+
+    other_tenant = CLIENT.get(
+        "/evidence",
+        headers={"X-API-Key": key_b},
+        params={"run_id": run_id, "limit": 20},
+    )
+    assert other_tenant.status_code == 200, other_tenant.text
+    assert other_tenant.json()["count"] == 1
+    assert all(
+        record["tenant_id"] == tenant_b
+        for record in other_tenant.json()["records"]
+    )
+
+
+def test_evidence_list_run_filter_paginates_and_validates_uuid():
+    _, key = _tenant_with_key()
+    run_id = str(uuid.uuid4())
+    records = [
+        _create_evidence(key, f"test.run.{index}", index, run_id=run_id)
+        for index in (1, 2, 3)
+    ]
+
+    first_page = CLIENT.get(
+        "/evidence",
+        headers={"X-API-Key": key},
+        params={"run_id": run_id, "limit": 2},
+    )
+    assert first_page.status_code == 200, first_page.text
+    first_body = first_page.json()
+    assert [row["seq"] for row in first_body["records"]] == [
+        records[2]["seq"],
+        records[1]["seq"],
+    ]
+
+    cursor = first_body["records"][-1]["seq"]
+    second_page = CLIENT.get(
+        "/evidence",
+        headers={"X-API-Key": key},
+        params={"run_id": run_id, "limit": 2, "before_seq": cursor},
+    )
+    assert second_page.status_code == 200, second_page.text
+    assert [row["seq"] for row in second_page.json()["records"]] == [
+        records[0]["seq"]
+    ]
+
+    invalid = CLIENT.get(
+        "/evidence",
+        headers={"X-API-Key": key},
+        params={"run_id": "not-a-uuid"},
+    )
+    assert invalid.status_code == 400, invalid.text
