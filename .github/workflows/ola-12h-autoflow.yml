@@ -174,11 +174,18 @@ jobs:
               && test -s downloaded/independent-igor/evidence-bundle/integrity/bundle-files.sha256 \
               && (cd downloaded/independent-igor && sha256sum --check --strict evidence-bundle/integrity/bundle-files.sha256) \
               && python - <<'PY'
-          import json, os
+          import json, os, sqlite3
           from pathlib import Path
           root = Path("downloaded/independent-igor/evidence-bundle")
           manifest = json.loads((root / "MANIFEST.json").read_text())
           result = json.loads((root / "verification/igor-result.json").read_text())
+          context = json.loads((root / "runtime/nina-ollama-proof-context.json").read_text())
+          db = sqlite3.connect(root / "runtime/nina-ollama-evidence.sqlite3")
+          tenant_chain_count = db.execute(
+              "SELECT COUNT(*) FROM evidence_records WHERE tenant_id=?",
+              (context["tenant_id"],),
+          ).fetchone()[0]
+          db.close()
           assert manifest["source_commit"] == os.environ["SOURCE_COMMIT"]
           assert manifest["igor"] == "VERIFIED"
           assert manifest["tamper"] == "BLOCK"
@@ -187,6 +194,11 @@ jobs:
           assert result["status"] == "VERIFIED"
           assert result["tamper"] == "BLOCK"
           assert result["human_gate"] == "PENDING"
+          assert result["evidence_count"] == 6
+          assert result["run_scoped_agent_event_count"] == result["evidence_count"]
+          assert result["tenant_chain_record_count"] == tenant_chain_count
+          assert manifest["run_scoped_agent_event_count"] == result["run_scoped_agent_event_count"]
+          assert manifest["tenant_chain_record_count"] == tenant_chain_count
           PY
             then
               independent_igor_evidence="VERIFIED"
