@@ -34,7 +34,8 @@ def main():
  args=ap.parse_args()
  if args.sample_size<0: ap.error("--sample-size must be >= 0")
  if not math.isfinite(args.timestamp_tolerance_seconds) or args.timestamp_tolerance_seconds<0: ap.error("timestamp tolerance must be finite and >= 0")
- db_bytes=Path(args.db_jsonl).read_bytes(); log_bytes=Path(args.logs_jsonl).read_bytes()\n db=index(load(args.db_jsonl),"DB"); logs=index(load(args.logs_jsonl),"LOG")
+ db_bytes=Path(args.db_jsonl).read_bytes(); log_bytes=Path(args.logs_jsonl).read_bytes()
+ db=index(load(args.db_jsonl),"DB"); logs=index(load(args.logs_jsonl),"LOG")
  db_ids=set(db); log_ids=set(logs); missing_logs=sorted(db_ids-log_ids); orphan_logs=sorted(log_ids-db_ids); common=sorted(db_ids&log_ids)
  if args.sample_size==0 or args.sample_size>=len(common): sample=common
  else: sample=sorted(secrets.SystemRandom().sample(common,args.sample_size))
