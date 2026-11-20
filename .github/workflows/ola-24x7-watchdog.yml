@@ -27,18 +27,27 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Inspect runtime health
+      - name: Inspect runtime health for exact main SHA
+        id: target
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh run list --workflow ola-12h-autoflow.yml --branch main --limit 5 --json databaseId,status,conclusion,createdAt,updatedAt > autoflow-runs.json
+          test "$GITHUB_REF" = "refs/heads/main"
+          TARGET_SHA="$(git rev-parse HEAD)"
+          echo "TARGET_SHA=$TARGET_SHA"
+          gh run list --workflow ola-12h-autoflow.yml --branch main --limit 100 --json databaseId,status,conclusion,createdAt,updatedAt,headSha > autoflow-runs.json
           python - <<'PY'
           import json
-          rows=json.load(open("autoflow-runs.json"))
-          print("AUTOFLOW_RECENT_RUNS")
+          rows=json.load(open("autoflow-runs.json", encoding="utf-8"))
+          print("AUTOFLOW_RUNS_FETCHED", len(rows))
           for r in rows:
-              print(r)
+              print({
+                  "headSha": r.get("headSha"),
+                  "status": r.get("status"),
+                  "conclusion": r.get("conclusion"),
+                  "createdAt": r.get("createdAt"),
+              })
           PY
 
       - name: Run local quality smoke gate
@@ -47,27 +56,18 @@ jobs:
           python -m pip install -r requirements.txt
           pytest -q tests/test_decision_report.py tests/test_igor.py tests/test_independent_verifier_tamper.py tests/test_contradiction_replay.py
 
-      - name: Dispatch full evidence flow when healthy and stale
+      - name: Dispatch full evidence flow only when exact-SHA health is stale
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          TARGET_SHA="$(git rev-parse HEAD)"
           set +e
-          python - <<'PY'
-          import json, time, datetime
-          rows=json.load(open("autoflow-runs.json"))
-          now=time.time()
-          active=any(r.get("status") in {"queued","in_progress","waiting","requested"} for r in rows)
-          recent=any(
-              r.get("createdAt") and
-              now-datetime.datetime.fromisoformat(r["createdAt"].replace("Z","+00:00")).timestamp() < 900
-              for r in rows
-          )
-          if active or recent:
-              print("FULL_FLOW=NOT_DISPATCHED reason=active_or_recent")
-              raise SystemExit(2)
-          print("FULL_FLOW=DISPATCH")
-          PY
+          python scripts/ola_watchdog_decision.py \
+            --target-sha "$TARGET_SHA" \
+            --runs-file autoflow-runs.json \
+            --max-success-age 12h \
+            --cooldown 15m
           status=$?
           set -e
           if [ "$status" -eq 0 ]; then
