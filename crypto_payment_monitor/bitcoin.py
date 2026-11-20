@@ -24,7 +24,8 @@ class Esplora:
             if not isinstance(data,list): raise ValueError("unexpected Esplora pagination response")
             fresh=[x for x in data if x.get("txid") and x["txid"] not in seen]
             if not fresh: break
-            out.extend(fresh); seen.update(x["txid"] for x in fresh); pages+=1\n            if len(data)<25: break
+            out.extend(fresh); seen.update(x["txid"] for x in fresh); pages+=1
+            if len(data)<25: break
         if pages>=max_pages and len(out)>=25: raise RuntimeError("Esplora pagination safety limit reached")
         return out
     def tip_height(self)->int:
