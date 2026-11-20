@@ -3,7 +3,7 @@ on:
   pull_request:
     paths:
       - 'crypto_payment_monitor/**'
-      - 'docs/crypto-payment-monitor.md'
+      - 'docs/crypto-payment-monitor.md'\n      - '.github/workflows/crypto-monitor-tests.yml'
   push:
     branches: [main]
     paths:
