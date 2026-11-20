@@ -127,6 +127,20 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('test "$(cat runtime-image-revision.txt)" = "$EXPECTED_SOURCE_SHA"', workflow)
         self.assertIn('OLA_BUILD_EXPECTED_SHA="$EXPECTED_SOURCE_SHA"', workflow)
         self.assertIn("source_commit: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+    def test_supply_chain_push_attests_exact_branch_source_and_image_label(self):
+        workflow = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
+        for required in (
+            '"fix/**"',
+            "--build-arg OLA_SOURCE_COMMIT=",
+            'test "$image_source" = "$EXPECTED_SOURCE_SHA"',
+            "git archive --format=tar.gz",
+            "Generate SLSA provenance attestation for exact source snapshot",
+            'dependency.get("digest",{}).get("gitCommit")==expected',
+            'echo "SOURCE_SLSA_EXACT_COMMIT=VERIFIED"',
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, workflow)
+
     def test_pull_request_manifest_never_claims_attestation(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main' && success()", content)
