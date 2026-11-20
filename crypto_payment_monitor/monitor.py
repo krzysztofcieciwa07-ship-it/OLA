@@ -101,7 +101,7 @@ class Monitor:
                 if value<=0: continue
                 receipt=self.rpc.get_receipt(tx.get("hash"))
                 if not receipt or receipt.get("status") not in ("0x1","0x01"): continue
-                base={"event_id":f"eth:{self.config.ethereum_chain_id}:{tx['hash']}","chain":"ethereum","chain_id":self.config.ethereum_chain_id,"asset":"ETH","tx_hash":tx["hash"],"recipient":recipient.lower(),"amount_base_units":value,"block_height":height,"block_hash":block.get("hash"),"status":"detected","observed_at":int(time.time())}
+                base={"event_id":f"eth:{self.config.ethereum_chain_id}:{tx['hash']}","chain":"ethereum","chain_id":self.config.ethereum_chain_id,"asset":"ETH","tx_hash":tx["hash"],"recipient":recipient.lower(),"amount_base_units":value,"block_height":height,"block_hash":block.get("hash"),"status":"confirmed","confirmations":self.config.confirmations_eth,"observed_at":int(time.time())}
                 if self._emit(base): emitted.append(base)
         for symbol,contract in self.tokens.items():
             for recipient in self.watch_evm:
