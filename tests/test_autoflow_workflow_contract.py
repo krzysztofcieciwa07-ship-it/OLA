@@ -1,7 +1,6 @@
 from pathlib import Path
 import textwrap
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -74,3 +73,23 @@ def test_final_gate_embedded_python_is_syntactically_valid():
         "final-production-gate.yml::<embedded-python>",
         "exec",
     )
+
+
+def test_staging_rehearsal_runs_on_main_push_and_pr():
+    triggers = trigger_block(workflow("staging-rehearsal.yml"), "permissions")
+
+    assert "  pull_request:" in triggers
+    assert "  push:" in triggers
+    assert "    branches:" in triggers
+    assert "      - main" in triggers
+    assert "  workflow_dispatch:" in triggers
+
+
+def test_watchdog_queries_and_decides_for_exact_main_sha():
+    source = workflow("ola-24x7-watchdog.yml")
+
+    assert "headSha" in source
+    assert "TARGET_SHA" in source
+    assert "ola_watchdog_decision.py" in source
+    assert "12h" in source
+    assert "--limit 100" in source

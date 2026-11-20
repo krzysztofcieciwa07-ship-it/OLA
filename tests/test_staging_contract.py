@@ -35,3 +35,18 @@ def test_staging_workflow_is_unprivileged_and_uses_exact_checkout():
     assert "secrets.token_hex(32)" in ci
     assert "scripts/staging_rehearsal.py" in ci
     assert "staging-proof.json" in ci
+
+
+def test_staging_workflow_runs_on_main_push():
+    ci = (ROOT / ".github/workflows/staging-rehearsal.yml").read_text()
+    assert "push:\n    branches:\n      - main" in ci
+
+
+def test_release_contract_producers_are_unfiltered_for_pull_requests():
+    for filename in (
+        ".github/workflows/evidence-cryptography-v4.yml",
+        ".github/workflows/paid-order-postgres.yml",
+    ):
+        content = (ROOT / filename).read_text(encoding="utf-8")
+        assert "pull_request:" in content
+        assert "paths:" not in content

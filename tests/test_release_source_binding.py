@@ -135,5 +135,12 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('status="PREMERGE_CI_PASSED"', content)
 
 
+
+    def test_final_gate_scopes_required_runs_to_source_branch(self):
+        content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        self.assertIn('pull_request) event_filter="&event=pull_request&branch=${GITHUB_HEAD_REF}" ;;', content)
+        self.assertIn('push) event_filter="&event=push&branch=main" ;;', content)
+        self.assertIn('workflow_dispatch) event_filter="&branch=${GITHUB_REF_NAME}" ;;', content)
+        self.assertIn('head_sha=${target_sha}${event_filter}&per_page=100', content)
 if __name__ == "__main__":
     unittest.main()
