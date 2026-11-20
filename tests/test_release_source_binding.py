@@ -131,6 +131,7 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/supply-chain-evidence.yml").read_text(encoding="utf-8")
         for required in (
             '"fix/**"',
+            "github.event_name != 'pull_request' && github.ref == 'refs/heads/main'",
             "--build-arg OLA_SOURCE_COMMIT=",
             'test "$image_source" = "$EXPECTED_SOURCE_SHA"',
             "git archive --format=tar.gz",
