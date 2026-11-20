@@ -45,7 +45,9 @@ class MonitorTests(unittest.TestCase):
                 os.environ["EVM_RESCAN_OVERLAP"]="10"
                 os.environ["EVM_SCAN_CHUNK"]="100"
                 m.scan_evm()
-                self.assertEqual(ranges,[(90,109)])
+                # 0x6d is block 109; the default confirmations exclude
+                # unconfirmed blocks, so the confirmed scan head is 98.
+                self.assertEqual(ranges,[(90,98)])
             finally:
                 if old_overlap is None: os.environ.pop("EVM_RESCAN_OVERLAP",None)
                 else: os.environ["EVM_RESCAN_OVERLAP"]=old_overlap
