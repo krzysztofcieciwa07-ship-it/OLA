@@ -1,10 +1,14 @@
+import asyncio
 import uuid
+
+import httpx
 
 from fastapi.testclient import TestClient
 
 from app.api_key_hashing import api_key_fingerprint
 from app.database import SessionLocal
 from app.main import app
+from app.evidence_v4 import MAX_PAYLOAD_BYTES
 from app.models import ApiKey, EvidenceRecord, Tenant
 
 
@@ -139,3 +143,84 @@ def test_evidence_list_requires_authentication_and_valid_pagination():
         params={"before_seq": -1},
     )
     assert response.status_code == 400, response.text
+
+
+def test_public_evidence_rejects_oversized_or_deep_payloads_as_client_errors():
+    tenant_id, key = _tenant_with_key()
+    before = _record_count(tenant_id)
+    oversized = CLIENT.post(
+        "/evidence",
+        headers={"X-API-Key": key},
+        json={"record_type": "generic", "payload": {"value": "x" * (1024 * 1024)}},
+    )
+    assert oversized.status_code == 400, oversized.text
+
+    nested = {"leaf": True}
+    for _ in range(40):
+        nested = {"nested": nested}
+    too_deep = CLIENT.post(
+        "/evidence",
+        headers={"X-API-Key": key},
+        json={"record_type": "generic", "payload": nested},
+    )
+    assert too_deep.status_code == 400, too_deep.text
+    assert _record_count(tenant_id) == before
+
+
+def test_public_evidence_maps_post_envelope_v4_size_failure_to_400():
+    tenant_id, key = _tenant_with_key()
+    before = _record_count(tenant_id)
+    # The caller payload is valid and just below the V4 byte ceiling. The
+    # authenticated V4 metadata envelope pushes the stored JSON over it.
+    payload = {"blob": "x" * (MAX_PAYLOAD_BYTES - len('{"blob":""}') - 1)}
+    response = CLIENT.post(
+        "/evidence",
+        headers={"X-API-Key": key},
+        json={"record_type": "generic", "payload": payload},
+    )
+    assert response.status_code == 400, response.text
+    assert _record_count(tenant_id) == before
+
+
+
+def test_public_evidence_rejects_oversized_raw_request_before_json_parse():
+    tenant_id, key = _tenant_with_key()
+    before = _record_count(tenant_id)
+    raw = (
+        b'{"record_type":"generic","payload":{"value":"'
+        + b"x" * (MAX_PAYLOAD_BYTES + 4096 + 1)
+        + b'"}}'
+    )
+    response = CLIENT.post(
+        "/evidence",
+        headers={"X-API-Key": key, "Content-Type": "application/json"},
+        content=raw,
+    )
+    assert response.status_code == 413, response.text
+    assert response.json() == {"detail": "evidence request body too large"}
+    assert _record_count(tenant_id) == before
+
+
+def test_public_evidence_rejects_oversized_chunked_body_without_content_length():
+    tenant_id, key = _tenant_with_key()
+    before = _record_count(tenant_id)
+
+    async def chunks():
+        yield b'{"record_type":"generic","payload":{"value":"'
+        yield b"x" * (MAX_PAYLOAD_BYTES + 4096 + 1)
+        yield b'"}}'
+
+    async def request():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.post(
+                "/evidence",
+                headers={"X-API-Key": key, "Content-Type": "application/json"},
+                content=chunks(),
+            )
+
+    response = asyncio.run(request())
+    assert response.status_code == 413, response.text
+    assert response.json() == {"detail": "evidence request body too large"}
+    assert _record_count(tenant_id) == before

@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, pathlib, os, subprocess
+          import json, pathlib, os, subprocess, sqlite3
           root=pathlib.Path("nina-evidence")
           proof=json.loads((root/"nina-igor-ollama-proof.json").read_text())
           context=json.loads((root/"nina-ollama-proof-context.json").read_text())
@@ -126,8 +126,17 @@ jobs:
           if result.returncode:
             raise SystemExit(result.stdout+"\n"+result.stderr)
           verified=json.loads(result.stdout.splitlines()[-1])
+          db=sqlite3.connect(root/"nina-ollama-evidence.sqlite3")
+          tenant_chain_record_count=db.execute(
+            "SELECT COUNT(*) FROM evidence_records WHERE tenant_id=?",
+            (context["tenant_id"],),
+          ).fetchone()[0]
+          db.close()
           assert verified["status"] == "VERIFIED", verified
           assert verified["evidence_count"] == 6, verified
+          assert verified["run_scoped_agent_event_count"] == 6, verified
+          assert verified["tenant_chain_record_count"] == tenant_chain_record_count, verified
+          assert tenant_chain_record_count >= verified["run_scoped_agent_event_count"]
           assert verified["agent_instance_count"] == 6, verified
           assert verified["unique_context_count"] == 6, verified
           assert verified["execution_boundary"] == "in_process", verified
@@ -190,9 +199,15 @@ jobs:
           cp nina-artifact-api-digest.txt evidence-bundle/integrity/
           cp tamper-verifier.log evidence-bundle/tamper/
           python - <<'PY'
-          import json, os, pathlib, subprocess
+          import json, os, pathlib, sqlite3
           root=pathlib.Path("evidence-bundle")
           context=json.loads((root/"runtime"/"nina-ollama-proof-context.json").read_text())
+          db=sqlite3.connect(root/"runtime"/"nina-ollama-evidence.sqlite3")
+          tenant_chain_record_count=db.execute(
+            "SELECT COUNT(*) FROM evidence_records WHERE tenant_id=?",
+            (context["tenant_id"],),
+          ).fetchone()[0]
+          db.close()
           result={
             "status":"VERIFIED",
             "verifier":"IGOR",
@@ -202,6 +217,8 @@ jobs:
             "provider":"ollama",
             "model":os.environ["OLLAMA_MODEL"],
             "evidence_count":6,
+            "run_scoped_agent_event_count":6,
+            "tenant_chain_record_count":tenant_chain_record_count,
             "hash_chain":"VERIFIED",
             "tamper":"BLOCK",
             "replay":"VERIFIED",
@@ -217,6 +234,8 @@ jobs:
             "run_id":context["run_id"],
             "provider":"ollama",
             "model":os.environ["OLLAMA_MODEL"],
+            "run_scoped_agent_event_count":6,
+            "tenant_chain_record_count":tenant_chain_record_count,
             "igor":"VERIFIED",
             "tamper":"BLOCK",
             "human_gate":"PENDING"

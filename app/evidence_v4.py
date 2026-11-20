@@ -292,6 +292,7 @@ def verify_mixed_chain(
     expected_prev = GENESIS_HASH
     expected_tenant: str | None = None
     legacy_segment: list[Mapping[str, Any]] = []
+    saw_v4 = False
 
     def flush_legacy() -> tuple[bool, str]:
         nonlocal legacy_segment
@@ -346,7 +347,10 @@ def verify_mixed_chain(
                     return False, "V4 authentication failed"
             except EvidenceV4Error as exc:
                 return False, str(exc)
+            saw_v4 = True
         elif version in (1, 2, 3):
+            if saw_v4:
+                return False, "legacy record after V4 cutover"
             legacy_segment.append(record)
         else:
             return False, "unsupported evidence version"

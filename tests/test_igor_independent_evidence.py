@@ -156,3 +156,30 @@ def test_igor_rejects_duplicate_json_members_in_v4():
         legacy["records"] + [row], _environment(legacy, v4)
     )
     assert not ok
+
+
+def test_igor_rejects_validly_hashed_legacy_record_after_v4_cutover():
+    legacy = _legacy_fixture()
+    v4 = _v4_fixture()
+    post_v4 = dict(legacy["records"][1])
+    post_v4["seq"] = v4["record"]["seq"] + 1
+    post_v4["prev_hash"] = v4["record"]["record_hash"]
+    payload = json.loads(post_v4["payload_json"])
+    common = {
+        "tenant_id": post_v4["tenant_id"],
+        "seq": post_v4["seq"],
+        "prev_hash": post_v4["prev_hash"],
+        "record_type": post_v4["record_type"],
+        "producer": payload["__ola_evidence_v2__"]["producer"],
+        "payload_json": post_v4["payload_json"],
+    }
+    material = json.dumps(
+        {"domain": "OLA-EVIDENCE-CHAIN-V2", **common},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")
+    post_v4["record_hash"] = hashlib.sha256(material).hexdigest()
+    ok, reason = independent.verify_chain(
+        legacy["records"] + [v4["record"], post_v4], _environment(legacy, v4)
+    )
+    assert not ok
+    assert reason == "legacy record after V4 cutover"

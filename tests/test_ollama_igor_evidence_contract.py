@@ -17,6 +17,8 @@ class OllamaIndependentEvidenceContractTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/igor-independent-ollama-evidence.yml").read_text(encoding="utf-8")
         for required in (
             "scripts/verify_agent_runtime.py",
+            "run_scoped_agent_event_count",
+            "tenant_chain_record_count",
             "--expected-provider",
             "ollama",
             "--expected-invocation-type",
@@ -26,6 +28,18 @@ class OllamaIndependentEvidenceContractTest(unittest.TestCase):
             "TAMPER_MUTATION=BLOCK",
             "ATTESTED",
             "HUMAN_GATE=PENDING",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, workflow)
+
+    def test_12h_classifier_reconciles_signed_igor_counters_with_sqlite(self):
+        workflow = (ROOT / ".github/workflows/ola-12h-autoflow.yml").read_text(encoding="utf-8")
+        for required in (
+            "run_scoped_agent_event_count",
+            "tenant_chain_record_count",
+            "nina-ollama-evidence.sqlite3",
+            'result["tenant_chain_record_count"] == tenant_chain_count',
+            'manifest["tenant_chain_record_count"] == tenant_chain_count',
         ):
             with self.subTest(required=required):
                 self.assertIn(required, workflow)

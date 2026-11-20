@@ -31,7 +31,85 @@ from .order_approval import approve_paid_order, PaidOrderApprovalRejected
 from .paid_order_execution import execute_paid_order_job, verify_worker_token, PaidOrderExecutionRejected
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
 
+from .evidence_v4 import MAX_PAYLOAD_BYTES
+
+MAX_EVIDENCE_REQUEST_BYTES = MAX_PAYLOAD_BYTES + 4096
+
+
+class EvidenceRequestBodyLimitMiddleware:
+    """Bound public evidence request bytes before FastAPI JSON parsing."""
+
+    def __init__(self, app):
+        self.app = app
+        self.max_bytes = MAX_EVIDENCE_REQUEST_BYTES
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope.get("type") != "http"
+            or scope.get("method") != "POST"
+            or scope.get("path") not in {"/evidence", "/evidence/"}
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        headers = scope.get("headers", [])
+        content_lengths = [value for name, value in headers if name.lower() == b"content-length"]
+        has_transfer_encoding = any(name.lower() == b"transfer-encoding" for name, _ in headers)
+        if content_lengths and has_transfer_encoding:
+            await self._reject(scope, receive, send, 400, "ambiguous request framing")
+            return
+        if content_lengths:
+            if len(content_lengths) != 1:
+                await self._reject(scope, receive, send, 400, "invalid content length")
+                return
+            try:
+                declared = int(content_lengths[0])
+            except ValueError:
+                await self._reject(scope, receive, send, 400, "invalid content length")
+                return
+            if declared < 0:
+                await self._reject(scope, receive, send, 400, "invalid content length")
+                return
+            if declared > self.max_bytes:
+                await self._reject(scope, receive, send, 413, "evidence request body too large")
+                return
+
+        chunks = []
+        total = 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            if message["type"] != "http.request":
+                continue
+            chunk = message.get("body", b"")
+            total += len(chunk)
+            if total > self.max_bytes:
+                await self._reject(scope, receive, send, 413, "evidence request body too large")
+                return
+            chunks.append(chunk)
+            if not message.get("more_body", False):
+                break
+
+        body = b"".join(chunks)
+        body_sent = False
+
+        async def replay_receive():
+            nonlocal body_sent
+            if body_sent:
+                return {"type": "http.disconnect"}
+            body_sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+    async def _reject(self, scope, receive, send, status, detail):
+        response = JSONResponse({"detail": detail}, status_code=status)
+        await response(scope, receive, send)
+
+
 app = FastAPI(title="OLA Execution Gate")
+app.add_middleware(EvidenceRequestBodyLimitMiddleware)
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
@@ -174,6 +252,13 @@ def core_readiness():
     pepper = os.getenv("OLA_API_KEY_PEPPER", "")
     if len(pepper.encode("utf-8")) < 32:
         failed.append("api_key_pepper")
+
+    try:
+        from .evidence_v4 import load_keyring
+        load_keyring()
+    except Exception:
+        # Key material and parser details must never enter readiness output.
+        failed.append("evidence_v4_keyring")
 
     try:
         with engine.connect() as conn:
@@ -637,7 +722,9 @@ def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
     # trusted NINA execution, DAG timing, or Human Gate producers. The local
     # hash chain proves record integrity, not who caused a record to be written.
     from .hashchain import is_privileged_type, EVIDENCE_META_KEY
-    from .evidence_v4 import V4_META_KEY
+    from .evidence_v4 import (
+        V4_META_KEY, InvalidRecordError, canonical_json as canonical_v4_json,
+    )
     if is_privileged_type(record_type):
         raise HTTPException(status_code=403, detail="reserved internal evidence type")
     payload = body.get("payload", {})
@@ -645,7 +732,16 @@ def create_evidence(body: dict, x_api_key: str | None = Header(default=None)):
         raise HTTPException(status_code=400, detail="evidence payload must be a JSON object")
     if EVIDENCE_META_KEY in payload or V4_META_KEY in payload:
         raise HTTPException(status_code=400, detail="reserved evidence metadata")
-    return append_evidence_atomic(tenant_id, record_type, payload, producer_id="tenant_api")
+    try:
+        canonical_v4_json(payload)
+    except InvalidRecordError:
+        raise HTTPException(status_code=400, detail="invalid evidence payload") from None
+    try:
+        return append_evidence_atomic(tenant_id, record_type, payload, producer_id="tenant_api")
+    except InvalidRecordError:
+        # V4 metadata is added inside the writer. A caller payload may pass
+        # canonicalization here but exceed the storage ceiling after sealing.
+        raise HTTPException(status_code=400, detail="invalid evidence payload") from None
 
 
 @app.post("/audit")

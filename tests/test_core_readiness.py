@@ -12,6 +12,28 @@ def client():
     return TestClient(app)
 
 
+def _set_v4_keyring(monkeypatch):
+    import base64
+    import json
+    monkeypatch.setenv(
+        "OLA_EVIDENCE_V4_KEYRING_JSON",
+        json.dumps({"test-v4": base64.b64encode(b"k" * 32).decode("ascii")}),
+    )
+    monkeypatch.setenv("OLA_EVIDENCE_V4_ACTIVE_KEY_ID", "test-v4")
+
+
+def test_readyz_blocks_if_v4_keyring_missing(monkeypatch):
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "a" * 40)
+    monkeypatch.setenv("OLA_API_KEY_PEPPER", "runtime-check-fixture-0123456789abcdef")
+    monkeypatch.delenv("OLA_EVIDENCE_V4_KEYRING_JSON", raising=False)
+    monkeypatch.delenv("OLA_EVIDENCE_V4_ACTIVE_KEY_ID", raising=False)
+    response = client().get("/readyz")
+    assert response.status_code == 503
+    assert "evidence_v4_keyring" in response.json()["failed_checks"]
+    assert "OLA_EVIDENCE_V4_KEYRING_JSON" not in response.text
+    assert "V4 keyring unavailable" not in response.text
+
+
 def test_readyz_blocks_if_commit_missing(monkeypatch):
     monkeypatch.setenv("OLA_API_KEY_PEPPER", "runtime-check-fixture-0123456789abcdef")
     monkeypatch.delenv("OLA_RUNTIME_COMMIT", raising=False)
@@ -32,6 +54,7 @@ def test_readyz_blocks_if_auth_pepper_missing(monkeypatch):
 
 
 def test_readyz_does_not_leak_pepper_and_returns_core_only(monkeypatch):
+    _set_v4_keyring(monkeypatch)
     secret = "runtime-test-secret-0123456789abcdef"
     monkeypatch.setenv("OLA_API_KEY_PEPPER", secret)
     monkeypatch.setenv("OLA_RUNTIME_COMMIT", "a" * 40)
@@ -104,6 +127,7 @@ def test_strict_readyz_blocks_mutable_build_info_and_ignores_env_spoof(monkeypat
 
 
 def test_strict_readyz_accepts_read_only_embedded_build_info(monkeypatch, tmp_path):
+    _set_v4_keyring(monkeypatch)
     import json
     path = tmp_path / "ola-build-info.json"
     source = "c" * 40

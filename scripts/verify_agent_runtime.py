@@ -178,7 +178,11 @@ def verify(tenant_id, run_id, expected_commit, expected_task=None, expected_resu
         "execution_boundary": "in_process",
         "verifier_boundary": "separate_process",
         "invocations": invocations,
+        # Compatibility alias: this is the selected run's six agent events.
         "evidence_count": len(run_rows),
+        "run_scoped_agent_event_count": len(run_rows),
+        # The full tenant chain was integrity-verified before run filtering.
+        "tenant_chain_record_count": len(rows),
         "verification_scope": [
             "runtime_source_commit_binding",
             "agent_role_order_and_record_structure",
