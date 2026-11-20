@@ -83,15 +83,18 @@ def test_missing_node_or_duplicate_response_rejected():
     values[1]["output_digest"] = _digest(values[1]["output"])
     assert check(rehash(events))["status"] == "BLOCK"
 
-def test_customer_evidence_with_matching_run_id_does_not_poison_dag_verification():
-    # The full tenant chain includes customer evidence, but only trusted
-    # workflow/task record types belong to the NINA execution trace.
+def test_customer_evidence_count_is_separate_from_full_tenant_chain_count():
+    # The tenant chain includes unrelated customer records. IGOR verifies the
+    # complete chain but counts only this run's trusted workflow/task events.
     events = [json.loads(row["payload_json"]) for row in proof()]
-    events.insert(-1, {"event": "customer.proof", "run_id": "run1",
-                       "note": "unrelated user evidence"})
+    for index in range(2):
+        events.insert(-1, {"event": "customer.proof", "run_id": "run1",
+                           "note": f"unrelated tenant evidence {index}"})
     report = check(rehash(events))
     assert report["status"] == "VERIFIED", report
-    assert report["evidence_count"] == len(events) - 1
+    assert report["evidence_count"] == len(events) - 2
+    assert report["run_scoped_event_count"] == len(events) - 2
+    assert report["tenant_chain_record_count"] == len(events)
 
 
 def test_unexpected_internal_workflow_event_remains_blocked():
