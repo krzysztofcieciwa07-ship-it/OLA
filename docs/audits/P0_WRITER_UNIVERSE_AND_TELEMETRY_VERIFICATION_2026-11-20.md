@@ -32,3 +32,8 @@ JSONL (one object per line), fields: `event_id`, `tenant_id`, `record_id`, `sequ
 
 ## Negative proof
 Bounded negative proof requires inventory of all DB-capable identities, roles, jobs, network sources, secret scopes and management paths, plus effective controls that constrain them. Repository search cannot alone prove absence of production shadow writers.
+
+
+## Verifier validation (synthetic only)
+
+The offline verifier rejects missing required fields, duplicate event IDs, non-finite timestamps, and invalid timestamp tolerances. Synthetic tests are provided at `scripts/audits/test_verify_telemetry_correlation.py`; run `python3 -m unittest scripts/audits/test_verify_telemetry_correlation.py`. These tests do not validate production exports, export authenticity, or completeness.
