@@ -151,10 +151,10 @@ def test_evidence_list_filters_by_run_id_and_preserves_tenant_isolation():
     run_id = str(uuid.uuid4())
     other_run_id = str(uuid.uuid4())
 
-    first = _create_evidence(key_a, "task.started", 1, run_id=run_id)
-    _create_evidence(key_a, "task.progress", 2, run_id=other_run_id)
-    second = _create_evidence(key_a, "task.completed", 3, run_id=run_id)
-    _create_evidence(key_b, "task.completed", 99, run_id=run_id)
+    first = _create_evidence(key_a, "test.run.started", 1, run_id=run_id)
+    _create_evidence(key_a, "test.run.progress", 2, run_id=other_run_id)
+    second = _create_evidence(key_a, "test.run.completed", 3, run_id=run_id)
+    _create_evidence(key_b, "test.run.completed", 99, run_id=run_id)
 
     response = CLIENT.get(
         "/evidence",
@@ -192,7 +192,7 @@ def test_evidence_list_run_filter_paginates_and_validates_uuid():
     _, key = _tenant_with_key()
     run_id = str(uuid.uuid4())
     records = [
-        _create_evidence(key, f"task.run.{index}", index, run_id=run_id)
+        _create_evidence(key, f"test.run.{index}", index, run_id=run_id)
         for index in (1, 2, 3)
     ]
 
