@@ -34,7 +34,7 @@ class Ledger:
         eid=event["event_id"]
         if eid in self.seen: return False
         with self.path.open("a",encoding="utf-8") as f:
-            f.write(json.dumps(event,sort_keys=True)+"\\n")
+            f.write(json.dumps(event,sort_keys=True)+"\n")
         self.seen.add(eid); return True
 
 class Monitor:
