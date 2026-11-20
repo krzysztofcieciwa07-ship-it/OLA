@@ -1,18 +1,16 @@
-# Non-custodial Crypto Payment Monitor (MVP)
+# Non-custodial Crypto Payment Monitor
 
-Read-only monitoring service for customer-owned receiving addresses. It does not custody assets, sign transactions, create wallets, or store private keys.
+Read-only observer. It never stores private keys, signs, submits transactions, or holds funds.
 
-## Supported sources (initial adapter scaffold)
-- Ethereum / EVM: JSON-RPC, configurable chain IDs and ERC-20 contract allowlist.
-- Bitcoin: Esplora-compatible REST API.
+## Run
+Set HTTPS provider URLs and watchlists via environment variables, then:
 
-**Important:** This initial scaffold is not a production payment processor. It needs provider configuration, confirmation policy, address/contract allowlists, integration tests against live providers, and operational deployment before accepting payments as settled.
+```bash
+python -m crypto_payment_monitor --ledger ./events.jsonl
+```
 
-## Security boundaries
-- No private keys, seed phrases, signing, withdrawals, or transaction construction.
-- Token contract allowlists are explicit; symbol/name are never trusted.
-- Monitor only addresses configured by the operator.
-- RPC/API URLs must be explicitly configured; no user-controlled arbitrary URLs.
-- Pending/observed events are not payment confirmations.
+Environment variables: `ETHEREUM_RPC_URL`, `ETHEREUM_CHAIN_ID` (default 1), `BITCOIN_ESPLORA_URL`, `BTC_WATCH_ADDRESSES` (comma-separated), `EVM_WATCH_ADDRESSES` (comma-separated), `ERC20_TOKEN_CONTRACTS` (comma-separated SYMBOL=contract pairs), `EVM_SCAN_BLOCKS` (default 500), `POLL_INTERVAL_SECONDS`, confirmation settings.
 
-See ../docs/crypto-payment-monitor.md for architecture and rollout gates.
+**MVP limitations:** single-shot scans; recent bounded EVM window; BTC adapter fetches transaction history; no pagination beyond Esplora's initial address tx endpoint, no robust reconciliation/reorg state machine, no settlement-grade confirmation policy, no provider allowlisting, and no production database. Events are observations only. This is not yet a payment acceptance/settlement system.
+
+Only configure contract addresses verified independently for the intended chain. Symbols alone do not establish token identity.
