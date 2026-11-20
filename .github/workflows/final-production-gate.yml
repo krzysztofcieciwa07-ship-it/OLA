@@ -302,11 +302,9 @@ jobs:
 
           expected = os.environ["EXPECTED_SOURCE_SHA"]
 
-          def verify(path, subject_name):
+          def verify(path, subject_name, verification_path):
               digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
-              data = json.load(open(path.replace(".tar.gz", "-attestation-verification.json")
-                                    if path.endswith(".tar.gz") else "image-attestation-verification.json",
-                                    encoding="utf-8"))
+              data = json.load(open(verification_path, encoding="utf-8"))
               verified = []
               for item in data:
                   statement = item.get("verificationResult", {}).get("statement", {})
@@ -342,8 +340,8 @@ jobs:
               }, sort_keys=True))
 
           source_archive = "ola-source-" + expected + ".tar.gz"
-          verify(source_archive, source_archive)
-          verify("ola-release-image.tar", "ola-release-image.tar")
+          verify(source_archive, source_archive, "source-attestation-verification.json")
+          verify("ola-release-image.tar", "ola-release-image.tar", "image-attestation-verification.json")
           PY
           echo "SOURCE_SLSA_EXACT_COMMIT=VERIFIED"
           echo "RELEASE_IMAGE_SLSA_EXACT_COMMIT=VERIFIED"
