@@ -5,7 +5,7 @@ on:
       - 'crypto_payment_monitor/**'
       - 'docs/crypto-payment-monitor.md'\n      - '.github/workflows/crypto-monitor-tests.yml'
   push:
-    branches: [main]
+    branches: [main, feat/noncustodial-crypto-payment-monitor]
     paths:
       - 'crypto_payment_monitor/**'
 jobs:
