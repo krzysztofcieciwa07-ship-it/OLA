@@ -83,3 +83,23 @@ def test_inline_dashboard_javascript_parses_with_node():
     result = subprocess.run([node, "--check", "-"], input=script,
                             text=True, capture_output=True, check=False)
     assert result.returncode == 0, result.stderr
+
+
+def test_dashboard_exposes_live_liveness_and_local_readiness_panel():
+    html = TestClient(app).get("/").text
+    parsed = DashboardParser()
+    parsed.feed(html)
+    script = "\\n".join(parsed.scripts)
+    assert {"health-status", "readiness-status", "readiness-scope", "health-refresh",
+            "ledger-button", "ledger-status", "ledger-tip", "ledger-records"} <= parsed.ids
+    assert 'fetch("/health"' in script
+    assert 'fetch("/readyz"' in script
+    assert 'fetch("/evidence?limit=20"' in script
+    assert 'fetch("/evidence/tip"' in script
+    assert '"X-API-Key":key' in script
+    assert "local_core_only" in script
+    assert "system_acceptance" in script
+    assert "textContent" in script
+    assert "innerHTML" not in script
+    assert "localStorage" not in script
+    assert "sessionStorage" not in script
