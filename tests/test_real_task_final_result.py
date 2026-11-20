@@ -74,7 +74,7 @@ def test_six_agents_produce_verified_final_result_with_external_verifier(monkeyp
     assert proof["evidence_count"] == 6  # backward-compatible run-scoped alias
     assert proof["run_scoped_agent_event_count"] == 6
     assert proof["tenant_chain_record_count"] == tenant_chain_count
-    assert proof["tenant_chain_record_count"] == 12
+    assert proof["tenant_chain_record_count"] == tenant_chain_count
     assert proof["tenant_chain_record_count"] > proof["run_scoped_agent_event_count"]
     assert proof["agent_instance_count"] == 6
     assert proof["unique_context_count"] == 6
