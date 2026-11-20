@@ -18,8 +18,8 @@ Repository code-search and source inspection only; not runtime or production tel
 |---|---|---|---|
 | `app/nina_workflow_gate.py` | direct primitive for workflow/candidate approval | Both functions call `begin_write_transaction`, re-read tip, append, commit | STRUCTURAL PASS; exception/runtime tests pending |
 | `app/order_approval.py` | direct primitive for paid-order approval | `begin_write_transaction`, locked validation, append and related DB updates | STRUCTURAL PASS; tests pending |
-| `app/report_review.py` | `_append_locked` helper delegates to primitive | Transaction path requires dedicated source review | OPEN |
-| `app/paid_order_execution.py` | helper delegates to primitive | Imports transaction/lock helpers; full paths and exception boundaries require review | OPEN |
+| `app/report_review.py` | helper delegates to direct primitive | Source inspected: report approval starts tenant transaction/lock before DB validation, verifies chain/tip, appends review evidence, updates review/order/payment rows and commits. Delivery performs initial read, then begins tenant write transaction, re-locks order/review/job, re-verifies chain and trusted review evidence, appends delivery evidence and commits. | STRUCTURAL PASS (source); tests/runtime pending |
+| `app/paid_order_execution.py` | helper delegates to direct primitive | Source inspected: SQLite begins immediate transaction; PostgreSQL locks job row then tenant-chain lock; validates and appends execution-start evidence before commit. Finalization reacquires job row and tenant lock, validates claim, appends completion/failure evidence and commits. Stale worker path records interruption under lock. | STRUCTURAL PASS (source); concurrency/runtime pending |
 | `app/database.py` | central wrapper | Initializes transaction then delegates | STRUCTURAL PASS |
 
 Direct lower-level callers are not rogue bypasses solely because they avoid `append_evidence_atomic`; each must prove lock-before-chain-validation, revalidation under lock, transaction/commit/rollback, and tenant scope.
@@ -40,15 +40,14 @@ Search surfaced `docs/postgres-runtime.md` granting runtime role SELECT/INSERT (
 `append_evidence_v4_locked`, `append_evidence_atomic`, `EvidenceRecord`, `EvidenceRecord(`, `evidence_records INSERT`, `evidence_records SET`, `exec_driver_sql evidence_records`, `db.add(`.
 
 ## Priority follow-up
-1. Inspect `report_review.py` and `paid_order_execution.py` end-to-end; prove lock-before-validation and commit/rollback on each evidence append.
-2. Enumerate raw SQL evidence writes across workflows, shell/PowerShell, migrations and scripts; classify target DB, credentials, invocation and environment.
-3. Verify effective runtime DB grants/trigger definitions and identify principals with INSERT or mutation privileges.
-4. Correlate production records with wrapper/caller telemetry; no production logs or DB count reconciliation performed.
-5. Concurrency/timeout tests remain separate P1 gate.
+1. Enumerate raw SQL evidence writes across workflows, shell/PowerShell, migrations and scripts; classify target DB, credentials, invocation and environment.
+2. Verify effective runtime DB grants/trigger definitions and identify principals with INSERT or mutation privileges.
+3. Correlate production records with wrapper/caller telemetry; no production logs or DB count reconciliation performed.
+4. Concurrency/timeout tests remain separate P1 gate.
 
 ## Status
 - Central writer structurally identified: PASS (structural).
-- Direct lower-level caller inventory: PARTIAL.
+- Direct lower-level application caller source review: PASS (structural; runtime evidence pending).
 - Raw SQL/script path inventory: PARTIAL.
 - Production telemetry: NOT VERIFIED.
 - Writer coverage: IN PROGRESS.
