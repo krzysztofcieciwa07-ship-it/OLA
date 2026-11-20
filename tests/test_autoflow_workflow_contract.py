@@ -97,7 +97,7 @@ def test_watchdog_queries_and_decides_for_exact_main_sha():
 
 def test_pr_base_edit_retriggers_full_flow_and_final_gate():
     full = trigger_block(workflow("ola-12h-autoflow.yml"), "concurrency")
-    final = trigger_block(workflow("final-production-gate.yml"), "permissions")
+    final = trigger_block(workflow("final-production-gate.yml"), "jobs")
     for triggers in (full, final):
         assert "  pull_request:" in triggers
         assert "types:" in triggers
