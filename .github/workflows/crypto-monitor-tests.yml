@@ -1,13 +1,16 @@
-name: crypto-monitor-tests-v2
+name: Crypto payment monitor tests
 on:
   pull_request:
     paths:
       - 'crypto_payment_monitor/**'
-      - 'docs/crypto-payment-monitor.md'\n      - '.github/workflows/crypto-monitor-tests.yml'
+      - 'docs/crypto-payment-monitor.md'
+      - '.github/workflows/crypto-monitor-tests.yml'
   push:
     branches: [main, feat/noncustodial-crypto-payment-monitor]
     paths:
       - 'crypto_payment_monitor/**'
+      - 'docs/crypto-payment-monitor.md'
+      - '.github/workflows/crypto-monitor-tests.yml'
 jobs:
   tests:
     runs-on: ubuntu-latest
