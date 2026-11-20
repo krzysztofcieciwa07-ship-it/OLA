@@ -4,9 +4,11 @@ import subprocess
 import sys
 import uuid
 
+from sqlalchemy import func, select
+
 from app.agent_runtime import run_agent_task
-from app.database import SessionLocal
-from app.models import Tenant
+from app.database import SessionLocal, append_evidence_atomic
+from app.models import EvidenceRecord, Tenant
 
 REAL_TASK = "Calculate 17 * 23 and return the verified result."
 EXPECTED_RESULT = "391"
@@ -34,6 +36,20 @@ def test_six_agents_produce_verified_final_result_with_external_verifier(monkeyp
     assert result["execution"][0]["tool_output"] == EXPECTED_RESULT
     assert result["execution"][-1]["final_result"] == EXPECTED_RESULT
 
+    # Add unrelated tenant records after the run. The standalone verifier
+    # must still validate the complete tenant chain while reporting only six
+    # agent events for this run.
+    append_evidence_atomic(
+        tenant_id, "customer.audit", {"source": "count-scope-regression", "ordinal": 1}
+    )
+    append_evidence_atomic(
+        tenant_id, "customer.audit", {"source": "count-scope-regression", "ordinal": 2}
+    )
+    with SessionLocal() as db:
+        tenant_chain_count = db.scalar(
+            select(func.count(EvidenceRecord.id)).where(EvidenceRecord.tenant_id == tenant_id)
+        )
+
     verifier_args = [
         sys.executable,
         "scripts/verify_agent_runtime.py",
@@ -55,7 +71,11 @@ def test_six_agents_produce_verified_final_result_with_external_verifier(monkeyp
     assert proof["commit"] == TEST_SOURCE_COMMIT
     assert proof["task"] == REAL_TASK
     assert proof["final_result"] == EXPECTED_RESULT
-    assert proof["evidence_count"] == 6
+    assert proof["evidence_count"] == 6  # backward-compatible run-scoped alias
+    assert proof["run_scoped_agent_event_count"] == 6
+    assert proof["tenant_chain_record_count"] == tenant_chain_count
+    assert proof["tenant_chain_record_count"] == 12
+    assert proof["tenant_chain_record_count"] > proof["run_scoped_agent_event_count"]
     assert proof["agent_instance_count"] == 6
     assert proof["unique_context_count"] == 6
     assert proof["execution_boundary"] == "in_process"
