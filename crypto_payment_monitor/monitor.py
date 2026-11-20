@@ -37,7 +37,7 @@ class Ledger:
     def append_transition(self, event: dict[str,Any]) -> None:
         """Append state transitions; transition IDs include state and observation time."""
         transition=dict(event)
-        transition["event_id"]=event["event_id"]+":state:"+str(event["status"])+":"+str(event["observed_at"])
+        transition["event_id"]=event["event_id"]+":state:"+str(event["status"])+":"+str(event.get("block_height"))
         self.append_once(transition)
 
 class Monitor:
