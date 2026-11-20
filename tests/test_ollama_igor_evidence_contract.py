@@ -17,6 +17,8 @@ class OllamaIndependentEvidenceContractTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/igor-independent-ollama-evidence.yml").read_text(encoding="utf-8")
         for required in (
             "scripts/verify_agent_runtime.py",
+            "run_scoped_agent_event_count",
+            "tenant_chain_record_count",
             "--expected-provider",
             "ollama",
             "--expected-invocation-type",
