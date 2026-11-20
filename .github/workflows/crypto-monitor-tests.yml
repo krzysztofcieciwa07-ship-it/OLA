@@ -1,4 +1,4 @@
-name: crypto-monitor-tests
+name: crypto-monitor-tests-v2
 on:
   pull_request:
     paths:
