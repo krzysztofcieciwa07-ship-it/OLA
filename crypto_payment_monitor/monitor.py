@@ -119,6 +119,11 @@ class Monitor:
         confirmed_head=max(0,head-self.config.confirmations_eth+1)
         cursor_key="evm_cursor"
         cursor=int(self.state.get(cursor_key,max(0,confirmed_head-int(os.getenv("EVM_SCAN_BLOCKS","500")))))
+        # Re-scan a bounded overlap on every run to discover short reorgs and
+        # provider/indexing lag. Event IDs keep ingestion idempotent.
+        overlap=int(os.getenv("EVM_RESCAN_OVERLAP","64"))
+        if overlap<1 or overlap>2048: raise ValueError("EVM_RESCAN_OVERLAP must be 1..2048")
+        cursor=max(0,cursor-overlap)
         chunk=int(os.getenv("EVM_SCAN_CHUNK","100"))
         if chunk<1 or chunk>1000: raise ValueError("EVM_SCAN_CHUNK must be 1..1000")
         emitted=[]
