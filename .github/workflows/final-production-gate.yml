@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - "fix/**"
   pull_request:
     branches:
       - main
@@ -62,7 +63,16 @@ jobs:
           target_sha="${{ steps.target.outputs.sha }}"
           event_filter=""
           case "${GITHUB_EVENT_NAME}" in
-            pull_request|push) event_filter="&event=${GITHUB_EVENT_NAME}" ;;
+            pull_request) event_filter="&event=pull_request" ;;
+            push)
+              if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+                event_filter="&event=push"
+              else
+                # Feature-branch push finalization consumes the completed
+                # exact-head PR matrix; main still requires main-push checks.
+                event_filter="&event=pull_request"
+              fi
+              ;;
           esac
           # Producer DAG gate permits up to 25 min; cover it plus queue latency.
           max_attempts=120
@@ -262,25 +272,81 @@ jobs:
           sha256sum ola-release-image.tar | tee image-sha256.txt
 
       - name: Attest source snapshot
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
+        if: github.event_name == 'push' && success()
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: "ola-source-${{ steps.target.outputs.sha }}.tar.gz"
 
       - name: Attest release image archive
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
+        if: github.event_name == 'push' && success()
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: ola-release-image.tar
 
       - name: Independently verify source and image attestations
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
+        if: github.event_name == 'push' && success()
         env:
           GH_TOKEN: ${{ github.token }}
+          EXPECTED_SOURCE_SHA: ${{ steps.target.outputs.sha }}
+        shell: bash
         run: |
           set -euo pipefail
-          gh attestation verify "ola-source-${{ steps.target.outputs.sha }}.tar.gz" --repo "$GITHUB_REPOSITORY"
-          gh attestation verify ola-release-image.tar --repo "$GITHUB_REPOSITORY"
+          source_archive="ola-source-${EXPECTED_SOURCE_SHA}.tar.gz"
+          gh attestation verify "$source_archive" --repo "$GITHUB_REPOSITORY" --format json > source-attestation-verification.json
+          gh attestation verify ola-release-image.tar --repo "$GITHUB_REPOSITORY" --format json > image-attestation-verification.json
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import sys
+
+          expected = os.environ["EXPECTED_SOURCE_SHA"]
+
+          def verify(path, subject_name):
+              digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
+              data = json.load(open(path.replace(".tar.gz", "-attestation-verification.json")
+                                    if path.endswith(".tar.gz") else "image-attestation-verification.json",
+                                    encoding="utf-8"))
+              verified = []
+              for item in data:
+                  statement = item.get("verificationResult", {}).get("statement", {})
+                  subject_ok = (
+                      statement.get("_type") == "https://in-toto.io/Statement/v1"
+                      and statement.get("predicateType") == "https://slsa.dev/provenance/v1"
+                      and any(
+                          subject.get("name") == subject_name
+                          and subject.get("digest", {}).get("sha256") == digest
+                          for subject in statement.get("subject", [])
+                      )
+                  )
+                  dependencies = statement.get("predicate", {}).get("buildDefinition", {}).get("resolvedDependencies", [])
+                  source_ok = any(
+                      dependency.get("digest", {}).get("gitCommit") == expected
+                      for dependency in dependencies
+                  )
+                  if subject_ok and source_ok:
+                      verified.append(statement)
+              if not verified:
+                  print(json.dumps({
+                      "subject": subject_name,
+                      "sha256": digest,
+                      "expected_source_sha": expected,
+                      "verified_statements": len(data),
+                  }, sort_keys=True))
+                  sys.exit(f"EXACT_SOURCE_PROVENANCE_NOT_VERIFIED: {subject_name}")
+              print(json.dumps({
+                  "subject": subject_name,
+                  "sha256": digest,
+                  "source_commit": expected,
+                  "verification": "VERIFIED",
+              }, sort_keys=True))
+
+          source_archive = "ola-source-" + expected + ".tar.gz"
+          verify(source_archive, source_archive)
+          verify("ola-release-image.tar", "ola-release-image.tar")
+          PY
+          echo "SOURCE_SLSA_EXACT_COMMIT=VERIFIED"
+          echo "RELEASE_IMAGE_SLSA_EXACT_COMMIT=VERIFIED"
 
       - name: Verify release image source-bound readiness
         shell: bash
@@ -322,7 +388,7 @@ jobs:
           status="BLOCKED"
           source_attestation="NOT_PERFORMED"
           image_attestation="NOT_PERFORMED"
-          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ] && [ "${{ job.status }}" = "success" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "${{ job.status }}" = "success" ]; then
             status="ATTESTED_PENDING_HUMAN"
             source_attestation="VERIFIED_BY_GITHUB_ACTIONS_ATTESTATION"
             image_attestation="VERIFIED_BY_GITHUB_ACTIONS_ATTESTATION"
@@ -356,6 +422,8 @@ jobs:
             production-manifest-sha256.txt
             source-sha256.txt
             image-sha256.txt
+            source-attestation-verification.json
+            image-attestation-verification.json
             ola-source-${{ steps.target.outputs.sha }}.tar.gz
             ola-release-image.tar
 
