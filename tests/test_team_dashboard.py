@@ -60,7 +60,8 @@ def test_dashboard_uses_current_authenticated_api_and_reads_evidence():
     assert "innerHTML" not in script
     assert "localStorage" not in script
     assert "sessionStorage" not in script
-    assert "/nina-workflow" not in script
+    assert 'fetch(`/nina-workflow/${encodeURIComponent(runId)}/report`' in script
+    assert 'headers:{"Authorization":`Bearer ${key}`}' in script
     assert "/nina-autogpt" not in script
     assert "/approve" not in script
 
@@ -100,6 +101,27 @@ def test_dashboard_exposes_live_liveness_and_local_readiness_panel():
     assert "local_core_only" in script
     assert "system_acceptance" in script
     assert "textContent" in script
+    assert "innerHTML" not in script
+    assert "localStorage" not in script
+    assert "sessionStorage" not in script
+
+
+def test_dashboard_exposes_only_read_only_reports_for_the_two_requested_workflows():
+    html = TestClient(app).get("/").text
+    parsed = DashboardParser()
+    parsed.feed(html)
+    script = "\\n".join(parsed.scripts)
+    run_ids = {
+        "2845f75e-6a52-472c-ab5a-52fddc0ea07b",
+        "93889e85-6b4a-4328-a34d-510fd1b25da9",
+    }
+    assert all(run_id in html for run_id in run_ids)
+    assert all("workflow-status-" + run_id in parsed.ids for run_id in run_ids)
+    assert all("workflow-output-" + run_id in parsed.ids for run_id in run_ids)
+    assert script.count('fetch(`/nina-workflow/${encodeURIComponent(runId)}/report`') == 1
+    assert 'headers:{"Authorization":`Bearer ${key}`}' in script
+    assert "production_authorized" in script
+    assert "/approve" not in script
     assert "innerHTML" not in script
     assert "localStorage" not in script
     assert "sessionStorage" not in script
