@@ -2,19 +2,6 @@ name: Evidence Cryptography V4 Contract
 
 on:
   pull_request:
-    paths:
-      - "app/evidence_v4.py"
-      - "app/evidence_writer.py"
-      - "app/igor_evidence_verifier.py"
-      - "app/database.py"
-      - "app/igor.py"
-      - "app/igor_workflow.py"
-      - "tests/test_evidence_v4_contract.py"
-      - "tests/test_evidence_writer_v4.py"
-      - "tests/test_evidence_v4_process_lifecycle.py"
-      - "tests/test_evidence_secret_management.py"
-      - "tests/test_igor_independent_evidence.py"
-      - ".github/workflows/evidence-cryptography-v4.yml"
   push:
     branches: [main]
   workflow_dispatch:
