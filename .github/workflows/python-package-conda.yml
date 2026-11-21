@@ -44,4 +44,4 @@ jobs:
         run: pytest -q tests
 
       - name: Run offline signed-approval contract tests
-        run: pytest -q contract_tests
+        run: PYTHONPATH=. pytest -q contract_tests
