@@ -64,6 +64,9 @@ def test_evidence_list_is_read_only_and_tenant_scoped():
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["count"] == 2
+    assert body["run_id"] is None
+    assert body["scope"] == "tenant_page"
+    assert body["chain_status"] == "NOT_VERIFIED"
     assert [record["seq"] for record in body["records"]] == [
         second["seq"],
         first["seq"],
