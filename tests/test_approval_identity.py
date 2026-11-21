@@ -32,7 +32,7 @@ def env():
     }
 
 
-def token(key, **overrides):
+def token(key, headers=None, **overrides):
     now = int(time.time())
     payload = {
         "iss": "https://id.example.test/issuer",
@@ -43,7 +43,7 @@ def token(key, **overrides):
         "exp": now + 60,
     }
     payload.update(overrides)
-    return jwt.encode(payload, key, algorithm="RS256", headers={"kid": "fixture-kid"})
+    return jwt.encode(payload, key, algorithm="RS256", headers=headers or {"kid": "fixture-kid"})
 
 
 def mock_fetch(monkeypatch, jwk):
@@ -96,6 +96,44 @@ def test_non_rs256_header_rejected(monkeypatch, env):
     monkeypatch.setattr(ai, "_get_jwks", lambda *a, **k: pytest.fail("JWKS must not be called"))
     with pytest.raises(ai.ApprovalIdentityError):
         ai.verify_subject_token(token_hs, environ=env)
+
+
+@pytest.mark.parametrize("extra_header", [
+    {"jku": "https://evil.example.test/jwks"},
+    {"x5u": "https://evil.example.test/key"},
+    {"crit": ["b64"]},
+    {"b64": False},
+])
+def test_unknown_jwt_header_parameters_rejected(monkeypatch, env, keypair, extra_header):
+    monkeypatch.setattr(ai, "_get_jwks", lambda *a, **k: pytest.fail("JWKS must not be called"))
+    headers = {"kid": "fixture-kid", **extra_header}
+    with pytest.raises(ai.ApprovalIdentityError):
+        ai.verify_subject_token(token(keypair[0], headers=headers), environ=env)
+
+
+@pytest.mark.parametrize("typ", ["JWT", "application/jwt"])
+def test_standard_jwt_typ_is_accepted(monkeypatch, env, keypair, typ):
+    mock_fetch(monkeypatch, keypair[2])
+    result = ai.verify_subject_token(
+        token(keypair[0], headers={"kid": "fixture-kid", "typ": typ}), environ=env,
+    )
+    assert result.subject == "person-123"
+
+
+@pytest.mark.parametrize("typ", ["NOTJWT", "application/evil", 42])
+def test_nonstandard_jwt_typ_rejected(monkeypatch, env, keypair, typ):
+    monkeypatch.setattr(ai, "_get_jwks", lambda *a, **k: pytest.fail("JWKS must not be called"))
+    with pytest.raises(ai.ApprovalIdentityError):
+        ai.verify_subject_token(
+            token(keypair[0], headers={"kid": "fixture-kid", "typ": typ}), environ=env,
+        )
+
+
+@pytest.mark.parametrize("kid", ["fixture kid", "fixture\\n kid", "\\x7f"])
+def test_kid_whitespace_and_controls_rejected(monkeypatch, env, keypair, kid):
+    monkeypatch.setattr(ai, "_get_jwks", lambda *a, **k: pytest.fail("JWKS must not be called"))
+    with pytest.raises(ai.ApprovalIdentityError):
+        ai.verify_subject_token(token(keypair[0], headers={"kid": kid}), environ=env)
 
 
 def test_missing_config_blocks(monkeypatch):
