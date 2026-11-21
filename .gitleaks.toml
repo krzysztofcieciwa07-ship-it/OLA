@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+    [[rules.allowlists]]
+    description = "Exact verified Railway deployment-ID false positive in the historical operational handoff commit; constrained to one value, file, and commit."
+    condition = "AND"
+    regexTarget = "secret"
+    regexes = [ '''^7d166aec-5c5c-45f2-ad41-a6b5a5993f65$''' ]
+    paths = [ '''docs/continuity/EXECUTION_HANDOFF_2026-11-21\.md$''' ]
+    commits = [ "208b40f47f0add6c8cf5da244e54ef7b92feb6ba" ]
