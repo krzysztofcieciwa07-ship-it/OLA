@@ -139,7 +139,7 @@ All values below are an observation snapshot, not permanent PR status. Re-fetch 
 | #280 / M10 | `f210e7897dbe1aa80afcc4b915c7dc5e94acb6bf` | 17/17 workflow runs SUCCESS | Draft; no submitted PR review; offline contract only, no live signer/nonce/membership/routes | P0-06 UNKNOWN |
 | #262 / M13 | `9d58e00a99d8ef23b555c14fb5d1b30a23d04864` | 22/22 workflow runs SUCCESS | Draft; 34-file integration; exact-source production/build attestation not established by source CI alone | P0-07 UNKNOWN |
 | #227 / M12 | `5fe999467b26995c3ad9147f7a9952c33be52812` | Current exact-head CI not captured in this snapshot | Draft; base is historical main SHA `e0b5ca8...` | P0-07 UNKNOWN |
-| #277 / M19 | `45afdee8e66fbd484ea2cc92643ccf1b5126fc35` | 16 SUCCESS; 4 IN_PROGRESS at observation | Draft documentation PR | P2 documentation status OPEN |
+| #277 / M19 | Historical prior head `45afdee8e66fbd484ea2cc92643ccf1b5126fc35` | 16 SUCCESS; 4 IN_PROGRESS at that observation | Superseded by the newer checkpoint in §10 | Do not reuse this historical matrix |
 | Main governance | `8adf30cd5e41a18a5345f66e67f5ddcdbc164862` | GitHub branch endpoint reported `protected=false` | Effective independent-review/required-check enforcement not verified | P1-02 UNKNOWN |
 
 **Current train decision: STOP.** At minimum P0-02, P0-03, P0-04, P0-05, P0-06 and P0-07 remain UNKNOWN. Passing PR workflow matrices do not close those broader invariants. M1 and M2 have green exact-SHA CI sub-gates; this policy does not itself merge them or claim full P0 acceptance.
@@ -151,3 +151,40 @@ All values below are an observation snapshot, not permanent PR status. Re-fetch 
 - No Railway, secrets, identity-provider, signer/KMS, branch-protection or billing mutations under this policy.
 - Never manufacture approval, reviewer identity, external attestation, customer result or runtime proof.
 - Security claims require an exact source/evidence reference and explicit PASS; otherwise report UNKNOWN.
+
+
+## 10. Newer validation checkpoint for PR #277 (2026-11-21)
+
+The previous row in §8 was captured before the consolidation policy was linked into the PR and is now historical.
+
+**Observed head at the latest completed checkpoint:** `f624c744db1a52ab4b578a1274723d1c4c63007c`  
+**Workflow result:** 17 SUCCESS / 2 FAILURE / 1 IN_PROGRESS.
+
+- `OLA Supply Chain Evidence Gate` failed in Gitleaks: [run #44916720781](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/44916720781).
+- `OLA FINAL PRODUCTION GATE` failed closed: [run #44916720851](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/44916720851).
+- `OLA 12h Autonomous Evidence Flow` remained in progress: [run #44916720889](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/44916720889).
+
+### 10.1 Gitleaks finding — UNCLASSIFIED
+
+Gitleaks rule `generic-api-key` matched a value in `docs/continuity/EXECUTION_HANDOFF_2026-11-21.md:40`. The matched value is intentionally not copied into this policy, comments or automation notes.
+
+Current classification: **UNCLASSIFIED**. The evidence does not yet establish whether the match is an active credential or a false positive. Do not add an ignore/suppression or claim a false positive until an authorized owner validates the source and scope. Treat it as potentially sensitive; revoke/rotate if it is an active credential. If confirmed active, escalate as a P0 security incident and preserve incident evidence without repeating the value.
+
+### 10.2 Final gate — correctly fail-closed
+
+The final production gate reported:
+- required-gate failure: `OLA Supply Chain Evidence Gate`;
+- missing exact-source gates: `Evidence Cryptography V4 Contract`, `OLA paid-order PostgreSQL contract`, `NINA IGOR Ollama Full Flow`, `IGOR Independent Ollama Evidence Gate`, `OLA 12h Preflight`, `OLA 12h Evidence Aggregator`;
+- pending: `OLA 12h Autonomous Evidence Flow`.
+
+The missing PR workflows are consistent with the current path-filter trigger limitation; M1 PR #275 removes relevant PR path filters and is not merged at this checkpoint. This is a trigger/required-check completeness issue, not permission to treat missing checks as PASS. P0-08 remains UNKNOWN for this PR head until the required checks actually run on the exact SHA.
+
+### 10.3 Priority decision
+
+- Supply-chain gate: **FAIL** pending Gitleaks triage.
+- Credential scope/classification: **UNKNOWN**.
+- Required exact-source check completeness: **UNKNOWN**.
+- Final production gate: **BLOCKED** (not GO).
+- Overall merge train: **STOP**.
+
+This checkpoint is bound to the exact SHA above. Any later commit changes the candidate source and invalidates the matrix for that new head; re-fetch and re-run all relevant checks before acting.
