@@ -62,6 +62,28 @@ def _uuid(value: object, name: str) -> str:
     return normalized
 
 
+def _validate_https_issuer(value: object, name: str) -> str:
+    value = _text(value, name, max_length=512)
+    if any(char.isspace() for char in value):
+        raise ApprovalContractError(f"{name} is invalid")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        raise ApprovalContractError(f"{name} is invalid") from None
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or port not in (None, 443)
+    ):
+        raise ApprovalContractError(f"{name} must be an exact HTTPS issuer URL")
+    return value
+
+
 def _framed(parts: tuple[bytes, ...]) -> bytes:
     """Encode fields unambiguously; concatenation cannot create delimiter collisions."""
     return b"".join(len(part).to_bytes(4, "big") + part for part in parts)
@@ -285,7 +307,7 @@ def validate_approval_semantics(
     _uuid(payload.get("nonce"), "nonce")
 
     decision = payload.get("decision")
-    if decision not in {"ALLOW", "REFUSE", "UNRESOLVED", "INCOMPARABLE"}:
+    if not isinstance(decision, str) or decision not in {"ALLOW", "REFUSE", "UNRESOLVED", "INCOMPARABLE"}:
         raise ApprovalContractError("decision is invalid")
     if type(payload.get("effect_authorized")) is not bool:
         raise ApprovalContractError("effect_authorized must be a boolean")
@@ -358,9 +380,13 @@ def validate_approval_semantics(
             raise ApprovalContractError(f"{label} subject fingerprint is invalid")
         if not KEY_ID_RE.fullmatch(actor.get("fingerprint_key_id", "") or ""):
             raise ApprovalContractError(f"{label} fingerprint key id is invalid")
-        if not isinstance(actor.get("issuer"), str) or not actor["issuer"].startswith("https://"):
-            raise ApprovalContractError(f"{label} issuer is invalid")
-        if not isinstance(actor.get("membership_version"), int) or actor["membership_version"] < 1:
+        _validate_https_issuer(actor.get("issuer"), f"{label}.issuer")
+        membership_version = actor.get("membership_version")
+        if (
+            not isinstance(membership_version, int)
+            or isinstance(membership_version, bool)
+            or membership_version < 1
+        ):
             raise ApprovalContractError(f"{label} membership version is invalid")
 
     request_digest = request.get("sha256")
