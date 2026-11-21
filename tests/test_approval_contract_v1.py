@@ -1,10 +1,11 @@
 import base64
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 
 from app.approval_contract_v1 import (
     ApprovalContractError,
@@ -128,7 +129,9 @@ def test_signed_input_is_deterministic_and_domain_separated():
     second = signing_input(dict(reversed(list(candidate.items()))))
     assert first == second
     assert first.startswith(b"OLA-SIGNED-APPROVAL\x00v1\x00")
-    assert payload_sha256(candidate) == payload_sha256(candidate)
+    canonical = canonical_payload_bytes(candidate)
+    assert payload_sha256(candidate) == hashlib.sha256(canonical).hexdigest()
+    assert first.endswith(canonical)
     assert len(payload_sha256(candidate)) == 64
 
 
@@ -290,12 +293,12 @@ def test_approval_window_is_checked_without_mutating_record():
 def test_schema_rejects_unknown_properties():
     candidate = payload()
     candidate["ambient_authority"] = True
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         validate_schema(envelope(candidate))
 
 
 def test_schema_rejects_non_ed25519_signature_algorithm():
     record = envelope(payload())
     record["signature"]["algorithm"] = "HS256"
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         validate_schema(record)
