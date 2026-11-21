@@ -171,3 +171,30 @@ The audit's Phase 0 scope-freeze is now being executed. The live PR inventory wa
 5. Only then supersede #233/#244; run exact-SHA CI and request independent review.
 
 Detailed PR decisions: 'PR_CONSOLIDATION_REGISTER_2026-11-21.md'.
+
+
+
+## Checkpoint update — 2026-11-21, after main SHA b3c649f8412fee9b0554863a9bba60fbe7d01550
+
+This supersedes the operational status above where it conflicts with later exact-source evidence; the original snapshot remains historical.
+
+### Current P0 candidate state
+- **PR #276 OIDC verifier foundation:** merged into main at `b3c649f8412fee9b0554863a9bba60fbe7d01550`. It verifies an OIDC subject tuple; it does not itself establish OLA tenant membership, role or Human Gate authority.
+- **PR #280 signed Human Gate contract:** current head `1c8bfcfc0bc16fedcd6712f89a8d572c6c99d762`; 28 checks SUCCESS, 2 SKIPPED, 0 FAILED. Draft. Current review request accepted, but no current-SHA independent approval. Added semantic hardening for exact HTTPS issuer URLs, boolean membership-version rejection and controlled invalid decision types.
+- **PR #273 capability-voucher prototype:** current head `6d8011717dd63c7df8442b5009f718ada6582aee`; 20 SUCCESS, 6 IN_PROGRESS, 2 QUEUED, 2 SKIPPED at this checkpoint. Draft. Includes bounded canonical JSON, verifier allowlist, issued/expiry checks, nonce-keyed replay and a local-file SQLite prototype. It is not wired into the shared runtime choke point and SQLite is not a production multi-host replay store.
+- **PR #272 writer-universe / telemetry audit:** current head `5f383614e01f93ac0db35511608658a796073ebf`; 16 SUCCESS, 1 SKIPPED. Draft and source-only. Live DB grants, writer identities, network reachability, deployed schema and telemetry completeness remain unverified.
+- **PR #274 tenant-scoped Evidence API:** current head `58941d249c843a585a326259a34fd1f46f86cc57`; 27 SUCCESS, 1 IN_PROGRESS, 2 SKIPPED. Draft. Run-filtered results are explicitly `run_subset` / `NOT_VERIFIED`; tenant scope remains enforced in the query.
+- **PR #281 CI trigger reliability:** current head `3a354a6767d624c3007f609c81b6f636b6863a7b`; exact-head CI rerun is pending. Draft. It removes path filters from the PostgreSQL contract and protects main's Python CI from cancellation. PR #275 was closed as superseded by #281.
+- **PR #277 handoff:** this file's previous main SHA, open-work snapshot and infrastructure inventory are historical; refresh exact state before relying on them.
+
+### Effective governance and review access
+- Main branch reports `protected=false`; required status-check enforcement is off. Ruleset 25853037 has only deletion/non-fast-forward rules and no effective main scope. Detailed classic-protection read remains 403.
+- Current independent review is a HUMAN_GATE. The request on #280 was accepted. Requests on #272, #273, #274 and #281 returned GitHub 422 because the nominated reviewer is not a collaborator; a repository owner must nominate/add an authorized collaborator.
+- No merge, deployment, production DB access, credential change or branch-rule change was made.
+
+### Dependency order from this checkpoint
+1. Current-SHA independent review and approval contract acceptance (#280); then tenant membership binding, role/revocation, nonce and expiry enforcement.
+2. Integrate voucher/approval enforcement at one shared execution choke point; route protected execution paths through it; replace local SQLite replay with durable shared DB replay.
+3. Reconcile writer universe and tenant isolation against actual infrastructure, including external DB/IAM/network attestations and zero-mismatch telemetry sample.
+4. Sandbox/network allowlists, stress/recovery, supply-chain and reproducibility gates, effective branch protection, lifecycle audit, release manifest and full E2E.
+5. Production GO remains blocked until all required exact-SHA and independent external proofs are present.
