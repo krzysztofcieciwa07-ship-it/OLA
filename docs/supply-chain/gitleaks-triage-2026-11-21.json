@@ -18,7 +18,8 @@
       "commit": "30e6099daded8f713a831f88e10f22cdce30142f",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Reported path is a Gitleaks regression test; nearby values are Git commit SHA fixtures. Candidate non-secret hash match, but raw scanner match still needs exact confirmation."
     },
     {
       "finding_id": "GIT-02",
@@ -28,7 +29,8 @@
       "commit": "7191d9d82121a05edd1272f2e48da5c977802fd7",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Test-only Docker inspection fixture sets GPG_KEY to a short deterministic sentinel and separately asserts worker rejection of OPENAI_API_KEY. No production environment export shown in this source context."
     },
     {
       "finding_id": "GIT-03",
@@ -38,7 +40,8 @@
       "commit": "7191d9d82121a05edd1272f2e48da5c977802fd7",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Same test fixture as GIT-02; the test explicitly supplies a forbidden worker credential variable to verify it is rejected. Confirm the scanner match is the sentinel/fixture, not any real credential."
     },
     {
       "finding_id": "GIT-04",
@@ -48,7 +51,8 @@
       "commit": "69a4d272c731b98b2b3c31f85fa606c9c6660382",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Test-only environment variable uses a literal named evidence-test-key-material. Candidate synthetic test pepper; still verify it is not reused by any staging/production environment."
     },
     {
       "finding_id": "GIT-05",
@@ -58,7 +62,8 @@
       "commit": "ea796edfbc77e910176a78bfb690e89dcefae5ac",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "The Node test appends a credential-shaped Stripe token literal to an isolated temporary copy specifically to assert the Netlify guard rejects it. Candidate intentional synthetic test input; confirm it is not a real token before any false-positive disposition."
     },
     {
       "finding_id": "GIT-06",
@@ -68,7 +73,8 @@
       "commit": "64f7a0ff55ae1e9365eb331df1d21b38b2d78e4b",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Test fixture uses an HR-person key in a separation-of-duties membership test. No live HR export or external source indicated by this code context."
     },
     {
       "finding_id": "GIT-07",
@@ -78,7 +84,8 @@
       "commit": "2ebdd228ca4571ca7b8a6b1e0135317e904cff0a",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Flagged line is the test_only=true dataclass field in TestOnlyEd25519Signer. Module documentation says test keys are generated ephemerally with Ed25519PrivateKey.generate(); no static private-key literal appears in this file context."
     },
     {
       "finding_id": "GIT-08",
@@ -88,7 +95,8 @@
       "commit": "87775f5e236bdb32f814c04e8b99434abca06116",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Same TestOnlyEd25519Signer context as GIT-07 at an earlier commit. No hard-coded private key material in the inspected blob."
     },
     {
       "finding_id": "GIT-09",
@@ -98,7 +106,8 @@
       "commit": "b12abf9ea83611a0d991c2d702e9ed02facf693c",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Test fixture uses an HR employee key while exercising identity-to-person binding. Treat as synthetic candidate pending source-owner confirmation; do not infer real personal-data exposure."
     },
     {
       "finding_id": "GIT-10",
@@ -108,7 +117,8 @@
       "commit": "5966fe03e16ad6e95828e480d3bf70d6972066ba",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Reported location is in a test for legacy order/idempotency handling. No credential literal identified in the inspected context; inspect exact SARIF physical-region/fingerprint before disposition."
     },
     {
       "finding_id": "GIT-11",
@@ -118,7 +128,8 @@
       "commit": "210a5207d8979bf4f0697849d7351c34a10e0ccf",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Test-only staging safety function sets OLA_API_KEY_PEPPER to a deterministic 32-hex fixture before exercising a dirty-source rejection. Verify no reuse outside tests."
     },
     {
       "finding_id": "GIT-12",
@@ -128,7 +139,8 @@
       "commit": "210a5207d8979bf4f0697849d7351c34a10e0ccf",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Test-only staging teardown case uses the same deterministic 32-hex pepper fixture; verify no reuse outside tests."
     },
     {
       "finding_id": "GIT-13",
@@ -138,7 +150,8 @@
       "commit": "65432cc17da12d5482c6c642110df709cc4989e1",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Historical copy of test_staging_safety.py shows the same test pepper fixture. This is a repeated historical occurrence, not an independent credential until provenance is established."
     },
     {
       "finding_id": "GIT-14",
@@ -148,7 +161,8 @@
       "commit": "65432cc17da12d5482c6c642110df709cc4989e1",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Historical copy of test_staging_safety.py shows the same test pepper fixture. Keep distinct SARIF occurrence until deduplicated by scanner fingerprint."
     },
     {
       "finding_id": "GIT-15",
@@ -158,7 +172,8 @@
       "commit": "a3c181cb979849843b162ebe694154361e180894",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Historical copy of test_staging_safety.py shows the same test pepper fixture. Verify exact history and whether any deployment ever reused it."
     },
     {
       "finding_id": "GIT-16",
@@ -168,7 +183,8 @@
       "commit": "a3c181cb979849843b162ebe694154361e180894",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Historical copy of test_staging_safety.py shows the same test pepper fixture. Verify exact history and whether any deployment ever reused it."
     },
     {
       "finding_id": "GIT-17",
@@ -178,7 +194,8 @@
       "commit": "5af50ef287c139e16ab85d89645b21443f6ca1c2",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Historical copy of test_staging_safety.py shows the same test pepper fixture. Verify exact history and whether any deployment ever reused it."
     },
     {
       "finding_id": "GIT-18",
@@ -188,7 +205,8 @@
       "commit": "5af50ef287c139e16ab85d89645b21443f6ca1c2",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Historical copy of test_staging_safety.py shows the same test pepper fixture. Verify exact history and whether any deployment ever reused it."
     },
     {
       "finding_id": "GIT-19",
@@ -198,7 +216,8 @@
       "commit": "7b825b3ba7e89bd29f4a93db8ca731f1ffaef1bc",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Historical copy of test_staging_safety.py shows the same test pepper fixture. Verify exact history and whether any deployment ever reused it."
     },
     {
       "finding_id": "GIT-20",
@@ -208,7 +227,8 @@
       "commit": "7b825b3ba7e89bd29f4a93db8ca731f1ffaef1bc",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Historical copy of test_staging_safety.py shows the same test pepper fixture. Verify exact history and whether any deployment ever reused it."
     },
     {
       "finding_id": "GIT-21",
@@ -218,7 +238,8 @@
       "commit": "95d001f8e382cdb1d1a5587c324a3ffef9f22d82",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Historical copy of test_staging_safety.py shows the same test pepper fixture. Verify exact history and whether any deployment ever reused it."
     },
     {
       "finding_id": "GIT-22",
@@ -228,7 +249,8 @@
       "commit": "95d001f8e382cdb1d1a5587c324a3ffef9f22d82",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Historical copy of test_staging_safety.py shows the same test pepper fixture. Verify exact history and whether any deployment ever reused it."
     },
     {
       "finding_id": "GIT-23",
@@ -238,7 +260,9 @@
       "commit": "60378da7d49c908a9fdb99ad544c559fdc5207e1",
       "disposition": "UNCLASSIFIED",
       "matched_secret_value_included": false,
-      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification.",
+      "initial_source_observation": "Reported source is a test fixture that stores a precomputed 64-hex key_hash in an API-key authentication test. This is a hash rather than a raw API key, but determine whether it is reusable or sensitive under the current hashing scheme."
     }
-  ]
+  ],
+  "triage_note": "Source context inspected for all 23 reported rows. Observations are preliminary and do not declare any row a false positive or confirmed secret. Confirm scanner fingerprint/match, exact history, current exposure and runtime reuse before final classification."
 }
