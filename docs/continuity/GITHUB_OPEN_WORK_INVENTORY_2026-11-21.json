@@ -4,18 +4,23 @@
   "default_branch": "main",
   "main_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
   "source_endpoints": [
-    "GET https://api.github.com/repos/krzysztofcieciwa07-ship-it/OLA/issues?state=open&per_page=100&sort=updated&direction=desc",
-    "GET https://api.github.com/repos/krzysztofcieciwa07-ship-it/OLA/pulls?state=open&per_page=100&sort=updated&direction=desc"
+    "GET https://api.github.com/repos/krzysztofcieciwa07-ship-it/OLA/issues?state=open&per_page=100&sort=updated&direction=desc (pages 1-2)",
+    "GET https://api.github.com/repos/krzysztofcieciwa07-ship-it/OLA/pulls?state=open&per_page=100&sort=updated&direction=desc (pages 1-2)"
   ],
   "limits": {
-    "issues_page_size": 100,
-    "issues_response_count": 100,
-    "pulls_page_size": 100,
-    "pulls_response_count": 100,
-    "issues_may_be_truncated": true,
-    "pulls_may_be_truncated": true
+    "pulls_total": 112,
+    "issues_total": 22,
+    "pulls_pages_returned": [
+      100,
+      12
+    ],
+    "issue_pages_returned": [
+      100,
+      34
+    ],
+    "pagination_complete": true
   },
-  "caveat": "Metadata-only navigation snapshot. It is not an acceptance register, does not establish review approval or CI success, and may become stale immediately. Re-fetch a PR/issue and exact source SHA before acting.",
+  "caveat": "Complete metadata-only snapshot for the two queried open-list endpoints as of capture. It is a navigation index, not an acceptance register; it does not prove that any PR is approved, mergeable, green, current or safe. Re-fetch each item and exact source SHA before acting.",
   "open_issues": [
     {
       "number": 158,
@@ -179,6 +184,73 @@
         "krzysztofcieciwa07-ship-it"
       ],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/128"
+    },
+    {
+      "number": 29,
+      "title": "AGENT-02 REACT — investigate and resolve CI contradictions",
+      "state": "open",
+      "updated_at": "2026-09-22T20:57:50Z",
+      "labels": [
+        "P0",
+        "agent"
+      ],
+      "assignees": [
+        "krzysztofcieciwa07-ship-it"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/29"
+    },
+    {
+      "number": 28,
+      "title": "AGENT-01 CODEACT — close runtime/provenance execution gap",
+      "state": "open",
+      "updated_at": "2026-09-22T20:57:48Z",
+      "labels": [
+        "P0",
+        "agent"
+      ],
+      "assignees": [
+        "krzysztofcieciwa07-ship-it"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/28"
+    },
+    {
+      "number": 25,
+      "title": "P1 — Final Human Gate procedure",
+      "state": "open",
+      "updated_at": "2026-09-21T22:09:41Z",
+      "labels": [
+        "security",
+        "P1",
+        "governance"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/25"
+    },
+    {
+      "number": 23,
+      "title": "P1 — Complete OLA public product surface",
+      "state": "open",
+      "updated_at": "2026-09-21T22:09:36Z",
+      "labels": [
+        "P1",
+        "product",
+        "frontend"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/23"
+    },
+    {
+      "number": 22,
+      "title": "P0 — Configure OPENAI_API_KEY for real OLA runtime gate",
+      "state": "open",
+      "updated_at": "2026-09-21T22:09:33Z",
+      "labels": [
+        "P0",
+        "security",
+        "verification"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/22"
     }
   ],
   "open_pull_requests": [
@@ -2501,6 +2573,282 @@
       "review_comments": null,
       "requested_reviewers": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/86"
+    },
+    {
+      "number": 85,
+      "title": "Security: reject malformed replay evidence records",
+      "state": "open",
+      "draft": true,
+      "updated_at": "2026-10-11T01:31:28Z",
+      "base": {
+        "ref": "main",
+        "sha": "5df5e5de1435ac088ce3a96365873807e2551911"
+      },
+      "head": {
+        "ref": "hardening/replay-record-validation-20261011",
+        "sha": "fd38ac24d340fb6bb63c30a598754e31eb3c7764"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/85"
+    },
+    {
+      "number": 84,
+      "title": "Security: strict human approval validation (fail closed)",
+      "state": "open",
+      "draft": true,
+      "updated_at": "2026-10-11T01:29:16Z",
+      "base": {
+        "ref": "main",
+        "sha": "5df5e5de1435ac088ce3a96365873807e2551911"
+      },
+      "head": {
+        "ref": "hardening/human-gate-contract-20261011",
+        "sha": "be81319a19d5aefb537e840e1191f8510638c9a9"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/84"
+    },
+    {
+      "number": 83,
+      "title": "Integrate Vantage advisory security gate into OLA",
+      "state": "open",
+      "draft": true,
+      "updated_at": "2026-10-11T01:12:35Z",
+      "base": {
+        "ref": "main",
+        "sha": "5df5e5de1435ac088ce3a96365873807e2551911"
+      },
+      "head": {
+        "ref": "integrate/vantage-gate-20261011",
+        "sha": "04e1e18fad725700dc861d853bbe89f672e38044"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/83"
+    },
+    {
+      "number": 79,
+      "title": "security: evidence hash v2 binds record identity and type (foundation only)",
+      "state": "open",
+      "draft": true,
+      "updated_at": "2026-10-10T22:41:01Z",
+      "base": {
+        "ref": "main",
+        "sha": "5df5e5de1435ac088ce3a96365873807e2551911"
+      },
+      "head": {
+        "ref": "security/evidence-hash-v2-20261011",
+        "sha": "1ddcad615b7fff144be341cb69e26cf7069882b9"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/79"
+    },
+    {
+      "number": 75,
+      "title": "security: isolate Stripe checkout status and results by session and tenant",
+      "state": "open",
+      "draft": true,
+      "updated_at": "2026-10-10T22:34:14Z",
+      "base": {
+        "ref": "main",
+        "sha": "5df5e5de1435ac088ce3a96365873807e2551911"
+      },
+      "head": {
+        "ref": "security/stripe-session-isolation-20261010",
+        "sha": "75a10881cf765471c42b5835e72d08641b07da6a"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/75"
+    },
+    {
+      "number": 74,
+      "title": "security: block unverified high-risk execution approvals",
+      "state": "open",
+      "draft": true,
+      "updated_at": "2026-10-10T19:16:40Z",
+      "base": {
+        "ref": "main",
+        "sha": "5df5e5de1435ac088ce3a96365873807e2551911"
+      },
+      "head": {
+        "ref": "security/approval-bypass-failclosed-20261010",
+        "sha": "5fb0b59d24f5e6cefd451df6d6c1103de54e9b39"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/74"
+    },
+    {
+      "number": 73,
+      "title": "security: fail-closed CodeQL SARIF high-severity enforcement",
+      "state": "open",
+      "draft": true,
+      "updated_at": "2026-10-10T19:13:39Z",
+      "base": {
+        "ref": "main",
+        "sha": "5df5e5de1435ac088ce3a96365873807e2551911"
+      },
+      "head": {
+        "ref": "security/codeql-sarif-failclosed-20261010",
+        "sha": "ac4264d34212bd0c408587e196490b8e75790fb2"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/73"
+    },
+    {
+      "number": 71,
+      "title": "fix: source-bound fail-closed watchdog on repeated 12h runtime failures",
+      "state": "open",
+      "draft": true,
+      "updated_at": "2026-10-10T01:55:10Z",
+      "base": {
+        "ref": "main",
+        "sha": "ae76f51bc6027ddbee2b9dc0302837aea83c0792"
+      },
+      "head": {
+        "ref": "fix/watchdog-failclosed-autoflow-20261010",
+        "sha": "a6677aa5306d1923895ed9befe1f9ff82a7f4a1b"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/71"
+    },
+    {
+      "number": 61,
+      "title": "TRACEFORGE v0: reproducible knowledge vertical slice",
+      "state": "open",
+      "draft": true,
+      "updated_at": "2026-10-06T20:08:41Z",
+      "base": {
+        "ref": "main",
+        "sha": "a59f8c12f8120a13cfe2627dfa9946d61a9116b8"
+      },
+      "head": {
+        "ref": "feat/traceforge-v0",
+        "sha": "7d2ec1b3b4e6770b0c8d5ce8552bc2fb599ad884"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/61"
+    },
+    {
+      "number": 60,
+      "title": "forensic: enforce independence, authenticity and intermediate evidence states",
+      "state": "open",
+      "draft": false,
+      "updated_at": "2026-10-04T15:47:36Z",
+      "base": {
+        "ref": "main",
+        "sha": "a59f8c12f8120a13cfe2627dfa9946d61a9116b8"
+      },
+      "head": {
+        "ref": "forensic/semantic-closure-2026-10-02",
+        "sha": "8afdb7defd2d62f818ab92443772f31a3422498a"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/60"
+    },
+    {
+      "number": 40,
+      "title": "CFR-18: live forensic gate",
+      "state": "open",
+      "draft": false,
+      "updated_at": "2026-09-26T18:55:26Z",
+      "base": {
+        "ref": "main",
+        "sha": "426e781ba6e8bc2c17f6ed3bf1150372d673bc07"
+      },
+      "head": {
+        "ref": "cfr18-forensic",
+        "sha": "a435c711625d05ec5275caa3d6317d1c5dc69896"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/40"
+    },
+    {
+      "number": 37,
+      "title": "feat: add OLA Decision Fabric with Jev strategy",
+      "state": "open",
+      "draft": true,
+      "updated_at": "2026-09-23T20:22:14Z",
+      "base": {
+        "ref": "main",
+        "sha": "ba2ab72abb62b5838731808911cfcd128746e9cf"
+      },
+      "head": {
+        "ref": "feat/decision-fabric-jev",
+        "sha": "f176695b029114eb8b80afc6ceedb94a685641e1"
+      },
+      "mergeable": null,
+      "mergeable_state": null,
+      "changed_files": null,
+      "additions": null,
+      "deletions": null,
+      "review_comments": null,
+      "requested_reviewers": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/37"
     }
   ]
 }
