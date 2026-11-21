@@ -74,3 +74,13 @@ def test_final_gate_embedded_python_is_syntactically_valid():
         "final-production-gate.yml::<embedded-python>",
         "exec",
     )
+
+
+
+def test_evidence_cryptography_contract_runs_on_every_pr_and_main_push():
+    triggers = trigger_block(workflow("evidence-cryptography-v4.yml"), "permissions")
+
+    assert "  pull_request:" in triggers
+    assert "  push:" in triggers
+    assert "    branches: [main]" in triggers
+    assert "paths:" not in triggers
