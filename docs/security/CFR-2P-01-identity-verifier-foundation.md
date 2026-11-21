@@ -7,7 +7,7 @@ This candidate adds a bounded, fail-closed verifier for RS256 OIDC JWTs and retu
 ## Verification contract
 
 - Require explicit issuer, audience, JWKS URL, and exact HTTPS host allowlist.
-- Reject HTTP, non-443 ports, userinfo, query/fragment, redirects, unsupported JWT algorithms, missing \`kid\`, oversized tokens/JWKS, ambiguous or non-RSA signing keys, and missing/invalid \`iss\`, \`aud\`, \`exp\`, \`iat\`, \`sub\`, or tenant claim.
+- Reject HTTP, non-443 ports, userinfo, query/fragment, redirects, unsupported JWT algorithms, missing \`kid\`, oversized tokens/JWKS, ambiguous or non-RSA signing keys, private RSA JWK material, unknown JWT header parameters, nonstandard \\`typ\\`, whitespace/control characters in \\`kid\\`, and missing/invalid \`iss\`, \`aud\`, \`exp\`, \`iat\`, \`sub\`, or tenant claim.
 - JWKS fetch has a 3-second timeout, no redirects, 64 KiB response cap, 32-key cap, and 5-minute cache. Unknown \`kid\` gets one bounded cache refresh.
 - No token or claim values are logged.
 
