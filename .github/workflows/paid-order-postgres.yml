@@ -4,13 +4,6 @@ on:
   pull_request:
   push:
     branches: [main]
-    paths:
-      - "app/**"
-      - "scripts/migrate_postgres.py"
-      - "tests/test_database_postgres_support.py"
-      - "tests/test_postgres_integration.py"
-      - "requirements.txt"
-      - ".github/workflows/paid-order-postgres.yml"
 
 permissions:
   contents: read
