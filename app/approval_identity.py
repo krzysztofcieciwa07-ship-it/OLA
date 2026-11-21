@@ -164,7 +164,17 @@ def verify_subject_token(token: str, *, environ=None) -> VerifiedSubject:
     except jwt.PyJWTError:
         raise ApprovalIdentityError("invalid approval identity token") from None
     kid = header.get("kid")
-    if header.get("alg") != "RS256" or not isinstance(kid, str) or not kid or len(kid) > 128:
+    typ = header.get("typ")
+    allowed_header_fields = {"alg", "kid", "typ"}
+    if (
+        set(header) - allowed_header_fields
+        or (typ is not None and typ not in {"JWT", "application/jwt"})
+        or header.get("alg") != "RS256"
+        or not isinstance(kid, str)
+        or not kid
+        or len(kid) > 128
+        or any(ord(ch) <= 32 or ord(ch) == 127 for ch in kid)
+    ):
         raise ApprovalIdentityError("unsupported approval identity token header")
 
     jwks = _get_jwks(config.jwks_url)
