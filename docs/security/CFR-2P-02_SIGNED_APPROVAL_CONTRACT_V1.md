@@ -109,7 +109,9 @@ The pure implementation defines:
 - bounded payload depth, node count and encoded size;
 - explicit length framing for identity HMAC material.
 
-The Ed25519 private key is not implemented in this slice. Later signing must use a dedicated protected signer/HSM/KMS or reviewed equivalent. The verifier must pin allowed signer key IDs/public keys and verify the exact domain-separated bytes. Never store a private signing key in the evidence database.
+Offline public-key verification is implemented in `app/approval_contract_v1.py` as `verify_signed_approval_envelope(envelope, trusted_public_keys)`. It requires an exact `key_id` lookup in a caller-supplied trusted-key mapping, accepts a pinned 32-byte raw Ed25519 public key (or an `Ed25519PublicKey` object), enforces the envelope/algorithm/signature encoding shape, and verifies the exact domain-separated canonical payload bytes. It performs no network discovery and does not load keys from request data.
+
+The private signing key, signer service, trust-store lifecycle, key rotation/revocation, and KMS/HSM integration are **not implemented**. Production callers must obtain the trusted-key mapping from separately managed configuration and must not accept a caller-supplied trust map. Never store a private signing key in the evidence database.
 
 ## 5. Human-in-the-loop execution protocol
 
@@ -124,7 +126,7 @@ A real Human Gate must be interactive and human-originated:
 8. Record execution as `NOT_STARTED` in the approval. Only the executor can append observed `SUCCEEDED`/`FAILED`/blocked evidence afterwards.
 9. An approval authorizes only the exact effect stated. It does not authorize deployment, migration, production configuration or any additional action.
 
-CI, a workflow, an LLM, a synthetic fixture or this contract test suite must never create a real approval. The test signature fixture in `tests/test_approval_contract_v1.py` exists only to validate JSON Schema shape; it is not cryptographic and is never submitted to an application.
+CI, a workflow, an LLM, a synthetic fixture or this contract test suite must never create a real approval. The schema-only signature fixture in `contract_tests/test_approval_contract_v1.py` validates envelope shape only; it is not cryptographic and is never submitted to an application. Separate Ed25519 tests generate ephemeral test-only key pairs and perform actual signing/verification in isolated CI; those keys and signatures are never used as application approvals.
 
 ## 6. Replay, expiry and revocation
 
@@ -150,7 +152,8 @@ The candidate suite validates:
 - `REFUSE`, `UNRESOLVED` and `INCOMPARABLE` cannot authorize an effect;
 - approval cannot claim that execution already happened or that any closure has occurred;
 - TTL, auth age, tenant binding, sequence ordering and final evidence-tip equality;
-- strict JSON Schema additional-property and Ed25519 envelope constraints.
+- strict JSON Schema additional-property and Ed25519 envelope constraints;
+- real Ed25519 public-key verification in isolated tests: valid signature accepted, payload tampering rejected, unknown/untrusted key ID rejected.
 
 CI adds `requirements-contracts.txt` for JSON Schema validation only. Dockerfile installs `requirements.txt`, not `requirements-contracts.txt`; this keeps the validator outside the production image.
 
@@ -166,3 +169,12 @@ CI adds `requirements-contracts.txt` for JSON Schema validation only. Dockerfile
 - No DB or Railway writes.
 
 Required later sequence: independent design/security review → membership model and migration design → disposable PostgreSQL contract and negative tests → signer/key-custody review → API/broker integration → isolated staging DB binding evidence → real human acceptance test → separately authorized production rollout. No stage may be skipped because schema tests pass.
+
+
+## 9. Exact-source CI evidence — 2026-11-21
+
+- PR #280 head: `47998a5d71f667907f4bd1c717206a68667cc9e4`; base remains PR #276 head `6bcc5fd66e21479c84ba62e17d02398f48d80d9c`.
+- Exact-head PR workflow matrix: 17/17 SUCCESS, zero failures, zero pending.
+- Python Package CI run: [#44913349323](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/44913349323) SUCCESS.
+- Its dedicated `Run offline signed-approval contract tests` step executed `PYTHONPATH=. pytest -q contract_tests` and passed 30 tests.
+- These are branch CI results only. They do not constitute independent code review, main-branch merge, a production signer, a real Human Gate approval, a database migration, or production deployment.
