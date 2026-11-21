@@ -395,6 +395,8 @@ def validate_approval_semantics(
     effect_digest = effect.get("target_sha256")
     if not isinstance(effect_digest, str) or SHA256_RE.fullmatch(effect_digest) is None:
         raise ApprovalContractError("effect target sha256 is invalid")
+    if effect_digest != request_digest:
+        raise ApprovalContractError("effect target sha256 must match the request digest")
 
     policy = payload.get("policy")
     if not isinstance(policy, dict) or not isinstance(policy.get("version"), str):
