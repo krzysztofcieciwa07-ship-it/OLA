@@ -129,7 +129,7 @@ def test_nonstandard_jwt_typ_rejected(monkeypatch, env, keypair, typ):
         )
 
 
-@pytest.mark.parametrize("kid", ["fixture kid", "fixture\\n kid", "\\x7f"])
+@pytest.mark.parametrize("kid", ["fixture kid", "fixture\n kid", "\x7f"])
 def test_kid_whitespace_and_controls_rejected(monkeypatch, env, keypair, kid):
     monkeypatch.setattr(ai, "_get_jwks", lambda *a, **k: pytest.fail("JWKS must not be called"))
     with pytest.raises(ai.ApprovalIdentityError):
