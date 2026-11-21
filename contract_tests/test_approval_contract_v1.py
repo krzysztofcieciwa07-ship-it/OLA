@@ -286,6 +286,36 @@ def test_actor_membership_must_match_record_tenant():
         validate_approval_semantics(candidate, now=datetime.fromisoformat(candidate["issued_at"].replace("Z", "+00:00")))
 
 
+@pytest.mark.parametrize("issuer", [
+    "http://login.example.test/tenant",
+    "https://",
+    "https://user@login.example.test/tenant",
+    "https://login.example.test:444/tenant",
+    "https://login.example.test/tenant?query=1",
+    "https://login.example.test/tenant#fragment",
+    "https://login.example.test/tenant with space",
+])
+def test_actor_issuer_must_be_exact_https_without_unsafe_components(issuer):
+    candidate = payload()
+    candidate["author"]["issuer"] = issuer
+    with pytest.raises(ApprovalContractError, match="issuer"):
+        validate_approval_semantics(candidate, now=datetime.fromisoformat(candidate["issued_at"].replace("Z", "+00:00")))
+
+
+def test_membership_version_rejects_boolean():
+    candidate = payload()
+    candidate["reviewer"]["membership_version"] = True
+    with pytest.raises(ApprovalContractError, match="membership version"):
+        validate_approval_semantics(candidate, now=datetime.fromisoformat(candidate["issued_at"].replace("Z", "+00:00")))
+
+
+def test_semantic_validator_rejects_unhashable_decision():
+    candidate = payload()
+    candidate["decision"] = []
+    with pytest.raises(ApprovalContractError, match="decision is invalid"):
+        validate_approval_semantics(candidate, now=datetime.fromisoformat(candidate["issued_at"].replace("Z", "+00:00")))
+
+
 def test_approval_window_is_checked_without_mutating_record():
     candidate = payload()
     issued = datetime.fromisoformat(candidate["issued_at"].replace("Z", "+00:00"))
