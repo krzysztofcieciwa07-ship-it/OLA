@@ -73,3 +73,23 @@ The two missing producer workflows are the same trigger-coverage defect addresse
 Do not merge both branch trees blindly: #268 and #275 overlap in the trigger/test files; #275 carries a separate cancellation-protection change. No merge, deployment or external mutation was performed in this revalidation.
 
 **Current decision remains MERGE TRAIN STOP.** Exact-source CI evidence for these candidate trigger fixes is positive, but missing producers on PR #277 remain UNKNOWN until the fix is integrated and rerun on the resulting exact SHA; main governance, tenant/RLS, database target mapping and production Human Gate remain separate blockers.
+
+
+## Exact-source revalidation — 2026-11-21 20:28 UTC
+
+- PR #277 head: `6b1aa56c88c6a141de9ff8207b871a18a9c5fc3d`; base/main SHA: `8adf30cd5e41a18a5345f66e67f5ddcdbc164862`.
+- GitHub check-runs on this exact head: 34 total — 31 SUCCESS, 2 SKIPPED (`igor-independent`, `scorecard`), 1 FAILURE (`final-production`). The exact-head Supply Chain Evidence Gate/Gitleaks check is SUCCESS; this does not close the 23 findings on main.
+- Final Production Gate: [run #44939238948](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/44939238948), job `final-production` ID `136952566613`. Step `Verify required evidence gates` failed closed. `failed={}`, `pending={}`; the two absent producers remain `UNKNOWN`: `Evidence Cryptography V4 Contract` and `OLA paid-order PostgreSQL contract`. Release-image build/export and attestations were skipped.
+- Artifact #14722131738: GitHub digest / ZIP SHA-256 `3febc08a36ec323994bb9236abdde09c70fcb168eb5110365736e02d7cace119`. `production-manifest.json` SHA-256 `60cdb44f05ef0cb580ced0becce6eec65f6faa730d85bdc93811ecdf68758399`; manifest status `BLOCKED`; source/image attestations `NOT_PERFORMED`.
+- Main branch remains SHA `8adf30cd5e41a18a5345f66e67f5ddcdbc164862`. GitHub branch metadata reports `protection.enabled=false`, required-check enforcement `off`, and no contexts/checks. The dedicated branch-protection API endpoint returned 403 to the connected integration; no governance changes were made.
+- PR #277 remains OPEN/DRAFT; GitHub currently reports mergeable=true but mergeable-state `unstable`; no independent review was submitted. No merge or deployment was performed.
+
+## Staging deployment failure — read-only log inspection
+
+- Railway project: `OLA FastAPI Staging`; environment: `Ola di-os`; API deployment `ac7efe87-b02d-4b23-a422-a459498cc054`, created 2026-11-21 17:05 UTC, status `FAILED`.
+- Source commit recorded by build: `393cc56dcd8c1a749cf11d4306d1e247144139cb`; branch `feat/ola-staging-bootstrap-20261108`.
+- Failure occurred in `scripts/migrate_postgres.py` while opening the PostgreSQL connection: password authentication rejected for role `ola_migrator`. DB host/IP details are intentionally omitted. No successful connection or migration is evidenced by these logs; do not infer a DB write or target mapping.
+- API service has no persistent volume in this environment. Neon `OLA_DATABASE_URL` mapping to a specific project/branch remains UNKNOWN. Production project `Ola di-os` remains separate from this staging project.
+- Next owner action: authorized operator must validate the intended Neon target and role/credential mapping without exposing DSN/secret values; provide sanitized identity/target evidence. Do not rotate/change credentials or retry migration from automation.
+
+**Decision:** MERGE TRAIN STOP. These are fresh source-bound CI and staging-failure observations only; neither establishes production readiness or P0 closure.
