@@ -33,6 +33,7 @@ from .report_review import approve_paid_order_report, deliver_paid_order_report,
 from .tenant_context import (
     set_current_tenant_id, reset_current_tenant_id,
     set_database_auth_context, reset_database_auth_context, set_api_key_context,
+    set_checkout_context,
 )
 
 app = FastAPI(title="OLA Execution Gate")
@@ -554,6 +555,10 @@ def payment_success(session_id: str):
     if not request_hash:
         raise HTTPException(status_code=403, detail="payment session has no request hash")
 
+    # Database authorization is bound to the exact stored OLA order / Checkout Session pair.
+    # Stripe metadata alone is not a PostgreSQL RLS authority.
+    set_checkout_context(order_id, session_id)
+    set_current_tenant_id(tenant_id)
     with SessionLocal() as db:
         order = db.get(CheckoutOrder, order_id)
         if (
