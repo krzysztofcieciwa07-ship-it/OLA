@@ -134,3 +134,8 @@ A workstream can move to VERIFIED only when:
 - the result is recorded in the canonical task ledger after PR #108 is reconciled.
 
 **Do not merge or deploy from this document.** It is a handoff and evidence collection index. Production remains BLOCKED until the release blockers above are closed with independent, same-release evidence.
+
+
+## 9. Reusable intake worksheet
+
+Use [EVIDENCE_INTAKE_TEMPLATE.md](EVIDENCE_INTAKE_TEMPLATE.md) for each artifact or capture set. It standardizes task/evidence IDs, UTC capture window, principal and environment, exact SHA/resource, capture method, export completeness, SHA-256, independent verification, redaction, runtime/database correlation, security impact and closure decision. Do not collect secrets or raw DSNs in the worksheet.
