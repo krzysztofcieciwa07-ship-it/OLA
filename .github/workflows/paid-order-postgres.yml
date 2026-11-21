@@ -12,7 +12,7 @@ on:
       - "requirements.txt"
       - ".github/workflows/paid-order-postgres.yml"
   push:
-    branches: [main]
+    branches: [main, "security/**"]
     paths:
       - "app/**"
       - "scripts/migrate_postgres.py"

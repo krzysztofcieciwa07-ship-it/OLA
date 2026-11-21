@@ -2,6 +2,7 @@
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 
 import pytest
 from sqlalchemy import create_engine, event, select, text
@@ -9,7 +10,17 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
-from app.tenant_context import tenant_scope
+from app.tenant_context import (
+    set_api_key_context, reset_database_auth_context,
+)
+ 
+@contextmanager
+def authenticated_tenant_scope(key_fingerprint):
+    token = set_api_key_context(key_fingerprint)
+    try:
+        yield
+    finally:
+        reset_database_auth_context(token)
 
 POSTGRES_URL = os.getenv("OLA_TEST_POSTGRES_URL", "").strip()
 pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="OLA_TEST_POSTGRES_URL is not configured")
@@ -85,13 +96,19 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
     # The restricted runtime role has only SELECT/INSERT on evidence_records.
     database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
     tenant_id = str(uuid.uuid4())
-    with tenant_scope(tenant_id):
-        with database.SessionLocal() as db:
-            db.add(Tenant(id=tenant_id, name="PostgreSQL integration tenant"))
-            db.commit()
+    key_hash = uuid.uuid4().hex + uuid.uuid4().hex
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:id, :name)"),
+            {"id": tenant_id, "name": "PostgreSQL integration tenant"},
+        )
+        conn.execute(
+            text("INSERT INTO api_keys (id, tenant_id, key_hash, role) VALUES (:id, :tenant_id, :key_hash, 'tenant')"),
+            {"id": str(uuid.uuid4()), "tenant_id": tenant_id, "key_hash": key_hash},
+        )
 
     def append_event(index):
-        with tenant_scope(tenant_id):
+        with authenticated_tenant_scope(key_hash):
             return database.append_evidence_atomic(
                 tenant_id, "integration.append", {"index": index},
             )
@@ -100,7 +117,7 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
         results = list(pool.map(append_event, range(32)))
 
     assert len({item["id"] for item in results}) == 32
-    with tenant_scope(tenant_id):
+    with authenticated_tenant_scope(key_hash):
         with database.SessionLocal() as db:
             rows = db.scalars(
                 select(EvidenceRecord)
@@ -152,8 +169,8 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
     with _admin_engine.begin() as conn:
         conn.exec_driver_sql(
             f"ALTER POLICY ola_tenant_isolation ON \"{_schema}\".evidence_records "
-            "USING (tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), '')) "
-            "WITH CHECK (tenant_id::text = NULLIF(current_setting('ola.tenant_id', true), ''))"
+            f"USING (\"{_schema}\".ola_tenant_context_matches(tenant_id::text)) "
+            f"WITH CHECK (\"{_schema}\".ola_tenant_context_matches(tenant_id::text))"
         )
     database.verify_postgres_schema(runtime_engine, runtime_role=runtime_role, worker_role=worker_role)
 
@@ -400,7 +417,7 @@ def test_postgres_rls_isolates_tenant_rows_and_preserves_secure_api_key_lookup(p
         assert db.execute(text("SELECT id FROM api_keys")).all() == []
 
     # A transaction-local tenant context exposes only that tenant's rows.
-    with tenant_scope(tenant_a):
+    with authenticated_tenant_scope(key_a):
         with database.SessionLocal() as db:
             assert db.execute(text("SELECT id FROM tenants")).scalars().all() == [tenant_a]
             assert db.execute(text("SELECT tenant_id FROM api_keys")).scalars().all() == [tenant_a]
@@ -1272,3 +1289,183 @@ def test_postgres_runtime_verifier_rejects_definer_owner_different_from_table_ow
         runtime_engine, runtime_role=runtime_role, worker_role=worker_role,
     )
 
+
+
+def test_postgres_tenant_context_is_cleared_at_commit_and_guc_cannot_restore_it(postgres_db):
+    database, _runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    from app.models import CheckoutOrder, Tenant
+
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    key_a = "e" * 64
+    order_a = str(uuid.uuid4())
+    order_b = str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:a, 'tenant-a'), (:b, 'tenant-b')"),
+            {"a": tenant_a, "b": tenant_b},
+        )
+        conn.execute(text("""
+            INSERT INTO api_keys (id, tenant_id, key_hash, role)
+            VALUES (:key_id, :tenant_id, :key_hash, 'tenant')
+        """), {"key_id": str(uuid.uuid4()), "tenant_id": tenant_a, "key_hash": key_a})
+        conn.execute(text("""
+            INSERT INTO checkout_orders
+                (id, tenant_id, idempotency_key_hash, request_hash, status, created_at)
+            VALUES
+                (:order_a, :tenant_a, :idem_a, :hash, 'CHECKOUT_CREATED', 0),
+                (:order_b, :tenant_b, :idem_b, :hash, 'CHECKOUT_CREATED', 0)
+        """), {
+            "order_a": order_a, "tenant_a": tenant_a, "idem_a": uuid.uuid4().hex,
+            "order_b": order_b, "tenant_b": tenant_b, "idem_b": uuid.uuid4().hex,
+            "hash": "f" * 64,
+        })
+
+    token = set_api_key_context(key_a)
+    try:
+        with database.SessionLocal() as db:
+            first = db.scalars(select(CheckoutOrder.id).order_by(CheckoutOrder.id)).all()
+            assert first == [order_a]
+            db.commit()
+
+            # The transaction-local context row is ON COMMIT DELETE ROWS.
+            # A caller-settable GUC on the next transaction is not a new proof.
+            reset_database_auth_context(token)
+            token = None
+            db.execute(
+                text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+                {"tenant_id": tenant_b},
+            )
+            second = db.scalars(select(CheckoutOrder.id).order_by(CheckoutOrder.id)).all()
+            assert second == []
+    finally:
+        if token is not None:
+            reset_database_auth_context(token)
+
+
+def test_postgres_trusted_api_key_context_rejects_revoked_and_expired_keys(postgres_db):
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    tenant_id = str(uuid.uuid4())
+    revoked_key = "c" * 64
+    expired_key = "d" * 64
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:id, 'key-lifecycle-tenant')"),
+            {"id": tenant_id},
+        )
+        conn.execute(text("""
+            INSERT INTO api_keys (id, tenant_id, key_hash, role, revoked_at, expires_at)
+            VALUES
+                (:revoked_id, :tenant_id, :revoked_key, 'tenant', CURRENT_TIMESTAMP, NULL),
+                (:expired_id, :tenant_id, :expired_key, 'tenant', NULL, CURRENT_TIMESTAMP - INTERVAL '1 minute')
+        """), {
+            "revoked_id": str(uuid.uuid4()), "expired_id": str(uuid.uuid4()),
+            "tenant_id": tenant_id, "revoked_key": revoked_key, "expired_key": expired_key,
+        })
+
+    for key_hash in (revoked_key, expired_key):
+        with pytest.raises(DBAPIError) as exc:
+            with runtime_engine.begin() as conn:
+                conn.execute(
+                    text("SELECT ola_establish_api_key_context(:key_hash)"),
+                    {"key_hash": key_hash},
+                ).scalar_one()
+        sqlstate = getattr(exc.value.orig, "sqlstate", None) or getattr(exc.value.orig, "pgcode", None)
+        assert sqlstate == "42501"
+
+
+def test_postgres_runtime_cannot_spoof_tenant_guc_to_read_other_tenant(postgres_db):
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    order_a = str(uuid.uuid4())
+    order_b = str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:a, 'tenant-a'), (:b, 'tenant-b')"),
+            {"a": tenant_a, "b": tenant_b},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO checkout_orders
+                    (id, tenant_id, idempotency_key_hash, request_hash, status, created_at)
+                VALUES
+                    (:order_a, :tenant_a, :idem_a, :hash, 'CHECKOUT_CREATED', 0),
+                    (:order_b, :tenant_b, :idem_b, :hash, 'CHECKOUT_CREATED', 0)
+            """),
+            {
+                "order_a": order_a, "tenant_a": tenant_a, "idem_a": uuid.uuid4().hex,
+                "order_b": order_b, "tenant_b": tenant_b, "idem_b": uuid.uuid4().hex,
+                "hash": "d" * 64,
+            },
+        )
+
+    with runtime_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_b},
+        )
+        visible = conn.execute(
+            text("SELECT id FROM checkout_orders ORDER BY id")
+        ).scalars().all()
+
+    assert visible == [], (
+        "ola_runtime must not gain tenant access by setting ola.tenant_id; "
+        f"cross-tenant rows were visible: {visible}"
+    )
+
+
+def test_postgres_trusted_api_key_context_overrides_forged_guc(postgres_db):
+    _database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema, _worker_role = postgres_db
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    key_a = "a" * 64
+    key_b = "b" * 64
+    order_a = str(uuid.uuid4())
+    order_b = str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO tenants (id, name) VALUES (:a, 'tenant-a'), (:b, 'tenant-b')"),
+            {"a": tenant_a, "b": tenant_b},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO api_keys (id, tenant_id, key_hash, role)
+                VALUES (:key_a_id, :tenant_a, :key_a, 'tenant'),
+                       (:key_b_id, :tenant_b, :key_b, 'tenant')
+            """),
+            {
+                "key_a_id": str(uuid.uuid4()), "tenant_a": tenant_a, "key_a": key_a,
+                "key_b_id": str(uuid.uuid4()), "tenant_b": tenant_b, "key_b": key_b,
+            },
+        )
+        conn.execute(
+            text("""
+                INSERT INTO checkout_orders
+                    (id, tenant_id, idempotency_key_hash, request_hash, status, created_at)
+                VALUES
+                    (:order_a, :tenant_a, :idem_a, :hash, 'CHECKOUT_CREATED', 0),
+                    (:order_b, :tenant_b, :idem_b, :hash, 'CHECKOUT_CREATED', 0)
+            """),
+            {
+                "order_a": order_a, "tenant_a": tenant_a, "idem_a": uuid.uuid4().hex,
+                "order_b": order_b, "tenant_b": tenant_b, "idem_b": uuid.uuid4().hex,
+                "hash": "e" * 64,
+            },
+        )
+
+    with runtime_engine.begin() as conn:
+        authenticated_tenant = conn.execute(
+            text("SELECT ola_establish_api_key_context(:key_hash)"),
+            {"key_hash": key_a},
+        ).scalar_one()
+        assert authenticated_tenant == tenant_a
+        conn.execute(
+            text("SELECT set_config('ola.tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_b},
+        )
+        visible = conn.execute(
+            text("SELECT id FROM checkout_orders ORDER BY id")
+        ).scalars().all()
+
+    assert visible == [order_a]
