@@ -83,3 +83,9 @@ def test_paid_order_postgres_contract_runs_on_every_main_push():
     push = triggers[triggers.index("  push:"):]
     assert "    branches: [main]" in push
     assert "    paths:" not in push
+
+
+
+def test_python_package_ci_preserves_main_runs_from_concurrency_cancellation():
+    source = workflow("python-package-conda.yml")
+    assert "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}" in source
