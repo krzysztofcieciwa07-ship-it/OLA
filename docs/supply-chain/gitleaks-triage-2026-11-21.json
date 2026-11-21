@@ -1,0 +1,244 @@
+{
+  "schema": "ola.gitleaks-triage/v1",
+  "source": {
+    "repository": "krzysztofcieciwa07-ship-it/OLA",
+    "run_id": 44900512969,
+    "source_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+    "artifact_id": 14705294063,
+    "artifact_sha256": "4576d241c5b45810abd52b528ec39cebb6626060d5e9f4a5872c14664a4928a8"
+  },
+  "count": 23,
+  "classification_policy": "No finding is presumed a true leak or a false positive from rule/path alone. No matched value is stored in this index.",
+  "findings": [
+    {
+      "finding_id": "GIT-01",
+      "rule": "generic-api-key",
+      "path": "tests/test_gitleaks_exact_scan.py",
+      "line": 15,
+      "commit": "30e6099daded8f713a831f88e10f22cdce30142f",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-02",
+      "rule": "generic-api-key",
+      "path": "tests/test_agent_supervisor.py",
+      "line": 384,
+      "commit": "7191d9d82121a05edd1272f2e48da5c977802fd7",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-03",
+      "rule": "generic-api-key",
+      "path": "tests/test_agent_supervisor.py",
+      "line": 388,
+      "commit": "7191d9d82121a05edd1272f2e48da5c977802fd7",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-04",
+      "rule": "generic-api-key",
+      "path": "tests/test_evidence_concurrency.py",
+      "line": 142,
+      "commit": "69a4d272c731b98b2b3c31f85fa606c9c6660382",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-05",
+      "rule": "stripe-access-token",
+      "path": "tests/netlify-nina-pilot.test.mjs",
+      "line": 121,
+      "commit": "ea796edfbc77e910176a78bfb690e89dcefae5ac",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-06",
+      "rule": "generic-api-key",
+      "path": "tests/test_human_identity_sod.py",
+      "line": 99,
+      "commit": "64f7a0ff55ae1e9365eb331df1d21b38b2d78e4b",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-07",
+      "rule": "generic-api-key",
+      "path": "app/customer_bundle/signers.py",
+      "line": 37,
+      "commit": "2ebdd228ca4571ca7b8a6b1e0135317e904cff0a",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-08",
+      "rule": "generic-api-key",
+      "path": "app/customer_bundle/signers.py",
+      "line": 37,
+      "commit": "87775f5e236bdb32f814c04e8b99434abca06116",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-09",
+      "rule": "generic-api-key",
+      "path": "tests/test_human_identity_sod.py",
+      "line": 91,
+      "commit": "b12abf9ea83611a0d991c2d702e9ed02facf693c",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-10",
+      "rule": "generic-api-key",
+      "path": "tests/test_checkout_idempotency.py",
+      "line": 381,
+      "commit": "5966fe03e16ad6e95828e480d3bf70d6972066ba",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-11",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 11,
+      "commit": "210a5207d8979bf4f0697849d7351c34a10e0ccf",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-12",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 34,
+      "commit": "210a5207d8979bf4f0697849d7351c34a10e0ccf",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-13",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 11,
+      "commit": "65432cc17da12d5482c6c642110df709cc4989e1",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-14",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 34,
+      "commit": "65432cc17da12d5482c6c642110df709cc4989e1",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-15",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 11,
+      "commit": "a3c181cb979849843b162ebe694154361e180894",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-16",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 34,
+      "commit": "a3c181cb979849843b162ebe694154361e180894",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-17",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 11,
+      "commit": "5af50ef287c139e16ab85d89645b21443f6ca1c2",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-18",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 34,
+      "commit": "5af50ef287c139e16ab85d89645b21443f6ca1c2",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-19",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 11,
+      "commit": "7b825b3ba7e89bd29f4a93db8ca731f1ffaef1bc",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-20",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 34,
+      "commit": "7b825b3ba7e89bd29f4a93db8ca731f1ffaef1bc",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-21",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 11,
+      "commit": "95d001f8e382cdb1d1a5587c324a3ffef9f22d82",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-22",
+      "rule": "generic-api-key",
+      "path": "tests/test_staging_safety.py",
+      "line": 34,
+      "commit": "95d001f8e382cdb1d1a5587c324a3ffef9f22d82",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    },
+    {
+      "finding_id": "GIT-23",
+      "rule": "generic-api-key",
+      "path": "tests/test_api_key_v2.py",
+      "line": 43,
+      "commit": "60378da7d49c908a9fdb99ad544c559fdc5207e1",
+      "disposition": "UNCLASSIFIED",
+      "matched_secret_value_included": false,
+      "next_action": "Inspect exact commit blob and history without printing the matched value; establish exposure and source classification."
+    }
+  ]
+}
