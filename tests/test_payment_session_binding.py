@@ -94,6 +94,30 @@ def test_payment_success_does_not_disclose_another_session_result(monkeypatch):
     assert "run_id" not in result
 
 
+def test_payment_success_establishes_stored_checkout_database_context(monkeypatch):
+    task = "trusted checkout lookup " + str(uuid.uuid4())
+    session_id = "cs_test_context_proof"
+    order_id = record_order(task, session_id, "PAID_PENDING_REVIEW")
+    monkeypatch.setattr(
+        main, "retrieve_checkout",
+        lambda sid: paid_session(sid, task, order_id),
+    )
+    contexts = []
+    monkeypatch.setattr(
+        main, "set_checkout_context",
+        lambda bound_order_id, bound_session_id: contexts.append(
+            (bound_order_id, bound_session_id)
+        ),
+    )
+    monkeypatch.setattr(main, "set_current_tenant_id", lambda _tenant_id: None)
+
+    result = main.payment_success(session_id)
+
+    assert contexts == [(order_id, session_id)]
+    assert result["status"] == "PAID_PENDING_REVIEW"
+    assert result["execution"] == "NOT_STARTED"
+
+
 def test_payment_success_reports_human_review_hold_without_execution(monkeypatch):
     task = "review pending audit " + str(uuid.uuid4())
     order_id = record_order(task, "cs_test_review_hold", "PAID_PENDING_REVIEW")
