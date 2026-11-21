@@ -5,6 +5,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+from app import approval_contract_v1 as approval_contract
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 
 from app.approval_contract_v1 import (
