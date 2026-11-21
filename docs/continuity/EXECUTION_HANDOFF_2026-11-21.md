@@ -139,3 +139,35 @@ A workstream can move to VERIFIED only when:
 ## 9. Reusable intake worksheet
 
 Use [EVIDENCE_INTAKE_TEMPLATE.md](EVIDENCE_INTAKE_TEMPLATE.md) for each artifact or capture set. It standardizes task/evidence IDs, UTC capture window, principal and environment, exact SHA/resource, capture method, export completeness, SHA-256, independent verification, redaction, runtime/database correlation, security impact and closure decision. Do not collect secrets or raw DSNs in the worksheet.
+
+
+## 9. Consolidation update — 2026-11-21
+
+The audit's Phase 0 scope-freeze is now being executed. The live PR inventory was refreshed after consolidation: **111 open PRs and 22 open issues**, from paginated GitHub REST results (100+11 PRs; 100+33 issue endpoint entries, with 22 actual issues after excluding PR objects). See 'GITHUB_OPEN_WORK_INVENTORY_2026-11-21.json'. This is metadata-only and must be refreshed again before later actions.
+
+### Completed: writer/infrastructure audit consolidation
+
+- PR #272 is the single Draft candidate, directly based on current main SHA '8adf30cd5e41a18a5345f66e67f5ddcdbc164862'.
+- Head SHA '5f383614e01f93ac0db35511608658a796073ebf'; exact compare says 20 commits ahead, 0 behind and 12 files.
+- Exact-head CI observed: 14/14 SUCCESS, no failures or pending checks.
+- The #269 API-to-central-writer source trace was copied into #272.
+- #269, #270 and #271 were closed with cross-reference comments as SUPERSEDED_BY #272. Their historical commits remain available.
+- #272 remains Draft and source-only. It does not prove production DB writer completeness, live IAM, actual privileges, firewall/network, or production telemetry correlation. Independent review and external operator evidence remain required.
+
+### Tenant/RLS: do not merge yet
+
+- #237 is the preferred Architecture C design candidate and now includes the checkout-session database-context call/test ported from #244, plus normalization of empty function-ACL results.
+- Current #237 head is '60d59508431a4ce66bf94ce7185e7f5e196ec406', base main '8adf30cd5e41a18a5345f66e67f5ddcdbc164862'; GitHub reports mergeable=false.
+- Its original E2.1 base is '36cd93c85f0f78caa007feb33b59cb1286a17b40'. Current main contains later Evidence V4 changes, including updates to app/database.py, app/main.py, app/paid_order_execution.py and PostgreSQL tests. Do not copy old full files or force a merge.
+- #244 contains nine additional DB/worker hardening tests and corresponding helper code not yet in #237. These include role-membership/admin-option validation, migration DSN guard, role-collision fail-closed behavior, malformed auth-context validation, worker DB mode/role/key checks and worker identity verification ordering.
+- #233/#237/#244 remain HOLD. #233 is the earlier HMAC/GUC variant; #244 remains evidence for unique tests/helpers; #237 is preferred only at architecture level, not a merge-ready implementation. Do not close any of them until a current-main implementation preserves Architecture C, Evidence V4 and every necessary negative test on exact SHA.
+
+### Active work priority
+
+1. Keep main unchanged and production NO-GO.
+2. Build a correct current-main three-way tenant-context integration; no force, no stale full-file copy.
+3. Port and run the nine missing DB/worker negative tests on disposable PostgreSQL.
+4. Independently review SECURITY DEFINER ownership/search_path/ACL/temp-table context, API-key/worker-claim/checkout bindings and V4 chain behavior.
+5. Only then supersede #233/#244; run exact-SHA CI and request independent review.
+
+Detailed PR decisions: 'PR_CONSOLIDATION_REGISTER_2026-11-21.md'.
