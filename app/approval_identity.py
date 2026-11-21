@@ -131,7 +131,15 @@ def _key_for_kid(jwks: dict, kid: str):
     if len(matches) != 1:
         return None
     row = matches[0]
-    if row.get("kty") != "RSA" or row.get("use") not in (None, "sig") or row.get("alg") not in (None, "RS256"):
+    key_ops = row.get("key_ops")
+    private_parameters = ("d", "p", "q", "dp", "dq", "qi", "oth")
+    if (
+        row.get("kty") != "RSA"
+        or row.get("use") not in (None, "sig")
+        or row.get("alg") not in (None, "RS256")
+        or (key_ops is not None and key_ops != ["verify"])
+        or any(name in row for name in private_parameters)
+    ):
         return None
     try:
         key = jwt.PyJWK.from_dict(row, algorithm="RS256").key

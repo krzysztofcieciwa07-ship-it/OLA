@@ -213,3 +213,26 @@ def test_weak_rsa_key_is_rejected():
     weak_jwk = {"kty": "RSA", "kid": "weak", "use": "sig", "alg": "RS256",
                 "n": b64int(numbers.n), "e": b64int(numbers.e)}
     assert ai._key_for_kid({"keys": [weak_jwk]}, "weak") is None
+
+
+@pytest.mark.parametrize("key_ops", [
+    ["sign"],
+    [],
+    ["verify", "sign"],
+    ["verify", "verify"],
+    "verify",
+])
+def test_jwk_key_ops_must_be_verify_only(keypair, key_ops):
+    candidate = dict(keypair[2], key_ops=key_ops)
+    assert ai._key_for_kid({"keys": [candidate]}, "fixture-kid") is None
+
+
+def test_jwk_verify_only_key_ops_is_accepted(keypair):
+    candidate = dict(keypair[2], key_ops=["verify"])
+    assert ai._key_for_kid({"keys": [candidate]}, "fixture-kid") is not None
+
+
+@pytest.mark.parametrize("private_parameter", ["d", "p", "q", "dp", "dq", "qi", "oth"])
+def test_jwk_private_rsa_material_is_rejected(keypair, private_parameter):
+    candidate = dict(keypair[2], **{private_parameter: "private-material"})
+    assert ai._key_for_kid({"keys": [candidate]}, "fixture-kid") is None
