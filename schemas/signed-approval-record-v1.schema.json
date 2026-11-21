@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ola-di-os.example/schemas/signed-approval-record-v1.schema.json",
+  "$id": "urn:ola:schema:signed-approval-record-v1",
   "title": "OLA Signed Approval Record v1",
   "description": "Immutable, narrowly scoped Human Gate record. The signature covers only payload using the OLA v1 domain-separated canonical JSON profile.",
   "type": "object",
