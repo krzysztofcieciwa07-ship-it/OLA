@@ -7,6 +7,20 @@
 
 This register is a decision/navigation layer for existing PRs. It is not a substitute for current exact-SHA CI, an independent review, or the canonical task ledger. Every PR must be re-fetched before action.
 
+## 0. Priority-based merge-train policy
+
+The authoritative acceptance and stop rules are now defined in:
+`docs/security/OLA_MERGE_TRAIN_VALIDATION_POLICY_V1.md` (Policy ID: `OLA-MERGE-TRAIN-PRIORITY-V1`).
+
+This policy supersedes informal PR-only status interpretation:
+- P0 FAIL or UNKNOWN = immediate merge-train STOP.
+- P1 FAIL or UNKNOWN = RC/release blocked; only independent non-dependent merges may continue.
+- P2 FAIL = remediation item unless a security/release invariant is affected, which escalates the priority.
+- M1–M19 stage order and P0-01–P0-08 / P1-01–P1-05 criteria are written in the policy.
+- Green workflow status is only a PASS for checks actually run on that exact SHA; it is not by itself a PASS for the wider invariant.
+
+Current snapshot decision: **MERGE TRAIN STOP** because writer boundary, live tenant RLS/trusted context, identity integration, application Human Gate, and production build/attestation invariants remain UNKNOWN. M1 and M2 have 22/22 exact-head workflow runs SUCCESS each, but that does not override outstanding P0 gates or authorize a merge by itself.
+
 ## 1. Consolidation completed
 
 ### P0 writer-universe / infrastructure evidence package
