@@ -63,20 +63,14 @@ footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px
     <div id="ledger-records" aria-live="polite"></div>
   </section>
   <section class="health-panel" aria-labelledby="workflow-report-title">
-    <h3 id="workflow-report-title">Raporty workflow — IGOR</h3>
-    <p class="hint">Odczyt ponownie weryfikuje dowody dla konkretnego run_id. Wymaga klucza API właściwego tenanta. To wyłącznie GET — Human Gate nie jest zatwierdzany.</p>
-    <article class="workflow-report-card">
-      <div class="detail"><span>Workflow · seq 6–11 · ollama/ui-test-stub</span><span id="workflow-status-2845f75e-6a52-472c-ab5a-52fddc0ea07b" class="status">NOT_CHECKED</span></div>
-      <p class="hint">2845f75e-6a52-472c-ab5a-52fddc0ea07b</p>
-      <button type="button" data-workflow-run="2845f75e-6a52-472c-ab5a-52fddc0ea07b" disabled>Otwórz raport IGOR</button>
-      <p id="workflow-output-2845f75e-6a52-472c-ab5a-52fddc0ea07b" class="workflow-report-output" aria-live="polite">Nie pobrano raportu z serwera.</p>
-    </article>
-    <article class="workflow-report-card">
-      <div class="detail"><span>Workflow · seq 0–5 · ollama/ui-test-stub</span><span id="workflow-status-93889e85-6b4a-4328-a34d-510fd1b25da9" class="status">NOT_CHECKED</span></div>
-      <p class="hint">93889e85-6b4a-4328-a34d-510fd1b25da9</p>
-      <button type="button" data-workflow-run="93889e85-6b4a-4328-a34d-510fd1b25da9" disabled>Otwórz raport IGOR</button>
-      <p id="workflow-output-93889e85-6b4a-4328-a34d-510fd1b25da9" class="workflow-report-output" aria-live="polite">Nie pobrano raportu z serwera.</p>
-    </article>
+    <h3 id="workflow-report-title">Raport workflow — IGOR</h3>
+    <p class="hint">Wprowadź UUID run_id. Serwer ponownie weryfikuje tenant-scoped evidence. To wyłącznie GET — Human Gate nie jest zatwierdzany.</p>
+    <label for="workflow-run-id">Run ID (UUID)</label>
+    <input id="workflow-run-id" type="text" maxlength="36" autocomplete="off" inputmode="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" aria-describedby="workflow-run-id-hint">
+    <p id="workflow-run-id-hint" class="hint">Raport jest odczytywany tylko dla tenanta uwierzytelnionego kluczem API.</p>
+    <div class="detail"><span>Raport</span><span id="workflow-status" class="status">NOT_CHECKED</span></div>
+    <button type="button" id="workflow-report-button" disabled>Otwórz raport IGOR</button>
+    <p id="workflow-output" class="workflow-report-output" aria-live="polite">Nie pobrano raportu z serwera.</p>
   </section>
   <div class="detail"><span>Wykonanie</span><span id="runtime-status" class="status">NOT_RUN</span></div>
   <div class="detail"><span>IGOR</span><span id="igor-status" class="status">UNKNOWN</span></div>
@@ -261,17 +255,32 @@ async function refreshCoreHealth() {
     el("#health-detail").textContent = "Odczyt nieudany: " + new Date().toISOString();
   } finally { button.disabled = false; }
 }
-async function loadWorkflowReport(runId, button) {
-  const key = keyInput.value.trim();
-  const status = document.getElementById("workflow-status-" + runId);
-  const output = document.getElementById("workflow-output-" + runId);
+const workflowRunInput = el("#workflow-run-id");
+const workflowReportButton = el("#workflow-report-button");
+function validWorkflowRunId(value) {
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value.trim());
+}
+function updateWorkflowReportButton() {
+  workflowReportButton.disabled = !keyInput.value.trim() || !validWorkflowRunId(workflowRunInput.value);
+}
+async function loadWorkflowReport() {
+  const key = keyInput.value.trim(), runId = workflowRunInput.value.trim();
+  const status = el("#workflow-status"), output = el("#workflow-output");
+  if (!validWorkflowRunId(runId)) {
+    status.textContent = "INVALID_RUN_ID";
+    status.className = "status warn";
+    output.textContent = "Wprowadź poprawny UUID run_id.";
+    updateWorkflowReportButton();
+    return;
+  }
   if (!key) {
     status.textContent = "KEY_REQUIRED";
     status.className = "status warn";
     output.textContent = "Wpisz klucz API właściwego tenanta.";
+    updateWorkflowReportButton();
     return;
   }
-  button.disabled = true;
+  workflowReportButton.disabled = true;
   status.textContent = "FETCHING";
   status.className = "status warn";
   output.textContent = "Serwer ponownie weryfikuje dowody workflow…";
@@ -289,13 +298,8 @@ async function loadWorkflowReport(runId, button) {
         String(body.detail || `HTTP ${response.status}`);
       return;
     }
-    if (body.status !== "VERIFIED") {
-      status.textContent = "UNVERIFIED";
-      status.className = "status warn";
-    } else {
-      status.textContent = "VERIFIED";
-      status.className = "status good";
-    }
+    status.textContent = body.status === "VERIFIED" ? "VERIFIED" : "UNVERIFIED";
+    status.className = "status" + (body.status === "VERIFIED" ? " good" : " warn");
     output.textContent = [
       "run_id: " + runId,
       "IGOR: " + String(body.status || "UNKNOWN"),
@@ -310,7 +314,7 @@ async function loadWorkflowReport(runId, button) {
     status.className = "status bad";
     output.textContent = "Nie udało się połączyć z endpointem raportu. Nie ponawiaj automatycznie.";
   } finally {
-    button.disabled = !keyInput.value.trim();
+    updateWorkflowReportButton();
   }
 }
 async function loadTenantLedger() {
@@ -358,16 +362,16 @@ async function loadTenantLedger() {
     el("#ledger-tip").textContent = "Nie udało się pobrać tenant-scoped Evidence Ledger.";
   } finally { button.disabled = !keyInput.value.trim(); }
 }
-document.querySelectorAll("[data-workflow-run]").forEach(button => {
-  button.addEventListener("click", () => loadWorkflowReport(button.dataset.workflowRun, button));
-});
+workflowReportButton.addEventListener("click", loadWorkflowReport);
+workflowRunInput.addEventListener("input", updateWorkflowReportButton);
 el("#health-refresh").addEventListener("click", refreshCoreHealth);
 el("#ledger-button").addEventListener("click", loadTenantLedger);
 keyInput.addEventListener("input", () => {
   el("#ledger-button").disabled = !keyInput.value.trim();
-  document.querySelectorAll("[data-workflow-run]").forEach(button => { button.disabled = !keyInput.value.trim(); });
+  updateWorkflowReportButton();
   if (!keyInput.value.trim()) panelBadge("#ledger-status", "KEY_REQUIRED", "warn");
 });
+updateWorkflowReportButton();
 refreshCoreHealth();
 el("#task-form").addEventListener("submit", sendChat);
 runButton.addEventListener("click", runNina);
