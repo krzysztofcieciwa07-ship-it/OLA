@@ -37,7 +37,7 @@
 - Environment: staging
 - Environment ID: 49e9669f-ac25-41a1-a366-1fc458c73484
 - API service: ola-fastapi-api / 23f2097d-d99a-46e2-9b5a-7ff57c803fb7
-- Current API deployment: 7d166aec-5c5c-45f2-ad41-a6b5a5993f65 — SUCCESS — source SHA 151fe8684e7eaefffb6d29b611593d200f6ee8ca — branch test/staging-panel-overlay-20261120-2052Z
+- Current Railway deploy ID: 7d166aec-5c5c-45f2-ad41-a6b5a5993f65 — SUCCESS — source SHA 151fe8684e7eaefffb6d29b611593d200f6ee8ca — branch test/staging-panel-overlay-20261120-2052Z
 - Worker service: ola-paid-order-worker / 8dfa21a9-c35c-4b9e-ad24-338fe8470216
 - Current worker deployment: 4ef6b5a1-930d-466e-bcd7-3344e03d5f55 — SUCCESS — source SHA 8adf30cd5e41a18a5345f66e67f5ddcdbc164862 — branch main
 - Last health read: both services online, 1 running replica each, no recent failures/critical/warning notifications in the 24-hour window, no pending staged changes.
