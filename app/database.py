@@ -302,14 +302,14 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True, runtime_rol
                    ) AS public_execute,
                    has_function_privilege(:runtime_role, p.oid, 'EXECUTE') AS runtime_execute,
                    has_function_privilege(:worker_role, p.oid, 'EXECUTE') AS worker_execute,
-                   (
-                       SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee))
+                   COALESCE((
+                       SELECT array_agg(DISTINCT pg_get_userbyid(acl.grantee)::text)
                        FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
                        WHERE acl.privilege_type = 'EXECUTE'
                          AND acl.grantee <> 0
                          AND acl.grantee <> p.proowner
                          AND pg_get_userbyid(acl.grantee) <> :runtime_role
-                   ) AS extra_execute_grantees,
+                   ), ARRAY[]::text[]) AS extra_execute_grantees,
                    EXISTS (
                        SELECT 1
                        FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
