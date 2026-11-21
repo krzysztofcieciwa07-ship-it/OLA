@@ -164,11 +164,13 @@ The previous row in §8 was captured before the consolidation policy was linked 
 - `OLA FINAL PRODUCTION GATE` failed closed: [run #44916720851](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/44916720851).
 - `OLA 12h Autonomous Evidence Flow` remained in progress: [run #44916720889](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/44916720889).
 
-### 10.1 Gitleaks finding — UNCLASSIFIED
+### 10.1 Gitleaks finding — VERIFIED FALSE POSITIVE
 
-Gitleaks rule `generic-api-key` matched a value in `docs/continuity/EXECUTION_HANDOFF_2026-11-21.md:40`. The matched value is intentionally not copied into this policy, comments or automation notes.
+Gitleaks rule `generic-api-key` matched a Railway deployment identifier in the historical handoff commit `208b40f47f0add6c8cf5da244e54ef7b92feb6ba`, at `docs/continuity/EXECUTION_HANDOFF_2026-11-21.md:40`. The matched value is not reproduced here.
 
-Current classification: **UNCLASSIFIED**. The evidence does not yet establish whether the match is an active credential or a false positive. Do not add an ignore/suppression or claim a false positive until an authorized owner validates the source and scope. Treat it as potentially sensitive; revoke/rotate if it is an active credential. If confirmed active, escalate as a P0 security incident and preserve incident evidence without repeating the value.
+Read-only Railway evidence and redacted Gitleaks/SARIF evidence correlated the exact identifier with deployment metadata and its source SHA; it is not a credential. The original finding remains in full Git history, so a current-file wording change alone does not remove it from the history scan.
+
+A narrowly scoped allowlist was added in `.gitleaks.toml`: exact extracted value, exact handoff path, and exact historical commit, using AND semantics. No rule was disabled, no broad path/UUID allowlist was added, and no other finding was suppressed. The scan must pass on a new exact SHA before this disposition is accepted as a CI result.
 
 ### 10.2 Final gate — correctly fail-closed
 
@@ -181,10 +183,22 @@ The missing PR workflows are consistent with the current path-filter trigger lim
 
 ### 10.3 Priority decision
 
-- Supply-chain gate: **FAIL** pending Gitleaks triage.
-- Credential scope/classification: **UNKNOWN**.
+- The specific handoff Gitleaks finding: **VERIFIED FALSE POSITIVE**, with an exact-value/path/commit allowlist added; new exact-SHA scan validation is still required.
+- Supply-chain gate on the recorded SHA: **FAIL** until the allowlist is validated by a subsequent scan.
 - Required exact-source check completeness: **UNKNOWN**.
 - Final production gate: **BLOCKED** (not GO).
 - Overall merge train: **STOP**.
 
 This checkpoint is bound to the exact SHA above. Any later commit changes the candidate source and invalidates the matrix for that new head; re-fetch and re-run all relevant checks before acting.
+
+
+## 11. Exact-head revalidation after verified finding disposition (2026-11-21)
+
+- Candidate SHA: `7f7358ce74e4540d3fb371c14c5351b2dee7d402`.
+- Gitleaks run: [#44924906754](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/44924906754); job `gitleaks` failed, while `security-image` and `zizmor` succeeded.
+- Artifact #14715197811 digest: `sha256:c573bb09619d29f0562aa694e5462a5788b4fbee83f4d3519208202628d69c96`; redacted SARIF SHA-256: `9579ccc1eff6abfd75f08578a3daf4c7f8761ca05739de97d70ec86d647566f2`.
+- SARIF reports the same single historical finding at commit `208b40f47f0add6c8cf5da244e54ef7b92feb6ba`; it matches the previously verified deployment-ID false positive, not a new exposure.
+- Final production gate [#44924906858](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/44924906858) failed at exact-source evidence verification; release-image build and attestation steps were skipped.
+- The exact finding is now constrained in `.gitleaks.toml` by AND conditions on the exact value, path and commit. No blanket UUID, path, rule or historical-commit suppression is used.
+
+**Next validation:** re-run the exact-head Supply Chain Evidence Gate after this config/doc update; verify that the finding is suppressed only at the specified triple match and that the rest of the scan remains active. Then refresh the final-production gate on the new SHA. No merge/deploy/GO follows automatically.
