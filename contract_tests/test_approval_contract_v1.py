@@ -67,7 +67,7 @@ def payload(action="EXECUTE_PAID_ORDER", now=None):
         "effect": {
             "action": "RELEASE_REPORT_TO_ORIGINAL_REQUESTER" if is_report else "QUEUE_SINGLE_EXECUTION",
             "target_id": "88888888-8888-4888-8888-888888888888",
-            "target_sha256": "3" * 64,
+            "target_sha256": "2" * 64,
         },
         "decision": "ALLOW",
         "effect_authorized": True,
@@ -263,6 +263,13 @@ def test_stale_reviewer_step_up_authentication_is_rejected():
     candidate["reviewer_authentication"]["auth_time"] = ts(issued - timedelta(minutes=5, seconds=1))
     with pytest.raises(ApprovalContractError, match="too old"):
         validate_approval_semantics(candidate, now=issued)
+
+
+def test_effect_digest_must_match_request_digest():
+    candidate = payload()
+    candidate["effect"]["target_sha256"] = "3" * 64
+    with pytest.raises(ApprovalContractError, match="must match the request digest"):
+        validate_approval_semantics(candidate, now=datetime.fromisoformat(candidate["issued_at"].replace("Z", "+00:00")))
 
 
 def test_evidence_tip_must_equal_last_referenced_record():
