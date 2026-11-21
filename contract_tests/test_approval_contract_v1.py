@@ -302,3 +302,53 @@ def test_schema_rejects_non_ed25519_signature_algorithm():
     record["signature"]["algorithm"] = "HS256"
     with pytest.raises(ValidationError):
         validate_schema(record)
+
+
+def _require_signature_verifier():
+    verifier = getattr(approval_contract, "verify_signed_approval_envelope", None)
+    assert callable(verifier), "Ed25519 approval-envelope verifier is not implemented"
+    return verifier
+
+
+def _signed_envelope(candidate, private_key, key_id="test-ed25519-k1"):
+    signature = private_key.sign(signing_input(candidate))
+    value = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
+    public_key = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    return (
+        {
+            "payload": candidate,
+            "signature": {
+                "algorithm": "Ed25519",
+                "key_id": key_id,
+                "value": value,
+            },
+        },
+        public_key,
+    )
+
+
+def test_ed25519_verifier_accepts_valid_signature_for_exact_trusted_key():
+    verifier = _require_signature_verifier()
+    candidate = payload()
+    private_key = Ed25519PrivateKey.generate()
+    record, public_key = _signed_envelope(candidate, private_key)
+    assert verifier(record, {"test-ed25519-k1": public_key}) is True
+
+
+def test_ed25519_verifier_rejects_payload_tampering():
+    verifier = _require_signature_verifier()
+    candidate = payload()
+    private_key = Ed25519PrivateKey.generate()
+    record, public_key = _signed_envelope(candidate, private_key)
+    record["payload"]["reason"] += " tampered"
+    with pytest.raises(ApprovalContractError):
+        verifier(record, {"test-ed25519-k1": public_key})
+
+
+def test_ed25519_verifier_rejects_unknown_or_untrusted_key_id():
+    verifier = _require_signature_verifier()
+    candidate = payload()
+    private_key = Ed25519PrivateKey.generate()
+    record, public_key = _signed_envelope(candidate, private_key)
+    with pytest.raises(ApprovalContractError):
+        verifier(record, {"different-key-id": public_key})
