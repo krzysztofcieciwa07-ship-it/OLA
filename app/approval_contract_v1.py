@@ -6,13 +6,19 @@ checks so implementation can be independently reviewed before any migration.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import hmac
 import json
 import re
 import unicodedata
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from urllib.parse import urlsplit
 
 DOMAIN_SEPARATOR = b"OLA-SIGNED-APPROVAL\x00v1\x00"
@@ -177,6 +183,69 @@ def canonical_payload_bytes(payload: dict) -> bytes:
 def signing_input(payload: dict) -> bytes:
     """Bytes to sign with the dedicated OLA Ed25519 signing key."""
     return DOMAIN_SEPARATOR + canonical_payload_bytes(payload)
+
+
+def verify_signed_approval_envelope(
+    envelope: object,
+    trusted_public_keys: Mapping[str, bytes | Ed25519PublicKey],
+) -> bool:
+    """Verify an Ed25519 envelope against an explicit trusted key-id map.
+
+    This verifies only the cryptographic signature over the canonical,
+    domain-separated payload. Callers must separately validate the JSON Schema,
+    approval semantics, current membership/policy, nonce, expiry and target
+    state before authorizing any effect. No key discovery or network access is
+    performed here.
+    """
+    if not isinstance(envelope, dict) or set(envelope) != {"payload", "signature"}:
+        raise ApprovalContractError("signed approval envelope shape is invalid")
+
+    signature_record = envelope.get("signature")
+    if not isinstance(signature_record, dict) or set(signature_record) != {
+        "algorithm", "key_id", "value"
+    }:
+        raise ApprovalContractError("signed approval signature record shape is invalid")
+    if signature_record.get("algorithm") != "Ed25519":
+        raise ApprovalContractError("unsupported signed approval signature algorithm")
+
+    key_id = signature_record.get("key_id")
+    value = signature_record.get("value")
+    if not isinstance(key_id, str) or KEY_ID_RE.fullmatch(key_id) is None:
+        raise ApprovalContractError("signed approval key id is invalid")
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"[A-Za-z0-9_-]{86}", value) is None
+    ):
+        raise ApprovalContractError("signed approval signature encoding is invalid")
+    if not isinstance(trusted_public_keys, Mapping):
+        raise ApprovalContractError("trusted approval public-key map is invalid")
+    if key_id not in trusted_public_keys:
+        raise ApprovalContractError("signed approval key id is not trusted")
+
+    configured_key = trusted_public_keys[key_id]
+    if isinstance(configured_key, Ed25519PublicKey):
+        public_key = configured_key
+    elif isinstance(configured_key, bytes) and len(configured_key) == 32:
+        try:
+            public_key = Ed25519PublicKey.from_public_bytes(configured_key)
+        except ValueError:
+            raise ApprovalContractError("trusted Ed25519 public key is invalid") from None
+    else:
+        raise ApprovalContractError("trusted Ed25519 public key must be 32 raw bytes")
+
+    try:
+        signature = base64.b64decode(value + "==", altchars=b"-_", validate=True)
+        if (
+            len(signature) != 64
+            or base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii") != value
+        ):
+            raise ApprovalContractError("signed approval signature encoding is non-canonical")
+        public_key.verify(signature, signing_input(envelope["payload"]))
+    except ApprovalContractError:
+        raise
+    except (InvalidSignature, binascii.Error, TypeError, ValueError, UnicodeError):
+        raise ApprovalContractError("signed approval signature verification failed") from None
+    return True
 
 
 def payload_sha256(payload: dict) -> str:
