@@ -60,7 +60,8 @@ def test_dashboard_uses_current_authenticated_api_and_reads_evidence():
     assert "innerHTML" not in script
     assert "localStorage" not in script
     assert "sessionStorage" not in script
-    assert "/nina-workflow" not in script
+    assert 'fetch(`/nina-workflow/${encodeURIComponent(runId)}/report`' in script
+    assert 'headers:{"Authorization":`Bearer ${key}`}' in script
     assert "/nina-autogpt" not in script
     assert "/approve" not in script
 
@@ -83,3 +84,45 @@ def test_inline_dashboard_javascript_parses_with_node():
     result = subprocess.run([node, "--check", "-"], input=script,
                             text=True, capture_output=True, check=False)
     assert result.returncode == 0, result.stderr
+
+
+def test_dashboard_exposes_live_liveness_and_local_readiness_panel():
+    html = TestClient(app).get("/").text
+    parsed = DashboardParser()
+    parsed.feed(html)
+    script = "\\n".join(parsed.scripts)
+    assert {"health-status", "readiness-status", "readiness-scope", "health-refresh",
+            "ledger-button", "ledger-status", "ledger-tip", "ledger-records"} <= parsed.ids
+    assert 'fetch("/health"' in script
+    assert 'fetch("/readyz"' in script
+    assert 'fetch("/evidence?limit=20"' in script
+    assert 'fetch("/evidence/tip"' in script
+    assert '"X-API-Key":key' in script
+    assert "local_core_only" in script
+    assert "system_acceptance" in script
+    assert "textContent" in script
+    assert "innerHTML" not in script
+    assert "localStorage" not in script
+    assert "sessionStorage" not in script
+
+
+def test_dashboard_exposes_generic_read_only_workflow_report_lookup():
+    html = TestClient(app).get("/").text
+    parsed = DashboardParser()
+    parsed.feed(html)
+    script = "\\n".join(parsed.scripts)
+    assert {"workflow-run-id", "workflow-report-button", "workflow-status", "workflow-output"} <= parsed.ids
+    assert 'fetch(`/nina-workflow/${encodeURIComponent(runId)}/report`' in script
+    assert 'headers:{"Authorization":`Bearer ${key}`}' in script
+    assert "UUID" in html
+    assert "validWorkflowRunId" in script
+    assert "updateWorkflowReportButton" in script
+    assert "production_authorized" in script
+    assert "NOT_APPROVED" in script
+    assert "data-workflow-run" not in script
+    assert "2845f75e-6a52-472c-ab5a-52fddc0ea07b" not in html
+    assert "93889e85-6a4b-4328-a34d-510fd1b25da9" not in html
+    assert "/approve" not in script
+    assert "innerHTML" not in script
+    assert "localStorage" not in script
+    assert "sessionStorage" not in script

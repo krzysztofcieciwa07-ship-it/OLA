@@ -7,6 +7,11 @@ on:
   pull_request:
     branches:
       - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
   workflow_dispatch:
 
 permissions: {}
@@ -62,7 +67,9 @@ jobs:
           target_sha="${{ steps.target.outputs.sha }}"
           event_filter=""
           case "${GITHUB_EVENT_NAME}" in
-            pull_request|push) event_filter="&event=${GITHUB_EVENT_NAME}" ;;
+            pull_request) event_filter="&event=pull_request&branch=${GITHUB_HEAD_REF}" ;;
+            push) event_filter="&event=push&branch=main" ;;
+            workflow_dispatch) event_filter="&branch=${GITHUB_REF_NAME}" ;;
           esac
           # Producer DAG gate permits up to 25 min; cover it plus queue latency.
           max_attempts=120
