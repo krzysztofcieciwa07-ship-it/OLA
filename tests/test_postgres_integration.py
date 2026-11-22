@@ -241,5 +241,6 @@ def test_postgres_membership_rls_is_tenant_scoped_and_transaction_local(postgres
         db.commit()
 
         # A second tenant context cannot read tenant A by primary key either.
+        db.expunge_all()
         database.set_human_gate_tenant_scope(db, tenant_b)
         assert db.get(HumanGateMembership, principal_a) is None
