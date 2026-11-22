@@ -23,6 +23,7 @@ from urllib.parse import urlsplit
 
 DOMAIN_SEPARATOR = b"OLA-SIGNED-APPROVAL\x00v1\x00"
 IDENTITY_DOMAIN = b"OLA-OIDC-SUBJECT-FINGERPRINT\x00v1\x00"
+SESSION_DOMAIN = b"OLA-OIDC-SESSION-FINGERPRINT\x00v1\x00"
 MAX_CANONICAL_BYTES = 65_536
 MAX_JSON_DEPTH = 16
 MAX_JSON_NODES = 4_096
@@ -129,6 +130,43 @@ def oidc_subject_fingerprint(
         tenant.encode("utf-8"),
         issuer.encode("utf-8"),
         subject.encode("utf-8"),
+    ))
+    digest = hmac.new(key, material, hashlib.sha256).hexdigest()
+    return {
+        "algorithm": "HMAC-SHA-256",
+        "key_id": key_id,
+        "value": digest,
+    }
+
+
+
+def oidc_session_fingerprint(
+    key: bytes,
+    key_id: str,
+    tenant_id: str,
+    issuer: str,
+    subject: str,
+    session_id: str,
+) -> dict[str, str]:
+    """Return a tenant-, issuer-, subject- and session-scoped pseudonymous key.
+
+    This value binds an approval's reviewer step-up to the live OIDC session.
+    It is domain-separated from the persistent subject fingerprint and never
+    stores the raw session identifier.
+    """
+    if not isinstance(key, bytes) or len(key) < 32:
+        raise ApprovalContractError("session fingerprint key must contain at least 32 bytes")
+    if not KEY_ID_RE.fullmatch(key_id or ""):
+        raise ApprovalContractError("session fingerprint key id is invalid")
+    tenant = _uuid(tenant_id, "tenant_id")
+    issuer = _validate_https_issuer(issuer, "issuer")
+    subject = _text(subject, "subject", max_length=256)
+    session = _text(session_id, "session_id", max_length=256)
+    material = SESSION_DOMAIN + _framed((
+        tenant.encode("utf-8"),
+        issuer.encode("utf-8"),
+        subject.encode("utf-8"),
+        session.encode("utf-8"),
     ))
     digest = hmac.new(key, material, hashlib.sha256).hexdigest()
     return {
