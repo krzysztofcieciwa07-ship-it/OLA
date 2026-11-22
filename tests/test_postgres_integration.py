@@ -143,7 +143,7 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
 
 
 def test_postgres_membership_rls_is_tenant_scoped_and_transaction_local(postgres_db):
-    from sqlalchemy import select
+    from sqlalchemy import select, text
     from app.models import HumanGateMembership, Tenant
 
     database, _runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
