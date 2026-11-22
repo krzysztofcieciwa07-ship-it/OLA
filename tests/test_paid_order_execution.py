@@ -3,7 +3,7 @@ from app.main import app
 
 
 
-def _approve_signed(ctx, *, key=None, tip_hash=None, reason="Reviewed payment and order scope"):
+def _approve_signed(ctx, monkeypatch, *, key=None, tip_hash=None, reason="Reviewed payment and order scope"):
     """Create a test-only Ed25519 envelope and matching trusted approval evidence."""
     import base64
     import json
@@ -220,7 +220,7 @@ def test_worker_runs_paid_order_once_and_replays_completed_response(monkeypatch)
     from test_paid_order_approval import _seed_paid_order, _approve
 
     ctx = _seed_paid_order(monkeypatch)
-    approved = _approve(ctx)
+    approved = _approve_signed(ctx, monkeypatch)
     assert approved.status_code == 200, approved.text
     with SessionLocal() as db:
         job = db.scalar(select(CheckoutExecutionJob).where(CheckoutExecutionJob.order_id == ctx["order_id"]))
@@ -333,7 +333,7 @@ def test_nina_failure_is_terminal_and_does_not_auto_retry(monkeypatch):
     from test_paid_order_approval import _seed_paid_order, _approve
     import app.nina_execution as nina_execution
     ctx = _seed_paid_order(monkeypatch)
-    assert _approve(ctx).status_code == 200
+    assert _approve_signed(ctx, monkeypatch).status_code == 200
     with SessionLocal() as db:
         job = db.scalar(select(CheckoutExecutionJob).where(CheckoutExecutionJob.order_id == ctx["order_id"]))
         job_id = job.id
@@ -381,7 +381,7 @@ def test_paid_order_worker_executes_real_nina_and_igor_runtime(monkeypatch):
     monkeypatch.setenv("OLA_LLM_MODE", "deterministic")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     ctx = _seed_paid_order(monkeypatch)
-    approved = _approve(ctx)
+    approved = _approve_signed(ctx, monkeypatch)
     assert approved.status_code == 200, approved.text
     with SessionLocal() as db:
         job = db.scalar(select(CheckoutExecutionJob).where(CheckoutExecutionJob.order_id == ctx["order_id"]))
@@ -415,7 +415,7 @@ def test_worker_blocks_changed_task_scope_before_running_nina(monkeypatch):
     from app.paid_order_execution import execute_paid_order_job, PaidOrderExecutionRejected
     from test_paid_order_approval import _seed_paid_order, _approve
     ctx = _seed_paid_order(monkeypatch)
-    assert _approve(ctx).status_code == 200
+    assert _approve_signed(ctx, monkeypatch).status_code == 200
     with SessionLocal() as db:
         job = db.scalar(select(CheckoutExecutionJob).where(CheckoutExecutionJob.order_id == ctx["order_id"]))
         job_id = job.id
@@ -484,7 +484,7 @@ def test_concurrent_worker_invocations_claim_one_execution_only(monkeypatch):
     from test_paid_order_approval import _seed_paid_order, _approve
 
     ctx = _seed_paid_order(monkeypatch)
-    assert _approve(ctx).status_code == 200
+    assert _approve_signed(ctx, monkeypatch).status_code == 200
     with SessionLocal() as db:
         job = db.scalar(select(CheckoutExecutionJob).where(CheckoutExecutionJob.order_id == ctx["order_id"]))
         job_id = job.id
@@ -529,7 +529,7 @@ def test_worker_rechecks_execution_approver_role_before_running_nina(monkeypatch
     from test_paid_order_approval import _seed_paid_order, _approve
 
     ctx = _seed_paid_order(monkeypatch)
-    approved = _approve(ctx)
+    approved = _approve_signed(ctx, monkeypatch)
     assert approved.status_code == 200, approved.text
     with SessionLocal() as db:
         approver = db.get(ApiKey, ctx["approver_id"])
@@ -585,4 +585,36 @@ def test_worker_refuses_legacy_unsigned_approval_before_runner(monkeypatch):
     with SessionLocal() as db:
         job = db.get(CheckoutExecutionJob, job_id)
         assert job.status == "BLOCKED"
+        assert job.attempt_count == 0
+
+
+
+def test_worker_fails_closed_when_sqlite_nonce_ledger_is_unavailable(monkeypatch):
+    from sqlalchemy import select
+    from app.database import SessionLocal
+    from app.models import CheckoutExecutionJob
+    from app.paid_order_execution import execute_paid_order_job, PaidOrderExecutionRejected
+    from test_paid_order_approval import _seed_paid_order
+
+    ctx = _seed_paid_order(monkeypatch)
+    approved = _approve_signed(ctx, monkeypatch)
+    assert approved.status_code == 200, approved.text
+    with SessionLocal() as db:
+        job = db.scalar(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == ctx["order_id"]
+        ))
+        job_id = job.id
+
+    calls = []
+    def forbidden_runner(*args, **kwargs):
+        calls.append(True)
+        return {"status": "MUST_NOT_RUN"}
+
+    with pytest.raises(PaidOrderExecutionRejected) as exc:
+        execute_paid_order_job(job_id, runner=forbidden_runner)
+    assert exc.value.code == 503
+    assert calls == []
+    with SessionLocal() as db:
+        job = db.get(CheckoutExecutionJob, job_id)
+        assert job.status == "QUEUED"
         assert job.attempt_count == 0
