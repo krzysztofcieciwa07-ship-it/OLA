@@ -793,3 +793,32 @@ def test_paid_order_approval_rejects_ordinary_tenant_key_without_side_effects(mo
     assert control.approver_id is None
     assert jobs == []
     assert approvals == []
+
+
+
+def test_signed_approval_ingress_requires_bearer_before_touching_order(monkeypatch):
+    from app.models import CheckoutOrderControl, CheckoutExecutionJob, EvidenceRecord
+
+    ctx = _seed_paid_order(monkeypatch)
+    client = TestClient(app)
+    response = client.post(
+        f"/checkout-orders/{ctx['order_id']}/signed-approval",
+        json={"envelope": {"payload": {}, "signature": {}}},
+    )
+    assert response.status_code == 401, response.text
+    with SessionLocal() as db:
+        control = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == ctx["order_id"]
+        ))
+        jobs = db.scalars(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == ctx["order_id"]
+        )).all()
+        approvals = db.scalars(select(EvidenceRecord).where(
+            EvidenceRecord.tenant_id == ctx["tenant_id"],
+            EvidenceRecord.record_type == "human.revenue_execution_approval",
+        )).all()
+    assert control.status == "PAID_PENDING_REVIEW"
+    assert control.approver_id is None
+    assert control.signed_approval_envelope_json is None
+    assert jobs == []
+    assert approvals == []
