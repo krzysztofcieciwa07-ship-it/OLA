@@ -83,7 +83,10 @@ def test_signed_worker_never_reads_membership_when_tenant_scope_fails(monkeypatc
     monkeypatch.setattr(
         signed_approval_runtime, "set_human_gate_tenant_scope", fail_scope,
     )
-    with pytest.raises(RuntimeError, match="tenant RLS scope unavailable"):
+    with pytest.raises(
+        signed_approval_runtime.SignedApprovalRuntimeRejected,
+        match="tenant RLS scope could not be established",
+    ):
         signed_approval_runtime._current_membership(
             FakeSession(),
             actor,
