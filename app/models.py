@@ -1,6 +1,6 @@
 import uuid
 import time
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Text, Boolean, ForeignKey, UniqueConstraint, CheckConstraint
 from .database import Base
 
 
@@ -120,3 +120,41 @@ class CheckoutReportReview(Base):
     reviewed_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
     delivery_evidence_id = Column(String(36), nullable=True)
     delivered_at = Column(Integer, nullable=True)
+
+
+class HumanGateMembership(Base):
+    """Read-only runtime mapping of a verified OIDC subject to an OLA principal.
+
+    Membership grants are managed out-of-band by an authorized owner. Runtime
+    callers resolve memberships but must not create, update, or revoke them.
+    Raw OIDC subjects and tokens are never stored in this table.
+    """
+    __tablename__ = "human_gate_memberships"
+    id = Column(String(36), primary_key=True, default=uid)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    issuer = Column(String(512), nullable=False)
+    subject_fingerprint = Column(String(64), nullable=False)
+    fingerprint_key_id = Column(String(128), nullable=False)
+    role = Column(String(32), nullable=False)
+    membership_version = Column(Integer, nullable=False)
+    active = Column(Boolean, nullable=False, default=True)
+    revoked_at = Column(Integer, nullable=True)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "issuer", "fingerprint_key_id", "subject_fingerprint",
+            name="uq_human_gate_membership_subject",
+        ),
+        CheckConstraint(
+            "role IN ('requester', 'execution_approver', 'report_reviewer')",
+            name="ck_human_gate_membership_role",
+        ),
+        CheckConstraint(
+            "membership_version >= 1",
+            name="ck_human_gate_membership_version",
+        ),
+        CheckConstraint(
+            "(active = TRUE AND revoked_at IS NULL) OR (active = FALSE AND revoked_at IS NOT NULL)",
+            name="ck_human_gate_membership_revocation",
+        ),
+    )

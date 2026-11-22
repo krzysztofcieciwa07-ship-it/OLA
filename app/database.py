@@ -168,6 +168,10 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "reviewed_tip_hash", "reason", "approval_evidence_id", "reviewed_at",
             "delivery_evidence_id", "delivered_at",
         },
+        "human_gate_memberships": {
+            "id", "tenant_id", "issuer", "subject_fingerprint", "fingerprint_key_id",
+            "role", "membership_version", "active", "revoked_at", "created_at",
+        },
         "ola_schema_migrations": {"version", "description", "applied_at"},
     }
     inspector = inspect(bind)
@@ -193,6 +197,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         },
         "checkout_order_controls": {("order_id",)},
         "checkout_execution_jobs": {("order_id",)},
+        "human_gate_memberships": {
+            ("tenant_id", "issuer", "fingerprint_key_id", "subject_fingerprint"),
+        },
     }
     for table_name, expected in expected_unique_constraints.items():
         actual = {
@@ -212,6 +219,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         applied = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_paid_order_report_review_v3"}).first()
+        membership_migration = conn.execute(text(
+            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
+        ), {"version": "ola_human_gate_membership_v1"}).first()
         trigger_rows = conn.execute(text("""
             SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -233,6 +243,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             evidence_privileges = (False, False)
     if applied is None:
         raise RuntimeError("PostgreSQL schema migration version is missing")
+    if membership_migration is None:
+        raise RuntimeError("PostgreSQL Human Gate membership migration version is missing")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
@@ -338,6 +350,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_paid_order_report_review_v3",
             "description": "Add order-bound independent report review and authenticated customer delivery records",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_gate_membership_v1",
+            "description": "Add read-only OLA-owned OIDC subject-to-principal membership registry",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
