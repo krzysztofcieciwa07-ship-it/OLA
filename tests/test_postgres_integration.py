@@ -360,6 +360,7 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
 
     database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
     monkeypatch.setattr(main, "SessionLocal", database.SessionLocal)
+    monkeypatch.setenv("OLA_RUNTIME_COMMIT", "a" * 40)
 
     # Seed parent rows before children: model declarations do not define ORM relationships.
     tenant_id = str(uuid.uuid4())
