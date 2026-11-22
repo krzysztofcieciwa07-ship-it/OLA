@@ -140,3 +140,72 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
             f'REVOKE UPDATE, TRUNCATE ON TABLE "{_schema}".evidence_records FROM "{runtime_role}"'
         )
     database.verify_postgres_schema(runtime_engine)
+
+
+def test_postgres_membership_rls_is_tenant_scoped_and_transaction_local(postgres_db):
+    from sqlalchemy import select
+    from app.models import HumanGateMembership, Tenant
+
+    database, _runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    principal_a = str(uuid.uuid4())
+    principal_b = str(uuid.uuid4())
+
+    with migration_engine.begin() as conn:
+        conn.execute(
+            Tenant.__table__.insert(),
+            [
+                {"id": tenant_a, "name": "RLS tenant A"},
+                {"id": tenant_b, "name": "RLS tenant B"},
+            ],
+        )
+        conn.execute(
+            HumanGateMembership.__table__.insert(),
+            [
+                {
+                    "id": principal_a,
+                    "tenant_id": tenant_a,
+                    "issuer": "https://issuer.example.test/tenant-a",
+                    "subject_fingerprint": "a" * 64,
+                    "fingerprint_key_id": "identity-k1",
+                    "role": "execution_approver",
+                    "membership_version": 1,
+                    "active": True,
+                    "revoked_at": None,
+                    "created_at": 1795318200,
+                },
+                {
+                    "id": principal_b,
+                    "tenant_id": tenant_b,
+                    "issuer": "https://issuer.example.test/tenant-b",
+                    "subject_fingerprint": "b" * 64,
+                    "fingerprint_key_id": "identity-k1",
+                    "role": "execution_approver",
+                    "membership_version": 1,
+                    "active": True,
+                    "revoked_at": None,
+                    "created_at": 1795318200,
+                },
+            ],
+        )
+
+    with database.SessionLocal() as db:
+        # No transaction-local tenant context must fail closed to zero rows.
+        assert db.scalars(select(HumanGateMembership)).all() == []
+
+        database.set_human_gate_tenant_scope(db, tenant_a)
+        rows_a = db.scalars(select(HumanGateMembership)).all()
+        assert [row.id for row in rows_a] == [principal_a]
+        db.commit()
+
+        # SET LOCAL semantics: context must not leak into a fresh transaction.
+        assert db.scalars(select(HumanGateMembership)).all() == []
+        database.set_human_gate_tenant_scope(db, tenant_b)
+        rows_b = db.scalars(select(HumanGateMembership)).all()
+        assert [row.id for row in rows_b] == [principal_b]
+        db.commit()
+
+        # A second tenant context cannot read tenant A by primary key either.
+        database.set_human_gate_tenant_scope(db, tenant_b)
+        assert db.get(HumanGateMembership, principal_a) is None
