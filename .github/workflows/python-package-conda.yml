@@ -4,7 +4,7 @@ on:
   push:
     branches: ["**"]
   pull_request:
-    branches: [main]
+    branches: ["**"]
 
 permissions:
   contents: read
@@ -33,10 +33,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
+          # Contract tooling is test-only; the production image installs requirements.txt only.
+          python -m pip install -r requirements-contracts.txt
           python -m pip install flake8
 
       - name: Lint critical errors
         run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
-      - name: Run tests
-        run: pytest -q
+      - name: Run application tests
+        run: pytest -q tests
+
+      - name: Run offline signed-approval contract tests
+        run: PYTHONPATH=. pytest -q contract_tests
