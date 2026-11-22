@@ -56,9 +56,13 @@ def _validate_ollama_base_url(base_url):
         for item in os.getenv("OLA_OLLAMA_ALLOWED_HOSTS", "").split(",")
         if item.strip()
     }
+    effective_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    host_port = f"[{host}]:{effective_port}" if ":" in host else f"{host}:{effective_port}"
+    host_allowlisted = host in allowed_hosts and effective_port == 443
+    host_port_allowlisted = host_port in allowed_hosts
     if parsed.scheme == "http" and not is_loopback:
         raise RuntimeError("OLLAMA_BASE_URL requires loopback HTTP or an allowlisted HTTPS host")
-    if parsed.scheme == "https" and not is_loopback and host not in allowed_hosts:
+    if parsed.scheme == "https" and not is_loopback and not (host_allowlisted or host_port_allowlisted):
         raise RuntimeError("OLLAMA_BASE_URL requires loopback HTTP or an allowlisted HTTPS host")
     return base_url
 
@@ -167,9 +171,24 @@ def _invoke_llm(agent, task, context):
             raise RuntimeError("OLA_LLM_MODEL must be explicitly configured when LLM mode is required")
         base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
         parsed_url = urlsplit(base_url)
-        allowed_hosts = {host.strip().lower() for host in os.getenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com").split(",") if host.strip()}
-        if (parsed_url.scheme != "https" or not parsed_url.hostname
-                or parsed_url.hostname.lower() not in allowed_hosts
+        try:
+            endpoint_host = (parsed_url.hostname or "").rstrip(".").lower()
+            endpoint_port = parsed_url.port or 443
+        except ValueError:
+            raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint") from None
+        allowed_hosts = {
+            host.strip().lower().rstrip(".")
+            for host in os.getenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com").split(",")
+            if host.strip()
+        }
+        endpoint_host_port = (
+            f"[{endpoint_host}]:{endpoint_port}"
+            if ":" in endpoint_host else f"{endpoint_host}:{endpoint_port}"
+        )
+        host_allowlisted = endpoint_host in allowed_hosts and endpoint_port == 443
+        host_port_allowlisted = endpoint_host_port in allowed_hosts
+        if (parsed_url.scheme != "https" or not endpoint_host
+                or not (host_allowlisted or host_port_allowlisted)
                 or parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment):
             raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint")
         endpoint = base_url + "/responses"
@@ -185,6 +204,7 @@ def _invoke_llm(agent, task, context):
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
             timeout=min(15.0, max(1.0, float(os.getenv("OLA_LLM_TIMEOUT", "15")))),
+            follow_redirects=False,
         )
         response.raise_for_status()
         body = response.json()
@@ -270,6 +290,7 @@ def _invoke_llm(agent, task, context):
             headers={"Content-Type": "application/json"},
             json=payload,
             timeout=min(15.0, max(1.0, float(os.getenv("OLA_LLM_TIMEOUT", "15")))),
+            follow_redirects=False,
         )
         response.raise_for_status()
         body = response.json()
