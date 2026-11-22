@@ -1,6 +1,6 @@
 {
   "schema_version": "ola-open-work-inventory-v1",
-  "snapshot_at": "2026-11-22T16:35:43Z",
+  "snapshot_at": "2026-11-22T16:37:24Z",
   "repository": "krzysztofcieciwa07-ship-it/OLA",
   "default_branch": "main",
   "main_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
@@ -13,14 +13,14 @@
     ],
     "issue_endpoint_pages": [
       100,
-      49
+      50
     ],
     "complete": true
   },
   "counts": {
     "open_prs": 124,
-    "open_non_pr_issues": 25,
-    "issue_endpoint_objects": 149
+    "open_non_pr_issues": 26,
+    "issue_endpoint_objects": 150
   },
   "limitations": [
     "Metadata-only snapshot; not CI, review, merge, environment, or production approval.",
@@ -76,7 +76,7 @@
       "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
       "head": "security/llm-endpoint-port-redirect-allowlist-20261122",
       "head_sha": "87d365e5a5ada21329d8ef8df535483e22bb86ad",
-      "updated_at": "2026-11-22T13:23:35Z",
+      "updated_at": "2026-11-22T16:37:24Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/298"
     },
@@ -244,8 +244,8 @@
       "base": "main",
       "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
       "head": "docs/ola-operational-handoff-20261121",
-      "head_sha": "d190f35ab1799a7c4ee8b0caeeff7c8712baf0c3",
-      "updated_at": "2026-11-22T15:26:34Z",
+      "head_sha": "90ecd6411f838725533aec4ab3f798a47d85ac93",
+      "updated_at": "2026-11-22T16:36:11Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/277"
     },
@@ -1716,6 +1716,19 @@
     }
   ],
   "issues": [
+    {
+      "number": 304,
+      "title": "P1: bind LLM endpoint allowlist hardening to Human Gate governance",
+      "state": "open",
+      "updated_at": "2026-11-22T16:37:26Z",
+      "labels": [
+        "security",
+        "P1",
+        "human-gate:required"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/304"
+    },
     {
       "number": 301,
       "title": "P0: align paid-order PostgreSQL producer trigger with final gate requirements",
