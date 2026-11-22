@@ -112,12 +112,22 @@ jobs:
               for (const login of policy.ownersForPath(file.filename, rules)) candidateUsers.add(login);
             }
 
+            const author = String(pr.user.login).toLowerCase();
+            for (const file of files) {
+              const owners = policy.ownersForPath(file.filename, rules);
+              if (![...owners].some((login) => login !== author)) {
+                core.setFailed("BLOCKED: no independent CODEOWNER covers " + file.filename);
+                return;
+              }
+            }
+
             const governanceToken = process.env.HUMAN_GATE_GOVERNANCE_TOKEN;
             if (!governanceToken) {
               core.setFailed("BLOCKED: HUMAN_GATE_GOVERNANCE_TOKEN is not configured. It must be read-only and allow collaborator-permission verification (Administration:read).");
               return;
             }
-            const governanceApi = github.getOctokit(governanceToken);
+            const { Octokit } = require("@octokit/rest");
+            const governanceApi = new Octokit({ auth: governanceToken });
             input.permissions = {};
             for (const login of candidateUsers) {
               try {
