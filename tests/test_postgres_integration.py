@@ -41,6 +41,13 @@ def postgres_db(monkeypatch):
             conn.exec_driver_sql(
                 f'REVOKE UPDATE, DELETE ON TABLE "{schema}".evidence_records FROM "{runtime_role}"'
             )
+            # Membership management is out-of-band; runtime may only read.
+            conn.exec_driver_sql(
+                f'REVOKE ALL ON TABLE "{schema}".human_gate_memberships FROM "{runtime_role}"'
+            )
+            conn.exec_driver_sql(
+                f'GRANT SELECT ON TABLE "{schema}".human_gate_memberships TO "{runtime_role}"'
+            )
             conn.exec_driver_sql(
                 f'REVOKE ALL ON TABLE "{schema}".ola_schema_migrations FROM "{runtime_role}"'
             )
@@ -142,6 +149,35 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
     database.verify_postgres_schema(runtime_engine)
 
 
+
+
+def test_postgres_runtime_rejects_table_and_column_write_access_to_human_gate_memberships(postgres_db):
+    database, runtime_engine, _migration_engine, admin_engine, runtime_role, schema = postgres_db
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'GRANT INSERT ON TABLE "{schema}".human_gate_memberships TO "{runtime_role}"'
+        )
+    with pytest.raises(RuntimeError, match="must be read-only (SELECT only)"):
+        database.verify_postgres_schema(runtime_engine)
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'REVOKE INSERT ON TABLE "{schema}".human_gate_memberships FROM "{runtime_role}"'
+        )
+    database.verify_postgres_schema(runtime_engine)
+
+    # A column-level UPDATE is not necessarily visible to has_table_privilege().
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'GRANT UPDATE (active) ON TABLE "{schema}".human_gate_memberships TO "{runtime_role}"'
+        )
+    with pytest.raises(RuntimeError, match="must be read-only (SELECT only)"):
+        database.verify_postgres_schema(runtime_engine)
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'REVOKE UPDATE (active) ON TABLE "{schema}".human_gate_memberships FROM "{runtime_role}"'
+        )
+    database.verify_postgres_schema(runtime_engine)
 
 
 def test_postgres_membership_rls_verifier_rejects_extra_permissive_policy(postgres_db):
