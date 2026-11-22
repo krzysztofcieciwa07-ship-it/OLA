@@ -105,3 +105,46 @@ def test_never_mutates_without_explicit_apply(monkeypatch, capsys):
     )
     assert module.main() == 0
     assert '"status": "DRY_RUN_ONLY"' in capsys.readouterr().out
+
+def test_policy_requires_codeowner_review_for_main():
+    rules = {rule["type"]: rule for rule in module.policy()["rules"]}
+    assert rules["pull_request"]["parameters"]["require_code_owner_review"] is True
+
+
+def test_independent_codeowners_rejects_owner_only_mapping():
+    with pytest.raises(RuntimeError, match="independent write-enabled CODEOWNER"):
+        module.validate_independent_codeowners(
+            "* @krzysztofcieciwa07-ship-it\\n/app/ @krzysztofcieciwa07-ship-it\\n",
+            owner_login="krzysztofcieciwa07-ship-it",
+            permissions={"krzysztofcieciwa07-ship-it": "admin"},
+        )
+
+
+def test_independent_codeowners_rejects_read_only_reviewer():
+    with pytest.raises(RuntimeError, match="write permission"):
+        module.validate_independent_codeowners(
+            "* @krzysztofcieciwa07-ship-it @reviewer\\n/app/ @reviewer\\n",
+            owner_login="krzysztofcieciwa07-ship-it",
+            permissions={"krzysztofcieciwa07-ship-it": "admin", "reviewer": "read"},
+        )
+
+
+def test_independent_codeowners_accepts_distinct_write_enabled_reviewer():
+    result = module.validate_independent_codeowners(
+        "* @krzysztofcieciwa07-ship-it @reviewer\\n/app/ @reviewer\\n",
+        owner_login="krzysztofcieciwa07-ship-it",
+        permissions={"krzysztofcieciwa07-ship-it": "admin", "reviewer": "write"},
+    )
+    assert result == ["reviewer"]
+
+
+def test_verify_ruleset_rejects_missing_codeowner_review_rule():
+    detail = module.policy()
+    detail["id"] = 123
+    detail["rules"] = [
+        {**rule, "parameters": {**rule.get("parameters", {}), "require_code_owner_review": False}}
+        if rule["type"] == "pull_request" else rule
+        for rule in detail["rules"]
+    ]
+    with pytest.raises(RuntimeError, match="CODEOWNERS review"):
+        module.verify_ruleset(detail, detail["rules"], "a" * 40)
