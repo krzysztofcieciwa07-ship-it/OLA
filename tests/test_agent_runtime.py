@@ -448,3 +448,74 @@ def test_ollama_remote_https_accepts_explicit_host_port_and_disables_redirects(m
     assert calls[0][0] == "https://ollama.internal.example:8443/api/chat"
     assert calls[0][1]["follow_redirects"] is False
     assert result["output"] == "allowlisted port output"
+
+
+
+def test_ollama_loopback_default_port_11434_remains_allowed(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": {"content": "local ollama"}}
+
+    calls = []
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+    monkeypatch.delenv("OLA_OLLAMA_ALLOWED_HOSTS", raising=False)
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = _invoke_llm("codeact", "calculate 1+1", {})
+    assert result["output"] == "local ollama"
+    assert calls[0][1]["follow_redirects"] is False
+
+
+def test_ollama_loopback_nondefault_port_requires_explicit_allowlist(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:8000")
+    monkeypatch.delenv("OLA_OLLAMA_ALLOWED_HOSTS", raising=False)
+
+    with pytest.raises(RuntimeError, match="explicit host:port allowlist"):
+        _invoke_llm("codeact", "calculate 1+1", {})
+
+
+def test_ollama_loopback_nondefault_port_accepts_explicit_allowlist(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": {"content": "custom local ollama"}}
+
+    calls = []
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("OLA_OLLAMA_ALLOWED_HOSTS", "127.0.0.1:8000")
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = _invoke_llm("codeact", "calculate 1+1", {})
+    assert result["output"] == "custom local ollama"
+    assert calls[0][1]["follow_redirects"] is False

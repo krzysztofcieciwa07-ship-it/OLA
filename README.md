@@ -185,3 +185,11 @@ Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities or preparing a 
 Engineering rules, contribution steps, and the pull-request evidence format are maintained in docs/ENGINEERING_STANDARD.md, CONTRIBUTING.md, and .github/PULL_REQUEST_TEMPLATE.md. Security reporting and release-evidence requirements are defined in SECURITY.md. Dependency update checks are configured through Dependabot.
 
 Portfolio ownership and fork provenance: [Repository Catalog](docs/REPOSITORY_CATALOG.md), [machine-readable catalog](docs/REPOSITORY_CATALOG.json), [fork recovery map](docs/FORK_RECOVERY_MAP.md), and [metadata plan](docs/REPOSITORY_METADATA_PLAN.md). These are inventory records, not release-readiness claims.
+
+
+
+## LLM endpoint network policy
+
+- OpenAI and remote Ollama HTTPS endpoints are allowlisted by host and port; a host-only entry authorizes HTTPS port 443 only.
+- Non-loopback HTTP Ollama endpoints are rejected and provider POST calls do not follow redirects.
+- Local Ollama loopback defaults to port 11434. Other loopback ports require an explicit `host:port` entry in `OLA_OLLAMA_ALLOWED_HOSTS`.

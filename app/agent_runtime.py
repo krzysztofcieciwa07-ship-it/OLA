@@ -62,8 +62,12 @@ def _validate_ollama_base_url(base_url):
     host_port = f"[{host}]:{effective_port}" if ":" in host else f"{host}:{effective_port}"
     host_allowlisted = host in allowed_hosts and effective_port == 443
     host_port_allowlisted = host_port in allowed_hosts
+    loopback_default_port_allowed = is_loopback and effective_port == 11434
+    loopback_explicit_port_allowed = is_loopback and host_port in allowed_hosts
     if parsed.scheme == "http" and not is_loopback:
         raise RuntimeError("OLLAMA_BASE_URL requires loopback HTTP or an allowlisted HTTPS host")
+    if is_loopback and not (loopback_default_port_allowed or loopback_explicit_port_allowed):
+        raise RuntimeError("OLLAMA_BASE_URL requires loopback port 11434 or an explicit host:port allowlist")
     if parsed.scheme == "https" and not is_loopback and not (host_allowlisted or host_port_allowlisted):
         raise RuntimeError("OLLAMA_BASE_URL requires loopback HTTP or an allowlisted HTTPS host")
     return base_url
