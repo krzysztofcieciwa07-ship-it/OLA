@@ -155,6 +155,12 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('image_attestation="NOT_PERFORMED"', content)
         self.assertIn('status="PREMERGE_CI_PASSED"', content)
 
+    def test_final_gate_wait_window_covers_long_runtime_flow(self):
+        content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("timeout-minutes: 60", content)
+        self.assertIn("max_attempts=180", content)
+        self.assertIn("sleep_seconds=15", content)
+
 
 if __name__ == "__main__":
     unittest.main()
