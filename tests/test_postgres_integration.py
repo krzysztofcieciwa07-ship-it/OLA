@@ -229,6 +229,8 @@ def test_postgres_membership_rls_is_tenant_scoped_and_transaction_local(postgres
         assert db.scalars(select(HumanGateMembership)).all() == []
 
         database.set_human_gate_tenant_scope(db, tenant_a)
+        with pytest.raises(RuntimeError, match="cannot change within the same transaction"):
+            database.set_human_gate_tenant_scope(db, tenant_b)
         rows_a = db.scalars(select(HumanGateMembership)).all()
         assert [row.id for row in rows_a] == [principal_a]
         db.commit()
