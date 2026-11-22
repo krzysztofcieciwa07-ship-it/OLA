@@ -48,6 +48,13 @@ def postgres_db(monkeypatch):
             conn.exec_driver_sql(
                 f'GRANT SELECT ON TABLE "{schema}".human_gate_memberships TO "{runtime_role}"'
             )
+            # Approval nonces are append-only: runtime may read/insert, never mutate/delete.
+            conn.exec_driver_sql(
+                f'REVOKE ALL ON TABLE "{schema}".human_gate_approval_nonce_ledger FROM "{runtime_role}"'
+            )
+            conn.exec_driver_sql(
+                f'GRANT SELECT, INSERT ON TABLE "{schema}".human_gate_approval_nonce_ledger TO "{runtime_role}"'
+            )
             conn.exec_driver_sql(
                 f'REVOKE ALL ON TABLE "{schema}".ola_schema_migrations FROM "{runtime_role}"'
             )
@@ -180,3 +187,143 @@ def test_postgres_schema_fails_closed_when_human_gate_approval_nonce_ledger_is_m
 
     with pytest.raises(RuntimeError, match="human_gate_approval_nonce_ledger"):
         database.verify_postgres_schema(runtime_engine)
+
+
+
+def test_postgres_human_gate_approval_nonce_is_atomic_append_only_and_tenant_scoped(postgres_db):
+    database, runtime_engine, migration_engine, admin_engine, runtime_role, schema = postgres_db
+    from app.approval_nonce_ledger import (
+        ApprovalNonceReplayError,
+        PostgresApprovalNonceLedger,
+    )
+    from app.models import HumanGateApprovalNonce, Tenant
+
+    tenant_id = str(uuid.uuid4())
+    approval_id = str(uuid.uuid4())
+    nonce = str(uuid.uuid4())
+    operation_id = str(uuid.uuid4())
+    envelope_sha256 = "a" * 64
+    now = 1795318200
+    ledger = PostgresApprovalNonceLedger()
+
+    with database.SessionLocal() as db:
+        db.add(Tenant(id=tenant_id, name="Human Gate approval nonce tenant"))
+        db.commit()
+
+    def consume_once(_index):
+        with database.SessionLocal() as db:
+            try:
+                row_id = ledger.consume(
+                    db,
+                    tenant_id=tenant_id,
+                    approval_id=approval_id,
+                    nonce=nonce,
+                    operation_id=operation_id,
+                    action="EXECUTE_PAID_ORDER",
+                    resource_type="checkout_order",
+                    resource_id=str(uuid.uuid4()),
+                    envelope_sha256=envelope_sha256,
+                    consumed_at=now,
+                )
+                db.commit()
+                return ("consumed", row_id)
+            except ApprovalNonceReplayError:
+                db.rollback()
+                return ("replay", None)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(consume_once, range(8)))
+
+    consumed = [item for item in outcomes if item[0] == "consumed"]
+    replayed = [item for item in outcomes if item[0] == "replay"]
+    assert len(consumed) == 1
+    assert len(replayed) == 7
+
+    with database.SessionLocal() as db:
+        rows = db.scalars(
+            select(HumanGateApprovalNonce).where(
+                HumanGateApprovalNonce.tenant_id == tenant_id
+            )
+        ).all()
+        assert len(rows) == 1
+        assert rows[0].approval_id == approval_id
+        assert rows[0].nonce == nonce
+        assert rows[0].operation_id == operation_id
+        assert rows[0].envelope_sha256 == envelope_sha256
+
+    # Either one-use key is sufficient to reject another consumption.
+    with database.SessionLocal() as db:
+        with pytest.raises(ApprovalNonceReplayError):
+            ledger.consume(
+                db, tenant_id=tenant_id, approval_id=approval_id,
+                nonce=str(uuid.uuid4()), operation_id=str(uuid.uuid4()),
+                action="EXECUTE_PAID_ORDER", resource_type="checkout_order",
+                resource_id=str(uuid.uuid4()), envelope_sha256=envelope_sha256,
+                consumed_at=now + 1,
+            )
+        db.rollback()
+    with database.SessionLocal() as db:
+        with pytest.raises(ApprovalNonceReplayError):
+            ledger.consume(
+                db, tenant_id=tenant_id, approval_id=str(uuid.uuid4()),
+                nonce=nonce, operation_id=str(uuid.uuid4()),
+                action="EXECUTE_PAID_ORDER", resource_type="checkout_order",
+                resource_id=str(uuid.uuid4()), envelope_sha256=envelope_sha256,
+                consumed_at=now + 2,
+            )
+        db.rollback()
+
+    # The database blocks privileged accidental mutation as a second layer.
+    with migration_engine.begin() as conn:
+        with pytest.raises(DBAPIError):
+            conn.exec_driver_sql(
+                'UPDATE human_gate_approval_nonce_ledger SET consumed_at = 1 WHERE tenant_id = %s',
+                (tenant_id,),
+            )
+    with migration_engine.begin() as conn:
+        with pytest.raises(DBAPIError):
+            conn.exec_driver_sql(
+                'DELETE FROM human_gate_approval_nonce_ledger WHERE tenant_id = %s',
+                (tenant_id,),
+            )
+
+    database.verify_postgres_schema(runtime_engine)
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'GRANT UPDATE, DELETE, TRUNCATE ON TABLE "{schema}".human_gate_approval_nonce_ledger TO "{runtime_role}"'
+        )
+    with pytest.raises(RuntimeError, match="Human Gate approval nonce ledger requires SELECT/INSERT only"):
+        database.verify_postgres_schema(runtime_engine)
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "{schema}".human_gate_approval_nonce_ledger FROM "{runtime_role}"'
+        )
+    database.verify_postgres_schema(runtime_engine)
+
+
+def test_human_gate_approval_nonce_ledger_fails_closed_without_postgresql():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from app.approval_nonce_ledger import (
+        ApprovalNonceLedgerUnavailable,
+        PostgresApprovalNonceLedger,
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    try:
+        with Session(engine) as db:
+            with pytest.raises(ApprovalNonceLedgerUnavailable, match="requires PostgreSQL"):
+                PostgresApprovalNonceLedger().consume(
+                    db,
+                    tenant_id=str(uuid.uuid4()),
+                    approval_id=str(uuid.uuid4()),
+                    nonce=str(uuid.uuid4()),
+                    operation_id=str(uuid.uuid4()),
+                    action="EXECUTE_PAID_ORDER",
+                    resource_type="checkout_order",
+                    resource_id=str(uuid.uuid4()),
+                    envelope_sha256="b" * 64,
+                    consumed_at=1795318200,
+                )
+    finally:
+        engine.dispose()
