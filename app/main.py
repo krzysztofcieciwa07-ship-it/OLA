@@ -844,6 +844,42 @@ def approve_checkout_order(
         raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
 
+@app.post("/checkout-orders/{order_id}/signed-approval")
+def submit_signed_checkout_order_approval(
+    order_id: str,
+    body: dict,
+    authorization: str | None = Header(default=None),
+):
+    """Accept an external Ed25519 approval bound to the live OIDC reviewer session."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing OIDC bearer token")
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="missing OIDC bearer token")
+    if not isinstance(body, dict) or set(body) != {"envelope"}:
+        raise HTTPException(status_code=400, detail="request must contain only a signed approval envelope")
+    try:
+        from .approval_identity import ApprovalIdentityError, verify_subject_token
+        verified_subject = verify_subject_token(token)
+    except ApprovalIdentityError:
+        raise HTTPException(status_code=401, detail="OIDC reviewer token could not be verified") from None
+
+    try:
+        from .signed_approval_submission import (
+            SignedApprovalSubmissionRejected,
+            accept_signed_paid_order_approval,
+        )
+        with SessionLocal() as db:
+            return accept_signed_paid_order_approval(
+                db,
+                order_id=order_id,
+                envelope=body["envelope"],
+                verified_subject=verified_subject,
+            )
+    except SignedApprovalSubmissionRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from None
+
+
 @app.post("/checkout-orders/{order_id}/review-report")
 def review_checkout_order_report(
     order_id: str,
