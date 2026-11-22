@@ -114,6 +114,60 @@ def test_postgres_runtime_schema_only_verifies_and_never_runs_ddl(monkeypatch):
     assert isinstance(calls[0][1], FakeEngine)
 
 
+def test_human_gate_tenant_scope_uses_transaction_local_postgres_setting():
+    calls = []
+    tenant_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+    class FakeSession:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def get_bind(self):
+            return self.bind
+
+        def execute(self, statement, params=None):
+            calls.append((str(statement), params))
+
+    database.set_human_gate_tenant_scope(FakeSession(), tenant_id)
+
+    assert len(calls) == 1
+    sql, params = calls[0]
+    assert "set_config('ola.human_gate_tenant_id'" in sql
+    assert "true" in sql
+    assert params == {"tenant_id": tenant_id}
+
+
+def test_human_gate_tenant_scope_rejects_noncanonical_tenant_ids():
+    calls = []
+
+    class FakeSession:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def get_bind(self):
+            return self.bind
+
+        def execute(self, statement, params=None):
+            calls.append((statement, params))
+
+    with pytest.raises(ValueError, match="canonical UUID"):
+        database.set_human_gate_tenant_scope(FakeSession(), "not-a-tenant")
+    assert calls == []
+
+
+def test_human_gate_tenant_scope_is_noop_for_sqlite():
+    class FakeSession:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
+
+        def get_bind(self):
+            return self.bind
+
+        def execute(self, statement, params=None):
+            raise AssertionError("SQLite must not attempt to configure PostgreSQL RLS")
+
+    database.set_human_gate_tenant_scope(
+        FakeSession(), "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    )
+
+
 def test_database_url_rejects_unsupported_dialects():
     with pytest.raises(ValueError, match="PostgreSQL/psycopg or SQLite"):
         database.database_url_from_env({"OLA_DATABASE_URL": "mysql://ola:secret@db/ola"})
