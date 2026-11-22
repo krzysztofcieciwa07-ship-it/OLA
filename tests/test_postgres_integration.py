@@ -413,6 +413,11 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
         "execution_authorized": False,
         "review_required": True,
     })
+    post_payment_tip = database.append_evidence_atomic(
+        tenant_id,
+        "integration.post_payment_audit_marker",
+        {"marker": "challenge-must-bind-current-chain-tip"},
+    )
     payment_result = {
         "status": "PAID_PENDING_REVIEW",
         "event_id": event_id,
@@ -527,6 +532,9 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
     assert challenge["private_key_available_in_ola"] is False
     assert signer_key_id in challenge["signing"]["key_ids"]
     payload = challenge["payload"]
+    assert payload["evidence"]["tip_hash"] == post_payment_tip["record_hash"]
+    assert payload["evidence"]["records"][-1]["id"] == post_payment_tip["id"]
+    assert payload["evidence"]["records"][-1]["record_type"] == "integration.post_payment_audit_marker"
     signing_bytes = base64.urlsafe_b64decode(
         challenge["signing"]["input"]
         + "=" * ((4 - len(challenge["signing"]["input"]) % 4) % 4)
@@ -697,7 +705,7 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
     assert json.loads(control.signed_approval_envelope_json) == envelope
     assert job is not None and job.status == "QUEUED" and job.attempt_count == 0
     assert job.approval_record_hash == approvals[0].record_hash
-    assert approvals[0].prev_hash == payment.record_hash
+    assert approvals[0].prev_hash == post_payment_tip["record_hash"]
     assert event_payload["signed_approval_envelope_sha256"] == envelope_digest
     assert event_payload["approval_id"] == payload["approval_id"]
     assert nonces == []  # Human nonce is consumed only at the worker effect boundary.
