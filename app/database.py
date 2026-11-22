@@ -335,7 +335,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         # pg_get_expr adds harmless wrapping parentheses/whitespace and an
         # explicit ::text cast to string constants; normalize those forms
         # while requiring the exact single-tenant predicate (no OR/AND escape).
-        compact = re.sub(r"[\\s()]+", "", (value or "").lower())
+        compact = re.sub(r"[\s()]+", "", (value or "").lower())
         return compact.replace("'ola.human_gate_tenant_id'::text", "'ola.human_gate_tenant_id'")
 
     expected_rls_expression = (
