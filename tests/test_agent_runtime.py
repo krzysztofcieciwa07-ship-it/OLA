@@ -264,10 +264,16 @@ def test_openai_multipart_output_uses_real_newline_separator(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: Response())
+    calls = []
+    def fake_post(url, **kwargs):
+        calls.append(kwargs)
+        return Response()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
 
     result = _invoke_llm("codeact", "calculate 1+1", {})
     assert result["output"] == "part one\npart two"
+    assert calls[0]["follow_redirects"] is False
 
 
 def test_ollama_rejects_non_loopback_http_endpoint(monkeypatch):
@@ -311,7 +317,7 @@ def test_ollama_remote_https_uses_explicitly_allowlisted_host(monkeypatch):
 
     calls = []
     def fake_post(url, **kwargs):
-        calls.append(url)
+        calls.append((url, kwargs))
         return Response()
 
     monkeypatch.setenv("OLA_LLM_MODE", "required")
@@ -322,5 +328,65 @@ def test_ollama_remote_https_uses_explicitly_allowlisted_host(monkeypatch):
     monkeypatch.setattr(httpx, "post", fake_post)
 
     result = _invoke_llm("codeact", "calculate 1+1", {})
-    assert calls == ["https://ollama.internal.example/api/chat"]
+    assert calls[0][0] == "https://ollama.internal.example/api/chat"
+    assert calls[0][1]["follow_redirects"] is False
     assert result["output"] == "advisory output"
+
+
+
+def test_openai_endpoint_allowlist_is_port_scoped(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com:8443/v1")
+    monkeypatch.setenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com")
+
+    with pytest.raises(RuntimeError, match="approved HTTPS"):
+        _invoke_llm("codeact", "calculate 1+1", {})
+
+
+def test_openai_endpoint_accepts_explicit_host_port_allowlist(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"output_text": "allowlisted"}
+
+    calls = []
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com:8443/v1")
+    monkeypatch.setenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com:8443")
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = _invoke_llm("codeact", "calculate 1+1", {})
+    assert result["output"] == "allowlisted"
+    assert calls[0][1]["follow_redirects"] is False
+
+
+def test_ollama_remote_https_allowlist_is_port_scoped(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.internal.example:8443")
+    monkeypatch.setenv("OLA_OLLAMA_ALLOWED_HOSTS", "ollama.internal.example")
+
+    with pytest.raises(RuntimeError, match="allowlisted HTTPS"):
+        _invoke_llm("codeact", "calculate 1+1", {})
