@@ -31,6 +31,7 @@ CHECKS = (
     "final-production",
     "gitleaks",
     "nina-igor-ollama-full-flow",
+    "human-gate-approval",
     "ollama-real-runtime",
     "pr2-focused-tests",
     "product-gate",
