@@ -23,16 +23,43 @@ function parseCodeowners(content) {
   if (typeof content !== "string" || !content.trim()) {
     throw new Error("CODEOWNERS_MISSING_OR_EMPTY");
   }
+
   const rules = [];
+  const supportedPatterns = [
+    /^\*$/,
+    /^\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/$/,
+    /^\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/,
+    /^\*\.[A-Za-z0-9]+$/,
+    /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/?$/,
+  ];
+  const validOwner = /^@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\/[a-z0-9][a-z0-9_.-]*)?$/i;
+
   for (const raw of content.split(/\r?\n/)) {
     const line = raw.replace(/#.*$/, "").trim();
     if (!line) continue;
+
     const parts = line.split(/\s+/);
-    if (parts.length < 2) continue;
+    if (parts.length < 2) {
+      throw new Error("CODEOWNERS_RULE_WITHOUT_OWNER");
+    }
+
     const pattern = parts[0];
-    const owners = parts.slice(1).filter((x) => x.startsWith("@")).map((x) => x.slice(1).toLowerCase());
-    if (owners.length === 0) continue;
+    if (!supportedPatterns.some((candidate) => candidate.test(pattern))
+        || pattern.includes("..") || pattern.includes("//")) {
+      throw new Error("CODEOWNERS_UNSUPPORTED_PATTERN: " + pattern);
+    }
+
+    const ownerTokens = parts.slice(1);
+    if (ownerTokens.length === 0 || ownerTokens.some((owner) => !validOwner.test(owner))) {
+      throw new Error("CODEOWNERS_RULE_WITHOUT_OWNER");
+    }
+
+    const owners = ownerTokens.map((owner) => owner.slice(1).toLowerCase());
     rules.push({ pattern, owners });
+  }
+
+  if (rules.length === 0) {
+    throw new Error("CODEOWNERS_MISSING_OR_EMPTY");
   }
   return rules;
 }
