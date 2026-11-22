@@ -19,7 +19,7 @@ jobs:
       actions: read
       id-token: write
       attestations: write
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Resolve target source SHA
         id: target
@@ -65,8 +65,9 @@ jobs:
             pull_request) event_filter="&event=pull_request" ;;
             push) event_filter="&event=push&branch=main" ;;
           esac
-          # Producer DAG gate permits up to 25 min; cover it plus queue latency.
-          max_attempts=120
+          # Remote 12h evidence flow was observed to complete in ~37 min.
+          # Wait 45 min for exact-SHA producers; reserve 15 min for image/readiness.
+          max_attempts=180
           sleep_seconds=15
 
           for attempt in $(seq 1 "$max_attempts"); do
