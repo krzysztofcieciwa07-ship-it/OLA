@@ -160,14 +160,23 @@ def test_postgres_membership_rls_is_tenant_scoped_and_transaction_local(postgres
                 {"id": tenant_b, "name": "RLS tenant B"},
             ],
         )
-        conn.execute(
-            HumanGateMembership.__table__.insert(),
-            [
+        for tenant_id, principal_id, tenant_suffix, fingerprint in (
+            (tenant_a, principal_a, "a", "a" * 64),
+            (tenant_b, principal_b, "b", "b" * 64),
+        ):
+            # Even an out-of-band administrator/owner must scope writes when
+            # FORCE ROW LEVEL SECURITY is enabled on the membership table.
+            conn.execute(
+                text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+                {"tenant_id": tenant_id},
+            )
+            conn.execute(
+                HumanGateMembership.__table__.insert(),
                 {
-                    "id": principal_a,
-                    "tenant_id": tenant_a,
-                    "issuer": "https://issuer.example.test/tenant-a",
-                    "subject_fingerprint": "a" * 64,
+                    "id": principal_id,
+                    "tenant_id": tenant_id,
+                    "issuer": f"https://issuer.example.test/tenant-{tenant_suffix}",
+                    "subject_fingerprint": fingerprint,
                     "fingerprint_key_id": "identity-k1",
                     "role": "execution_approver",
                     "membership_version": 1,
@@ -175,20 +184,7 @@ def test_postgres_membership_rls_is_tenant_scoped_and_transaction_local(postgres
                     "revoked_at": None,
                     "created_at": 1795318200,
                 },
-                {
-                    "id": principal_b,
-                    "tenant_id": tenant_b,
-                    "issuer": "https://issuer.example.test/tenant-b",
-                    "subject_fingerprint": "b" * 64,
-                    "fingerprint_key_id": "identity-k1",
-                    "role": "execution_approver",
-                    "membership_version": 1,
-                    "active": True,
-                    "revoked_at": None,
-                    "created_at": 1795318200,
-                },
-            ],
-        )
+            )
 
     with database.SessionLocal() as db:
         # No transaction-local tenant context must fail closed to zero rows.
