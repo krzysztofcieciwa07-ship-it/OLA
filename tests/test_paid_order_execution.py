@@ -431,3 +431,61 @@ def test_worker_fails_closed_when_sqlite_nonce_ledger_is_unavailable(monkeypatch
         job = db.get(CheckoutExecutionJob, job_id)
         assert job.status == "QUEUED"
         assert job.attempt_count == 0
+
+
+
+def test_worker_blocks_signed_approval_when_evidence_tip_advances_before_dispatch(monkeypatch):
+    from sqlalchemy import select
+    from app.approval_nonce_ledger import PostgresApprovalNonceLedger
+    from app.database import SessionLocal, append_evidence_atomic
+    from app.models import CheckoutExecutionJob, HumanGateApprovalNonce
+    from app.paid_order_execution import execute_paid_order_job, PaidOrderExecutionRejected
+    from test_paid_order_approval import _seed_paid_order, _approve_signed
+    import app.nina_execution as nina_execution
+
+    ctx = _seed_paid_order(monkeypatch)
+    approved = _approve_signed(ctx, monkeypatch)
+    assert approved.status_code == 200, approved.text
+
+    with SessionLocal() as db:
+        job = db.scalar(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == ctx["order_id"]
+        ))
+        job_id = job.id
+
+    # Advance the valid tenant chain after approval, before worker dispatch.
+    append_evidence_atomic(
+        ctx["tenant_id"],
+        "audit.post_approval_marker",
+        {"reason": "Current evidence tip changed after signed approval."},
+    )
+
+    nonce_consumptions = []
+    monkeypatch.setattr(
+        PostgresApprovalNonceLedger,
+        "consume",
+        lambda self, db, **kwargs: nonce_consumptions.append(kwargs),
+    )
+    runner_calls = []
+    monkeypatch.setattr(
+        nina_execution,
+        "run_nina_task",
+        lambda *args, **kwargs: runner_calls.append((args, kwargs)),
+    )
+
+    with pytest.raises(PaidOrderExecutionRejected) as rejected:
+        execute_paid_order_job(job_id)
+
+    assert rejected.value.code == 409
+    assert "tip" in str(rejected.value).lower()
+    assert nonce_consumptions == []
+    assert runner_calls == []
+
+    with SessionLocal() as db:
+        job = db.get(CheckoutExecutionJob, job_id)
+        nonce_rows = db.scalars(select(HumanGateApprovalNonce).where(
+            HumanGateApprovalNonce.tenant_id == ctx["tenant_id"]
+        )).all()
+    assert job.status == "BLOCKED"
+    assert job.attempt_count == 0
+    assert nonce_rows == []
