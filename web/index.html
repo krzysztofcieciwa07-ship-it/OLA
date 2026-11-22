@@ -25,8 +25,18 @@ input:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px soli
 .status.good{color:#91ebc5;border-color:#36705b;background:#173b31}.status.bad{color:#ffb0bd;border-color:#92566a;background:#4a2833}.status.warn{color:#f3d397;border-color:#8d6d43;background:#43351c}
 .detail{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:10px 0;font-size:13px;border-bottom:1px solid #333a51}.detail strong{overflow-wrap:anywhere;max-width:70%;text-align:right}
 .result{margin-top:20px;padding:15px;background:#090f1e;border:1px solid #333a53;border-radius:12px;min-height:80px}.result p{font-size:14px;margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}.entry{padding-bottom:9px;margin-bottom:9px;border-bottom:1px solid #303650}.entry:last-child{border:0;margin-bottom:0}.entry strong{font-size:13px;color:#ad9fff}
+.execution-steps{margin-top:15px;padding:15px;background:#090f1e;border:1px solid #333a53;border-radius:12px}
+.execution-steps[hidden]{display:none}
+.execution-steps h3{font-size:15px;color:#b8afff;margin:0 0 12px}
+.execution-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;list-style:none;padding:0;margin:0}
+.execution-step{min-width:0;padding:12px;background:#111727;border:1px solid #303650;border-radius:11px}
+.execution-step-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.execution-step-heading strong{font-size:13px;color:#eeeaff;overflow-wrap:anywhere}
+.execution-step-meta{font-size:12px;color:#afb7cf;margin:7px 0}
+.execution-step-proof{font-size:11px;color:#8e9ab8;margin:0;overflow-wrap:anywhere}
 footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px;width:100%}
 @media(max-width:790px){header{margin-bottom:32px}.team,.workspace{grid-template-columns:1fr}.card .symbol{margin-bottom:10px}.card{padding:18px}}
+@media(max-width:560px){.execution-list{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -46,6 +56,11 @@ footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px
   <div class="actions"><button type="submit" id="chat-button">Rozmawiaj z NINĄ</button><button type="button" id="run-button" class="primary">Uruchom przez NINĘ</button></div></form>
   
   <div class="result" id="result" role="status" aria-live="polite"><p>Brak wykonania. Wpisz polecenie, aby rozpocząć.</p></div>
+  <section id="execution-steps" class="execution-steps" aria-labelledby="execution-steps-title" hidden>
+    <h3 id="execution-steps-title">Rzeczywiste etapy wykonania</h3>
+    <ol id="execution-list" class="execution-list"></ol>
+    <p class="hint">RECORDED oznacza zapis etapu w Evidence. Sam zapis nie jest niezależnym potwierdzeniem poprawności ani zgodą Human Gate.</p>
+  </section>
 </div><aside><h2>Dowód wykonania</h2>
   <div class="detail"><span>Wykonanie</span><span id="runtime-status" class="status">NOT_RUN</span></div>
   <div class="detail"><span>IGOR</span><span id="igor-status" class="status">UNKNOWN</span></div>
@@ -99,6 +114,39 @@ function credentials() {
 async function readJson(response) {
   try { return await response.json(); } catch (_) { return {}; }
 }
+function renderExecutionSteps(steps) {
+  const panel = el("#execution-steps");
+  const list = el("#execution-list");
+  list.replaceChildren();
+  if (!Array.isArray(steps)) { panel.hidden = true; return; }
+  for (const step of steps.slice(0, 16)) {
+    if (!step || typeof step !== "object" || Array.isArray(step)) continue;
+    const item = document.createElement("li");
+    item.className = "execution-step";
+    const heading = document.createElement("div");
+    heading.className = "execution-step-heading";
+    const title = document.createElement("strong");
+    const sequence = Number.isInteger(step.sequence) && step.sequence > 0 ? step.sequence : "?";
+    title.textContent = `${sequence}. ${typeof step.agent === "string" ? step.agent : "Agent"}`;
+    const status = document.createElement("span");
+    status.className = "status" + (step.status === "RECORDED" ? " good" : " warn");
+    status.textContent = typeof step.status === "string" ? step.status : "UNKNOWN";
+    heading.append(title, status);
+    const meta = document.createElement("p");
+    meta.className = "execution-step-meta";
+    meta.textContent = [step.capability, step.tool]
+      .filter(value => typeof value === "string" && value)
+      .join(" · ") || "Brak opisu mechanizmu";
+    const proof = document.createElement("p");
+    proof.className = "execution-step-proof";
+    proof.textContent = typeof step.evidence_id === "string" && step.evidence_id
+      ? `Evidence ID: ${step.evidence_id}`
+      : "Brak identyfikatora Evidence";
+    item.append(heading, meta, proof);
+    list.appendChild(item);
+  }
+  panel.hidden = list.childElementCount === 0;
+}
 async function sendChat(event) {
   event.preventDefault();
   const data = credentials();
@@ -128,6 +176,7 @@ async function runNina() {
   if (!data) return;
   activeEvidenceIds = [];
   evidenceButton.disabled = true;
+  renderExecutionSteps([]);
   busy(true); clearResult();
   showStatus("#runtime-status", "UNKNOWN");
   showStatus("#igor-status", "UNKNOWN");
@@ -148,6 +197,7 @@ async function runNina() {
       line("BLOKADA", body.detail || `HTTP ${response.status}`);
       return;
     }
+    renderExecutionSteps(body.execution_steps);
     const runtimeStatus = body.status || "UNKNOWN";
     const igorStatus = body.igor?.status || "UNKNOWN";
     const gateStatus = body.status_fields?.HUMAN_GATE || "REVIEW";
@@ -171,6 +221,7 @@ async function runNina() {
     if (body.decision_report) line("Raport decyzji", JSON.stringify(body.decision_report).slice(0, 8000));
     taskInput.value = "";
   } catch (_) {
+    renderExecutionSteps([]);
     clearResult();
     showStatus("#runtime-status", "UNKNOWN");
     line("BŁĄD", "Brak potwierdzenia wykonania. Nie ponawiaj automatycznie; najpierw sprawdź Evidence.");
