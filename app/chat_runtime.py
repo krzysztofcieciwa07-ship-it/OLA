@@ -1,10 +1,11 @@
 import hashlib
-import http.client
 import json
 import os
-import urllib.request
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
+
+import httpx
 
 
 SYSTEM_PROMPT = """You are NINA, a precise execution assistant.
@@ -24,12 +25,48 @@ def _append_chat_evidence(tenant_id: str, record_type: str, payload: dict[str, A
     return evidence_id
 
 
+def _openai_endpoint() -> str:
+    """Return a validated HTTPS endpoint using the shared OLA host/port allowlist."""
+    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    parsed_url = urlsplit(base_url)
+    try:
+        endpoint_host = (parsed_url.hostname or "").rstrip(".").lower()
+        endpoint_port = parsed_url.port if parsed_url.port is not None else 443
+        if endpoint_port < 1:
+            raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint")
+    except ValueError:
+        raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint") from None
+
+    allowed_hosts = {
+        host.strip().lower().rstrip(".")
+        for host in os.getenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com").split(",")
+        if host.strip()
+    }
+    endpoint_host_port = (
+        f"[{endpoint_host}]:{endpoint_port}"
+        if ":" in endpoint_host else f"{endpoint_host}:{endpoint_port}"
+    )
+    host_allowlisted = endpoint_host in allowed_hosts and endpoint_port == 443
+    host_port_allowlisted = endpoint_host_port in allowed_hosts
+    if (
+        parsed_url.scheme != "https"
+        or not endpoint_host
+        or not (host_allowlisted or host_port_allowlisted)
+        or parsed_url.username
+        or parsed_url.password
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint")
+    return base_url + "/responses"
+
+
 def chat(tenant_id: str, messages: list[dict[str, str]]) -> dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY")
     model = os.getenv("NINA_CHAT_MODEL", os.getenv("OLA_LLM_MODEL", "gpt-5.6-luna"))
 
     def blocked(reason: str, message: str | None = None) -> dict[str, Any]:
-        # Every returned denial is an authenticated, tenant-scoped decision.
+        # Every returned denial is a tenant-scoped decision with trusted Evidence.
         # Evidence append failure propagates: a BLOCK without its audit record
         # is not a completed response.
         evidence_id = _append_chat_evidence(tenant_id, "decision.chat", {
@@ -54,25 +91,33 @@ def chat(tenant_id: str, messages: list[dict[str, str]]) -> dict[str, Any]:
             "NINA conversational LLM access is not configured yet.",
         )
 
+    try:
+        endpoint = _openai_endpoint()
+    except RuntimeError as exc:
+        return blocked(str(exc))
+
     payload = {
         "model": model,
         "input": [{"role": "system", "content": SYSTEM_PROMPT}] + messages[-20:],
     }
-    request = urllib.request.Request(
-        "https://api.openai.com/v1/responses",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(request, timeout=45) as response:
-            data = json.load(response)
-    except (OSError, http.client.IncompleteRead) as exc:
+        response = httpx.post(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=45,
+            follow_redirects=False,
+        )
+        if 300 <= response.status_code < 400:
+            return blocked("LLM request redirected")
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.RequestError, httpx.HTTPStatusError) as exc:
         return blocked(f"LLM request failed: {exc.__class__.__name__}")
-    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         return blocked("LLM returned invalid JSON")
 
     if not isinstance(data, dict):
