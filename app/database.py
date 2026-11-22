@@ -77,6 +77,29 @@ def lock_tenant_human_gate_memberships(db, tenant_id):
     raise RuntimeError(f"no Human Gate membership lock policy for database dialect: {dialect}")
 
 
+def set_human_gate_tenant_scope(db, tenant_id):
+    """Set PostgreSQL's transaction-local tenant context for membership RLS."""
+    if not isinstance(tenant_id, str):
+        raise ValueError("tenant_id must be a canonical UUID for Human Gate RLS")
+    try:
+        normalized = str(uuid.UUID(tenant_id))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("tenant_id must be a canonical UUID for Human Gate RLS") from None
+    if normalized != tenant_id:
+        raise ValueError("tenant_id must be a canonical UUID for Human Gate RLS")
+
+    dialect = db.get_bind().dialect.name
+    if dialect == "sqlite":
+        return
+    if dialect == "postgresql":
+        db.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
+        return
+    raise RuntimeError(f"no Human Gate tenant-scope policy for database dialect: {dialect}")
+
+
 def begin_write_transaction(db, tenant_id=None):
     """Begin a serialized write transaction for the selected backend."""
     dialect = db.get_bind().dialect.name
