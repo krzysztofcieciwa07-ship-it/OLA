@@ -1,6 +1,6 @@
 {
   "schema_version": "ola-open-work-inventory-v1",
-  "snapshot_at": "2026-11-22T16:52:00Z",
+  "snapshot_at": "2026-11-22T16:55:00Z",
   "repository": "krzysztofcieciwa07-ship-it/OLA",
   "default_branch": "main",
   "main_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
@@ -89,7 +89,7 @@
       "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
       "head": "security/llm-endpoint-port-redirect-allowlist-20261122",
       "head_sha": "87d365e5a5ada21329d8ef8df535483e22bb86ad",
-      "updated_at": "2026-11-22T16:37:24Z",
+      "updated_at": "2026-11-22T17:00:33Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/298"
     },
@@ -192,8 +192,8 @@
       "base": "feat/nina-execution-steps-proof-ui",
       "base_sha": "7c64b5d7d060bd077c892fd6b91ab4d7043ef335",
       "head": "fix/nina-chat-evidence-semantics-20261122",
-      "head_sha": "fe674c18c1b785a9df2229581741457d34e0ff13",
-      "updated_at": "2026-11-22T12:19:24Z",
+      "head_sha": "557c9328b0e3db5af5f1718cfaa9e020b71c7ca0",
+      "updated_at": "2026-11-22T17:00:31Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/285"
     },
@@ -257,8 +257,8 @@
       "base": "main",
       "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
       "head": "docs/ola-operational-handoff-20261121",
-      "head_sha": "8e5a98f893f2c33aa72c4a457cbc77dad515bc57",
-      "updated_at": "2026-11-22T16:51:26Z",
+      "head_sha": "657a192274909510de8dc5e7f3fb94e505f7e4a5",
+      "updated_at": "2026-11-22T16:55:43Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/277"
     },
@@ -1733,7 +1733,7 @@
       "number": 304,
       "title": "P1: bind LLM endpoint allowlist hardening to Human Gate governance",
       "state": "open",
-      "updated_at": "2026-11-22T16:48:27Z",
+      "updated_at": "2026-11-22T17:00:28Z",
       "labels": [
         "security",
         "P1",
