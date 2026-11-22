@@ -133,3 +133,24 @@ def test_raw_subject_is_not_a_membership_column(db):
     columns = {column.name for column in HumanGateMembership.__table__.columns}
     assert "subject" not in columns
     assert row.subject_fingerprint != SUBJECT
+
+
+
+def test_oidc_session_fingerprint_is_tenant_session_and_issuer_bound():
+    from app.approval_contract_v1 import oidc_session_fingerprint
+
+    first = oidc_session_fingerprint(
+        KEY, KEY_ID, TENANT, ISSUER, SUBJECT, "session-opaque-123",
+    )
+    assert first["algorithm"] == "HMAC-SHA-256"
+    assert len(first["value"]) == 64
+    assert first == oidc_session_fingerprint(
+        KEY, KEY_ID, TENANT, ISSUER, SUBJECT, "session-opaque-123",
+    )
+    assert first["value"] != oidc_session_fingerprint(
+        KEY, KEY_ID, TENANT, ISSUER, SUBJECT, "session-opaque-456",
+    )["value"]
+    assert first["value"] != oidc_session_fingerprint(
+        KEY, KEY_ID, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        ISSUER, SUBJECT, "session-opaque-123",
+    )["value"]
