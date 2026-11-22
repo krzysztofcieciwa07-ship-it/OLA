@@ -8,7 +8,8 @@ import uuid
 
 from sqlalchemy import select
 
-from .database import SessionLocal, begin_write_transaction, lock_tenant_evidence_chain
+from .database import (SessionLocal, begin_write_transaction, lock_tenant_evidence_chain,
+                       lock_tenant_human_gate_memberships)
 from .evidence_writer import append_evidence_v4_locked
 from .igor_evidence_verifier import trusted_record, verify_chain
 from .models import ApiKey, CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl, EvidenceRecord
@@ -181,6 +182,8 @@ def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
         if job is None:
             raise PaidOrderExecutionRejected(404, "execution job not found")
         lock_tenant_evidence_chain(db, job.tenant_id)
+        # Serialize the final membership read with DB-owner grant/revocation writes.
+        lock_tenant_human_gate_memberships(db, job.tenant_id)
         if job.status in {"EXECUTED_REVIEW_REQUIRED", "EXECUTED_BLOCKED"} and job.result_json:
             return json.loads(job.result_json)
         if job.status == "RUNNING":

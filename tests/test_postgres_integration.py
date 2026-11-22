@@ -724,3 +724,116 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
             EvidenceRecord.tenant_id == ctx["tenant_id"],
             EvidenceRecord.record_type == "human.revenue_execution_approval",
         )).all()) == 1
+
+
+def test_postgres_membership_revocation_waits_for_runtime_authorization_lock(postgres_db):
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy import text
+    from app import database
+    from app.models import Tenant
+
+    database, runtime_engine, _migration_engine, admin_engine, _runtime_role, schema = postgres_db
+    tenant_id = str(uuid.uuid4())
+    principal_id = str(uuid.uuid4())
+    with database.SessionLocal() as db:
+        db.add(Tenant(id=tenant_id, name="Membership revocation serialization tenant"))
+        db.commit()
+
+    with admin_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
+        conn.execute(text(f'''
+            INSERT INTO "{schema}".human_gate_memberships
+                (id, tenant_id, issuer, subject_fingerprint, fingerprint_key_id,
+                 role, membership_version, active, revoked_at, created_at)
+            VALUES
+                (:id, :tenant_id, :issuer, :fingerprint, :key_id,
+                 'execution_approver', 1, TRUE, NULL, 1795318200)
+        '''), {
+            "id": principal_id,
+            "tenant_id": tenant_id,
+            "issuer": "https://issuer.example.test/tenant",
+            "fingerprint": "a" * 64,
+            "key_id": "identity-k1",
+        })
+
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+    update_started = threading.Event()
+    application_name = "ola_hg_membership_revoke_test"
+
+    def hold_runtime_authorization_lock():
+        with database.SessionLocal() as db:
+            database.set_human_gate_tenant_scope(db, tenant_id)
+            database.lock_tenant_human_gate_memberships(db, tenant_id)
+            active = db.execute(text(
+                "SELECT active FROM human_gate_memberships WHERE id = :principal_id"
+            ), {"principal_id": principal_id}).scalar_one()
+            assert active is True
+            lock_acquired.set()
+            assert release_lock.wait(timeout=10), "test did not release runtime transaction"
+            db.commit()
+
+    def revoke_membership():
+        assert lock_acquired.wait(timeout=5), "runtime did not acquire membership lock"
+        with admin_engine.connect() as conn:
+            conn.exec_driver_sql(f"SET application_name = '{application_name}'")
+            conn.commit()
+            update_started.set()
+            with conn.begin():
+                conn.execute(
+                    text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+                    {"tenant_id": tenant_id},
+                )
+                conn.execute(text(f'''
+                    UPDATE "{schema}".human_gate_memberships
+                    SET active = FALSE, revoked_at = 1795318201, membership_version = 2
+                    WHERE id = :principal_id
+                '''), {"principal_id": principal_id})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        worker_future = pool.submit(hold_runtime_authorization_lock)
+        assert lock_acquired.wait(timeout=5), "runtime membership lock was not acquired"
+        revoke_future = pool.submit(revoke_membership)
+        assert update_started.wait(timeout=5), "revocation transaction did not start"
+
+        # Prove PostgreSQL reached the trigger and is blocked on the advisory lock;
+        # do not infer blocking from a short sleep or unscheduled Python thread.
+        deadline = time.monotonic() + 5
+        observed_wait = False
+        while time.monotonic() < deadline:
+            with admin_engine.connect() as observer:
+                observed_wait = observer.execute(text("""
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pg_stat_activity
+                        WHERE application_name = :application_name
+                          AND wait_event_type = 'Lock'
+                          AND wait_event = 'advisory'
+                    )
+                """), {"application_name": application_name}).scalar_one()
+            if observed_wait:
+                break
+            time.sleep(0.05)
+        assert observed_wait, "revocation did not block on the tenant membership advisory lock"
+
+        release_lock.set()
+        worker_future.result(timeout=5)
+        revoke_future.result(timeout=5)
+
+    with admin_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
+        row = conn.execute(text(f'''
+            SELECT active, membership_version
+            FROM "{schema}".human_gate_memberships
+            WHERE id = :principal_id
+        '''), {"principal_id": principal_id}).one()
+    assert row.active is False
+    assert row.membership_version == 2

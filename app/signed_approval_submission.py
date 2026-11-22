@@ -30,7 +30,7 @@ from .approval_membership import (
     HumanGateMembershipError,
     resolve_human_gate_membership,
 )
-from .database import begin_write_transaction
+from .database import begin_write_transaction, lock_tenant_human_gate_memberships
 from .evidence_writer import append_evidence_v4_locked
 from .models import (
     ApiKey,
@@ -655,6 +655,33 @@ def accept_signed_paid_order_approval(
         )
 
     begin_write_transaction(db, tenant_id=payload["tenant_id"])
+    # DB-owner INSERT/UPDATE/DELETE operations are serialized by the matching
+    # database trigger. Re-resolve the reviewer after taking that transaction lock.
+    lock_tenant_human_gate_memberships(db, payload["tenant_id"])
+    try:
+        locked_reviewer = resolve_human_gate_membership(
+            db,
+            verified_subject,
+            resource_tenant_id=payload["tenant_id"],
+            fingerprint_key=fingerprint_key,
+            fingerprint_key_id=fingerprint_key_id,
+            required_role="execution_approver",
+        )
+    except HumanGateMembershipError as exc:
+        raise SignedApprovalSubmissionRejected(403, str(exc)) from None
+    if (
+        reviewer["principal_id"] != locked_reviewer.principal_id
+        or reviewer["tenant_id"] != locked_reviewer.tenant_id
+        or reviewer["issuer"] != locked_reviewer.issuer
+        or reviewer["subject_fingerprint"] != locked_reviewer.subject_fingerprint
+        or reviewer["fingerprint_key_id"] != locked_reviewer.fingerprint_key_id
+        or reviewer["role"] != locked_reviewer.role
+        or reviewer["membership_version"] != locked_reviewer.membership_version
+    ):
+        raise SignedApprovalSubmissionRejected(
+            403, "signed reviewer membership changed before approval persistence"
+        )
+    resolved_reviewer = locked_reviewer
     try:
         order, control, payment, checkout_proof, payment_proof, private_task, rows, records = _validate_paid_order(
             db,
