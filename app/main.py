@@ -31,7 +31,95 @@ from .order_approval import approve_paid_order, PaidOrderApprovalRejected
 from .paid_order_execution import execute_paid_order_job, verify_worker_token, PaidOrderExecutionRejected
 from .report_review import approve_paid_order_report, deliver_paid_order_report, PaidReportReviewRejected
 
+
+
+_SIGNED_APPROVAL_MAX_REQUEST_BYTES = 66_128
+_SIGNED_APPROVAL_PATH = re.compile(r"^/checkout-orders/[^/]+/signed-approval$")
+
+
+class SignedApprovalRequestBodyLimitMiddleware:
+    """Bound signed-approval HTTP bytes before FastAPI parses the JSON body."""
+
+    def __init__(self, app, *, max_body_bytes: int = _SIGNED_APPROVAL_MAX_REQUEST_BYTES):
+        if not isinstance(max_body_bytes, int) or isinstance(max_body_bytes, bool) or max_body_bytes < 1:
+            raise ValueError("max_body_bytes must be a positive integer")
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def _reject(self, send, status: int, detail: str):
+        body = json.dumps({"detail": detail}, separators=(",", ":")).encode("utf-8")
+        await send({
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode("ascii")),
+            ],
+        })
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope.get("type") != "http"
+            or scope.get("method") != "POST"
+            or _SIGNED_APPROVAL_PATH.fullmatch(scope.get("path", "")) is None
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        content_lengths = [
+            value for name, value in scope.get("headers", [])
+            if name.lower() == b"content-length"
+        ]
+        if len(content_lengths) > 1:
+            await self._reject(send, 400, "ambiguous Content-Length header")
+            return
+        if content_lengths:
+            raw_length = content_lengths[0].strip()
+            if not raw_length or not raw_length.isdigit() or len(raw_length) > 20:
+                await self._reject(send, 400, "invalid Content-Length header")
+                return
+            if int(raw_length) > self.max_body_bytes:
+                await self._reject(send, 413, "signed approval request body exceeds size limit")
+                return
+
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            if message["type"] != "http.request":
+                continue
+            chunk = message.get("body", b"")
+            if len(chunk) > self.max_body_bytes - len(body):
+                await self._reject(send, 413, "signed approval request body exceeds size limit")
+                return
+            body.extend(chunk)
+            if not message.get("more_body", False):
+                break
+
+        buffered_body = bytes(body)
+        delivered = False
+
+        async def replay_bounded_body():
+            nonlocal delivered
+            if not delivered:
+                delivered = True
+                return {
+                    "type": "http.request",
+                    "body": buffered_body,
+                    "more_body": False,
+                }
+            return await receive()
+
+        await self.app(scope, replay_bounded_body, send)
+
+
 app = FastAPI(title="OLA Execution Gate")
+app.add_middleware(
+    SignedApprovalRequestBodyLimitMiddleware,
+    max_body_bytes=_SIGNED_APPROVAL_MAX_REQUEST_BYTES,
+)
 REGISTERED_AGENT_IDS = frozenset(agent.agent_id for agent in build_agent_registry(391))
 AGENT_RUN_GATE = ExecutionSafetyGate(allowed_actions={"run_agent_task"})
 prepare_runtime_schema()
