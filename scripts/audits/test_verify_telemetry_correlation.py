@@ -2,7 +2,7 @@ import hashlib, json, subprocess, sys, tempfile, unittest
 from pathlib import Path
 SCRIPT=Path(__file__).with_name('verify_telemetry_correlation.py')
 def row(i):
- return {'event_id':i,'tenant_id':'t','record_id':'r-'+i,'sequence':1,'record_hash':'h','producer_id':'p','outcome':'committed','timestamp':100.0}
+ return {'event_id':i,'tenant_id':'t','record_id':'r-'+i,'sequence':1,'record_hash':'a'*64,'producer_id':'p','outcome':'committed','timestamp':100.0}
 class VerifierTests(unittest.TestCase):
  def run_case(self,db,logs,extra=()):
   with tempfile.TemporaryDirectory() as d:
@@ -20,7 +20,7 @@ class VerifierTests(unittest.TestCase):
    self.assertIn('not signed',m['manifest_authenticity_note'])
  def test_missing_orphan_fail(self): self.assertEqual(self.run_case([row('1')],[row('2')]).returncode,2)
  def test_field_mismatch_fail(self):
-  r=row('1'); l=row('1'); l['record_hash']='bad'; self.assertEqual(self.run_case([r],[l]).returncode,2)
+  r=row('1'); l=row('1'); l['record_hash']='b'*64; self.assertEqual(self.run_case([r],[l]).returncode,2)
  def test_timestamp_delta_fail(self):
   r=row('1'); l=row('1'); l['timestamp']=106; self.assertEqual(self.run_case([r],[l]).returncode,2)
  def test_duplicate_fail(self): self.assertNotEqual(self.run_case([row('1'),row('1')],[row('1')]).returncode,0)
@@ -29,4 +29,12 @@ class VerifierTests(unittest.TestCase):
  def test_nan_fail(self):
   r=row('1'); r['timestamp']=float('nan'); self.assertNotEqual(self.run_case([r],[row('1')]).returncode,0)
  def test_negative_tolerance_fail(self): self.assertNotEqual(self.run_case([row('1')],[row('1')],('--timestamp-tolerance-seconds','-1')).returncode,0)
+
+ def test_sequence_must_be_nonnegative_integer(self):
+  r=row('1'); r['sequence']=1.0; self.assertNotEqual(self.run_case([r],[row('1')]).returncode,0)
+ def test_record_hash_must_be_sha256_hex(self):
+  r=row('1'); r['record_hash']='not-a-hash'; self.assertNotEqual(self.run_case([r],[row('1')]).returncode,0)
+ def test_timestamp_boolean_is_rejected(self):
+  r=row('1'); r['timestamp']=True; self.assertNotEqual(self.run_case([r],[row('1')]).returncode,0)
+
 if __name__=='__main__': unittest.main()
