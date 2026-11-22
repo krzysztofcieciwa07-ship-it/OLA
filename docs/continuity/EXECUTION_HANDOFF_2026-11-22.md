@@ -222,3 +222,106 @@ Do not claim the full plan completed within a time window if any checkpoint is s
 - OLA DI-OS Product Gate #45036320193 remains IN_PROGRESS; Supply Chain Evidence Gate #45036320002 and 12h Flow #45036320085 are QUEUED.
 - V4 contract #45036320235, Ollama runtime #45036320046, Python CI, E2E, staging rehearsal, CodeQL, NINA/IGOR, stress, continuity, provenance and other listed gates are SUCCESS.
 - **Partial CI closure only**: missing-producer defect resolved on this exact SHA; final gate not yet PASS. No production/release claim.
+
+## Master Execution Register — 2026-11-22 15:23 CET
+
+**Purpose:** single operational checklist for subsequent work cycles. Update rows in place when state changes. Do not create a second backlog or repeat completed rows from the historical inventory.
+
+### A. Authority and source snapshot
+
+- Repository: krzysztofcieciwa07-ship-it/OLA
+- Main SHA: 911c1cedf76dc6139f57b5d893d708b1a92245c6; GitHub reports protected=false.
+- Paginated inventory: docs/continuity/GITHUB_OPEN_WORK_INVENTORY_2026-11-22.json, snapshot commit b365d0537fef132ab3d81b7bf2a4512f59e6d8e3; 124 open PRs and 25 open non-PR Issues. Pull pages: 100 + 24. Issue endpoint pages: 100 + 49 (149 objects including PR objects); pagination complete.
+- The 2026-11-21 inventory and earlier checkpoint sections are historical snapshots, not current status.
+- No main merge, deployment, production mutation or terminal payment/order execution was performed by this work.
+
+### B. Human Gate dependency stack — refresh exact SHA before every action
+
+| Order | PR | Recorded head SHA | Base | Scope | State |
+|---:|---:|---|---|---|---|
+| 1 | #282 | 235cb13ed28d16b321b27b0e78a830c8c7f2d6c2 | main | OIDC membership resolver | DRAFT / OPEN |
+| 2 | #287 | 3ce20901871bac7c277998385cc68d1ebfeef834 | #282 | runtime DB read-only membership permissions | DRAFT / OPEN |
+| 3 | #288 | b866c13c97247ab10888aa97011968dcfed5334f | #287 | durable nonce ledger | DRAFT / OPEN |
+| 4 | #297 | 5473a1b932691749dae608aa592d2808b41dae65 | #288 | tenant RLS and nonce tenant-switch guard | DRAFT / OPEN |
+| 5 | #289 | fc6bd5da92ac218d005a4d185ca973cc88eb2f4d | #297 | signed approval at paid-order worker | DRAFT / OPEN |
+| 6 | #290 | 7780fdfad0fd596dd8534ac0eeca384ebc721eda | #289 | live OIDC signed approval intake | DRAFT / OPEN |
+| 7 | #299 | ba6fc256970f83edb3915d704fd192eeecaae4fb | #290 | ASGI request body limit before JSON parse | DRAFT / OPEN |
+| G | #300 | 90ec1bd8611dcf3f036fe7d9ef1eb91b3f1a3728 | main | independent CODEOWNERS and GitHub approval policy | DRAFT / OPEN |
+| D | #303 | f90b801e840ba1690a4c0b25b0188fe4cfa3e460 | main | disposable staging evidence plan for #292 | DRAFT / OPEN |
+
+All are unmerged. These are recorded heads at snapshot time; fetch current PR and branch refs before any update. Policy files and the updated PR template were propagated through this stack by normal merge commits; no force-push was used. New exact-SHA checks were queued/pending at the time of snapshot, not PASS.
+
+### C. GitHub Human Gate contract — candidate implementation, not effective on main yet
+
+- PR #300 / Issue #296 are canonical for GitHub governance.
+- P0/P1/security/human-gate-required/production labels and sensitive paths (.github, app, scripts, migrations, payments, identity, auth) trigger policy evaluation.
+- Every high-risk PR must contain exactly one line: Human Gate Task: #<existing issue>. The Issue must be OPEN and high-risk. High-risk Issue events require one or more linked open PRs; every linked PR must pass.
+- Passing PR requires an APPROVED review from an independent CODEOWNER, not the PR author, on the exact current HEAD SHA; current reviewer state must be APPROVED; collaborator permission must be write/maintain/admin; CODEOWNER must cover each changed path; all review threads must be resolved.
+- Self-approval, stale approval, latest CHANGES_REQUESTED/DISMISSED, missing/unknown reviewer permission, unresolved threads, missing task ID or closed/missing Issue = BLOCKED.
+- Candidate check context: human-gate-approval. Unit suite: tests/test_human_gate_policy.cjs.
+- Trusted pull_request_target policy becomes effective only when merged to the repository default branch. Branch-local copies do not activate governance on main.
+- The policy references repository secret HUMAN_GATE_GOVERNANCE_TOKEN. It must be a read-only fine-grained token with Administration:read used only to verify CODEOWNER collaborator permission. Presence/scope remains UNKNOWN; missing token or failed permission query must fail closed. Never inspect or print its value.
+- Current CODEOWNERS still assigns *, /.github/, /scripts/ and /app/ only to krzysztofcieciwa07-ship-it. No independent write-enabled CODEOWNER is proven. Do not invent a reviewer or self-approve.
+- Main is still unprotected. Do not run ruleset apply until independent ownership, read-only permission proof and owner-admin ruleset activation are valid. Effective rules must be read back and negative/positive tests must prove enforcement.
+
+### D. Execution checklist and acceptance criteria
+
+Status vocabulary:
+- DONE: acceptance criteria passed on exact source SHA with evidence.
+- IN_PROGRESS: implementation or verification is active.
+- BLOCKED: missing prerequisite, authorization or environment.
+- SKIPPED: intentionally not executed with a recorded reason.
+- UNKNOWN/missing/pending/stale are never PASS.
+
+| ID | Priority | Agent lane | Work / dependency | Acceptance proof | Status | Anti-repeat / next action |
+|---|---|---|---|---|---|---|
+| GOV-01 / #296 / #300 | P1 | NINA implements; IGOR verifies; owner/admin provisions | Independent CODEOWNERS and central GitHub Human Gate | Non-author write-enabled CODEOWNER on every sensitive path; exact-head approval; all threads resolved; workflow and effective ruleset read-back pass | BLOCKED | Implementation is on #300. CODEOWNERS owner-only. Add a real authorized independent collaborator and read-only governance token; do not retry prior 422 reviewer request. |
+| GOV-02 / #150 | P0 | coordinator + owner/admin | Effective main protection after GOV-01 | Ruleset includes refs/heads/main; >=1 independent approval; stale approvals dismissed; last-push approval; required checks; signatures; no bypass; stored/effective read-back; unapproved negative case blocked and approved positive case mergeable | BLOCKED | Ruleset #25853037 has empty branch include and only deletion/non_fast_forward rules. No mutation performed. |
+| HG-01 / #292 | P0 | NINA UI/API; IGOR; signer owner | Operator-facing signed Human Gate; depends on #282–#290 and GOV-01 | UI previews immutable digest; external signer; live OIDC; requester/reviewer separation; tenant membership/version; expiry/revocation/replay; human signature and audit record | IN_PROGRESS / BLOCKED | Core signed flow exists as draft PR stack. Operator UI, signer/KMS/HSM, authorized reviewers and final app-level Human Gate remain open. |
+| HG-02 / #282–#290 | P0 | NINA; IGOR | Identity, membership, nonce and execution choke point | RS256/JWKS allowlist, claims auth_time/acr/amr/sid, active tenant membership, one-time nonce, lock/transaction ordering, no alternate route/worker bypass | IN_PROGRESS | Previous exact-SHA NINA/Ollama runs are historical. Revalidate newly propagated heads; do not transfer old PASS. |
+| HG-03 / #299 | P1 | NINA; IGOR | Reject oversized signed approval before JSON parse | Content-Length and streamed body cases return 413 before parser; full tests/contracts pass on current SHA | IN_PROGRESS | Original fix f193972 passed 532/13 and 40 contracts; branch SHA changed. Re-run current head only. |
+| DB-01 / #292/#303 | P0 | NINA disposable DB; IGOR; DB owner | Human Gate schema and tenant RLS rehearsal | Disposable PostgreSQL migration, FORCE RLS, A/B tenant isolation, append-only nonce, least-privilege roles, replay and rollback tests; owner-authorized staging plan | BLOCKED | Neon ola_staging has no Human Gate tables, no pg_policies and inspected tables RLS/FORCE RLS false. Existing ola_runtime write grants remain. No DDL/grant/migration. PR #303 is a plan only. |
+| CI-01 / #272/#301 | P0 | NINA; IGOR | Writer universe and Final Production Gate | All V4/Postgres/runtime/provenance/supply-chain/12h producers SUCCESS on exact SHA; Final Gate SUCCESS; evidence completeness and writer correlation | IN_PROGRESS | PostgreSQL producer #45036320224 succeeded on SHA 157b818...; poll latest Final Production Gate #45036320241 and refresh PR #272 head. Keep old failures in ledger. |
+| CI-02 / #295 | P1 | NINA; IGOR | Staging trigger reliability | Exact-head CI plus current independent review | BLOCKED | 23/23 historical CI success, but no review. Do not merge. |
+| DOC-01 / #277 | P1 | coordinator | Master handoff and inventory | Exact counts/pagination, DAG, stable IDs, status, current SHA/runs, DONE/SKIPPED/UNKNOWN/BLOCKED, anti-repeat | IN_PROGRESS | New open-work snapshot added at b365d...; this master register follows. Keep one canonical handoff. |
+| INFRA-01 / #158 | P1 | NINA; infra owner; IGOR | Persistent hosting, TLS, backups, rollback | Same-SHA service/worker deployment, persistent volume, stable health window, recovery proof, source/build attestation | BLOCKED | No production deployment or readiness proof. Railway production/staging separation remains. |
+| OBS-01 / #272/#172 | P1 | NINA instrumentation; IGOR | Lifecycle audit and SLI/MTTR/blast radius | run.start→run.end, stable correlation IDs, immutable evidence hashes, coverage/missing counts, independent verification | IN_PROGRESS | PR #272 source audit is not production runtime proof. Continue after final gate producers. |
+| SUP-01 | P1 | NINA; IGOR | Supply chain and reproducible build | SBOM, pinned actions/dependencies, source/image digest, signature/trust-root verification, tamper negative tests | IN_PROGRESS | Prior provenance runs are bound to old heads; re-run on current heads. |
+| REL-01 | P0 | coordinator + owner + IGOR | Final release decision | All P0 VERIFIED; P1 release blockers resolved; exact checks success; independent current-head approvals; effective main rules; authorized staging proof; signed app Human Gate | BLOCKED / NO-GO | No merge/deploy/payment/customer execution/public release before all gates pass. |
+
+### E. Completed work — do not repeat unless source/state changes
+
+- DONE (historical SHA): PR #299 ASGI body-limit fix. RED reproduced HTTP 422 for oversized Content-Length and streamed bodies; fix returned 413 before FastAPI parser. Original implementation SHA f193972...; CI run #45022251116 success; then 532 passed/12 skipped and 40 contract tests. Current branch changed; revalidation required.
+- DONE (historical SHA): PR #297 transaction-scoped nonce tenant-switch regression; 23/23 PostgreSQL contract tests passed on SHA ce4e5e3...; propagated through dependent PRs. Re-run only if changed code affects it.
+- DONE (historical SHA): PR #290 and #299 remote Ollama/IGOR runs #45026302272 and #45026331859 attempt 2 passed on earlier heads; provenance/replay/tamper BLOCK and Sigstore/Rekor verified; Human Gate remained pending. These proofs are historical and not transferable to new SHA.
+- DONE: inventory pagination snapshot commit b365d... (124 PR / 25 Issues).
+- DONE: hourly OLA work-loop automation updated with GitHub Human Gate, Windows C: and anti-repeat rules. No duplicate automation created.
+
+### F. Explicit SKIPPED / UNKNOWN / BLOCKED ledger
+
+| Item | State | Reason | Handling |
+|---|---|---|---|
+| Local Windows Ollama | UNKNOWN / NOT EXECUTED | automation environments=null; no connected Windows device, computerRef or cwd is available | Do not claim local inference; use remote GitHub Ollama and label remote. Use C:\\ paths only after Windows environment is explicitly connected. |
+| Historical igor-independent check | SKIPPED | legacy optional/OpenAI-oriented check; separate reusable Ollama IGOR flow passed on older exact heads | Keep SKIPPED; do not report 24/24 PASS. Current SHA requires fresh runs. |
+| Historical scorecard check | SKIPPED where recorded | optional workflow did not execute | Not PASS; record reason, do not repeat unless state changes. |
+| Neon staging Human Gate migration | BLOCKED / NOT EXECUTED | no owner authorization; missing tables/RLS on shared staging | No DDL, role, grant or migration changes; use disposable database only. |
+| Independent CODEOWNER approval | BLOCKED | current CODEOWNERS owner-only; no write-enabled independent reviewer proven | No self-review and no synthetic approval. |
+| Governance token scope | UNKNOWN | HUMAN_GATE_GOVERNANCE_TOKEN presence/scope not confirmed | Workflow must fail closed; do not inspect or print secret. |
+| Main branch protection | BLOCKED | main reports protected=false; current ruleset does not cover main | No enforcement claim until effective rules are read back and negative/positive tests pass. |
+
+### G. Checkpoint sequence for every automation cycle
+
+1. C0 Snapshot: refresh main SHA, all pages of open Issue/PR inventory, branch heads, dependency DAG, reviews and exact check-runs. Compare to the last snapshot; do not replay completed checks.
+2. C1 Governance: poll PR #300 policy unit tests; validate workflow YAML and Node tests; verify CODEOWNERS and ruleset candidate. Missing independent reviewer/token = BLOCKED.
+3. C2 Stack CI: poll exact current heads #282/#287/#288/#297/#289/#290/#299; inspect raw logs and artifacts; rerun only failed/missing producers caused by state change.
+4. C3 Independent IGOR: verify exact source/image SHA, hashes, provenance, replay and tamper; record verifier process vs agent-process boundary.
+5. C4 GitHub review: update PR descriptions to exact SHA/status; request review only from proven eligible collaborators; never retry known 422 without new permission evidence.
+6. C5 DB staging: use isolated disposable PostgreSQL for migrations/RLS and negative tests; prepare owner evidence package; no shared Neon DDL until authorized.
+7. C6 #272/#301 Final Gate: ensure every required producer executes on the same exact SHA; Final Production Gate must end SUCCESS; skipped/missing producers keep NO-GO.
+8. C7 Product readiness: persistent hosting, backup/restore, SLI/MTTR/blast radius, source/build provenance, stable health window, recovery, complete E2E.
+9. C8 Release: GO only when every P0 is VERIFIED, all release P1s closed, current exact checks SUCCESS, independent current-head review is recorded, effective main rules are active, authorized staging evidence and signed application Human Gate are complete.
+10. At run.end append exact SHA/run/artifact IDs and status to this same handoff. Preserve DONE/SKIPPED/UNKNOWN/BLOCKED; never create a competing registry.
+
+### H. Hard release rule
+
+NO-GO until C0–C8 pass. No merge to main, production deployment, shared database mutation, payment, order execution, signing-key activation, customer delivery or public publication. GitHub human approval is necessary but does not replace the application's cryptographically signed Human Gate for terminal operations.
