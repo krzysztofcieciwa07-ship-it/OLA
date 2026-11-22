@@ -366,6 +366,7 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
     monkeypatch.setattr(revenue, "SessionLocal", database.SessionLocal)
     monkeypatch.setattr(stripe_webhook, "SessionLocal", database.SessionLocal)
     monkeypatch.setattr(test_paid_order_approval, "SessionLocal", database.SessionLocal)
+    monkeypatch.setattr(main, "SessionLocal", database.SessionLocal)
 
     ctx = _seed_paid_order(monkeypatch)
     issuer = "https://login.example.test/tenant"
