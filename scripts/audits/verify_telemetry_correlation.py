@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Offline verifier for redacted production DB/log JSONL exports. No DB/network access."""
-import argparse, hashlib, json, math, secrets, sys
+import argparse, hashlib, json, math, re, secrets, sys
 from pathlib import Path
 FIELDS=("event_id","tenant_id","record_id","sequence","record_hash","producer_id","outcome")
 REQUIRED=(*FIELDS,"timestamp")
@@ -14,8 +14,12 @@ def load(path):
   missing=[f for f in REQUIRED if f not in row]
   if missing: raise ValueError(f"{path}:{n}: missing required fields: {', '.join(missing)}")
   if not isinstance(row["event_id"],str) or not row["event_id"].strip(): raise ValueError(f"{path}:{n}: event_id must be non-empty string")
-  try: ts=float(row["timestamp"])
-  except (TypeError,ValueError): raise ValueError(f"{path}:{n}: timestamp must be numeric")
+  for field in ("tenant_id","record_id","producer_id","outcome"):
+   if not isinstance(row[field],str) or not row[field].strip(): raise ValueError(f"{path}:{n}: {field} must be a non-empty string")
+  if type(row["sequence"]) is not int or row["sequence"] < 0: raise ValueError(f"{path}:{n}: sequence must be a non-negative integer")
+  if not isinstance(row["record_hash"],str) or re.fullmatch(r"[0-9a-f]{64}",row["record_hash"]) is None: raise ValueError(f"{path}:{n}: record_hash must be lowercase SHA-256 hex")
+  if isinstance(row["timestamp"],bool) or not isinstance(row["timestamp"],(int,float)): raise ValueError(f"{path}:{n}: timestamp must be numeric")
+  ts=float(row["timestamp"])
   if not math.isfinite(ts): raise ValueError(f"{path}:{n}: timestamp must be finite")
   rows.append(row)
  return rows
