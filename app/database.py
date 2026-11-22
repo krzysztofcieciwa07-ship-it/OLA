@@ -144,6 +144,27 @@ def create_postgres_append_only_triggers(connection):
     """)
 
 
+
+
+def create_postgres_human_gate_approval_nonce_rls(connection):
+    """Force tenant isolation for durable Human Gate nonce consumption."""
+    connection.exec_driver_sql(
+        "ALTER TABLE human_gate_approval_nonce_ledger ENABLE ROW LEVEL SECURITY"
+    )
+    connection.exec_driver_sql(
+        "ALTER TABLE human_gate_approval_nonce_ledger FORCE ROW LEVEL SECURITY"
+    )
+    connection.exec_driver_sql(
+        "DROP POLICY IF EXISTS human_gate_approval_nonce_tenant_isolation ON human_gate_approval_nonce_ledger"
+    )
+    connection.exec_driver_sql("""
+        CREATE POLICY human_gate_approval_nonce_tenant_isolation
+        ON human_gate_approval_nonce_ledger
+        FOR ALL
+        USING (tenant_id::text = current_setting('ola.human_gate_tenant_id', true))
+        WITH CHECK (tenant_id::text = current_setting('ola.human_gate_tenant_id', true))
+    """)
+
 def install_append_only_triggers(bind=None):
     """Create SQLite triggers; on PostgreSQL verify migration-installed triggers."""
     target = bind or engine
@@ -271,6 +292,32 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         approval_nonce_migration = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_human_gate_approval_nonce_v1"}).first()
+        approval_nonce_rls_migration = conn.execute(
+            text("SELECT 1 FROM ola_schema_migrations WHERE version = :version"),
+            {"version": "ola_human_gate_approval_nonce_rls_v1"},
+        ).first()
+        approval_nonce_rls = conn.execute(text("""
+            SELECT c.relrowsecurity,
+                   c.relforcerowsecurity,
+                   pg_get_userbyid(c.relowner) AS table_owner,
+                   r.rolname AS current_role,
+                   r.rolsuper,
+                   r.rolbypassrls,
+                   p.polname,
+                   p.polcmd,
+                   pg_get_expr(p.polqual, p.polrelid) AS using_expression,
+                   pg_get_expr(p.polwithcheck, p.polrelid) AS check_expression,
+                   (SELECT count(*) FROM pg_policy AS all_policies
+                    WHERE all_policies.polrelid = c.oid) AS policy_count
+            FROM pg_class AS c
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            JOIN pg_roles AS r ON r.rolname = current_user
+            LEFT JOIN pg_policy AS p
+              ON p.polrelid = c.oid
+             AND p.polname = 'human_gate_approval_nonce_tenant_isolation'
+            WHERE c.relname = 'human_gate_approval_nonce_ledger'
+              AND n.nspname = current_schema()
+        """)).one_or_none()
         trigger_rows = conn.execute(text("""
             SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -312,6 +359,29 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         raise RuntimeError("PostgreSQL Human Gate membership migration version is missing")
     if approval_nonce_migration is None:
         raise RuntimeError("PostgreSQL Human Gate approval nonce migration version is missing")
+    if approval_nonce_rls_migration is None:
+        raise RuntimeError("PostgreSQL Human Gate approval nonce RLS migration version is missing")
+    if approval_nonce_rls is None or not approval_nonce_rls.relrowsecurity or not approval_nonce_rls.relforcerowsecurity:
+        raise RuntimeError("PostgreSQL Human Gate approval nonce RLS must be enabled and forced")
+    def normalize_nonce_rls_expression(value):
+        compact = re.sub(r"\\s+", "", (value or "").lower())
+        compact = compact.replace("(tenant_id)::text", "tenant_id::text")
+        return compact.replace("'ola.human_gate_tenant_id'::text", "'ola.human_gate_tenant_id'")
+    expected_nonce_rls = "tenant_id::text=current_setting('ola.human_gate_tenant_id',true)"
+    if (
+        approval_nonce_rls.polname != "human_gate_approval_nonce_tenant_isolation"
+        or approval_nonce_rls.polcmd != "*"
+        or approval_nonce_rls.policy_count != 1
+        or normalize_nonce_rls_expression(approval_nonce_rls.using_expression) != expected_nonce_rls
+        or normalize_nonce_rls_expression(approval_nonce_rls.check_expression) != expected_nonce_rls
+    ):
+        raise RuntimeError("PostgreSQL Human Gate approval nonce RLS policy is missing, duplicated or invalid")
+    if enforce_runtime_privileges and (
+        approval_nonce_rls.table_owner == approval_nonce_rls.current_role
+        or approval_nonce_rls.rolsuper
+        or approval_nonce_rls.rolbypassrls
+    ):
+        raise RuntimeError("PostgreSQL Human Gate approval nonce runtime role must not own the table or bypass RLS")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     if enforce_runtime_privileges and (
@@ -430,6 +500,7 @@ def migrate_postgres_schema(target_engine):
         """))
         conn.execute(text("UPDATE stripe_events SET task = NULL WHERE task IS NOT NULL"))
         create_postgres_append_only_triggers(conn)
+        create_postgres_human_gate_approval_nonce_rls(conn)
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
             VALUES (:version, :description)
@@ -469,6 +540,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_gate_approval_nonce_v1",
             "description": "Add append-only PostgreSQL ledger for one-time signed Human Gate approval nonce consumption",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_gate_approval_nonce_rls_v1",
+            "description": "Force transaction-scoped tenant isolation for durable Human Gate approval nonce records",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
