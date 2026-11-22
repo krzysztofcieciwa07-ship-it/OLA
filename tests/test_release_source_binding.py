@@ -52,7 +52,7 @@ class ReleaseSourceBindingTest(unittest.TestCase):
 
     def test_staging_rehearsal_runs_on_main_pushes(self):
         content = (ROOT / ".github/workflows/staging-rehearsal.yml").read_text(encoding="utf-8")
-        self.assertIn("push:\\n    branches:\\n      - main", content)
+        self.assertIn("push:\n    branches:\n      - main", content)
         self.assertIn("pull_request:", content)
         self.assertIn("workflow_dispatch:", content)
 
