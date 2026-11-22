@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from .approval_identity import VerifiedSubject
 from .approval_contract_v1 import oidc_subject_fingerprint
+from .database import set_human_gate_tenant_scope
 from .models import HumanGateMembership
 
 ALLOWED_MEMBERSHIP_ROLES = frozenset({
@@ -81,6 +82,10 @@ def resolve_human_gate_membership(
         )
     except (ValueError, TypeError):
         raise HumanGateMembershipError("verified subject fingerprint input is invalid") from None
+
+    # Establish transaction-local PostgreSQL RLS context only after the
+    # verified token tenant has matched the canonical resource tenant.
+    set_human_gate_tenant_scope(db, tenant_id)
 
     rows = db.scalars(select(HumanGateMembership).where(
         HumanGateMembership.tenant_id == tenant_id,
