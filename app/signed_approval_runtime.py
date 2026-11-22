@@ -19,6 +19,7 @@ from .approval_contract_v1 import (
     validate_approval_semantics,
     verify_signed_approval_envelope,
 )
+from .database import set_human_gate_tenant_scope
 from .models import ApiKey, HumanGateMembership
 
 
@@ -87,6 +88,9 @@ def signed_envelope_sha256(envelope: dict) -> str:
 
 
 def _current_membership(db, actor, *, expected_tenant, expected_role, label):
+    # RLS is transaction-scoped: establish the resource tenant before the
+    # primary-key lookup, then keep the explicit row/actor tenant comparisons.
+    set_human_gate_tenant_scope(db, expected_tenant)
     row = db.get(HumanGateMembership, actor["principal_id"])
     if (
         row is None
