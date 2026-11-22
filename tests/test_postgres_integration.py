@@ -142,6 +142,44 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
     database.verify_postgres_schema(runtime_engine)
 
 
+
+
+def test_postgres_membership_rls_verifier_rejects_extra_permissive_policy(postgres_db):
+    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql("""
+            CREATE POLICY human_gate_memberships_unrestricted_test
+            ON human_gate_memberships
+            FOR SELECT
+            USING (true)
+        """)
+
+    with pytest.raises(RuntimeError, match="missing, duplicated or semantically invalid"):
+        database.verify_postgres_schema(runtime_engine)
+
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "DROP POLICY human_gate_memberships_unrestricted_test ON human_gate_memberships"
+        )
+    database.verify_postgres_schema(runtime_engine)
+
+
+def test_postgres_membership_rls_verifier_rejects_bypassrls_runtime_role(postgres_db):
+    database, runtime_engine, _migration_engine, admin_engine, runtime_role, _schema = postgres_db
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'ALTER ROLE "{runtime_role}" BYPASSRLS')
+
+    try:
+        with pytest.raises(RuntimeError, match="must not own the table or bypass RLS"):
+            database.verify_postgres_schema(runtime_engine)
+    finally:
+        with admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'ALTER ROLE "{runtime_role}" NOBYPASSRLS')
+
+    database.verify_postgres_schema(runtime_engine)
+
 def test_postgres_membership_rls_is_tenant_scoped_and_transaction_local(postgres_db):
     from sqlalchemy import select, text
     from app.models import HumanGateMembership, Tenant
