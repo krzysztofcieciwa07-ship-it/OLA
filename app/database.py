@@ -290,7 +290,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
                    p.polname,
                    p.polcmd,
                    pg_get_expr(p.polqual, p.polrelid) AS using_expression,
-                   pg_get_expr(p.polwithcheck, p.polrelid) AS check_expression
+                   pg_get_expr(p.polwithcheck, p.polrelid) AS check_expression,
+                   (SELECT count(*) FROM pg_policy AS all_policies
+                    WHERE all_policies.polrelid = c.oid) AS policy_count
             FROM pg_class AS c
             JOIN pg_namespace AS n ON n.oid = c.relnamespace
             JOIN pg_roles AS r ON r.rolname = current_user
@@ -329,25 +331,26 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         raise RuntimeError("PostgreSQL Human Gate membership RLS table is missing")
     if not membership_rls.relrowsecurity or not membership_rls.relforcerowsecurity:
         raise RuntimeError("PostgreSQL Human Gate membership RLS must be enabled and forced")
-    using_expression = (membership_rls.using_expression or "").lower()
-    check_expression = (membership_rls.check_expression or "").lower()
-    for expression_name, expression in (
-        ("USING", using_expression),
-        ("WITH CHECK", check_expression),
-    ):
-        if (
-            "tenant_id" not in expression
-            or "current_setting" not in expression
-            or "ola.human_gate_tenant_id" not in expression
-        ):
-            raise RuntimeError(
-                f"PostgreSQL Human Gate membership RLS {expression_name} policy is invalid"
-            )
+    def normalize_rls_expression(value):
+        # pg_get_expr adds harmless wrapping parentheses/whitespace and an
+        # explicit ::text cast to string constants; normalize those forms
+        # while requiring the exact single-tenant predicate (no OR/AND escape).
+        compact = re.sub(r"[\\s()]+", "", (value or "").lower())
+        return compact.replace("'ola.human_gate_tenant_id'::text", "'ola.human_gate_tenant_id'")
+
+    expected_rls_expression = (
+        "tenant_id::text=current_setting('ola.human_gate_tenant_id',true)"
+    )
     if (
         membership_rls.polname != "human_gate_memberships_tenant_isolation"
         or membership_rls.polcmd != "*"
+        or membership_rls.policy_count != 1
+        or normalize_rls_expression(membership_rls.using_expression) != expected_rls_expression
+        or normalize_rls_expression(membership_rls.check_expression) != expected_rls_expression
     ):
-        raise RuntimeError("PostgreSQL Human Gate membership RLS policy must cover all row operations")
+        raise RuntimeError(
+            "PostgreSQL Human Gate membership RLS policy is missing, duplicated or semantically invalid"
+        )
     if enforce_runtime_privileges and (
         membership_rls.table_owner == membership_rls.current_role
         or membership_rls.rolsuper
