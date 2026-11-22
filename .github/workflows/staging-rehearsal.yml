@@ -1,6 +1,9 @@
 name: OLA Local Staging Rehearsal
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
