@@ -332,6 +332,7 @@ def test_human_gate_approval_nonce_ledger_fails_closed_without_postgresql():
 
 def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgres_db, monkeypatch):
     import base64
+    import hashlib
     import json
     import time
     import uuid
@@ -342,7 +343,8 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
     from fastapi.testclient import TestClient
     from sqlalchemy import select
 
-    from app import approval_identity, main
+    from app import approval_identity, main, database
+    from app.api_key_hashing import api_key_fingerprint
     from app.approval_contract_v1 import (
         oidc_session_fingerprint,
         oidc_subject_fingerprint,
@@ -350,23 +352,107 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
         validate_approval_semantics,
     )
     from app.models import (
-        CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl,
-        EvidenceRecord, HumanGateApprovalNonce, HumanGateMembership,
+        ApiKey, CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl,
+        EvidenceRecord, HumanGateApprovalNonce, HumanGateMembership, Tenant,
     )
     from app.runtime_provenance import runtime_source_commit
     from app.signed_approval_runtime import signed_envelope_sha256
-    from app import database
-    from test_paid_order_approval import _seed_paid_order
-    import test_paid_order_approval
 
     database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
-
-    # All order seed and endpoint DB access must use the restricted test runtime role.
-    monkeypatch.setattr(main, "SessionLocal", database.SessionLocal)
-    monkeypatch.setattr(test_paid_order_approval, "SessionLocal", database.SessionLocal)
     monkeypatch.setattr(main, "SessionLocal", database.SessionLocal)
 
-    ctx = _seed_paid_order(monkeypatch)
+    # Seed parent rows before children: model declarations do not define ORM relationships.
+    tenant_id = str(uuid.uuid4())
+    requester_id = str(uuid.uuid4())
+    approver_id = str(uuid.uuid4())
+    requester_key = f"requester-{uuid.uuid4()}"
+    approver_key = f"approver-{uuid.uuid4()}"
+    order_id = str(uuid.uuid4())
+    session_id_value = f"cs_test_{uuid.uuid4().hex}"
+    event_id = f"evt_test_{uuid.uuid4().hex}"
+    task = "Run the signed PostgreSQL Human Gate ingress integration test."
+    request_hash = hashlib.sha256(task.encode()).hexdigest()
+    with database.SessionLocal() as db:
+        db.add(Tenant(id=tenant_id, name="signed-approval-ingress"))
+        db.commit()
+        db.add_all([
+            ApiKey(id=requester_id, tenant_id=tenant_id,
+                   key_hash=api_key_fingerprint(requester_key)),
+            ApiKey(id=approver_id, tenant_id=tenant_id,
+                   key_hash=api_key_fingerprint(approver_key), role="execution_approver"),
+        ])
+        db.commit()
+        db.add(CheckoutOrder(
+            id=order_id,
+            tenant_id=tenant_id,
+            idempotency_key_hash=hashlib.sha256(uuid.uuid4().bytes).hexdigest(),
+            request_hash=request_hash,
+            task=task,
+            status="PAID_PENDING_REVIEW",
+            stripe_session_id=session_id_value,
+            checkout_url="https://checkout.stripe.test/session",
+            payment_event_id=event_id,
+        ))
+        db.add(CheckoutOrderControl(
+            id=str(uuid.uuid4()), order_id=order_id, tenant_id=tenant_id,
+            requester_id=requester_id, status="PAID_PENDING_REVIEW",
+        ))
+        db.commit()
+
+    checkout = database.append_evidence_atomic(tenant_id, "stripe.checkout_created", {
+        "ola_order_id": order_id,
+        "tenant_id": tenant_id,
+        "requester_id": requester_id,
+        "checkout_session_id": session_id_value,
+        "request_hash": request_hash,
+    })
+    payment = database.append_evidence_atomic(tenant_id, "stripe.payment_confirmed", {
+        "ola_order_id": order_id,
+        "stripe_event_id": event_id,
+        "checkout_session_id": session_id_value,
+        "offer": "ola-execution-audit",
+        "product": "OLA Execution Audit",
+        "amount_total": 9900,
+        "currency": "eur",
+        "request_hash": request_hash,
+        "execution_authorized": False,
+        "review_required": True,
+    })
+    payment_result = {
+        "status": "PAID_PENDING_REVIEW",
+        "event_id": event_id,
+        "order_id": order_id,
+        "checkout_session_id": session_id_value,
+        "payment": "CONFIRMED",
+        "ola_status": "NOT_STARTED",
+        "ola_run_id": None,
+        "payment_evidence_id": payment["id"],
+        "execution_authorized": False,
+        "next_gate": "HUMAN_REVIEW",
+    }
+    with database.SessionLocal() as db:
+        order_row = db.get(CheckoutOrder, order_id)
+        order_row.payment_result_json = json.dumps(payment_result)
+        control_row = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == order_id
+        ))
+        control_row.payment_evidence_id = payment["id"]
+        db.commit()
+        tip_hash = db.scalar(select(EvidenceRecord.record_hash).where(
+            EvidenceRecord.tenant_id == tenant_id
+        ).order_by(EvidenceRecord.seq.desc()))
+    ctx = {
+        "tenant_id": tenant_id,
+        "requester_id": requester_id,
+        "approver_id": approver_id,
+        "order_id": order_id,
+        "session_id": session_id_value,
+        "task": task,
+        "payment_evidence_id": payment["id"],
+        "checkout_evidence_id": checkout["id"],
+        "tip_hash": tip_hash,
+    }
+
     issuer = "https://login.example.test/tenant"
     reviewer_subject = f"approver:{ctx['approver_id']}"
     requester_subject = f"requester:{ctx['requester_id']}"
