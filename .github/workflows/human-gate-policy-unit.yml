@@ -2,9 +2,6 @@ name: Human Gate Policy Unit Tests
 
 on:
   pull_request:
-    branches:
-      - main
-      - "security/**"
     paths:
       - ".github/scripts/human-gate-policy.cjs"
       - "tests/test_human_gate_policy.cjs"
