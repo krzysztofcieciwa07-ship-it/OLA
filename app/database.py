@@ -364,7 +364,21 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     if approval_nonce_rls is None or not approval_nonce_rls.relrowsecurity or not approval_nonce_rls.relforcerowsecurity:
         raise RuntimeError("PostgreSQL Human Gate approval nonce RLS must be enabled and forced")
     def normalize_nonce_rls_expression(value):
-        compact = re.sub(r"\\s+", "", (value or "").lower())
+        compact = re.sub(r"\s+", "", (value or "").lower())
+        while compact.startswith("(") and compact.endswith(")"):
+            depth = 0
+            wraps_expression = True
+            for index, character in enumerate(compact):
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth -= 1
+                    if depth == 0 and index != len(compact) - 1:
+                        wraps_expression = False
+                        break
+            if not wraps_expression or depth != 0:
+                break
+            compact = compact[1:-1]
         compact = compact.replace("(tenant_id)::text", "tenant_id::text")
         return compact.replace("'ola.human_gate_tenant_id'::text", "'ola.human_gate_tenant_id'")
     expected_nonce_rls = "tenant_id::text=current_setting('ola.human_gate_tenant_id',true)"
