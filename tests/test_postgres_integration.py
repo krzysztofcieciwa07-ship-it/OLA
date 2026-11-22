@@ -342,7 +342,7 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
     from fastapi.testclient import TestClient
     from sqlalchemy import select
 
-    from app import approval_identity, main, revenue, stripe_webhook
+    from app import approval_identity, main
     from app.approval_contract_v1 import (
         oidc_session_fingerprint,
         oidc_subject_fingerprint,
@@ -363,8 +363,6 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
 
     # All order seed and endpoint DB access must use the restricted test runtime role.
     monkeypatch.setattr(main, "SessionLocal", database.SessionLocal)
-    monkeypatch.setattr(revenue, "SessionLocal", database.SessionLocal)
-    monkeypatch.setattr(stripe_webhook, "SessionLocal", database.SessionLocal)
     monkeypatch.setattr(test_paid_order_approval, "SessionLocal", database.SessionLocal)
     monkeypatch.setattr(main, "SessionLocal", database.SessionLocal)
 
