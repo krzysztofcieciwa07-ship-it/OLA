@@ -1,11 +1,11 @@
 {
   "schema_version": "ola-open-work-inventory-v1",
-  "snapshot_at": "2026-11-22T16:43:00Z",
+  "snapshot_at": "2026-11-22T16:52:00Z",
   "repository": "krzysztofcieciwa07-ship-it/OLA",
   "default_branch": "main",
   "main_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
   "main_protected": false,
-  "source": "GitHub REST API; paginated state=open inventory",
+  "source": "GitHub REST API; paginated state=open inventory; branch protection not freshly verified in this refresh",
   "pagination": {
     "pull_pages": [
       100,
@@ -257,8 +257,8 @@
       "base": "main",
       "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
       "head": "docs/ola-operational-handoff-20261121",
-      "head_sha": "8c5b742cd7711736fadf69995514a21296b797e5",
-      "updated_at": "2026-11-22T16:39:53Z",
+      "head_sha": "8e5a98f893f2c33aa72c4a457cbc77dad515bc57",
+      "updated_at": "2026-11-22T16:51:26Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/277"
     },
@@ -1733,7 +1733,7 @@
       "number": 304,
       "title": "P1: bind LLM endpoint allowlist hardening to Human Gate governance",
       "state": "open",
-      "updated_at": "2026-11-22T16:37:26Z",
+      "updated_at": "2026-11-22T16:48:27Z",
       "labels": [
         "security",
         "P1",
@@ -1746,7 +1746,7 @@
       "number": 301,
       "title": "P0: align paid-order PostgreSQL producer trigger with final gate requirements",
       "state": "open",
-      "updated_at": "2026-11-22T16:38:36Z",
+      "updated_at": "2026-11-22T16:48:22Z",
       "labels": [
         "P0",
         "security",
@@ -1759,7 +1759,7 @@
       "number": 296,
       "title": "P1: establish independent CODEOWNERS and protected-main review gates",
       "state": "open",
-      "updated_at": "2026-11-22T16:42:45Z",
+      "updated_at": "2026-11-22T16:48:25Z",
       "labels": [
         "security",
         "P1",
@@ -1772,7 +1772,7 @@
       "number": 292,
       "title": "P0: deliver operator-facing signed Human Gate and staging acceptance flow",
       "state": "open",
-      "updated_at": "2026-11-22T16:38:35Z",
+      "updated_at": "2026-11-22T16:48:19Z",
       "labels": [
         "P0",
         "security",
@@ -1919,7 +1919,7 @@
       "number": 29,
       "title": "AGENT-02 REACT — investigate and resolve CI contradictions",
       "state": "open",
-      "updated_at": "2026-11-22T16:07:50Z",
+      "updated_at": "2026-11-22T16:50:35Z",
       "labels": [
         "P0",
         "agent"
@@ -1933,7 +1933,7 @@
       "number": 28,
       "title": "AGENT-01 CODEACT — close runtime/provenance execution gap",
       "state": "open",
-      "updated_at": "2026-09-22T20:57:48Z",
+      "updated_at": "2026-11-22T16:50:33Z",
       "labels": [
         "P0",
         "agent"
