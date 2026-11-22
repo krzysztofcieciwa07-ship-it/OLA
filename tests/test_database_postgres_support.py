@@ -118,6 +118,10 @@ def test_human_gate_tenant_scope_uses_transaction_local_postgres_setting():
     calls = []
     tenant_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
+    class FakeResult:
+        def scalar_one_or_none(self):
+            return None
+
     class FakeSession:
         bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
 
@@ -125,15 +129,70 @@ def test_human_gate_tenant_scope_uses_transaction_local_postgres_setting():
             return self.bind
 
         def execute(self, statement, params=None):
-            calls.append((str(statement), params))
+            sql = str(statement)
+            calls.append((sql, params))
+            return FakeResult()
 
     database.set_human_gate_tenant_scope(FakeSession(), tenant_id)
 
-    assert len(calls) == 1
-    sql, params = calls[0]
+    assert len(calls) == 2
+    assert "current_setting('ola.human_gate_tenant_id'" in calls[0][0]
+    sql, params = calls[1]
     assert "set_config('ola.human_gate_tenant_id'" in sql
     assert "true" in sql
     assert params == {"tenant_id": tenant_id}
+
+
+def test_human_gate_tenant_scope_cannot_switch_tenant_inside_transaction():
+    tenant_a = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    tenant_b = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    calls = []
+
+    class FakeResult:
+        def scalar_one_or_none(self):
+            return tenant_a
+
+    class FakeSession:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def get_bind(self):
+            return self.bind
+
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            calls.append((sql, params))
+            return FakeResult()
+
+    with pytest.raises(RuntimeError, match="cannot change within the same transaction"):
+        database.set_human_gate_tenant_scope(FakeSession(), tenant_b)
+
+    assert len(calls) == 1
+    assert "current_setting('ola.human_gate_tenant_id'" in calls[0][0]
+    assert all("set_config" not in sql for sql, _ in calls)
+
+
+def test_human_gate_tenant_scope_allows_idempotent_scope_in_same_transaction():
+    tenant = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    calls = []
+
+    class FakeResult:
+        def scalar_one_or_none(self):
+            return tenant
+
+    class FakeSession:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def get_bind(self):
+            return self.bind
+
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            calls.append((sql, params))
+            return FakeResult()
+
+    database.set_human_gate_tenant_scope(FakeSession(), tenant)
+    assert len(calls) == 2
+    assert "set_config" in calls[1][0]
 
 
 def test_human_gate_tenant_scope_rejects_noncanonical_tenant_ids():
