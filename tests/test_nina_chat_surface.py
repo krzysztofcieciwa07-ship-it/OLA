@@ -50,7 +50,11 @@ def test_nina_chat_route_reaches_runtime(monkeypatch):
     def fake_chat(received_tenant_id, messages):
         assert received_tenant_id == tenant_id
         assert messages == [{"role": "user", "content": "hello"}]
-        return {"status": "VERIFIED", "message": "hello from test"}
+        return {
+            "status": "COMPLETED_UNVERIFIED",
+            "verified": False,
+            "message": "hello from test",
+        }
 
     monkeypatch.setattr("app.main.chat", fake_chat)
 
@@ -62,5 +66,6 @@ def test_nina_chat_route_reaches_runtime(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "VERIFIED"
+    assert response.json()["status"] == "COMPLETED_UNVERIFIED"
+    assert response.json()["verified"] is False
     assert response.json()["message"] == "hello from test"
