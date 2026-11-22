@@ -49,6 +49,34 @@ def lock_tenant_evidence_chain(db, tenant_id):
     raise RuntimeError(f"no evidence-chain lock policy for database dialect: {dialect}")
 
 
+
+
+def lock_tenant_human_gate_memberships(db, tenant_id):
+    """Serialize membership reads with out-of-band grants and revocations.
+
+    PostgreSQL membership mutations acquire the same tenant-scoped
+    transaction advisory lock from a database trigger. Runtime keeps SELECT
+    only on the membership table; no row UPDATE/SELECT FOR UPDATE privilege
+    is required. SQLite BEGIN IMMEDIATE already serializes writers.
+    """
+    dialect = db.get_bind().dialect.name
+    if not isinstance(tenant_id, str) or not tenant_id.strip():
+        raise ValueError("tenant_id is required for a Human Gate membership lock")
+    if dialect == "sqlite":
+        return
+    if dialect == "postgresql":
+        db.execute(
+            text("""
+                SELECT pg_advisory_xact_lock(
+                    hashtextextended('ola:human-gate-membership:v1:' || :tenant_id, 0)
+                )
+            """),
+            {"tenant_id": tenant_id},
+        )
+        return
+    raise RuntimeError(f"no Human Gate membership lock policy for database dialect: {dialect}")
+
+
 def begin_write_transaction(db, tenant_id=None):
     """Begin a serialized write transaction for the selected backend."""
     dialect = db.get_bind().dialect.name
@@ -113,6 +141,43 @@ def create_postgres_append_only_triggers(connection):
     CREATE TRIGGER evidence_no_delete
     BEFORE DELETE ON evidence_records
     FOR EACH ROW EXECUTE FUNCTION ola_reject_evidence_mutation()
+    """)
+
+
+    connection.exec_driver_sql("""
+    CREATE OR REPLACE FUNCTION ola_lock_human_gate_membership_mutation()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $ola$
+    DECLARE
+        target_tenant_id text;
+    BEGIN
+        IF TG_OP = 'UPDATE' AND NEW.tenant_id IS DISTINCT FROM OLD.tenant_id THEN
+            RAISE EXCEPTION 'human_gate_memberships tenant_id is immutable'
+                USING ERRCODE = '55000';
+        END IF;
+        IF TG_OP = 'DELETE' THEN
+            target_tenant_id := OLD.tenant_id;
+        ELSE
+            target_tenant_id := NEW.tenant_id;
+        END IF;
+        PERFORM pg_advisory_xact_lock(
+            hashtextextended('ola:human-gate-membership:v1:' || target_tenant_id, 0)
+        );
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        END IF;
+        RETURN NEW;
+    END;
+    $ola$;
+    """)
+    connection.exec_driver_sql(
+        "DROP TRIGGER IF EXISTS human_gate_membership_tenant_lock ON human_gate_memberships"
+    )
+    connection.exec_driver_sql("""
+    CREATE TRIGGER human_gate_membership_tenant_lock
+    BEFORE INSERT OR UPDATE OR DELETE ON human_gate_memberships
+    FOR EACH ROW EXECUTE FUNCTION ola_lock_human_gate_membership_mutation()
     """)
 
     connection.exec_driver_sql("""
@@ -271,6 +336,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         approval_nonce_migration = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_human_gate_approval_nonce_v1"}).first()
+        membership_lock_migration = conn.execute(text(
+            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
+        ), {"version": "ola_human_gate_membership_lock_v1"}).first()
         signed_approval_migration = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_signed_human_gate_approval_v1"}).first()
@@ -281,7 +349,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             JOIN pg_class AS c ON c.oid = t.tgrelid
             JOIN pg_proc AS p ON p.oid = t.tgfoid
             JOIN pg_namespace AS n ON n.oid = c.relnamespace
-            WHERE c.relname IN ('evidence_records', 'human_gate_approval_nonce_ledger')
+            WHERE c.relname IN ('evidence_records', 'human_gate_approval_nonce_ledger', 'human_gate_memberships')
               AND n.nspname = current_schema()
               AND NOT t.tgisinternal
         """)).all()
@@ -315,6 +383,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         raise RuntimeError("PostgreSQL Human Gate membership migration version is missing")
     if approval_nonce_migration is None:
         raise RuntimeError("PostgreSQL Human Gate approval nonce migration version is missing")
+    if membership_lock_migration is None:
+        raise RuntimeError("PostgreSQL Human Gate membership serialization migration version is missing")
     if signed_approval_migration is None:
         raise RuntimeError("PostgreSQL signed Human Gate approval migration version is missing")
     if enforce_runtime_privileges and any(evidence_privileges):
@@ -354,16 +424,32 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "BEFORE DELETE", "ola_reject_human_gate_approval_nonce_mutation",
             "RAISE EXCEPTION 'HUMAN_GATE_APPROVAL_NONCE_LEDGER IS APPEND-ONLY'",
         ),
+        ("human_gate_memberships", "human_gate_membership_tenant_lock"): (
+            "BEFORE INSERT OR UPDATE OR DELETE", "ola_lock_human_gate_membership_mutation",
+            "PG_ADVISORY_XACT_LOCK",
+        ),
     }
     for key, (action, expected_function, expected_message) in expected_triggers.items():
         trigger_def, function_name, function_def = definitions.get(key, ("", "", ""))
         normalized_trigger = re.sub(r"\s+", " ", trigger_def).upper()
         normalized_function = re.sub(r"\s+", " ", function_def).upper()
+        is_membership_lock = key == ("human_gate_memberships", "human_gate_membership_tenant_lock")
         if (
             action not in normalized_trigger
             or function_name != expected_function
             or expected_message not in normalized_function
-            or "USING ERRCODE = '55000'" not in normalized_function
+            or (
+                not is_membership_lock
+                and "USING ERRCODE = '55000'" not in normalized_function
+            )
+            or (
+                is_membership_lock
+                and "'OLA:HUMAN-GATE-MEMBERSHIP:V1:'" not in normalized_function
+            )
+            or (
+                is_membership_lock
+                and "NEW.TENANT_ID IS DISTINCT FROM OLD.TENANT_ID" not in normalized_function
+            )
         ):
             raise RuntimeError(
                 f"PostgreSQL append-only trigger definition is invalid for {key[0]}.{key[1]}"
@@ -476,6 +562,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_gate_membership_v1",
             "description": "Add read-only OLA-owned OIDC subject-to-principal membership registry",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_gate_membership_lock_v1",
+            "description": "Serialize Human Gate membership mutations with tenant authorization reads using transaction advisory locks",
         })
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
