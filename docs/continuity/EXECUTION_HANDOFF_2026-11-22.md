@@ -350,3 +350,12 @@ Continue only dependency-ready implementation/evidence tasks; preserve #301/#296
 - #277 updated branch exact head at the prior checkpoint `90ecd6411f838725533aec4ab3f798a47d85ac93` has new CI queued/in-progress; no completion claim. Its current main comparison remains diverged (35 ahead / 7 behind).
 - #300 final-production remains IN_PROGRESS; #272 candidate evidence and #301 status remain as recorded above. Governance #150/#296 and operator Human Gate #292 remain BLOCKED.
 - No merge, deployment, shared DB mutation, secret access, payment or terminal effect.
+
+
+## run.end update — 2026-11-22 16:38 UTC
+- Inventory refreshed after evidence-only PR #305: **125 open PRs / 26 open non-PR Issues / 151 issue-endpoint objects**; pagination complete (PR pages 100+25; issue endpoint pages 100+51). Inventory commit `58b04bf79cdcb90bdd18d015e9c448800355e6c0`.
+- Issue #150 now has labels `P1`, `security`, `human-gate:required` and evidence-only PR #305 (`Human Gate Task: #150`) at head `2a764027e3c1cbfc2a6861710dd66d147f63e757`. PR #305 exact-head CI snapshot: 28 checks, 0 SUCCESS so far, 1 SKIPPED (`scorecard`), no failures; remaining jobs QUEUED/IN_PROGRESS. Keep DRAFT.
+- Fresh read-back: ruleset #25853037 `SECURITY.md` active, but branch include scope empty and rules limited to deletion/non_fast_forward. Main remains `protected=false`. Branch-protection API returned 403; effective main protection is UNKNOWN. No mutation performed.
+- Issue #150 owner/admin package is in PR #305. #296/#292/#301 labels were normalized to include `human-gate:required`; #304 already carries P1/security/human-gate:required.
+- #298 remains linked to Issue #304 with marker; exact head `87d365e5a5ada21329d8ef8df535483e22bb86ad` has 35 SUCCESS / 2 SKIPPED / no failures or pending. Independent review BLOCKED.
+- No merge, branch-rule mutation, collaborator permission change, secret access, DB mutation, deployment, payment or terminal effect.
