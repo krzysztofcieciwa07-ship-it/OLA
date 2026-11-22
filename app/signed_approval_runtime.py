@@ -259,6 +259,8 @@ def verify_paid_order_signed_approval(
         or approval_record_rows[0]["prev_hash"] != payload["evidence"]["tip_hash"]
     ):
         raise SignedApprovalRuntimeRejected("signed approval evidence is not appended directly to the approved evidence tip")
+    if not isinstance(approval_evidence_payload, dict):
+        raise SignedApprovalRuntimeRejected("trusted approval evidence payload is invalid")
     if (
         approval_evidence_payload.get("checkout_evidence_id") != checkout_refs[0]["id"]
         or approval_evidence_payload.get("checkout_evidence_hash") != checkout_refs[0]["record_hash"]
