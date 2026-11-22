@@ -8,7 +8,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, append_evidence_atomic, prepare_runtime_schema, verify_postgres_schema
@@ -934,19 +935,49 @@ def get_evidence_tip(x_api_key: str | None = Header(default=None)):
 def list_evidence(
     limit: int = 20,
     before_seq: int | None = None,
+    run_id: str | None = None,
     x_api_key: str | None = Header(default=None),
 ):
-    """List only the authenticated tenant's evidence records, newest first."""
+    """List authenticated-tenant evidence, optionally narrowed to one run.
+
+    A run-filtered response is a display/query subset, not a complete hash-chain
+    proof. Consumers that verify chain integrity must fetch the full tenant
+    chain through the unfiltered paginated endpoint.
+    """
     tenant_id = tenant_from_key(x_api_key)
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
     if before_seq is not None and before_seq < 0:
         raise HTTPException(status_code=400, detail="before_seq must be >= 0")
 
+    normalized_run_id = None
+    if run_id is not None:
+        try:
+            normalized_run_id = str(uuid.UUID(run_id))
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(status_code=400, detail="run_id must be a UUID") from None
+        if normalized_run_id != run_id.lower():
+            raise HTTPException(status_code=400, detail="run_id must be a canonical UUID")
+
     with SessionLocal() as db:
         query = select(EvidenceRecord).where(EvidenceRecord.tenant_id == tenant_id)
         if before_seq is not None:
             query = query.where(EvidenceRecord.seq < before_seq)
+        if normalized_run_id is not None:
+            # payload_json is canonical JSON written by the evidence writer.
+            # Use native JSON extraction on both supported database dialects.
+            if engine.dialect.name == "sqlite":
+                query = query.where(
+                    func.json_extract(EvidenceRecord.payload_json, "$.run_id")
+                    == normalized_run_id
+                )
+            elif engine.dialect.name == "postgresql":
+                query = query.where(
+                    cast(EvidenceRecord.payload_json, JSONB)
+                    .op("->>")("run_id") == normalized_run_id
+                )
+            else:
+                raise HTTPException(status_code=503, detail="run evidence filtering unavailable")
         records = db.scalars(
             query.order_by(EvidenceRecord.seq.desc()).limit(limit)
         ).all()
@@ -967,9 +998,10 @@ def list_evidence(
         "count": len(records),
         "limit": limit,
         "before_seq": before_seq,
+        "run_id": normalized_run_id,
+        "scope": "run_subset" if normalized_run_id is not None else "tenant_page",
+        "chain_status": "NOT_VERIFIED",
     }
-
-
 @app.get("/evidence/{record_id}")
 def get_evidence(record_id: str, x_api_key: str | None = Header(default=None)):
     tenant_id = tenant_from_key(x_api_key)

@@ -74,15 +74,16 @@ footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px
     <h3 id="ledger-title">Tenant Evidence Ledger</h3>
     <div class="detail"><span>Ledger</span><span id="ledger-status" class="status">KEY_REQUIRED</span></div>
     <p id="ledger-tip" class="hint">Tip i liczba rekordów nie zostały odczytane.</p>
+    <p class="hint">Ten sam UUID filtruje Evidence Ledger i raport IGOR. run_subset ma chain_status=NOT_VERIFIED; pełna weryfikacja pochodzi z raportu IGOR.</p>
     <button type="button" id="ledger-button" disabled>Odczytaj ledger (maks. 20)</button>
     <div id="ledger-records" aria-live="polite"></div>
   </section>
   <section class="health-panel" aria-labelledby="workflow-report-title">
     <h3 id="workflow-report-title">Raport workflow — IGOR</h3>
-    <p class="hint">Wprowadź UUID run_id. Serwer ponownie weryfikuje tenant-scoped evidence. To wyłącznie GET — Human Gate nie jest zatwierdzany.</p>
+    <p class="hint">Ten sam UUID ogranicza listę Evidence i wskazuje raport IGOR dla tego runu. Odczyt nie zatwierdza Human Gate.</p>
     <label for="workflow-run-id">Run ID (UUID)</label>
     <input id="workflow-run-id" type="text" maxlength="36" autocomplete="off" inputmode="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" aria-describedby="workflow-run-id-hint">
-    <p id="workflow-run-id-hint" class="hint">Raport jest odczytywany tylko dla tenanta uwierzytelnionego kluczem API.</p>
+    <p id="workflow-run-id-hint" class="hint">Odczyt jest tenant-scoped. Dla run_subset status łańcucha pozostaje NOT_VERIFIED.</p>
     <div class="detail"><span>Raport</span><span id="workflow-status" class="status">NOT_CHECKED</span></div>
     <button type="button" id="workflow-report-button" disabled>Otwórz raport IGOR</button>
     <p id="workflow-output" class="workflow-report-output" aria-live="polite">Nie pobrano raportu z serwera.</p>
@@ -200,6 +201,8 @@ async function runNina() {
   const data = credentials();
   if (!data) return;
   activeEvidenceIds = [];
+  workflowRunInput.value = "";
+  updateWorkflowReportButton();
   evidenceButton.disabled = true;
   renderExecutionSteps([]);
   busy(true); clearResult();
@@ -230,6 +233,10 @@ async function runNina() {
     showStatus("#igor-status", igorStatus);
     showStatus("#gate-status", gateStatus);
     el("#run-id").textContent = body.run_id || "—";
+    if (typeof body.run_id === "string" && validWorkflowRunId(body.run_id)) {
+      workflowRunInput.value = body.run_id;
+      updateWorkflowReportButton();
+    }
     activeEvidenceIds = Array.isArray(body.decision_report?.evidence_ids)
       ? body.decision_report.evidence_ids.filter(id => typeof id === "string")
       : [];
@@ -370,9 +377,15 @@ async function loadWorkflowReport() {
 }
 async function loadTenantLedger() {
   const key = keyInput.value.trim();
+  const runId = workflowRunInput.value.trim();
   const button = el("#ledger-button");
   if (!key) {
     panelBadge("#ledger-status", "KEY_REQUIRED", "warn");
+    return;
+  }
+  if (runId && !validWorkflowRunId(runId)) {
+    panelBadge("#ledger-status", "INVALID_RUN_ID", "warn");
+    el("#ledger-tip").textContent = "Run ID musi być poprawnym UUID. Nie pobrano danych.";
     return;
   }
   button.disabled = true;
@@ -380,9 +393,11 @@ async function loadTenantLedger() {
   el("#ledger-records").replaceChildren();
   try {
     const headers = {"X-API-Key":key};
+    const params = new URLSearchParams({limit:"20"});
+    if (runId) params.set("run_id", runId.toLowerCase());
     const [tipResponse, recordsResponse] = await Promise.all([
       fetch("/evidence/tip", {headers, cache:"no-store"}),
-      fetch("/evidence?limit=20", {headers, cache:"no-store"})
+      fetch(`/evidence?${params.toString()}`, {headers, cache:"no-store"})
     ]);
     const tipBody = await readJson(tipResponse);
     const recordsBody = await readJson(recordsResponse);
@@ -393,7 +408,12 @@ async function loadTenantLedger() {
     }
     const count = Number.isInteger(tipBody.record_count) ? tipBody.record_count : "UNKNOWN";
     const tipHash = typeof tipBody.tip_hash === "string" ? tipBody.tip_hash : "UNKNOWN";
-    el("#ledger-tip").textContent = "Record count: " + count + " · tip: " + tipHash;
+    const scope = recordsBody.scope === "run_subset" ? "run_subset" :
+      recordsBody.scope === "tenant_page" ? "tenant_page" : "UNKNOWN";
+    const chainStatus = typeof recordsBody.chain_status === "string"
+      ? recordsBody.chain_status : "UNKNOWN";
+    el("#ledger-tip").textContent = "Record count: " + count + " · tip: " + tipHash +
+      " · scope: " + scope + " · chain_status: " + chainStatus;
     const records = Array.isArray(recordsBody.records) ? recordsBody.records.slice(0, 20) : [];
     for (const record of records) {
       const article = document.createElement("article");
@@ -407,12 +427,15 @@ async function loadTenantLedger() {
       article.append(title, details, payload);
       el("#ledger-records").appendChild(article);
     }
-    panelBadge("#ledger-status", "READ_ONLY · " + records.length + " RECORDS", "good");
+    panelBadge("#ledger-status", "READ_ONLY · " +
+      (scope === "run_subset" ? "RUN_SUBSET" : scope === "tenant_page" ? "TENANT_PAGE" : "UNKNOWN_SCOPE") +
+      " · " + chainStatus + " · " + records.length + " RECORDS", "warn");
   } catch (_) {
     panelBadge("#ledger-status", "UNAVAILABLE", "bad");
     el("#ledger-tip").textContent = "Nie udało się pobrać tenant-scoped Evidence Ledger.";
   } finally { button.disabled = !keyInput.value.trim(); }
 }
+
 workflowReportButton.addEventListener("click", loadWorkflowReport);
 workflowRunInput.addEventListener("input", updateWorkflowReportButton);
 el("#health-refresh").addEventListener("click", refreshCoreHealth);

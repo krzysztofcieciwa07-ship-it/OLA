@@ -95,7 +95,12 @@ def test_dashboard_exposes_live_liveness_and_local_readiness_panel():
             "ledger-button", "ledger-status", "ledger-tip", "ledger-records"} <= parsed.ids
     assert 'fetch("/health"' in script
     assert 'fetch("/readyz"' in script
-    assert 'fetch("/evidence?limit=20"' in script
+    assert 'const params = new URLSearchParams({limit:"20"});' in script
+    assert 'params.set("run_id", runId.toLowerCase())' in script
+    assert 'fetch(`/evidence?${params.toString()}`' in script
+    assert "recordsBody.scope" in script
+    assert "recordsBody.chain_status" in script
+    assert "run_subset" in script
     assert 'fetch("/evidence/tip"' in script
     assert '"X-API-Key":key' in script
     assert "local_core_only" in script
@@ -117,6 +122,8 @@ def test_dashboard_exposes_generic_read_only_workflow_report_lookup():
     assert "UUID" in html
     assert "validWorkflowRunId" in script
     assert "updateWorkflowReportButton" in script
+    assert "workflowRunInput.value = body.run_id;" in script
+    assert "validWorkflowRunId(body.run_id)" in script
     assert "production_authorized" in script
     assert "NOT_APPROVED" in script
     assert "data-workflow-run" not in script
@@ -137,6 +144,26 @@ def test_dashboard_exposes_evidence_linked_execution_steps_safely():
     assert "renderExecutionSteps" in script
     assert "body.execution_steps" in script
     assert "Evidence ID:" in script
+    assert "innerHTML" not in script
+    assert "localStorage" not in script
+    assert "sessionStorage" not in script
+
+
+
+def test_dashboard_uses_one_run_id_for_igor_report_and_evidence_subset():
+    html = TestClient(app).get("/").text
+    parsed = DashboardParser()
+    parsed.feed(html)
+    script = "\\n".join(parsed.scripts)
+
+    assert "Ten sam UUID filtruje Evidence Ledger" in html
+    assert 'const runId = workflowRunInput.value.trim();' in script
+    assert "workflowRunInput.value = body.run_id;" in script
+    assert 'params.set("run_id", runId.toLowerCase())' in script
+    assert 'fetch(`/evidence?${params.toString()}`' in script
+    assert "recordsBody.scope" in script
+    assert "recordsBody.chain_status" in script
+    assert "NOT_VERIFIED" in html
     assert "innerHTML" not in script
     assert "localStorage" not in script
     assert "sessionStorage" not in script
