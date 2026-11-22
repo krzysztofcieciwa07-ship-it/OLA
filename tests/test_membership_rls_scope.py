@@ -93,3 +93,59 @@ def test_signed_worker_never_reads_membership_when_tenant_scope_fails(monkeypatc
         )
 
     assert lookups == []
+
+
+def test_human_gate_scope_rejects_switching_tenant_inside_transaction():
+    from app.database import set_human_gate_tenant_scope
+
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    statements = []
+
+    class FakeResult:
+        def scalar_one_or_none(self):
+            return tenant_a
+
+    class FakeSession:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def get_bind(self):
+            return self.bind
+
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            statements.append((sql, params))
+            return FakeResult()
+
+    with pytest.raises(RuntimeError, match="cannot change within the same transaction"):
+        set_human_gate_tenant_scope(FakeSession(), tenant_b)
+
+    assert len(statements) == 1
+    assert "current_setting('ola.human_gate_tenant_id'" in statements[0][0]
+    assert all("set_config" not in sql for sql, _ in statements)
+
+
+def test_human_gate_scope_allows_reapplying_same_tenant_inside_transaction():
+    from app.database import set_human_gate_tenant_scope
+
+    tenant = str(uuid.uuid4())
+    statements = []
+
+    class FakeResult:
+        def scalar_one_or_none(self):
+            return tenant
+
+    class FakeSession:
+        bind = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def get_bind(self):
+            return self.bind
+
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            statements.append((sql, params))
+            return FakeResult()
+
+    set_human_gate_tenant_scope(FakeSession(), tenant)
+    assert len(statements) == 2
+    assert "set_config('ola.human_gate_tenant_id'" in statements[1][0]
