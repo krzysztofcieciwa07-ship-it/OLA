@@ -1,6 +1,6 @@
 {
   "schema_version": "ola-open-work-inventory-v1",
-  "snapshot_at": "2026-11-22T16:38:30Z",
+  "snapshot_at": "2026-11-22T16:43:00Z",
   "repository": "krzysztofcieciwa07-ship-it/OLA",
   "default_branch": "main",
   "main_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
@@ -63,7 +63,7 @@
       "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
       "head": "security/independent-codeowners-required-20261122",
       "head_sha": "f57e3bbd819fab529ec8105f5d32ba23e84947ac",
-      "updated_at": "2026-11-22T16:05:35Z",
+      "updated_at": "2026-11-22T16:42:43Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/300"
     },
@@ -231,8 +231,8 @@
       "base": "main",
       "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
       "head": "feat/human-gate-membership-binding-v1-20261122",
-      "head_sha": "88dae4b9f2fd2d9796c2a8da988896d34b4c15e6",
-      "updated_at": "2026-11-22T15:33:00Z",
+      "head_sha": "8b9fd9240042cfde54bd801417b0dd208fb32669",
+      "updated_at": "2026-11-22T16:41:49Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/282"
     },
@@ -257,8 +257,8 @@
       "base": "main",
       "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
       "head": "docs/ola-operational-handoff-20261121",
-      "head_sha": "6b62358bc06eb3a150febe3d0b7ee76552596459",
-      "updated_at": "2026-11-22T16:37:49Z",
+      "head_sha": "8c5b742cd7711736fadf69995514a21296b797e5",
+      "updated_at": "2026-11-22T16:39:53Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/277"
     },
@@ -1759,7 +1759,7 @@
       "number": 296,
       "title": "P1: establish independent CODEOWNERS and protected-main review gates",
       "state": "open",
-      "updated_at": "2026-11-22T16:38:33Z",
+      "updated_at": "2026-11-22T16:42:45Z",
       "labels": [
         "security",
         "P1",
