@@ -158,3 +158,42 @@ class HumanGateMembership(Base):
             name="ck_human_gate_membership_revocation",
         ),
     )
+
+
+
+class HumanGateApprovalNonce(Base):
+    """Append-only, one-time consumption ledger for signed human approvals.
+
+    This is intentionally distinct from capability-voucher replay storage.
+    A row is inserted in the same caller-owned transaction as the durable
+    execution claim; this model never commits or authorizes an external effect.
+    """
+    __tablename__ = "human_gate_approval_nonce_ledger"
+    id = Column(String(36), primary_key=True, default=uid)
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    approval_id = Column(String(36), nullable=False)
+    nonce = Column(String(36), nullable=False)
+    operation_id = Column(String(36), nullable=False)
+    action = Column(String(64), nullable=False)
+    resource_type = Column(String(64), nullable=False)
+    resource_id = Column(String(128), nullable=False)
+    envelope_sha256 = Column(String(64), nullable=False)
+    consumed_at = Column(Integer, nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "nonce",
+            name="uq_human_gate_approval_nonce_tenant_nonce",
+        ),
+        UniqueConstraint(
+            "tenant_id", "approval_id",
+            name="uq_human_gate_approval_nonce_tenant_approval",
+        ),
+        CheckConstraint(
+            "action IN ('EXECUTE_PAID_ORDER', 'APPROVE_CUSTOMER_REPORT')",
+            name="ck_human_gate_approval_nonce_action",
+        ),
+        CheckConstraint(
+            "length(envelope_sha256) = 64",
+            name="ck_human_gate_approval_nonce_envelope_digest",
+        ),
+    )
