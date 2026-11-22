@@ -203,3 +203,13 @@ Do not claim the full plan completed within a time window if any checkpoint is s
 - Issue #292 now has evidence-only draft PR #303: `f90b801e840ba1690a4c0b25b0188fe4cfa3e460`. It records the prior read-only staging snapshot and a disposable rehearsal plan; no staging/production mutation. PR #303 CI currently has Nina TDD and CodeQL QUEUED.
 - PR #295 remains 23/23 exact-head CI SUCCESS but has no independent review. PR #300 current head `1806150bf2cdd1cc9abca310e4fced43c5874b42` remains no-review; Python CI on that head is CANCELLED (not PASS), other checks queued/in-progress. Issue #296 and #150 remain HUMAN_GATE BLOCKED.
 - No migration, grants, RLS changes, deployment, payment, signer custody, secret access or external effect.
+
+
+## CI poll — 2026-11-22 15:08 CET
+- Exact head `157b818f8a980486ffff5a36ad3846e83db2ebab`.
+- Paid-order PostgreSQL contract run #45036320224: exact checkout assertion SUCCESS; dependencies installing; PostgreSQL tests pending. Job #137250760369 IN_PROGRESS.
+- Final Production Gate run #45036320241: `Verify required evidence gates` IN_PROGRESS; build/attestation/readiness steps remain pending.
+- Evidence Cryptography V4 Contract #45036320235: SUCCESS (both secret-management and functional-cryptography jobs).
+- Real Ollama Runtime Gate #45036320046: SUCCESS.
+- Python CI, E2E, staging rehearsal, CodeQL, NINA TDD, Nina/Igor, stress, continuity, provenance and decision gates are SUCCESS at the latest snapshot. Other queued gates are not PASS.
+- No final gate PASS or release-ready claim.
