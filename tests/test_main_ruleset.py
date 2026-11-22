@@ -36,6 +36,7 @@ def test_policy_requires_exact_verified_check_contexts_from_actions_app():
     checks = rules["required_status_checks"]["parameters"]
     assert checks["strict_required_status_checks_policy"]
     entries = checks["required_status_checks"]
+    assert "human-gate-approval" in module.CHECKS
     assert len(entries) == len(module.CHECKS)
     assert {entry["context"] for entry in entries} == set(module.CHECKS)
     assert all(
