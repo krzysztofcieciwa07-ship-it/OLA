@@ -115,6 +115,34 @@ def create_postgres_append_only_triggers(connection):
     FOR EACH ROW EXECUTE FUNCTION ola_reject_evidence_mutation()
     """)
 
+    connection.exec_driver_sql("""
+    CREATE OR REPLACE FUNCTION ola_reject_human_gate_approval_nonce_mutation()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $ola$
+    BEGIN
+        RAISE EXCEPTION 'human_gate_approval_nonce_ledger is append-only'
+            USING ERRCODE = '55000';
+    END;
+    $ola$;
+    """)
+    connection.exec_driver_sql(
+        "DROP TRIGGER IF EXISTS human_gate_approval_nonce_no_update ON human_gate_approval_nonce_ledger"
+    )
+    connection.exec_driver_sql(
+        "DROP TRIGGER IF EXISTS human_gate_approval_nonce_no_delete ON human_gate_approval_nonce_ledger"
+    )
+    connection.exec_driver_sql("""
+    CREATE TRIGGER human_gate_approval_nonce_no_update
+    BEFORE UPDATE ON human_gate_approval_nonce_ledger
+    FOR EACH ROW EXECUTE FUNCTION ola_reject_human_gate_approval_nonce_mutation()
+    """)
+    connection.exec_driver_sql("""
+    CREATE TRIGGER human_gate_approval_nonce_no_delete
+    BEFORE DELETE ON human_gate_approval_nonce_ledger
+    FOR EACH ROW EXECUTE FUNCTION ola_reject_human_gate_approval_nonce_mutation()
+    """)
+
 
 def install_append_only_triggers(bind=None):
     """Create SQLite triggers; on PostgreSQL verify migration-installed triggers."""
@@ -130,6 +158,16 @@ def install_append_only_triggers(bind=None):
             CREATE TRIGGER IF NOT EXISTS evidence_no_delete
             BEFORE DELETE ON evidence_records
             BEGIN SELECT RAISE(ABORT, 'evidence_records is append-only'); END;
+            """)
+            conn.exec_driver_sql("""
+            CREATE TRIGGER IF NOT EXISTS human_gate_approval_nonce_no_update
+            BEFORE UPDATE ON human_gate_approval_nonce_ledger
+            BEGIN SELECT RAISE(ABORT, 'human_gate_approval_nonce_ledger is append-only'); END;
+            """)
+            conn.exec_driver_sql("""
+            CREATE TRIGGER IF NOT EXISTS human_gate_approval_nonce_no_delete
+            BEFORE DELETE ON human_gate_approval_nonce_ledger
+            BEGIN SELECT RAISE(ABORT, 'human_gate_approval_nonce_ledger is append-only'); END;
             """)
         return
     if target.dialect.name == "postgresql":
@@ -172,6 +210,10 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
             "id", "tenant_id", "issuer", "subject_fingerprint", "fingerprint_key_id",
             "role", "membership_version", "active", "revoked_at", "created_at",
         },
+        "human_gate_approval_nonce_ledger": {
+            "id", "tenant_id", "approval_id", "nonce", "operation_id", "action",
+            "resource_type", "resource_id", "envelope_sha256", "consumed_at",
+        },
         "ola_schema_migrations": {"version", "description", "applied_at"},
     }
     inspector = inspect(bind)
@@ -200,6 +242,10 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "human_gate_memberships": {
             ("tenant_id", "issuer", "fingerprint_key_id", "subject_fingerprint"),
         },
+        "human_gate_approval_nonce_ledger": {
+            ("tenant_id", "nonce"),
+            ("tenant_id", "approval_id"),
+        },
     }
     for table_name, expected in expected_unique_constraints.items():
         actual = {
@@ -222,14 +268,17 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         membership_migration = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_human_gate_membership_v1"}).first()
+        approval_nonce_migration = conn.execute(text(
+            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
+        ), {"version": "ola_human_gate_approval_nonce_v1"}).first()
         trigger_rows = conn.execute(text("""
-            SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
+            SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
             FROM pg_trigger AS t
             JOIN pg_class AS c ON c.oid = t.tgrelid
             JOIN pg_proc AS p ON p.oid = t.tgfoid
             JOIN pg_namespace AS n ON n.oid = c.relnamespace
-            WHERE c.relname = 'evidence_records'
+            WHERE c.relname IN ('evidence_records', 'human_gate_approval_nonce_ledger')
               AND n.nspname = current_schema()
               AND NOT t.tgisinternal
         """)).all()
@@ -246,13 +295,23 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
                        has_table_privilege(current_user, 'human_gate_memberships', 'DELETE'),
                        has_table_privilege(current_user, 'human_gate_memberships', 'TRUNCATE')
             """)).one()
+            approval_nonce_privileges = conn.execute(text("""
+                SELECT has_table_privilege(current_user, 'human_gate_approval_nonce_ledger', 'SELECT'),
+                       has_table_privilege(current_user, 'human_gate_approval_nonce_ledger', 'INSERT'),
+                       has_table_privilege(current_user, 'human_gate_approval_nonce_ledger', 'UPDATE'),
+                       has_table_privilege(current_user, 'human_gate_approval_nonce_ledger', 'DELETE'),
+                       has_table_privilege(current_user, 'human_gate_approval_nonce_ledger', 'TRUNCATE')
+            """)).one()
         else:
             evidence_privileges = (False, False, False)
             membership_privileges = (True, False, False, False, False)
+            approval_nonce_privileges = (True, True, False, False, False)
     if applied is None:
         raise RuntimeError("PostgreSQL schema migration version is missing")
     if membership_migration is None:
         raise RuntimeError("PostgreSQL Human Gate membership migration version is missing")
+    if approval_nonce_migration is None:
+        raise RuntimeError("PostgreSQL Human Gate approval nonce migration version is missing")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     if enforce_runtime_privileges and (
@@ -261,19 +320,49 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         raise RuntimeError(
             "PostgreSQL Human Gate membership table must be read-only (SELECT only) for runtime role"
         )
-    definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
-    expected = {"evidence_no_update": "BEFORE UPDATE", "evidence_no_delete": "BEFORE DELETE"}
-    for name, action in expected.items():
-        trigger_def, function_name, function_def = definitions.get(name, ("", "", ""))
+    if enforce_runtime_privileges and (
+        not approval_nonce_privileges[0]
+        or not approval_nonce_privileges[1]
+        or any(approval_nonce_privileges[2:])
+    ):
+        raise RuntimeError(
+            "PostgreSQL Human Gate approval nonce ledger requires SELECT/INSERT only for runtime role"
+        )
+    definitions = {
+        (row[0], row[1]): (row[2], row[3], row[4])
+        for row in trigger_rows
+    }
+    expected_triggers = {
+        ("evidence_records", "evidence_no_update"): (
+            "BEFORE UPDATE", "ola_reject_evidence_mutation",
+            "RAISE EXCEPTION 'EVIDENCE_RECORDS IS APPEND-ONLY'",
+        ),
+        ("evidence_records", "evidence_no_delete"): (
+            "BEFORE DELETE", "ola_reject_evidence_mutation",
+            "RAISE EXCEPTION 'EVIDENCE_RECORDS IS APPEND-ONLY'",
+        ),
+        ("human_gate_approval_nonce_ledger", "human_gate_approval_nonce_no_update"): (
+            "BEFORE UPDATE", "ola_reject_human_gate_approval_nonce_mutation",
+            "RAISE EXCEPTION 'HUMAN_GATE_APPROVAL_NONCE_LEDGER IS APPEND-ONLY'",
+        ),
+        ("human_gate_approval_nonce_ledger", "human_gate_approval_nonce_no_delete"): (
+            "BEFORE DELETE", "ola_reject_human_gate_approval_nonce_mutation",
+            "RAISE EXCEPTION 'HUMAN_GATE_APPROVAL_NONCE_LEDGER IS APPEND-ONLY'",
+        ),
+    }
+    for key, (action, expected_function, expected_message) in expected_triggers.items():
+        trigger_def, function_name, function_def = definitions.get(key, ("", "", ""))
         normalized_trigger = re.sub(r"\s+", " ", trigger_def).upper()
         normalized_function = re.sub(r"\s+", " ", function_def).upper()
         if (
             action not in normalized_trigger
-            or function_name != "ola_reject_evidence_mutation"
-            or "RAISE EXCEPTION 'EVIDENCE_RECORDS IS APPEND-ONLY'" not in normalized_function
+            or function_name != expected_function
+            or expected_message not in normalized_function
             or "USING ERRCODE = '55000'" not in normalized_function
         ):
-            raise RuntimeError("PostgreSQL evidence append-only trigger definition is invalid")
+            raise RuntimeError(
+                f"PostgreSQL append-only trigger definition is invalid for {key[0]}.{key[1]}"
+            )
 
 
 def _migrate_sqlite_private_order_tasks(bind):
@@ -372,6 +461,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_gate_membership_v1",
             "description": "Add read-only OLA-owned OIDC subject-to-principal membership registry",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_gate_approval_nonce_v1",
+            "description": "Add append-only PostgreSQL ledger for one-time signed Human Gate approval nonce consumption",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
