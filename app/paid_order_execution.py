@@ -12,6 +12,15 @@ from .database import SessionLocal, begin_write_transaction, lock_tenant_evidenc
 from .evidence_writer import append_evidence_v4_locked
 from .igor_evidence_verifier import trusted_record, verify_chain
 from .models import ApiKey, CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl, EvidenceRecord
+from .approval_nonce_ledger import (
+    ApprovalNonceLedgerUnavailable,
+    ApprovalNonceReplayError,
+    PostgresApprovalNonceLedger,
+)
+from .signed_approval_runtime import (
+    SignedApprovalRuntimeRejected,
+    verify_paid_order_signed_approval,
+)
 from .runtime_provenance import runtime_source_commit
 
 
@@ -131,7 +140,20 @@ def _execution_context(db, job: CheckoutExecutionJob):
         raise PaidOrderExecutionRejected(409, "checkout or payment evidence does not match the approved order")
     if hashlib.sha256(job.task.encode("utf-8")).hexdigest() != order.request_hash:
         raise PaidOrderExecutionRejected(409, "execution task does not match the paid order scope")
-    return order, control, evidence
+    try:
+        signed_payload, envelope_digest = verify_paid_order_signed_approval(
+            db,
+            envelope_json=control.signed_approval_envelope_json,
+            order=order,
+            control=control,
+            job=job,
+            evidence_rows=evidence,
+            approval_evidence_payload=approval_payload,
+            current_source_commit=current_source,
+        )
+    except SignedApprovalRuntimeRejected as exc:
+        raise PaidOrderExecutionRejected(409, str(exc)) from None
+    return order, control, evidence, signed_payload, envelope_digest
 
 
 def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
@@ -177,7 +199,7 @@ def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
         if job.status != "QUEUED" or job.attempt_count != 0:
             raise PaidOrderExecutionRejected(409, "execution job is terminal or already attempted")
         try:
-            order, control, _ = _execution_context(db, job)
+            order, control, _, signed_payload, envelope_digest = _execution_context(db, job)
         except PaidOrderExecutionRejected as exc:
             if exc.code == 409:
                 job.status = "BLOCKED"
@@ -206,6 +228,40 @@ def execute_paid_order_job(job_id: str, *, runner=None, now: int | None = None,
                 })
                 db.commit()
             raise
+
+        # The human approval nonce and durable execution claim share this
+        # transaction. A worker cannot call NINA before both commit.
+        try:
+            PostgresApprovalNonceLedger().consume(
+                db,
+                tenant_id=job.tenant_id,
+                approval_id=signed_payload["approval_id"],
+                nonce=signed_payload["nonce"],
+                operation_id=signed_payload["operation_id"],
+                action=signed_payload["request"]["action"],
+                resource_type=signed_payload["request"]["resource_type"],
+                resource_id=signed_payload["request"]["resource_id"],
+                envelope_sha256=envelope_digest,
+                consumed_at=run_now,
+            )
+        except ApprovalNonceReplayError:
+            job.status = "BLOCKED"
+            job.error_code = "signed_approval_nonce_replayed"
+            job.finished_at = run_now
+            _append_locked(db, job.tenant_id, "revenue.execution_blocked", {
+                "order_id": job.order_id,
+                "execution_job_id": job.id,
+                "approval_record_hash": job.approval_record_hash,
+                "reason_code": "signed_approval_nonce_replayed",
+            })
+            db.commit()
+            raise PaidOrderExecutionRejected(409, "signed Human Gate approval or nonce was already consumed") from None
+        except ApprovalNonceLedgerUnavailable:
+            db.rollback()
+            raise PaidOrderExecutionRejected(
+                503, "durable Human Gate approval nonce ledger is unavailable; execution is blocked"
+            ) from None
+
         job.status = "RUNNING"
         job.attempt_count = 1
         job.started_at = run_now
