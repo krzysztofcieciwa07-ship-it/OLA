@@ -385,6 +385,22 @@ def prepare_signed_paid_order_approval_challenge(
         "record_type": payment_proof["record_type"],
         "record_hash": payment_proof["record_hash"],
     }
+    evidence_references = [checkout_record, payment_record]
+    tip_record = next(
+        (record for record in records if record["record_hash"] == tip_hash),
+        None,
+    )
+    if tip_record is None:
+        raise SignedApprovalSubmissionRejected(409, "current evidence tip is missing from the verified chain")
+    if tip_record["id"] not in {checkout_record["id"], payment_record["id"]}:
+        if tip_record["seq"] <= payment_proof["seq"]:
+            raise SignedApprovalSubmissionRejected(409, "current evidence tip does not follow payment confirmation")
+        evidence_references.append({
+            "id": tip_record["id"],
+            "sequence": tip_record["seq"],
+            "record_type": tip_record["record_type"],
+            "record_hash": tip_record["record_hash"],
+        })
     reviewer_actor = {
         "principal_id": resolved_reviewer.principal_id,
         "tenant_id": resolved_reviewer.tenant_id,
@@ -425,7 +441,7 @@ def prepare_signed_paid_order_approval_challenge(
         "policy": {"version": policy_version, "sha256": policy_sha256},
         "evidence": {
             "tip_hash": tip_hash,
-            "records": [checkout_record, payment_record],
+            "records": evidence_references,
         },
         "runtime": {"source_commit": source_commit},
         "reason": reason.strip(),
