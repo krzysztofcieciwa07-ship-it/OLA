@@ -13,7 +13,7 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -21,6 +21,7 @@ from .approval_contract_v1 import (
     ApprovalContractError,
     approval_is_current,
     oidc_session_fingerprint,
+    signing_input,
     validate_approval_semantics,
     verify_signed_approval_envelope,
 )
@@ -35,6 +36,7 @@ from .models import (
     ApiKey,
     CheckoutExecutionJob,
     CheckoutOrderControl,
+    EvidenceRecord,
     HumanGateMembership,
 )
 from .order_approval import _validate_paid_order
@@ -199,6 +201,295 @@ def _validate_live_reviewer_session(
         raise SignedApprovalSubmissionRejected(
             403, "signed approval reviewer is not bound to the live OIDC session"
         )
+
+
+
+
+def prepare_signed_paid_order_approval_challenge(
+    db,
+    *,
+    order_id: str,
+    reason: str,
+    verified_subject: VerifiedSubject,
+    now: datetime | None = None,
+) -> dict:
+    """Prepare read-only Signed Approval v1 bytes for an external KMS/HSM signer.
+
+    This function never persists an approval, creates an execution job, consumes
+    a nonce, or signs bytes. The caller receives the exact domain-separated
+    canonical input to pass to an independently authorized signing service.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        raise SignedApprovalSubmissionRejected(
+            503, "signed Human Gate approval challenges require PostgreSQL"
+        )
+    if not isinstance(order_id, str):
+        raise SignedApprovalSubmissionRejected(400, "order_id is invalid")
+    try:
+        normalized_order_id = str(uuid.UUID(order_id))
+    except (ValueError, TypeError, AttributeError):
+        raise SignedApprovalSubmissionRejected(400, "order_id must be a UUID") from None
+    if normalized_order_id != order_id:
+        raise SignedApprovalSubmissionRejected(400, "order_id must be a canonical lowercase UUID")
+    if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > _MAX_REASON_CHARS:
+        raise SignedApprovalSubmissionRejected(400, "approval reason must contain 1 to 1000 characters")
+    if not isinstance(verified_subject, VerifiedSubject):
+        raise SignedApprovalSubmissionRejected(401, "verified OIDC reviewer identity is required")
+
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None or current.utcoffset() != timezone.utc.utcoffset(current):
+        raise SignedApprovalSubmissionRejected(500, "approval validation clock must be timezone-aware UTC")
+
+    fingerprint_key, fingerprint_key_id = _identity_fingerprint_config()
+    source_commit = runtime_source_commit()
+    policy_version = os.getenv("OLA_APPROVAL_POLICY_VERSION", "")
+    policy_sha256 = os.getenv("OLA_APPROVAL_POLICY_SHA256", "")
+    required_acr, required_amr = _required_step_up_policy()
+    if (
+        not isinstance(source_commit, str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None
+        or not policy_version
+        or re.fullmatch(r"[0-9a-f]{64}", policy_sha256) is None
+    ):
+        raise SignedApprovalSubmissionRejected(
+            503, "current runtime source or approval policy is not configured"
+        )
+    if (
+        verified_subject.tenant_id is None
+        or verified_subject.issuer is None
+        or verified_subject.subject is None
+        or verified_subject.auth_time is None
+        or verified_subject.acr != required_acr
+        or not required_amr.issubset(set(verified_subject.amr))
+        or not verified_subject.session_id
+    ):
+        raise SignedApprovalSubmissionRejected(
+            401, "OIDC bearer token lacks the required reviewer step-up session"
+        )
+    now_seconds = int(current.timestamp())
+    if (
+        verified_subject.auth_time > now_seconds
+        or now_seconds - verified_subject.auth_time > _MAX_STEP_UP_AGE_SECONDS
+    ):
+        raise SignedApprovalSubmissionRejected(
+            401, "OIDC reviewer step-up authentication is too old or in the future"
+        )
+
+    try:
+        resolved_reviewer = resolve_human_gate_membership(
+            db,
+            verified_subject,
+            resource_tenant_id=verified_subject.tenant_id,
+            fingerprint_key=fingerprint_key,
+            fingerprint_key_id=fingerprint_key_id,
+            required_role="execution_approver",
+        )
+    except HumanGateMembershipError as exc:
+        raise SignedApprovalSubmissionRejected(403, str(exc)) from None
+
+    requester_id = None
+    with db.no_autoflush:
+        control_hint = db.scalar(
+            select(CheckoutOrderControl).where(
+                CheckoutOrderControl.order_id == order_id,
+                CheckoutOrderControl.tenant_id == verified_subject.tenant_id,
+            )
+        )
+    if control_hint is None:
+        raise SignedApprovalSubmissionRejected(404, "paid order not found")
+
+    author_membership = db.get(HumanGateMembership, control_hint.requester_id)
+    if (
+        author_membership is None
+        or author_membership.id != control_hint.requester_id
+        or author_membership.tenant_id != verified_subject.tenant_id
+        or author_membership.role != "requester"
+        or author_membership.active is not True
+        or author_membership.revoked_at is not None
+        or not isinstance(author_membership.membership_version, int)
+        or isinstance(author_membership.membership_version, bool)
+        or author_membership.membership_version < 1
+    ):
+        raise SignedApprovalSubmissionRejected(
+            403, "original requester does not have a current requester membership"
+        )
+    if author_membership.id == resolved_reviewer.principal_id:
+        raise SignedApprovalSubmissionRejected(403, "request author cannot approve their own order")
+    requester_id = author_membership.id
+    requester_key = db.get(ApiKey, requester_id)
+    if requester_key is None or requester_key.tenant_id != verified_subject.tenant_id:
+        raise SignedApprovalSubmissionRejected(
+            403, "original requester is not linked to the paid-order technical identity"
+        )
+
+    tip_hash = db.scalar(
+        select(EvidenceRecord.record_hash)
+        .where(EvidenceRecord.tenant_id == verified_subject.tenant_id)
+        .order_by(EvidenceRecord.seq.desc())
+        .limit(1)
+    )
+    if not isinstance(tip_hash, str) or re.fullmatch(r"[0-9a-f]{64}", tip_hash) is None:
+        raise SignedApprovalSubmissionRejected(409, "tenant evidence chain has no valid current tip")
+
+    try:
+        order, control, _payment, checkout_proof, payment_proof, private_task, _rows, records = _validate_paid_order(
+            db,
+            tenant_id=verified_subject.tenant_id,
+            order_id=order_id,
+            approver_id=resolved_reviewer.principal_id,
+            tip_hash=tip_hash,
+        )
+    except ValueError as exc:
+        raise SignedApprovalSubmissionRejected(getattr(exc, "code", 409), str(exc)) from None
+
+    if (
+        control.signed_approval_envelope_json
+        or control.approval_record_hash
+        or db.scalar(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == order_id
+        )) is not None
+    ):
+        raise SignedApprovalSubmissionRejected(409, "order already has an approval or execution job")
+
+    def actor(membership):
+        return {
+            "principal_id": membership.id,
+            "tenant_id": membership.tenant_id,
+            "issuer": membership.issuer,
+            "subject_fingerprint": membership.subject_fingerprint,
+            "fingerprint_key_id": membership.fingerprint_key_id,
+            "role": membership.role,
+            "membership_version": membership.membership_version,
+        }
+
+    auth_time_text = datetime.fromtimestamp(
+        verified_subject.auth_time, tz=timezone.utc,
+    ).isoformat(timespec="seconds").replace("+00:00", "Z")
+    session_fingerprint = oidc_session_fingerprint(
+        fingerprint_key,
+        fingerprint_key_id,
+        verified_subject.tenant_id,
+        verified_subject.issuer,
+        verified_subject.subject,
+        verified_subject.session_id,
+    )["value"]
+    checkout_record = {
+        "id": checkout_proof["id"],
+        "sequence": checkout_proof["seq"],
+        "record_type": checkout_proof["record_type"],
+        "record_hash": checkout_proof["record_hash"],
+    }
+    payment_record = {
+        "id": payment_proof["id"],
+        "sequence": payment_proof["seq"],
+        "record_type": payment_proof["record_type"],
+        "record_hash": payment_proof["record_hash"],
+    }
+    evidence_references = [checkout_record, payment_record]
+    tip_record = next(
+        (record for record in records if record["record_hash"] == tip_hash),
+        None,
+    )
+    if tip_record is None:
+        raise SignedApprovalSubmissionRejected(409, "current evidence tip is missing from the verified chain")
+    if tip_record["id"] not in {checkout_record["id"], payment_record["id"]}:
+        if tip_record["seq"] <= payment_proof["seq"]:
+            raise SignedApprovalSubmissionRejected(409, "current evidence tip does not follow payment confirmation")
+        evidence_references.append({
+            "id": tip_record["id"],
+            "sequence": tip_record["seq"],
+            "record_type": tip_record["record_type"],
+            "record_hash": tip_record["record_hash"],
+        })
+    reviewer_actor = {
+        "principal_id": resolved_reviewer.principal_id,
+        "tenant_id": resolved_reviewer.tenant_id,
+        "issuer": resolved_reviewer.issuer,
+        "subject_fingerprint": resolved_reviewer.subject_fingerprint,
+        "fingerprint_key_id": resolved_reviewer.fingerprint_key_id,
+        "role": resolved_reviewer.role,
+        "membership_version": resolved_reviewer.membership_version,
+    }
+    payload = {
+        "schema": "ola.signed-approval/v1",
+        "approval_id": str(uuid.uuid4()),
+        "tenant_id": order.tenant_id,
+        "operation_id": str(uuid.uuid4()),
+        "request": {
+            "action": "EXECUTE_PAID_ORDER",
+            "resource_type": "checkout_order",
+            "resource_id": order.id,
+            "sha256": order.request_hash,
+        },
+        "effect": {
+            "action": "QUEUE_SINGLE_EXECUTION",
+            "target_id": order.id,
+            "target_sha256": order.request_hash,
+        },
+        "decision": "ALLOW",
+        "effect_authorized": True,
+        "execution_observed": "NOT_STARTED",
+        "author": actor(author_membership),
+        "reviewer": reviewer_actor,
+        "prior_approvers": [],
+        "reviewer_authentication": {
+            "auth_time": auth_time_text,
+            "acr": verified_subject.acr,
+            "amr": list(verified_subject.amr),
+            "session_fingerprint": session_fingerprint,
+        },
+        "policy": {"version": policy_version, "sha256": policy_sha256},
+        "evidence": {
+            "tip_hash": tip_hash,
+            "records": evidence_references,
+        },
+        "runtime": {"source_commit": source_commit},
+        "reason": reason.strip(),
+        "nonce": str(uuid.uuid4()),
+        "issued_at": current.astimezone(timezone.utc).isoformat(
+            timespec="seconds",
+        ).replace("+00:00", "Z"),
+        "expires_at": (current + timedelta(seconds=300)).astimezone(
+            timezone.utc,
+        ).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "closure": {"operational": "OPEN", "epistemic": "OPEN", "remedial": "OPEN"},
+    }
+    try:
+        validate_approval_semantics(payload, now=current)
+        if not approval_is_current(payload, now=current):
+            raise ApprovalContractError("newly prepared approval is outside its validity window")
+        _validate_live_reviewer_session(
+            payload,
+            verified_subject,
+            fingerprint_key=fingerprint_key,
+            fingerprint_key_id=fingerprint_key_id,
+            now=current,
+        )
+        key_ids = sorted(_trusted_public_keys())
+    except ApprovalContractError as exc:
+        raise SignedApprovalSubmissionRejected(409, f"approval challenge contract is invalid: {exc}") from None
+    except SignedApprovalRuntimeRejected as exc:
+        raise SignedApprovalSubmissionRejected(503, f"approval signing trust configuration is unavailable: {exc}") from None
+
+    signing_bytes = signing_input(payload)
+    if len(signing_bytes) > 65_600:
+        raise SignedApprovalSubmissionRejected(413, "canonical signing input exceeds size limit")
+    return {
+        "status": "CHALLENGE_READY",
+        "order_id": order.id,
+        "payload": payload,
+        "signing": {
+            "algorithm": "Ed25519",
+            "domain": "OLA-SIGNED-APPROVAL/v1",
+            "key_ids": key_ids,
+            "input_encoding": "base64url",
+            "input": base64.urlsafe_b64encode(signing_bytes).rstrip(b"=").decode("ascii"),
+            "input_sha256": hashlib.sha256(signing_bytes).hexdigest(),
+        },
+        "expires_at": payload["expires_at"],
+        "requires_external_signature": True,
+        "private_key_available_in_ola": False,
+    }
 
 
 def accept_signed_paid_order_approval(
