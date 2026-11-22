@@ -177,6 +177,18 @@ def verify_paid_order_signed_approval(
 
     if payload["runtime"]["source_commit"] != current_source_commit:
         raise SignedApprovalRuntimeRejected("signed approval source commit is stale or mismatched")
+    required_acr = os.getenv("OLA_APPROVAL_REQUIRED_ACR", "")
+    required_amr = {
+        item.strip() for item in os.getenv("OLA_APPROVAL_REQUIRED_AMR", "").split(",")
+        if item.strip()
+    }
+    if (
+        not required_acr
+        or not required_amr
+        or payload["reviewer_authentication"]["acr"] != required_acr
+        or not required_amr.issubset(set(payload["reviewer_authentication"]["amr"]))
+    ):
+        raise SignedApprovalRuntimeRejected("signed approval reviewer step-up authentication does not meet current policy")
     expected_policy_version = os.getenv("OLA_APPROVAL_POLICY_VERSION", "")
     expected_policy_sha256 = os.getenv("OLA_APPROVAL_POLICY_SHA256", "")
     if (
@@ -238,6 +250,27 @@ def verify_paid_order_signed_approval(
         raise SignedApprovalRuntimeRejected("trusted payment evidence is unavailable")
 
     envelope_digest = signed_envelope_sha256(envelope)
+    approval_record_rows = [
+        row for row in evidence_rows
+        if row["record_hash"] == job.approval_record_hash
+    ]
+    if (
+        len(approval_record_rows) != 1
+        or approval_record_rows[0]["prev_hash"] != payload["evidence"]["tip_hash"]
+    ):
+        raise SignedApprovalRuntimeRejected("signed approval evidence is not appended directly to the approved evidence tip")
+    if (
+        approval_evidence_payload.get("checkout_evidence_id") != checkout_refs[0]["id"]
+        or approval_evidence_payload.get("checkout_evidence_hash") != checkout_refs[0]["record_hash"]
+        or approval_evidence_payload.get("payment_evidence_id") != payment_refs[0]["id"]
+        or approval_evidence_payload.get("payment_evidence_hash") != payment_refs[0]["record_hash"]
+        or approval_evidence_payload.get("approved_tip_hash") != payload["evidence"]["tip_hash"]
+        or approval_evidence_payload.get("requester_id") != author["principal_id"]
+        or approval_evidence_payload.get("approver_id") != reviewer["principal_id"]
+        or approval_evidence_payload.get("source_commit") != current_source_commit
+        or control.approved_tip_hash != payload["evidence"]["tip_hash"]
+    ):
+        raise SignedApprovalRuntimeRejected("signed approval evidence references do not match the approved checkout/payment chain")
     if (
         not isinstance(approval_evidence_payload, dict)
         or approval_evidence_payload.get("signed_approval_envelope_sha256") != envelope_digest
