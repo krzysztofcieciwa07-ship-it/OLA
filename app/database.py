@@ -49,6 +49,36 @@ def lock_tenant_evidence_chain(db, tenant_id):
     raise RuntimeError(f"no evidence-chain lock policy for database dialect: {dialect}")
 
 
+
+def set_human_gate_tenant_scope(db, tenant_id):
+    """Set the current transaction's tenant context for Human Gate RLS.
+
+    PostgreSQL's SET LOCAL semantics are used via set_config(..., true): the
+    setting is cleared at transaction end and cannot leak through the pool.
+    SQLite has no row-level security; its membership resolver still applies
+    the explicit tenant predicate.
+    """
+    if not isinstance(tenant_id, str):
+        raise ValueError("tenant_id must be a canonical UUID for Human Gate RLS")
+    try:
+        normalized = str(uuid.UUID(tenant_id))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("tenant_id must be a canonical UUID for Human Gate RLS") from None
+    if normalized != tenant_id:
+        raise ValueError("tenant_id must be a canonical UUID for Human Gate RLS")
+
+    dialect = db.get_bind().dialect.name
+    if dialect == "sqlite":
+        return
+    if dialect == "postgresql":
+        db.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
+        return
+    raise RuntimeError(f"no Human Gate tenant-scope policy for database dialect: {dialect}")
+
+
 def begin_write_transaction(db, tenant_id=None):
     """Begin a serialized write transaction for the selected backend."""
     dialect = db.get_bind().dialect.name
@@ -113,6 +143,31 @@ def create_postgres_append_only_triggers(connection):
     CREATE TRIGGER evidence_no_delete
     BEFORE DELETE ON evidence_records
     FOR EACH ROW EXECUTE FUNCTION ola_reject_evidence_mutation()
+    """)
+
+
+
+def create_postgres_human_gate_membership_rls(connection):
+    """Enforce tenant isolation for Human Gate memberships at the DB boundary."""
+    connection.exec_driver_sql(
+        "ALTER TABLE human_gate_memberships ENABLE ROW LEVEL SECURITY"
+    )
+    connection.exec_driver_sql(
+        "ALTER TABLE human_gate_memberships FORCE ROW LEVEL SECURITY"
+    )
+    connection.exec_driver_sql(
+        "DROP POLICY IF EXISTS human_gate_memberships_tenant_isolation ON human_gate_memberships"
+    )
+    connection.exec_driver_sql("""
+        CREATE POLICY human_gate_memberships_tenant_isolation
+        ON human_gate_memberships
+        FOR ALL
+        USING (
+            tenant_id::text = current_setting('ola.human_gate_tenant_id', true)
+        )
+        WITH CHECK (
+            tenant_id::text = current_setting('ola.human_gate_tenant_id', true)
+        )
     """)
 
 
@@ -222,6 +277,29 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         membership_migration = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_human_gate_membership_v1"}).first()
+        membership_rls_migration = conn.execute(text(
+            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
+        ), {"version": "ola_human_gate_membership_rls_v1"}).first()
+        membership_rls = conn.execute(text("""
+            SELECT c.relrowsecurity,
+                   c.relforcerowsecurity,
+                   pg_get_userbyid(c.relowner) AS table_owner,
+                   r.rolname AS current_role,
+                   r.rolsuper,
+                   r.rolbypassrls,
+                   p.polname,
+                   p.polcmd,
+                   pg_get_expr(p.polqual, p.polrelid) AS using_expression,
+                   pg_get_expr(p.polwithcheck, p.polrelid) AS check_expression
+            FROM pg_class AS c
+            JOIN pg_namespace AS n ON n.oid = c.relnamespace
+            JOIN pg_roles AS r ON r.rolname = current_user
+            LEFT JOIN pg_policy AS p
+              ON p.polrelid = c.oid
+             AND p.polname = 'human_gate_memberships_tenant_isolation'
+            WHERE c.relname = 'human_gate_memberships'
+              AND n.nspname = current_schema()
+        """)).one_or_none()
         trigger_rows = conn.execute(text("""
             SELECT t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -245,6 +323,39 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         raise RuntimeError("PostgreSQL schema migration version is missing")
     if membership_migration is None:
         raise RuntimeError("PostgreSQL Human Gate membership migration version is missing")
+    if membership_rls_migration is None:
+        raise RuntimeError("PostgreSQL Human Gate membership RLS migration version is missing")
+    if membership_rls is None:
+        raise RuntimeError("PostgreSQL Human Gate membership RLS table is missing")
+    if not membership_rls.relrowsecurity or not membership_rls.relforcerowsecurity:
+        raise RuntimeError("PostgreSQL Human Gate membership RLS must be enabled and forced")
+    using_expression = (membership_rls.using_expression or "").lower()
+    check_expression = (membership_rls.check_expression or "").lower()
+    for expression_name, expression in (
+        ("USING", using_expression),
+        ("WITH CHECK", check_expression),
+    ):
+        if (
+            "tenant_id" not in expression
+            or "current_setting" not in expression
+            or "ola.human_gate_tenant_id" not in expression
+        ):
+            raise RuntimeError(
+                f"PostgreSQL Human Gate membership RLS {expression_name} policy is invalid"
+            )
+    if (
+        membership_rls.polname != "human_gate_memberships_tenant_isolation"
+        or membership_rls.polcmd != "*"
+    ):
+        raise RuntimeError("PostgreSQL Human Gate membership RLS policy must cover all row operations")
+    if enforce_runtime_privileges and (
+        membership_rls.table_owner == membership_rls.current_role
+        or membership_rls.rolsuper
+        or membership_rls.rolbypassrls
+    ):
+        raise RuntimeError(
+            "PostgreSQL Human Gate membership runtime role must not own the table or bypass RLS"
+        )
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
@@ -327,6 +438,7 @@ def migrate_postgres_schema(target_engine):
         """))
         conn.execute(text("UPDATE stripe_events SET task = NULL WHERE task IS NOT NULL"))
         create_postgres_append_only_triggers(conn)
+        create_postgres_human_gate_membership_rls(conn)
         conn.execute(text("""
             INSERT INTO ola_schema_migrations(version, description)
             VALUES (:version, :description)
@@ -358,6 +470,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_gate_membership_v1",
             "description": "Add read-only OLA-owned OIDC subject-to-principal membership registry",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_human_gate_membership_rls_v1",
+            "description": "Force transaction-scoped tenant isolation for Human Gate membership reads and writes",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
