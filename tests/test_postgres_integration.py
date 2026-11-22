@@ -940,3 +940,61 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
             EvidenceRecord.tenant_id == ctx["tenant_id"],
             EvidenceRecord.record_type == "human.revenue_execution_approval",
         )).all()) == 1
+
+    # Exercise the real PostgreSQL worker path. The external executor opens a
+    # second session and must already observe RUNNING and the committed nonce.
+    from app.paid_order_execution import execute_paid_order_job
+
+    executor_calls = []
+
+    def observe_committed_claim(tenant_arg, requester_arg, task_arg, tools_arg, *, execution_context=None):
+        assert tenant_arg == ctx["tenant_id"]
+        assert requester_arg == ctx["requester_id"]
+        assert task_arg == ctx["task"]
+        assert tools_arg == ["safe_expression"]
+        assert execution_context == {
+            "order_id": ctx["order_id"],
+            "execution_job_id": operation_id,
+        }
+        with database.SessionLocal() as observer:
+            persisted_job = observer.get(CheckoutExecutionJob, operation_id)
+            nonce_rows = observer.scalars(select(HumanGateApprovalNonce).where(
+                HumanGateApprovalNonce.tenant_id == ctx["tenant_id"],
+                HumanGateApprovalNonce.approval_id == payload["approval_id"],
+                HumanGateApprovalNonce.nonce == payload["nonce"],
+            )).all()
+            assert persisted_job is not None
+            assert persisted_job.status == "RUNNING"
+            assert persisted_job.attempt_count == 1
+            assert len(nonce_rows) == 1
+            assert nonce_rows[0].operation_id == operation_id
+            assert nonce_rows[0].envelope_sha256 == envelope_digest
+        executor_calls.append(execution_context)
+        return {
+            "nina": {"status": "BLOCK"},
+            "igor": {"status": "BLOCK"},
+            "provenance": {"status": "BLOCK"},
+            "replay_verification": {"status": "BLOCK"},
+            "decision_report": {},
+        }
+
+    result = execute_paid_order_job(operation_id, runner=observe_committed_claim)
+    assert result["status"] == "EXECUTED_BLOCKED"
+    assert len(executor_calls) == 1
+
+    # A retry returns the durable result and cannot re-enter the executor.
+    def forbidden_retry(*args, **kwargs):
+        raise AssertionError("completed worker claim must not execute again")
+
+    replay = execute_paid_order_job(operation_id, runner=forbidden_retry)
+    assert replay["status"] == "EXECUTED_BLOCKED"
+    with database.SessionLocal() as db:
+        final_job = db.get(CheckoutExecutionJob, operation_id)
+        final_nonces = db.scalars(select(HumanGateApprovalNonce).where(
+            HumanGateApprovalNonce.tenant_id == ctx["tenant_id"],
+            HumanGateApprovalNonce.approval_id == payload["approval_id"],
+        )).all()
+    assert final_job is not None
+    assert final_job.status == "EXECUTED_BLOCKED"
+    assert final_job.attempt_count == 1
+    assert len(final_nonces) == 1
