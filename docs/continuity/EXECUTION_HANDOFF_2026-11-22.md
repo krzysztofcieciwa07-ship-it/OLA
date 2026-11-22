@@ -359,3 +359,23 @@ Continue only dependency-ready implementation/evidence tasks; preserve #301/#296
 - Issue #150 owner/admin package is in PR #305. #296/#292/#301 labels were normalized to include `human-gate:required`; #304 already carries P1/security/human-gate:required.
 - #298 remains linked to Issue #304 with marker; exact head `87d365e5a5ada21329d8ef8df535483e22bb86ad` has 35 SUCCESS / 2 SKIPPED / no failures or pending. Independent review BLOCKED.
 - No merge, branch-rule mutation, collaborator permission change, secret access, DB mutation, deployment, payment or terminal effect.
+
+
+## run.end — 2026-11-22 16:43 UTC
+
+### Dependency and failure read-back
+- Main: `911c1cedf76dc6139f57b5d893d708b1a92245c6`, `protected=false`; ruleset #25853037 active but empty branch scope, deletion/non_fast_forward only. Branch-protection API read denied 403. Issue #150 evidence PR #305 exists, DRAFT.
+- Inventory refreshed in-place: 125 open PRs / 26 open non-PR Issues / 151 issue-endpoint objects; pagination complete. Inventory commit `a2259ecd992bd6177bf85ce22d4670042d8d4800`.
+- PR #282 remediation: old Zizmor failure on `88dae4b9...` identified unpinned/outdated Human Gate workflow copies and dangerous-trigger/condition/secret-boundary findings. The two workflow files now match hardened pinned candidate #300; exact new head `8b9fd9240042cfde54bd801417b0dd208fb32669` has Zizmor SUCCESS; 16 SUCCESS / 2 SKIPPED / 18 pending, Final Production Gate IN_PROGRESS (run `45045273175`). This patch does not transfer old CI. Keep DRAFT.
+- PR #300 exact head `f57e3bbd819fab529ec8105f5d32ba23e84947ac`: 34 SUCCESS / 2 SKIPPED / 1 FAILURE. Final Production Gate `45041883904` failed after 120 polls with missing `OLA paid-order PostgreSQL contract`; reference Frontier Baseline on main SUCCESS. This is a #301/#272 integration dependency, not a policy-unit failure. #300 remains DRAFT and ineffective on main.
+- PR #272 exact head `904ffe2643512dbc9ccbf189cd2b07fc7014c7c3`: 35 SUCCESS / 2 SKIPPED; PostgreSQL contract `45042158566` and Final Production Gate `45042158518` SUCCESS. Artifact #14762560080 SHA-256 `51883237c77f1f015bd47bfa587def8c5288c4c066c900c2a4e383bfffe53aeb`; manifest SHA `58140fad67fe0995bada963a2f2bb83e5bb05661127239c3dc98f376845d07e1`; `ATTESTED_PENDING_HUMAN`, source/image attestations SKIPPED. Branch diverged from main (26 ahead / 7 behind); stale approvals, no independent current-head review.
+- PR #298 / Issue #304: exact head `87d365e5a5ada21329d8ef8df535483e22bb86ad`, 35 SUCCESS / 2 SKIPPED; no current independent review. Issue labels normalized for #150/#296/#292/#301; #304 has required P1/security/human-gate labels.
+- PR #305 / Issue #150: exact head `2a764027e3c1cbfc2a6861710dd66d147f63e757`, 30 SUCCESS / 2 SKIPPED / 2 pending, no failure; evidence-only DRAFT, no settings mutation.
+- PR #277 current prior head `8c5b742cd7711736fadf69995514a21296b797e5`: 29 SUCCESS / 2 SKIPPED / 3 pending. This handoff update triggers a new exact-head CI run; do not transfer status.
+- No merge, branch-protection mutation, collaborator change, secret access, staging/production DB mutation, deployment, payment or terminal effect.
+
+### Next actions
+1. Await current #282 exact-head CI; Zizmor defect is corrected, Final Gate still pending.
+2. #301/#272 integration requires authorized independent review and main alignment; do not duplicate trigger fix in #300/#282.
+3. Owner/admin must designate independent write-enabled CODEOWNER and configure effective main protection plus read-only governance token; #150/#296 remain BLOCKED.
+4. #292 remains blocked pending operator signed Human Gate and disposable staging rehearsal; shared Neon remains unchanged.
