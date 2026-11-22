@@ -194,3 +194,12 @@ Do not claim the full plan completed within a time window if any checkpoint is s
 - Python package CI #45036328549 is PENDING; Final Production Gate #45036328502 is QUEUED; other producer checks are queued/in-progress. No exact-head PASS is claimed.
 - PR #300 has no reviews. Independent write-enabled CODEOWNER is still not verified; candidate remains non-mutating. Do not run `--apply`.
 - PR #295 remains exact-head CI PASS at `9a37726ca1257b4bb1d295b7d6e5e961d87d8174` (23/23 SUCCESS) but has no review; do not merge.
+
+
+## Checkpoint — #272 producer trigger fix and #292 evidence-only plan — 2026-11-22 15:08 CET
+
+- PR #272 exact head `157b818f8a980486ffff5a36ad3846e83db2ebab`: Python CI, E2E, staging rehearsal, CodeQL, NINA TDD, Nina/Igor, stress, continuity, provenance and decision gates are SUCCESS at the latest snapshot. Paid-order PostgreSQL producer #45036320224 is QUEUED; Final Production Gate #45036320241 is IN_PROGRESS; V4 contract #45036320235 is IN_PROGRESS; Ollama runtime #45036320046 is IN_PROGRESS; 12h Flow #45036320085 is QUEUED. No full PASS claim yet.
+- #301 is tracked against #272. The path-filter mismatch fix and regression tests are on #272; PR #302 was closed as superseded, not merged.
+- Issue #292 now has evidence-only draft PR #303: `f90b801e840ba1690a4c0b25b0188fe4cfa3e460`. It records the prior read-only staging snapshot and a disposable rehearsal plan; no staging/production mutation. PR #303 CI currently has Nina TDD and CodeQL QUEUED.
+- PR #295 remains 23/23 exact-head CI SUCCESS but has no independent review. PR #300 current head `1806150bf2cdd1cc9abca310e4fced43c5874b42` remains no-review; Python CI on that head is CANCELLED (not PASS), other checks queued/in-progress. Issue #296 and #150 remain HUMAN_GATE BLOCKED.
+- No migration, grants, RLS changes, deployment, payment, signer custody, secret access or external effect.
