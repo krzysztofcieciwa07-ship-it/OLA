@@ -141,3 +141,23 @@ test("unknown or empty CODEOWNERS fails closed", () => {
   const result = policy.evaluateHumanGate(input({ codeowners: "" }));
   assert.equal(result.reason, "CODEOWNERS_MISSING_OR_EMPTY");
 });
+
+test("unsupported CODEOWNERS glob syntax fails closed instead of being silently ignored", () => {
+  assert.throws(
+    () => policy.parseCodeowners([
+      "* @task-author @independent-reviewer",
+      "**/secrets/** @security-owner",
+    ].join("\n")),
+    /CODEOWNERS_UNSUPPORTED_PATTERN/
+  );
+});
+
+test("malformed CODEOWNERS rule without an owner fails closed", () => {
+  assert.throws(
+    () => policy.parseCodeowners([
+      "* @task-author @independent-reviewer",
+      "/app/",
+    ].join("\n")),
+    /CODEOWNERS_RULE_WITHOUT_OWNER/
+  );
+});
