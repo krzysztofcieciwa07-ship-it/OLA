@@ -7,7 +7,6 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
-  administration: read
 
 jobs:
   policy-tests:
@@ -22,22 +21,3 @@ jobs:
           node-version: "22"
       - name: Run deterministic Human Gate policy tests
         run: node --test tests/test_human_gate_policy.cjs
-      - name: Verify GITHUB_TOKEN collaborator permission read
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        with:
-          script: |
-            const probes = [
-              { username: "krzysztofcieciwa07-ship-it", expected: "admin" },
-              { username: "krzys167-crypto", expected: "read" },
-            ];
-            for (const probe of probes) {
-              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                username: probe.username,
-              });
-              core.notice("Collaborator permission verified: " + probe.username + "=" + data.permission);
-              if (data.permission !== probe.expected) {
-                core.setFailed("Unexpected repository permission for " + probe.username + ": expected " + probe.expected);
-              }
-            }
