@@ -45,7 +45,7 @@ footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px
 <section aria-labelledby="intro"><div class="eyebrow">PRYWATNE CENTRUM DOWODZENIA</div><h1 id="intro">Jeden cel. <em>Wspólny zespół.</em> Dowody zamiast obietnic.</h1><p class="lead">OLA kontroluje wykonanie, NINA koordynuje zadania, a IGOR niezależnie sprawdza dowody. Dostępność systemu wymaga osobnej weryfikacji.</p></section>
 <section aria-labelledby="team-title"><h2 id="team-title">Zespół OLA</h2><div class="team">
   <article class="card"><div class="symbol" aria-hidden="true">◈</div><h3>OLA</h3><p class="role">Polityka i kontrola</p><p>Uprawnienia, Evidence Ledger i Human Gate.</p></article>
-  <article class="card"><div class="symbol" aria-hidden="true">✧</div><h3>NINA</h3><p class="role">Planowanie i komunikacja</p><p>Rozmowa, dozwolone narzędzia, równoległe zadania DAG.</p></article>
+  <article class="card"><div class="symbol" aria-hidden="true">✧</div><h3>NINA</h3><p class="role">Planowanie i komunikacja</p><p>Stała sekwencja sześciu agentów, zapis etapów i równoległe zadania DAG.</p></article>
   <article class="card"><div class="symbol" aria-hidden="true">◇</div><h3>IGOR</h3><p class="role">Niezależna weryfikacja</p><p>Łańcuch dowodów, pochodzenie wyników i integralność.</p></article>
 </div></section>
 <section class="workspace" aria-label="Praca z zespołem"><div>
@@ -188,7 +188,7 @@ async function runNina() {
     const response = await fetch("/nina-run", {
       method:"POST",
       headers:{"Content-Type":"application/json", "X-API-Key":data.key},
-      body:JSON.stringify({task:data.task, requested_tools:["safe_expression"]})
+      body:JSON.stringify({task:data.task})
     });
     const body = await readJson(response);
     clearResult();
