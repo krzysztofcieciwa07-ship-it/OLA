@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException, Request
 from starlette.responses import FileResponse, JSONResponse
 from sqlalchemy import select, func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from .runtime_provenance import runtime_source_commit
 from .database import Base, engine, SessionLocal, append_evidence_atomic, prepare_runtime_schema, verify_postgres_schema
 from .models import Tenant, ApiKey, EvidenceRecord, CheckoutOrder, CheckoutOrderControl, CheckoutExecutionJob
@@ -887,6 +887,16 @@ def submit_signed_checkout_order_approval(
             )
     except SignedApprovalSubmissionRejected as exc:
         raise HTTPException(status_code=exc.code, detail=str(exc)) from None
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="signed approval conflicts with an existing order or operation",
+        ) from None
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=503,
+            detail="signed approval storage is unavailable; execution remains blocked",
+        ) from None
 
 
 @app.post("/checkout-orders/{order_id}/review-report")
