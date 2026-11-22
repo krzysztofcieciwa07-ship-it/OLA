@@ -83,9 +83,12 @@ def resolve_human_gate_membership(
     except (ValueError, TypeError):
         raise HumanGateMembershipError("verified subject fingerprint input is invalid") from None
 
-    # Establish transaction-local PostgreSQL RLS context only after the
-    # verified token tenant has matched the canonical resource tenant.
-    set_human_gate_tenant_scope(db, tenant_id)
+    # PostgreSQL RLS scopes the complete transaction; the explicit predicate
+    # remains as a second, application-level tenant binding.
+    try:
+        set_human_gate_tenant_scope(db, tenant_id)
+    except (ValueError, RuntimeError):
+        raise HumanGateMembershipError("tenant RLS scope could not be established") from None
 
     rows = db.scalars(select(HumanGateMembership).where(
         HumanGateMembership.tenant_id == tenant_id,
