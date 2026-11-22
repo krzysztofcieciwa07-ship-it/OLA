@@ -499,7 +499,7 @@ def accept_signed_paid_order_approval(
         "tenant_id": order.tenant_id,
         "seq": approval_record["seq"],
         "record_type": "human.revenue_execution_approval",
-        "prev_hash": approval_record["prev_hash"],
+        "prev_hash": payload["evidence"]["tip_hash"],
         "record_hash": approval_record["record_hash"],
         "payload_json": json.dumps(approval_payload, sort_keys=True, separators=(",", ":")),
     }]
