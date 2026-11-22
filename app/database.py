@@ -332,10 +332,25 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
     if not membership_rls.relrowsecurity or not membership_rls.relforcerowsecurity:
         raise RuntimeError("PostgreSQL Human Gate membership RLS must be enabled and forced")
     def normalize_rls_expression(value):
-        # pg_get_expr adds harmless wrapping parentheses/whitespace and an
-        # explicit ::text cast to string constants; normalize those forms
-        # while requiring the exact single-tenant predicate (no OR/AND escape).
-        compact = re.sub(r"[\s()]+", "", (value or "").lower())
+        # pg_get_expr adds wrapping parentheses around the whole predicate and
+        # explicit casts to varchar/text operands. Strip only outer wrappers;
+        # preserve function-call parentheses so the predicate is compared exactly.
+        compact = re.sub(r"\s+", "", (value or "").lower())
+        while compact.startswith("(") and compact.endswith(")"):
+            depth = 0
+            wraps_expression = True
+            for index, character in enumerate(compact):
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth -= 1
+                    if depth == 0 and index != len(compact) - 1:
+                        wraps_expression = False
+                        break
+            if not wraps_expression or depth != 0:
+                break
+            compact = compact[1:-1]
+        compact = compact.replace("(tenant_id)::text", "tenant_id::text")
         return compact.replace("'ola.human_gate_tenant_id'::text", "'ola.human_gate_tenant_id'")
 
     expected_rls_expression = (
