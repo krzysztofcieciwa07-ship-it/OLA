@@ -1,9 +1,10 @@
 {
   "schema_version": "ola-open-work-inventory-v1",
-  "snapshot_at": "2026-11-22T15:24:18.130Z",
+  "snapshot_at": "2026-11-22T16:35:43Z",
   "repository": "krzysztofcieciwa07-ship-it/OLA",
   "default_branch": "main",
   "main_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
+  "main_protected": false,
   "source": "GitHub REST API; paginated state=open inventory",
   "pagination": {
     "pull_pages": [
@@ -36,7 +37,7 @@
       "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
       "head": "docs/issue-292-staging-evidence-plan-20261122",
       "head_sha": "f90b801e840ba1690a4c0b25b0188fe4cfa3e460",
-      "updated_at": "2026-11-22T15:08:07Z",
+      "updated_at": "2026-11-22T16:09:30Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/303"
     },
@@ -48,8 +49,8 @@
       "base": "main",
       "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
       "head": "security/independent-codeowners-required-20261122",
-      "head_sha": "90ec1bd8611dcf3f036fe7d9ef1eb91b3f1a3728",
-      "updated_at": "2026-11-22T15:21:40Z",
+      "head_sha": "f57e3bbd819fab529ec8105f5d32ba23e84947ac",
+      "updated_at": "2026-11-22T16:05:35Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/300"
     },
@@ -59,10 +60,10 @@
       "state": "open",
       "draft": true,
       "base": "security/signed-human-approval-ingress-20261122",
-      "base_sha": "7780fdfad0fd596dd8534ac0eeca384ebc721eda",
+      "base_sha": "50cb06b3e3567ffe8f9a1b796c1a1550cc03f6a1",
       "head": "security/signed-approval-body-limit-20261122",
-      "head_sha": "ba6fc256970f83edb3915d704fd192eeecaae4fb",
-      "updated_at": "2026-11-22T15:18:57Z",
+      "head_sha": "1064ed7c70db16a3c28d8e6ac925353725bb9e1d",
+      "updated_at": "2026-11-22T15:29:45Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/299"
     },
@@ -85,10 +86,10 @@
       "state": "open",
       "draft": true,
       "base": "security/human-gate-approval-nonce-ledger-20261122",
-      "base_sha": "b866c13c97247ab10888aa97011968dcfed5334f",
+      "base_sha": "2a8c2bcb8c352c328b404af7ba1f79ea03a17f4b",
       "head": "security/human-gate-approval-nonce-tenant-rls-20261122",
-      "head_sha": "5473a1b932691749dae608aa592d2808b41dae65",
-      "updated_at": "2026-11-22T15:18:10Z",
+      "head_sha": "debe63f7fbf59d28ae7e1c046ceacf298f693855",
+      "updated_at": "2026-11-22T15:33:31Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/297"
     },
@@ -96,12 +97,12 @@
       "number": 295,
       "title": "ci: scope final evidence to main and run staging on main pushes",
       "state": "open",
-      "draft": false,
+      "draft": true,
       "base": "main",
       "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
       "head": "fix/staging-rehearsal-main-push-trigger-20261122",
-      "head_sha": "9a37726ca1257b4bb1d295b7d6e5e961d87d8174",
-      "updated_at": "2026-11-22T07:36:37Z",
+      "head_sha": "8a85932e93ed9a4075d72248db48b3b6bb67c2f9",
+      "updated_at": "2026-11-22T16:07:52Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/295"
     },
@@ -111,10 +112,10 @@
       "state": "open",
       "draft": true,
       "base": "security/paid-order-worker-requires-signed-approval-20261122",
-      "base_sha": "fc6bd5da92ac218d005a4d185ca973cc88eb2f4d",
+      "base_sha": "c11540a4fcff188a6baa965f6c093dd2b21081a1",
       "head": "security/signed-human-approval-ingress-20261122",
-      "head_sha": "7780fdfad0fd596dd8534ac0eeca384ebc721eda",
-      "updated_at": "2026-11-22T15:18:50Z",
+      "head_sha": "50cb06b3e3567ffe8f9a1b796c1a1550cc03f6a1",
+      "updated_at": "2026-11-22T15:29:38Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/290"
     },
@@ -124,10 +125,10 @@
       "state": "open",
       "draft": true,
       "base": "security/human-gate-approval-nonce-tenant-rls-20261122",
-      "base_sha": "5473a1b932691749dae608aa592d2808b41dae65",
+      "base_sha": "debe63f7fbf59d28ae7e1c046ceacf298f693855",
       "head": "security/paid-order-worker-requires-signed-approval-20261122",
-      "head_sha": "fc6bd5da92ac218d005a4d185ca973cc88eb2f4d",
-      "updated_at": "2026-11-22T15:18:42Z",
+      "head_sha": "1eeff9f7d432b06019b0379156e6c84440e57315",
+      "updated_at": "2026-11-22T16:14:29Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/289"
     },
@@ -137,10 +138,10 @@
       "state": "open",
       "draft": true,
       "base": "security/readonly-human-gate-membership-db-privileges-20261122",
-      "base_sha": "3ce20901871bac7c277998385cc68d1ebfeef834",
+      "base_sha": "06a1843f257579c55a06913c3c6726495a2c92e4",
       "head": "security/human-gate-approval-nonce-ledger-20261122",
-      "head_sha": "b866c13c97247ab10888aa97011968dcfed5334f",
-      "updated_at": "2026-11-22T15:18:02Z",
+      "head_sha": "2a8c2bcb8c352c328b404af7ba1f79ea03a17f4b",
+      "updated_at": "2026-11-22T15:33:14Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/288"
     },
@@ -150,10 +151,10 @@
       "state": "open",
       "draft": true,
       "base": "feat/human-gate-membership-binding-v1-20261122",
-      "base_sha": "235cb13ed28d16b321b27b0e78a830c8c7f2d6c2",
+      "base_sha": "88dae4b9f2fd2d9796c2a8da988896d34b4c15e6",
       "head": "security/readonly-human-gate-membership-db-privileges-20261122",
-      "head_sha": "3ce20901871bac7c277998385cc68d1ebfeef834",
-      "updated_at": "2026-11-22T15:17:55Z",
+      "head_sha": "06a1843f257579c55a06913c3c6726495a2c92e4",
+      "updated_at": "2026-11-22T15:33:06Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/287"
     },
@@ -217,8 +218,8 @@
       "base": "main",
       "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
       "head": "feat/human-gate-membership-binding-v1-20261122",
-      "head_sha": "235cb13ed28d16b321b27b0e78a830c8c7f2d6c2",
-      "updated_at": "2026-11-22T15:17:47Z",
+      "head_sha": "88dae4b9f2fd2d9796c2a8da988896d34b4c15e6",
+      "updated_at": "2026-11-22T15:33:00Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/282"
     },
@@ -243,8 +244,8 @@
       "base": "main",
       "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
       "head": "docs/ola-operational-handoff-20261121",
-      "head_sha": "77cca0985a3b20d6d9163a4e87b106b859aa851f",
-      "updated_at": "2026-11-22T15:09:19Z",
+      "head_sha": "d190f35ab1799a7c4ee8b0caeeff7c8712baf0c3",
+      "updated_at": "2026-11-22T15:26:34Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/277"
     },
@@ -282,8 +283,8 @@
       "base": "main",
       "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
       "head": "audit/p0-writer-universe-telemetry-verifier-2026-11-20",
-      "head_sha": "157b818f8a980486ffff5a36ad3846e83db2ebab",
-      "updated_at": "2026-11-22T15:09:13Z",
+      "head_sha": "904ffe2643512dbc9ccbf189cd2b07fc7014c7c3",
+      "updated_at": "2026-11-22T16:35:05Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/272"
     },
@@ -374,7 +375,7 @@
       "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
       "head": "docs/decision-profiles-governance-20261117",
       "head_sha": "f5967c51308df823dfa1e94e28af8a9b3b27cb1b",
-      "updated_at": "2026-11-21T15:00:22Z",
+      "updated_at": "2026-11-22T16:19:30Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/254"
     },
@@ -1719,7 +1720,7 @@
       "number": 301,
       "title": "P0: align paid-order PostgreSQL producer trigger with final gate requirements",
       "state": "open",
-      "updated_at": "2026-11-22T15:09:15Z",
+      "updated_at": "2026-11-22T16:35:08Z",
       "labels": [
         "P0",
         "security"
@@ -1731,7 +1732,7 @@
       "number": 296,
       "title": "P1: establish independent CODEOWNERS and protected-main review gates",
       "state": "open",
-      "updated_at": "2026-11-22T15:20:44Z",
+      "updated_at": "2026-11-22T16:06:13Z",
       "labels": [
         "security",
         "P1"
@@ -1743,7 +1744,7 @@
       "number": 292,
       "title": "P0: deliver operator-facing signed Human Gate and staging acceptance flow",
       "state": "open",
-      "updated_at": "2026-11-22T15:20:47Z",
+      "updated_at": "2026-11-22T16:09:32Z",
       "labels": [
         "P0",
         "security"
@@ -1885,7 +1886,7 @@
       "number": 29,
       "title": "AGENT-02 REACT — investigate and resolve CI contradictions",
       "state": "open",
-      "updated_at": "2026-09-22T20:57:50Z",
+      "updated_at": "2026-11-22T16:07:50Z",
       "labels": [
         "P0",
         "agent"
