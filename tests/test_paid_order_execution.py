@@ -352,3 +352,35 @@ def test_worker_rechecks_execution_approver_role_before_running_nina(monkeypatch
         order = db.get(CheckoutOrder, ctx["order_id"])
     assert job.status == "BLOCKED"
     assert order.status == "BLOCKED"
+
+
+
+def test_worker_refuses_legacy_unsigned_approval_before_runner(monkeypatch):
+    from sqlalchemy import select
+    from app.database import SessionLocal
+    from app.models import CheckoutExecutionJob
+    from app.paid_order_execution import execute_paid_order_job, PaidOrderExecutionRejected
+    from test_paid_order_approval import _seed_paid_order, _approve
+
+    ctx = _seed_paid_order(monkeypatch)
+    approved = _approve(ctx)
+    assert approved.status_code == 200, approved.text
+    with SessionLocal() as db:
+        job = db.scalar(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == ctx["order_id"]
+        ))
+        job_id = job.id
+
+    calls = []
+    def forbidden_runner(*args, **kwargs):
+        calls.append(True)
+        return {"status": "MUST_NOT_RUN"}
+
+    with pytest.raises(PaidOrderExecutionRejected) as exc:
+        execute_paid_order_job(job_id, runner=forbidden_runner)
+    assert exc.value.code in {409, 503}
+    assert calls == []
+    with SessionLocal() as db:
+        job = db.get(CheckoutExecutionJob, job_id)
+        assert job.status == "BLOCKED"
+        assert job.attempt_count == 0
