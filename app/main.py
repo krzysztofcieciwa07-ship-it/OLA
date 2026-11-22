@@ -859,6 +859,15 @@ def submit_signed_checkout_order_approval(
     if not isinstance(body, dict) or set(body) != {"envelope"}:
         raise HTTPException(status_code=400, detail="request must contain only a signed approval envelope")
     try:
+        envelope_size = len(json.dumps(
+            body["envelope"], ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8"))
+    except (TypeError, ValueError, UnicodeError):
+        raise HTTPException(status_code=400, detail="signed approval envelope is invalid") from None
+    if envelope_size > 66_000:
+        raise HTTPException(status_code=413, detail="signed approval envelope exceeds size limit")
+    try:
         from .approval_identity import ApprovalIdentityError, verify_subject_token
         verified_subject = verify_subject_token(token)
     except ApprovalIdentityError:
