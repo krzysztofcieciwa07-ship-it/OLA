@@ -844,6 +844,55 @@ def approve_checkout_order(
         raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
 
+@app.post("/checkout-orders/{order_id}/signed-approval/challenge")
+def prepare_signed_checkout_order_approval_challenge(
+    order_id: str,
+    body: dict,
+    authorization: str | None = Header(default=None),
+):
+    """Return a read-only canonical signing challenge for an external KMS/HSM."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing OIDC bearer token")
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="missing OIDC bearer token")
+    if not isinstance(body, dict) or set(body) != {"reason"}:
+        raise HTTPException(status_code=400, detail="request must contain only an approval reason")
+    reason = body.get("reason")
+    if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 1000:
+        raise HTTPException(status_code=400, detail="approval reason must contain 1 to 1000 characters")
+    try:
+        from .approval_identity import ApprovalIdentityError, verify_subject_token
+        verified_subject = verify_subject_token(token)
+    except ApprovalIdentityError:
+        raise HTTPException(status_code=401, detail="OIDC reviewer token could not be verified") from None
+
+    try:
+        from .signed_approval_submission import (
+            SignedApprovalSubmissionRejected,
+            prepare_signed_paid_order_approval_challenge,
+        )
+        with SessionLocal() as db:
+            return prepare_signed_paid_order_approval_challenge(
+                db,
+                order_id=order_id,
+                reason=reason,
+                verified_subject=verified_subject,
+            )
+    except SignedApprovalSubmissionRejected as exc:
+        raise HTTPException(status_code=exc.code, detail=str(exc)) from None
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="signed approval challenge conflicts with current order state",
+        ) from None
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=503,
+            detail="signed approval challenge storage is unavailable",
+        ) from None
+
+
 @app.post("/checkout-orders/{order_id}/signed-approval")
 def submit_signed_checkout_order_approval(
     order_id: str,
