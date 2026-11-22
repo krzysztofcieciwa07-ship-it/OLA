@@ -41,7 +41,7 @@ def postgres_db(monkeypatch):
             conn.exec_driver_sql(
                 f'REVOKE UPDATE, DELETE ON TABLE "{schema}".evidence_records FROM "{runtime_role}"'
             )
-            # Human Gate memberships are managed out-of-band; runtime is read-only.
+            # Human Gate membership is managed out-of-band; runtime must read only.
             conn.exec_driver_sql(
                 f'REVOKE ALL ON TABLE "{schema}".human_gate_memberships FROM "{runtime_role}"'
             )
@@ -157,11 +157,116 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
 
 
 
+
+def test_postgres_membership_rls_verifier_rejects_extra_permissive_policy(postgres_db):
+    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql("""
+            CREATE POLICY human_gate_memberships_unrestricted_test
+            ON human_gate_memberships
+            FOR SELECT
+            USING (true)
+        """)
+
+    with pytest.raises(RuntimeError, match="missing, duplicated or semantically invalid"):
+        database.verify_postgres_schema(runtime_engine)
+
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "DROP POLICY human_gate_memberships_unrestricted_test ON human_gate_memberships"
+        )
+    database.verify_postgres_schema(runtime_engine)
+
+
+def test_postgres_membership_rls_verifier_rejects_bypassrls_runtime_role(postgres_db):
+    database, runtime_engine, _migration_engine, admin_engine, runtime_role, _schema = postgres_db
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'ALTER ROLE "{runtime_role}" BYPASSRLS')
+
+    try:
+        with pytest.raises(RuntimeError, match="must not own the table or bypass RLS"):
+            database.verify_postgres_schema(runtime_engine)
+    finally:
+        with admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'ALTER ROLE "{runtime_role}" NOBYPASSRLS')
+
+    database.verify_postgres_schema(runtime_engine)
+
+def test_postgres_membership_rls_is_tenant_scoped_and_transaction_local(postgres_db):
+    from sqlalchemy import select, text
+    from app.models import HumanGateMembership, Tenant
+
+    database, _runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    principal_a = str(uuid.uuid4())
+    principal_b = str(uuid.uuid4())
+
+    with migration_engine.begin() as conn:
+        conn.execute(
+            Tenant.__table__.insert(),
+            [
+                {"id": tenant_a, "name": "RLS tenant A"},
+                {"id": tenant_b, "name": "RLS tenant B"},
+            ],
+        )
+        for tenant_id, principal_id, tenant_suffix, fingerprint in (
+            (tenant_a, principal_a, "a", "a" * 64),
+            (tenant_b, principal_b, "b", "b" * 64),
+        ):
+            # Even an out-of-band administrator/owner must scope writes when
+            # FORCE ROW LEVEL SECURITY is enabled on the membership table.
+            conn.execute(
+                text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+                {"tenant_id": tenant_id},
+            )
+            conn.execute(
+                HumanGateMembership.__table__.insert(),
+                {
+                    "id": principal_id,
+                    "tenant_id": tenant_id,
+                    "issuer": f"https://issuer.example.test/tenant-{tenant_suffix}",
+                    "subject_fingerprint": fingerprint,
+                    "fingerprint_key_id": "identity-k1",
+                    "role": "execution_approver",
+                    "membership_version": 1,
+                    "active": True,
+                    "revoked_at": None,
+                    "created_at": 1795318200,
+                },
+            )
+
+    with database.SessionLocal() as db:
+        # No transaction-local tenant context must fail closed to zero rows.
+        assert db.scalars(select(HumanGateMembership)).all() == []
+
+        database.set_human_gate_tenant_scope(db, tenant_a)
+        with pytest.raises(RuntimeError, match="cannot change within the same transaction"):
+            database.set_human_gate_tenant_scope(db, tenant_b)
+        rows_a = db.scalars(select(HumanGateMembership)).all()
+        assert [row.id for row in rows_a] == [principal_a]
+        db.commit()
+
+        # SET LOCAL semantics: context must not leak into a fresh transaction.
+        assert db.scalars(select(HumanGateMembership)).all() == []
+        database.set_human_gate_tenant_scope(db, tenant_b)
+        rows_b = db.scalars(select(HumanGateMembership)).all()
+        assert [row.id for row in rows_b] == [principal_b]
+        db.commit()
+
+        # A second tenant context cannot read tenant A by primary key either.
+        db.expunge_all()
+        database.set_human_gate_tenant_scope(db, tenant_b)
+        assert db.get(HumanGateMembership, principal_a) is None
+
+
+
 def test_postgres_runtime_rejects_write_access_to_human_gate_memberships(postgres_db):
     database, runtime_engine, _migration_engine, admin_engine, runtime_role, schema = postgres_db
 
-    # A runtime role that can grant itself or another caller an approval role
-    # would defeat the out-of-band membership ownership boundary.
+    # Membership rows are administered out-of-band; runtime must be SELECT-only.
     with admin_engine.begin() as conn:
         conn.exec_driver_sql(
             f'GRANT INSERT ON TABLE "{schema}".human_gate_memberships TO "{runtime_role}"'
@@ -174,7 +279,6 @@ def test_postgres_runtime_rejects_write_access_to_human_gate_memberships(postgre
             f'REVOKE INSERT ON TABLE "{schema}".human_gate_memberships FROM "{runtime_role}"'
         )
     database.verify_postgres_schema(runtime_engine)
-
 
 
 def test_postgres_schema_fails_closed_when_human_gate_approval_nonce_ledger_is_missing(postgres_db):
