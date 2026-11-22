@@ -36,6 +36,7 @@ from .models import (
     ApiKey,
     CheckoutExecutionJob,
     CheckoutOrderControl,
+    EvidenceRecord,
     HumanGateMembership,
 )
 from .order_approval import _validate_paid_order
@@ -331,7 +332,7 @@ def prepare_signed_paid_order_approval_challenge(
         raise SignedApprovalSubmissionRejected(409, "tenant evidence chain has no valid current tip")
 
     try:
-        order, control, payment, checkout_proof, payment_proof, private_task, _rows, records = _validate_paid_order(
+        order, control, _payment, checkout_proof, payment_proof, private_task, _rows, records = _validate_paid_order(
             db,
             tenant_id=verified_subject.tenant_id,
             order_id=order_id,
