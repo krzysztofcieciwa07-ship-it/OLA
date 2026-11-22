@@ -591,7 +591,7 @@ def create_postgres_human_gate_approval_nonce_rls(connection):
     """)
 
 
-def prepare_runtime_schema()
+def prepare_runtime_schema():
     """Prepare SQLite locally; PostgreSQL is migrated out-of-band and only verified at runtime."""
     if engine.dialect.name == "sqlite":
         Base.metadata.create_all(bind=engine)
