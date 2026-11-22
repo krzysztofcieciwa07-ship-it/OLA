@@ -61,6 +61,16 @@ class ReleaseSourceBindingTest(unittest.TestCase):
         self.assertIn('push) event_filter="&event=push&branch=main" ;;', content)
         self.assertIn('pull_request) event_filter="&event=pull_request" ;;', content)
 
+    def test_postgres_contract_runs_for_release_gate_changes(self):
+        content = (ROOT / ".github/workflows/paid-order-postgres.yml").read_text(encoding="utf-8")
+        for changed_path in (
+            ".github/workflows/final-production-gate.yml",
+            ".github/workflows/staging-rehearsal.yml",
+            "tests/test_release_source_binding.py",
+        ):
+            with self.subTest(path=changed_path):
+                self.assertEqual(content.count('      - "' + changed_path + '"'), 2)
+
     def test_release_manifest_never_calls_green_ci_production_verified(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn('status="ATTESTED_PENDING_HUMAN"', content)
