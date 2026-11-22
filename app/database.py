@@ -434,8 +434,15 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         normalized_trigger = re.sub(r"\s+", " ", trigger_def).upper()
         normalized_function = re.sub(r"\s+", " ", function_def).upper()
         is_membership_lock = key == ("human_gate_memberships", "human_gate_membership_tenant_lock")
+        # PostgreSQL canonicalizes multi-event trigger definitions; event order
+        # may differ from the DDL source. Validate the event set, not its order.
+        membership_trigger_ok = (
+            "BEFORE" in normalized_trigger
+            and all(event in normalized_trigger for event in ("INSERT", "UPDATE", "DELETE"))
+        )
+        action_ok = membership_trigger_ok if is_membership_lock else action in normalized_trigger
         if (
-            action not in normalized_trigger
+            not action_ok
             or function_name != expected_function
             or expected_message not in normalized_function
             or (
