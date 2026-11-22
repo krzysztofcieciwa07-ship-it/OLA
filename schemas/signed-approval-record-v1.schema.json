@@ -1,0 +1,498 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ola:schema:signed-approval-record-v1",
+  "title": "OLA Signed Approval Record v1",
+  "description": "Immutable, narrowly scoped Human Gate record. The signature covers only payload using the OLA v1 domain-separated canonical JSON profile.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "payload",
+    "signature"
+  ],
+  "properties": {
+    "payload": {
+      "$ref": "#/$defs/payload"
+    },
+    "signature": {
+      "$ref": "#/$defs/signature"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "principal_id",
+        "tenant_id",
+        "issuer",
+        "subject_fingerprint",
+        "fingerprint_key_id",
+        "role",
+        "membership_version"
+      ],
+      "properties": {
+        "principal_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "tenant_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "issuer": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "maxLength": 512
+        },
+        "subject_fingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "fingerprint_key_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "role": {
+          "enum": [
+            "requester",
+            "execution_approver",
+            "report_reviewer"
+          ]
+        },
+        "membership_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "approval_id",
+        "tenant_id",
+        "operation_id",
+        "request",
+        "effect",
+        "decision",
+        "effect_authorized",
+        "execution_observed",
+        "author",
+        "reviewer",
+        "prior_approvers",
+        "reviewer_authentication",
+        "policy",
+        "evidence",
+        "runtime",
+        "reason",
+        "nonce",
+        "issued_at",
+        "expires_at",
+        "closure"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ola.signed-approval/v1"
+        },
+        "approval_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "tenant_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "resource_type",
+            "resource_id",
+            "sha256"
+          ],
+          "properties": {
+            "action": {
+              "enum": [
+                "EXECUTE_PAID_ORDER",
+                "APPROVE_CUSTOMER_REPORT"
+              ]
+            },
+            "resource_type": {
+              "enum": [
+                "checkout_order",
+                "customer_report"
+              ]
+            },
+            "resource_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "effect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "target_id",
+            "target_sha256"
+          ],
+          "properties": {
+            "action": {
+              "enum": [
+                "QUEUE_SINGLE_EXECUTION",
+                "RELEASE_REPORT_TO_ORIGINAL_REQUESTER"
+              ]
+            },
+            "target_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "target_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "decision": {
+          "enum": [
+            "ALLOW",
+            "REFUSE",
+            "UNRESOLVED",
+            "INCOMPARABLE"
+          ]
+        },
+        "effect_authorized": {
+          "type": "boolean"
+        },
+        "execution_observed": {
+          "const": "NOT_STARTED"
+        },
+        "author": {
+          "$ref": "#/$defs/actor"
+        },
+        "reviewer": {
+          "$ref": "#/$defs/actor"
+        },
+        "prior_approvers": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/actor"
+          }
+        },
+        "reviewer_authentication": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "auth_time",
+            "acr",
+            "amr",
+            "session_fingerprint"
+          ],
+          "properties": {
+            "auth_time": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "acr": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "amr": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "session_fingerprint": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "sha256"
+          ],
+          "properties": {
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tip_hash",
+            "records"
+          ],
+          "properties": {
+            "tip_hash": {
+              "$ref": "#/$defs/sha256"
+            },
+            "records": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "sequence",
+                  "record_type",
+                  "record_hash"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "record_type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "record_hash": {
+                    "$ref": "#/$defs/sha256"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_commit"
+          ],
+          "properties": {
+            "source_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            }
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "nonce": {
+          "$ref": "#/$defs/uuid"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "closure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operational",
+            "epistemic",
+            "remedial"
+          ],
+          "properties": {
+            "operational": {
+              "const": "OPEN"
+            },
+            "epistemic": {
+              "const": "OPEN"
+            },
+            "remedial": {
+              "const": "OPEN"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "decision": {
+                "const": "ALLOW"
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          },
+          "then": {
+            "properties": {
+              "effect_authorized": {
+                "const": true
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "effect_authorized": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "action": {
+                    "const": "EXECUTE_PAID_ORDER"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            },
+            "required": [
+              "request"
+            ]
+          },
+          "then": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "resource_type": {
+                    "const": "checkout_order"
+                  }
+                }
+              },
+              "effect": {
+                "properties": {
+                  "action": {
+                    "const": "QUEUE_SINGLE_EXECUTION"
+                  }
+                }
+              },
+              "reviewer": {
+                "properties": {
+                  "role": {
+                    "const": "execution_approver"
+                  }
+                }
+              },
+              "prior_approvers": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "action": {
+                    "const": "APPROVE_CUSTOMER_REPORT"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            },
+            "required": [
+              "request"
+            ]
+          },
+          "then": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "resource_type": {
+                    "const": "customer_report"
+                  }
+                }
+              },
+              "effect": {
+                "properties": {
+                  "action": {
+                    "const": "RELEASE_REPORT_TO_ORIGINAL_REQUESTER"
+                  }
+                }
+              },
+              "reviewer": {
+                "properties": {
+                  "role": {
+                    "const": "report_reviewer"
+                  }
+                }
+              },
+              "prior_approvers": {
+                "minItems": 1,
+                "contains": {
+                  "properties": {
+                    "role": {
+                      "const": "execution_approver"
+                    }
+                  },
+                  "required": [
+                    "role"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "key_id",
+        "value"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "Ed25519"
+        },
+        "key_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{86}$"
+        }
+      }
+    }
+  }
+}
