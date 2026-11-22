@@ -9,6 +9,9 @@ on:
       - "tests/test_postgres_integration.py"
       - "requirements.txt"
       - ".github/workflows/paid-order-postgres.yml"
+      - ".github/workflows/final-production-gate.yml"
+      - ".github/workflows/staging-rehearsal.yml"
+      - "tests/test_release_source_binding.py"
   push:
     branches: [main]
     paths:
@@ -18,6 +21,9 @@ on:
       - "tests/test_postgres_integration.py"
       - "requirements.txt"
       - ".github/workflows/paid-order-postgres.yml"
+      - ".github/workflows/final-production-gate.yml"
+      - ".github/workflows/staging-rehearsal.yml"
+      - "tests/test_release_source_binding.py"
 
 permissions:
   contents: read
