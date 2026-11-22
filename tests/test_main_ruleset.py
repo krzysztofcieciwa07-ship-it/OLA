@@ -158,3 +158,22 @@ def test_verify_ruleset_rejects_missing_codeowner_review_rule():
     ]
     with pytest.raises(RuntimeError, match="CODEOWNERS review"):
         module.verify_ruleset(detail, detail["rules"], "a" * 40)
+
+def test_verify_ruleset_rejects_effective_missing_codeowner_review():
+    detail = module.policy()
+    detail["id"] = 123
+    effective_rules = [
+        {**rule, "parameters": {**rule.get("parameters", {}), "require_code_owner_review": False}}
+        if rule["type"] == "pull_request" else rule
+        for rule in detail["rules"]
+    ]
+    with pytest.raises(RuntimeError, match="effective ruleset does not require CODEOWNERS review"):
+        module.verify_ruleset(detail, effective_rules, "a" * 40)
+
+
+def test_verify_ruleset_accepts_matching_stored_and_effective_codeowner_rules():
+    detail = module.policy()
+    detail["id"] = 123
+    result = module.verify_ruleset(detail, detail["rules"], "a" * 40)
+    assert result["status"] == "VERIFIED"
+    assert result["main_sha"] == "a" * 40
