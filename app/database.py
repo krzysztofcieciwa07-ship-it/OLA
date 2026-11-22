@@ -71,6 +71,13 @@ def set_human_gate_tenant_scope(db, tenant_id):
     if dialect == "sqlite":
         return
     if dialect == "postgresql":
+        current_scope = db.execute(
+            text("SELECT current_setting('ola.human_gate_tenant_id', true)")
+        ).scalar_one_or_none()
+        if current_scope not in (None, "", tenant_id):
+            raise RuntimeError(
+                "Human Gate tenant scope cannot change within the same transaction"
+            )
         db.execute(
             text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
             {"tenant_id": tenant_id},
