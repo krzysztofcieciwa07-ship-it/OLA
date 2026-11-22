@@ -50,6 +50,17 @@ class ReleaseSourceBindingTest(unittest.TestCase):
             with self.subTest(gate=gate):
                 self.assertIn('"' + gate + '"', required)
 
+    def test_staging_rehearsal_runs_on_main_pushes(self):
+        content = (ROOT / ".github/workflows/staging-rehearsal.yml").read_text(encoding="utf-8")
+        self.assertIn("push:\\n    branches:\\n      - main", content)
+        self.assertIn("pull_request:", content)
+        self.assertIn("workflow_dispatch:", content)
+
+    def test_final_gate_scopes_push_evidence_to_main(self):
+        content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
+        self.assertIn('push) event_filter="&event=push&branch=main" ;;', content)
+        self.assertIn('pull_request) event_filter="&event=pull_request" ;;', content)
+
     def test_release_manifest_never_calls_green_ci_production_verified(self):
         content = (ROOT / ".github/workflows/final-production-gate.yml").read_text(encoding="utf-8")
         self.assertIn('status="ATTESTED_PENDING_HUMAN"', content)
