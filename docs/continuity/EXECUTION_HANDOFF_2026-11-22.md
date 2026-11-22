@@ -213,3 +213,12 @@ Do not claim the full plan completed within a time window if any checkpoint is s
 - Real Ollama Runtime Gate #45036320046: SUCCESS.
 - Python CI, E2E, staging rehearsal, CodeQL, NINA TDD, Nina/Igor, stress, continuity, provenance and decision gates are SUCCESS at the latest snapshot. Other queued gates are not PASS.
 - No final gate PASS or release-ready claim.
+
+
+## CI poll — 2026-11-22 15:09 CET
+- Exact head `157b818f8a980486ffff5a36ad3846e83db2ebab`.
+- **Paid-order PostgreSQL contract #45036320224: SUCCESS** on exact SHA; producer trigger correction is now proven to run for this audit-only PR.
+- Final Production Gate #45036320241 remains IN_PROGRESS at required-evidence verification.
+- OLA DI-OS Product Gate #45036320193 remains IN_PROGRESS; Supply Chain Evidence Gate #45036320002 and 12h Flow #45036320085 are QUEUED.
+- V4 contract #45036320235, Ollama runtime #45036320046, Python CI, E2E, staging rehearsal, CodeQL, NINA/IGOR, stress, continuity, provenance and other listed gates are SUCCESS.
+- **Partial CI closure only**: missing-producer defect resolved on this exact SHA; final gate not yet PASS. No production/release claim.
