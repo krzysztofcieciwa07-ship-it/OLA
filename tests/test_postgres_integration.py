@@ -4,7 +4,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
@@ -344,6 +344,10 @@ def test_postgres_human_gate_approval_nonce_is_atomic_append_only_and_tenant_sco
     assert len(replayed) == 7
 
     with database.SessionLocal() as db:
+        db.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
         rows = db.scalars(
             select(HumanGateApprovalNonce).where(
                 HumanGateApprovalNonce.tenant_id == tenant_id
@@ -379,12 +383,20 @@ def test_postgres_human_gate_approval_nonce_is_atomic_append_only_and_tenant_sco
 
     # The database blocks privileged accidental mutation as a second layer.
     with migration_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
         with pytest.raises(DBAPIError):
             conn.exec_driver_sql(
                 'UPDATE human_gate_approval_nonce_ledger SET consumed_at = 1 WHERE tenant_id = %s',
                 (tenant_id,),
             )
     with migration_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
         with pytest.raises(DBAPIError):
             conn.exec_driver_sql(
                 'DELETE FROM human_gate_approval_nonce_ledger WHERE tenant_id = %s',
@@ -431,6 +443,88 @@ def test_human_gate_approval_nonce_ledger_fails_closed_without_postgresql():
                 )
     finally:
         engine.dispose()
+
+
+
+def test_postgres_human_gate_approval_nonce_rls_is_tenant_scoped_and_fails_closed(postgres_db):
+    from sqlalchemy import select, text
+    from app.models import HumanGateApprovalNonce, Tenant
+
+    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    tenant_a, tenant_b = str(uuid.uuid4()), str(uuid.uuid4())
+    def row_values(tenant_id):
+        return {
+            "id": str(uuid.uuid4()), "tenant_id": tenant_id,
+            "approval_id": str(uuid.uuid4()), "nonce": str(uuid.uuid4()),
+            "operation_id": str(uuid.uuid4()), "action": "EXECUTE_PAID_ORDER",
+            "resource_type": "checkout_order", "resource_id": str(uuid.uuid4()),
+            "envelope_sha256": "a" * 64, "consumed_at": 1795318200,
+        }
+    with migration_engine.begin() as conn:
+        conn.execute(Tenant.__table__.insert(), [
+            {"id": tenant_a, "name": "Nonce RLS tenant A"},
+            {"id": tenant_b, "name": "Nonce RLS tenant B"},
+        ])
+    for tenant_id in (tenant_a, tenant_b):
+        with migration_engine.begin() as conn:
+            conn.execute(
+                text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+                {"tenant_id": tenant_id},
+            )
+            conn.execute(HumanGateApprovalNonce.__table__.insert().values(**row_values(tenant_id)))
+
+    with database.SessionLocal() as db:
+        assert db.scalars(select(HumanGateApprovalNonce)).all() == []
+        with pytest.raises(DBAPIError):
+            db.execute(HumanGateApprovalNonce.__table__.insert().values(**row_values(tenant_a)))
+        db.rollback()
+        db.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_a},
+        )
+        rows_a = db.scalars(select(HumanGateApprovalNonce)).all()
+        assert len(rows_a) == 1 and rows_a[0].tenant_id == tenant_a
+        db.commit()
+        db.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_b},
+        )
+        rows_b = db.scalars(select(HumanGateApprovalNonce)).all()
+        assert len(rows_b) == 1 and rows_b[0].tenant_id == tenant_b
+        db.commit()
+        db.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_b},
+        )
+        with pytest.raises(DBAPIError):
+            db.execute(HumanGateApprovalNonce.__table__.insert().values(**row_values(tenant_a)))
+        db.rollback()
+
+
+def test_postgres_nonce_ledger_rls_verifier_rejects_extra_policy_and_bypassrls(postgres_db):
+    database, runtime_engine, migration_engine, admin_engine, runtime_role, _schema = postgres_db
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql("""
+            CREATE POLICY human_gate_nonce_unrestricted_test
+            ON human_gate_approval_nonce_ledger
+            FOR SELECT USING (true)
+        """)
+    with pytest.raises(RuntimeError, match="RLS policy is missing, duplicated or invalid"):
+        database.verify_postgres_schema(runtime_engine)
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "DROP POLICY human_gate_nonce_unrestricted_test ON human_gate_approval_nonce_ledger"
+        )
+    database.verify_postgres_schema(runtime_engine)
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(f'ALTER ROLE "{runtime_role}" BYPASSRLS')
+    try:
+        with pytest.raises(RuntimeError, match="must not own the table or bypass RLS"):
+            database.verify_postgres_schema(runtime_engine)
+    finally:
+        with admin_engine.begin() as conn:
+            conn.exec_driver_sql(f'ALTER ROLE "{runtime_role}" NOBYPASSRLS')
+    database.verify_postgres_schema(runtime_engine)
 
 
 def test_postgres_membership_revocation_waits_for_runtime_authorization_lock(postgres_db):
@@ -957,6 +1051,7 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
             "execution_job_id": operation_id,
         }
         with database.SessionLocal() as observer:
+            database.set_human_gate_tenant_scope(observer, ctx["tenant_id"])
             persisted_job = observer.get(CheckoutExecutionJob, operation_id)
             nonce_rows = observer.scalars(select(HumanGateApprovalNonce).where(
                 HumanGateApprovalNonce.tenant_id == ctx["tenant_id"],
@@ -989,6 +1084,7 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
     replay = execute_paid_order_job(operation_id, runner=forbidden_retry)
     assert replay["status"] == "EXECUTED_BLOCKED"
     with database.SessionLocal() as db:
+        database.set_human_gate_tenant_scope(db, ctx["tenant_id"])
         final_job = db.get(CheckoutExecutionJob, operation_id)
         final_nonces = db.scalars(select(HumanGateApprovalNonce).where(
             HumanGateApprovalNonce.tenant_id == ctx["tenant_id"],

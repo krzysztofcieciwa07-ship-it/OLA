@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import uuid
 
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -84,6 +85,25 @@ class PostgresApprovalNonceLedger:
             raise ValueError("envelope_sha256 must be a lowercase SHA-256 digest")
         if not isinstance(consumed_at, int) or isinstance(consumed_at, bool) or consumed_at <= 0:
             raise ValueError("consumed_at must be a positive integer timestamp")
+
+        try:
+            current_scope = db.execute(
+                text("SELECT current_setting('ola.human_gate_tenant_id', true)")
+            ).scalar_one_or_none()
+            if current_scope not in (None, "", tenant_id):
+                raise ApprovalNonceLedgerUnavailable(
+                    "Human Gate nonce ledger tenant scope cannot change within this transaction"
+                )
+            db.execute(
+                text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+                {"tenant_id": tenant_id},
+            )
+        except ApprovalNonceLedgerUnavailable:
+            raise
+        except SQLAlchemyError:
+            raise ApprovalNonceLedgerUnavailable(
+                "Human Gate nonce ledger tenant scope could not be established"
+            ) from None
 
         statement = (
             pg_insert(HumanGateApprovalNonce)
