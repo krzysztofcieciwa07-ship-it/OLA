@@ -1,6 +1,6 @@
 {
   "schema_version": "ola-open-work-inventory-v1",
-  "snapshot_at": "2026-11-22T16:37:24Z",
+  "snapshot_at": "2026-11-22T16:38:30Z",
   "repository": "krzysztofcieciwa07-ship-it/OLA",
   "default_branch": "main",
   "main_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
@@ -9,18 +9,18 @@
   "pagination": {
     "pull_pages": [
       100,
-      24
+      25
     ],
     "issue_endpoint_pages": [
       100,
-      50
+      51
     ],
     "complete": true
   },
   "counts": {
-    "open_prs": 124,
+    "open_prs": 125,
     "open_non_pr_issues": 26,
-    "issue_endpoint_objects": 150
+    "issue_endpoint_objects": 151
   },
   "limitations": [
     "Metadata-only snapshot; not CI, review, merge, environment, or production approval.",
@@ -28,6 +28,19 @@
     "SKIPPED, missing, pending and stale evidence are never PASS."
   ],
   "pull_requests": [
+    {
+      "number": 305,
+      "title": "docs(governance): evidence package for Issue 150 effective main protection",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
+      "head": "evidence/issue-150-effective-main-governance-20261122-1637",
+      "head_sha": "2a764027e3c1cbfc2a6861710dd66d147f63e757",
+      "updated_at": "2026-11-22T16:39:01Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/305"
+    },
     {
       "number": 303,
       "title": "docs: prepare Issue 292 disposable staging evidence plan",
@@ -244,8 +257,8 @@
       "base": "main",
       "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
       "head": "docs/ola-operational-handoff-20261121",
-      "head_sha": "90ecd6411f838725533aec4ab3f798a47d85ac93",
-      "updated_at": "2026-11-22T16:36:11Z",
+      "head_sha": "6b62358bc06eb3a150febe3d0b7ee76552596459",
+      "updated_at": "2026-11-22T16:37:49Z",
       "labels": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/277"
     },
@@ -1733,10 +1746,11 @@
       "number": 301,
       "title": "P0: align paid-order PostgreSQL producer trigger with final gate requirements",
       "state": "open",
-      "updated_at": "2026-11-22T16:35:08Z",
+      "updated_at": "2026-11-22T16:38:36Z",
       "labels": [
         "P0",
-        "security"
+        "security",
+        "human-gate:required"
       ],
       "assignees": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/301"
@@ -1745,10 +1759,11 @@
       "number": 296,
       "title": "P1: establish independent CODEOWNERS and protected-main review gates",
       "state": "open",
-      "updated_at": "2026-11-22T16:06:13Z",
+      "updated_at": "2026-11-22T16:38:33Z",
       "labels": [
         "security",
-        "P1"
+        "P1",
+        "human-gate:required"
       ],
       "assignees": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/296"
@@ -1757,10 +1772,11 @@
       "number": 292,
       "title": "P0: deliver operator-facing signed Human Gate and staging acceptance flow",
       "state": "open",
-      "updated_at": "2026-11-22T16:09:32Z",
+      "updated_at": "2026-11-22T16:38:35Z",
       "labels": [
         "P0",
-        "security"
+        "security",
+        "human-gate:required"
       ],
       "assignees": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/292"
@@ -1879,8 +1895,12 @@
       "number": 150,
       "title": "Security governance: verify effective main-branch ruleset and independent review enforcement",
       "state": "open",
-      "updated_at": "2026-11-22T14:24:17Z",
-      "labels": [],
+      "updated_at": "2026-11-22T16:39:14Z",
+      "labels": [
+        "security",
+        "P1",
+        "human-gate:required"
+      ],
       "assignees": [],
       "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/150"
     },
