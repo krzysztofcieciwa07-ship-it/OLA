@@ -400,3 +400,20 @@ Continue only dependency-ready implementation/evidence tasks; preserve #301/#296
 
 ### Next action
 Poll only the active exact-source final gates for #277/#305 after state changes; continue dependency-ready independent implementation/review evidence on #284/#285 without treating their skipped checks or missing reviews as acceptance.
+
+
+## run.end — 2026-11-22 16:55 UTC / 17:55 CET
+
+### P1 network-policy cross-path integration
+- Issue #304 remains the single task ID; no duplicate issue was created. It now links PR #298 and PR #285 (PR #285 is stacked on #284) and records the shared acceptance criteria.
+- PR #285 body has exactly one `Human Gate Task: #304` marker. Current exact head: `557c9328b0e3db5af5f1718cfaa9e020b71c7ca0`. Test-first commit `bcdb3d1cf3a2d5f47a61e580dbedf440dbd1452a` introduced redirect/allowlist tests; implementation commit `cd9872c3cd4a142e62f2de3dffe6e37e5208422d` replaced direct urllib transport with HTTPS host/port validation and `httpx.post(follow_redirects=False)`; test `12a7af61873bb56f233cda4b80b7808924315504` added malformed-URL coverage; fix `557c9328b0e3db5af5f1718cfaa9e020b71c7ca0` catches malformed URL parsing fail-closed.
+- #285 exact-head check-run `45046911424` is **QUEUED** (build-linux). No PASS is claimed. No external provider call was performed by this work.
+- PR #298 / Issue #304 head `87d365e5a5ada21329d8ef8df535483e22bb86ad`: **35 SUCCESS / 2 SKIPPED / 0 pending**; review blocked. PR #284 base head `7c64b5d7d060bd077c892fd6b91ab4d7043ef335`: **35 SUCCESS / 2 SKIPPED**, independent review not proven.
+- Issue #304 was updated with the linked-PR contract and exact-source status. Comments cross-linked the dependency on both PRs. Neither PR was approved or merged.
+
+### Inventory refresh
+- Inventory commit `975dd40ca6b51e1178656f4f4cc02213e185e24f`: **125 open PR / 26 open non-PR Issues / 151 issue-endpoint objects**. Main ref `911c1cedf76dc6139f57b5d893d708b1a92245c6`. Branch-protection read was not performed in this refresh; last verified evidence still says main is unprotected/effective protection UNKNOWN.
+
+### run.end decision
+- No merge, production deployment, shared DB mutation, secret access, permission change, payment or external side effect.
+- #304 status remains IN_PROGRESS / HUMAN_GATE. Next action: poll only #285 exact-head build-linux, inspect its result, and continue from a state change.
