@@ -257,8 +257,13 @@ def verify_paid_order_signed_approval(
     if (
         len(approval_record_rows) != 1
         or approval_record_rows[0]["prev_hash"] != payload["evidence"]["tip_hash"]
+        or not evidence_rows
+        or evidence_rows[-1]["id"] != approval_record_rows[0]["id"]
+        or evidence_rows[-1]["record_hash"] != job.approval_record_hash
     ):
-        raise SignedApprovalRuntimeRejected("signed approval evidence is not appended directly to the approved evidence tip")
+        raise SignedApprovalRuntimeRejected(
+            "signed approval evidence is stale: approval record is not the current tenant evidence tip"
+        )
     if not isinstance(approval_evidence_payload, dict):
         raise SignedApprovalRuntimeRejected("trusted approval evidence payload is invalid")
     if (
