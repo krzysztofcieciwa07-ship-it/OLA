@@ -16,6 +16,21 @@ The additive `human_gate_memberships` table has a unique subject-binding key, co
 
 Membership grants and revocation are **out-of-band admin operations**. The application resolver is read-only. No grant/revoke API or runtime write privilege is introduced here.
 
+
+## Tenant row isolation — PostgreSQL RLS candidate
+
+The membership table is protected by:
+- `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY`;
+- one exact `FOR ALL` policy whose `USING` and `WITH CHECK` predicates bind `tenant_id` to the transaction-local `ola.human_gate_tenant_id` setting;
+- a server-side helper that uses PostgreSQL `set_config(..., true)`, so the tenant context is cleared at transaction end and does not leak through a pooled connection;
+- runtime schema verification that rejects missing/duplicated/semantically different policies and rejects a runtime role that owns the table, is superuser, or has `BYPASSRLS`.
+
+The resolver sets the scope only after the verified token tenant claim equals the canonical resource tenant, and retains an explicit tenant predicate in the SQL query. PostgreSQL tests exercise two tenant rows using the restricted runtime role: no scope returns zero rows, tenant A sees only A, tenant B sees only B, a primary-key lookup cannot cross tenants, and a committed transaction does not leak its local setting.
+
+**Trust boundary:** a custom GUC is transaction context, not a cryptographic identity. A database role able to execute arbitrary SQL can call `set_config` itself. This RLS policy is a database-enforced guard against omitted tenant predicates and accidental cross-tenant queries; it does not independently contain arbitrary SQL execution under a compromised runtime credential. SQL injection prevention, least-privilege grants, non-owner/non-`BYPASSRLS` runtime role, and independent review remain required.
+
+The RLS change is an additive migration candidate only. Runtime startup verifies the schema and fails closed; it does not run DDL. No production migration, grant change, or staging database mutation is authorized by this PR.
+
 ## Tests
 
 SQLite-isolated tests cover current role resolution, tenant-claim mismatch, missing membership, role mismatch, revocation, invalid role, fingerprint-key ID binding and absence of raw subject storage.
