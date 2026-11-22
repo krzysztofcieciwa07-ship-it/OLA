@@ -243,3 +243,23 @@ def test_chat_fails_closed_when_evidence_writer_is_unavailable(monkeypatch):
     monkeypatch.setattr("app.main.append_record", broken_append)
     with pytest.raises(RuntimeError, match="simulated evidence writer outage"):
         _chat(tenant_id)
+
+
+def test_chat_blocks_malformed_endpoint_without_network_call(monkeypatch):
+    tenant_id = _seed_tenant()
+    monkeypatch.setenv("OPENAI_API_KEY", "test-only-placeholder")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://[broken/v1")
+    monkeypatch.setenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com")
+
+    def unexpected_post(*args, **kwargs):
+        raise AssertionError("network call must not occur")
+
+    monkeypatch.setattr("app.chat_runtime.httpx.post", unexpected_post)
+    response = _chat(tenant_id)
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "BLOCK"
+    assert result["reason"] == "OPENAI_BASE_URL is not an approved HTTPS LLM endpoint"
+
+    payload = _one_evidenced_record(tenant_id, result, "decision.chat")
+    assert payload["decision"] == "BLOCK"
