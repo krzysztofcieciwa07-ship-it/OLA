@@ -1,0 +1,1985 @@
+{
+  "schema_version": "ola-open-work-inventory-v1",
+  "snapshot_at": "2026-11-22T15:24:18.130Z",
+  "repository": "krzysztofcieciwa07-ship-it/OLA",
+  "default_branch": "main",
+  "main_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
+  "source": "GitHub REST API; paginated state=open inventory",
+  "pagination": {
+    "pull_pages": [
+      100,
+      24
+    ],
+    "issue_endpoint_pages": [
+      100,
+      49
+    ],
+    "complete": true
+  },
+  "counts": {
+    "open_prs": 124,
+    "open_non_pr_issues": 25,
+    "issue_endpoint_objects": 149
+  },
+  "limitations": [
+    "Metadata-only snapshot; not CI, review, merge, environment, or production approval.",
+    "Refetch exact HEAD, reviews, check-runs and dependency graph before every action.",
+    "SKIPPED, missing, pending and stale evidence are never PASS."
+  ],
+  "pull_requests": [
+    {
+      "number": 303,
+      "title": "docs: prepare Issue 292 disposable staging evidence plan",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
+      "head": "docs/issue-292-staging-evidence-plan-20261122",
+      "head_sha": "f90b801e840ba1690a4c0b25b0188fe4cfa3e460",
+      "updated_at": "2026-11-22T15:08:07Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/303"
+    },
+    {
+      "number": 300,
+      "title": "P1: require independent write-enabled CODEOWNERS for main protection",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
+      "head": "security/independent-codeowners-required-20261122",
+      "head_sha": "90ec1bd8611dcf3f036fe7d9ef1eb91b3f1a3728",
+      "updated_at": "2026-11-22T15:21:40Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/300"
+    },
+    {
+      "number": 299,
+      "title": "P1: bound signed-approval request body before JSON parsing",
+      "state": "open",
+      "draft": true,
+      "base": "security/signed-human-approval-ingress-20261122",
+      "base_sha": "7780fdfad0fd596dd8534ac0eeca384ebc721eda",
+      "head": "security/signed-approval-body-limit-20261122",
+      "head_sha": "ba6fc256970f83edb3915d704fd192eeecaae4fb",
+      "updated_at": "2026-11-22T15:18:57Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/299"
+    },
+    {
+      "number": 298,
+      "title": "security: scope LLM endpoint allowlists to ports and disable redirects",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
+      "head": "security/llm-endpoint-port-redirect-allowlist-20261122",
+      "head_sha": "87d365e5a5ada21329d8ef8df535483e22bb86ad",
+      "updated_at": "2026-11-22T13:23:35Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/298"
+    },
+    {
+      "number": 297,
+      "title": "security: tenant-scope durable Human Gate approval nonce ledger",
+      "state": "open",
+      "draft": true,
+      "base": "security/human-gate-approval-nonce-ledger-20261122",
+      "base_sha": "b866c13c97247ab10888aa97011968dcfed5334f",
+      "head": "security/human-gate-approval-nonce-tenant-rls-20261122",
+      "head_sha": "5473a1b932691749dae608aa592d2808b41dae65",
+      "updated_at": "2026-11-22T15:18:10Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/297"
+    },
+    {
+      "number": 295,
+      "title": "ci: scope final evidence to main and run staging on main pushes",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
+      "head": "fix/staging-rehearsal-main-push-trigger-20261122",
+      "head_sha": "9a37726ca1257b4bb1d295b7d6e5e961d87d8174",
+      "updated_at": "2026-11-22T07:36:37Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/295"
+    },
+    {
+      "number": 290,
+      "title": "security: bind signed Human Gate approval intake to live OIDC reviewer session",
+      "state": "open",
+      "draft": true,
+      "base": "security/paid-order-worker-requires-signed-approval-20261122",
+      "base_sha": "fc6bd5da92ac218d005a4d185ca973cc88eb2f4d",
+      "head": "security/signed-human-approval-ingress-20261122",
+      "head_sha": "7780fdfad0fd596dd8534ac0eeca384ebc721eda",
+      "updated_at": "2026-11-22T15:18:50Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/290"
+    },
+    {
+      "number": 289,
+      "title": "security: require signed Human Gate approval at paid-order execution boundary",
+      "state": "open",
+      "draft": true,
+      "base": "security/human-gate-approval-nonce-tenant-rls-20261122",
+      "base_sha": "5473a1b932691749dae608aa592d2808b41dae65",
+      "head": "security/paid-order-worker-requires-signed-approval-20261122",
+      "head_sha": "fc6bd5da92ac218d005a4d185ca973cc88eb2f4d",
+      "updated_at": "2026-11-22T15:18:42Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/289"
+    },
+    {
+      "number": 288,
+      "title": "security: add dedicated durable Human Gate approval nonce ledger",
+      "state": "open",
+      "draft": true,
+      "base": "security/readonly-human-gate-membership-db-privileges-20261122",
+      "base_sha": "3ce20901871bac7c277998385cc68d1ebfeef834",
+      "head": "security/human-gate-approval-nonce-ledger-20261122",
+      "head_sha": "b866c13c97247ab10888aa97011968dcfed5334f",
+      "updated_at": "2026-11-22T15:18:02Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/288"
+    },
+    {
+      "number": 287,
+      "title": "security: enforce read-only runtime access to Human Gate memberships",
+      "state": "open",
+      "draft": true,
+      "base": "feat/human-gate-membership-binding-v1-20261122",
+      "base_sha": "235cb13ed28d16b321b27b0e78a830c8c7f2d6c2",
+      "head": "security/readonly-human-gate-membership-db-privileges-20261122",
+      "head_sha": "3ce20901871bac7c277998385cc68d1ebfeef834",
+      "updated_at": "2026-11-22T15:17:55Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/287"
+    },
+    {
+      "number": 286,
+      "title": "P0: enforce capability vouchers at OLA execution boundaries",
+      "state": "open",
+      "draft": true,
+      "base": "feat/postgres-capability-replay-v1-20261122",
+      "base_sha": "688fc9055f809eb26ea79c032beac295dc3275ad",
+      "head": "fix/capability-voucher-runtime-integration-20261122",
+      "head_sha": "4fd30de0de10c28ef1605758a1d5e8372ddde622",
+      "updated_at": "2026-11-22T07:11:34Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/286"
+    },
+    {
+      "number": 285,
+      "title": "fix: make NINA chat outcomes tenant-evidenced and unverified",
+      "state": "open",
+      "draft": true,
+      "base": "feat/nina-execution-steps-proof-ui",
+      "base_sha": "7c64b5d7d060bd077c892fd6b91ab4d7043ef335",
+      "head": "fix/nina-chat-evidence-semantics-20261122",
+      "head_sha": "fe674c18c1b785a9df2229581741457d34e0ff13",
+      "updated_at": "2026-11-22T12:19:24Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/285"
+    },
+    {
+      "number": 284,
+      "title": "Expose evidence-linked NINA execution steps",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
+      "head": "feat/nina-execution-steps-proof-ui",
+      "head_sha": "7c64b5d7d060bd077c892fd6b91ab4d7043ef335",
+      "updated_at": "2026-11-22T10:44:09Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/284"
+    },
+    {
+      "number": 283,
+      "title": "P0: add shared PostgreSQL capability replay ledger",
+      "state": "open",
+      "draft": true,
+      "base": "p0-capability-broker-pr273",
+      "base_sha": "6d8011717dd63c7df8442b5009f718ada6582aee",
+      "head": "feat/postgres-capability-replay-v1-20261122",
+      "head_sha": "688fc9055f809eb26ea79c032beac295dc3275ad",
+      "updated_at": "2026-11-22T07:11:36Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/283"
+    },
+    {
+      "number": 282,
+      "title": "P0: add read-only OIDC tenant membership resolver",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "911c1cedf76dc6139f57b5d893d708b1a92245c6",
+      "head": "feat/human-gate-membership-binding-v1-20261122",
+      "head_sha": "235cb13ed28d16b321b27b0e78a830c8c7f2d6c2",
+      "updated_at": "2026-11-22T15:17:47Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/282"
+    },
+    {
+      "number": 281,
+      "title": "fix(ci): make PostgreSQL contract trigger reliable and preserve main CI",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
+      "head": "fix/ci-trigger-coverage-current-main-20261121",
+      "head_sha": "3a354a6767d624c3007f609c81b6f636b6863a7b",
+      "updated_at": "2026-11-22T00:11:04Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/281"
+    },
+    {
+      "number": 277,
+      "title": "docs(continuity): add operational handoff and complete open-work index",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
+      "head": "docs/ola-operational-handoff-20261121",
+      "head_sha": "77cca0985a3b20d6d9163a4e87b106b859aa851f",
+      "updated_at": "2026-11-22T15:09:19Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/277"
+    },
+    {
+      "number": 274,
+      "title": "Add tenant-scoped run filtering to evidence API",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
+      "head": "integration/admin-run-evidence-20261120",
+      "head_sha": "58941d249c843a585a326259a34fd1f46f86cc57",
+      "updated_at": "2026-11-22T00:11:02Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/274"
+    },
+    {
+      "number": 273,
+      "title": "P0 — Capability voucher prototype and MockExecutor contract",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
+      "head": "p0-capability-broker-pr273",
+      "head_sha": "6d8011717dd63c7df8442b5009f718ada6582aee",
+      "updated_at": "2026-11-22T00:16:41Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/273"
+    },
+    {
+      "number": 272,
+      "title": "P0 audit: consolidate writer universe, infrastructure attestation and telemetry verifier",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
+      "head": "audit/p0-writer-universe-telemetry-verifier-2026-11-20",
+      "head_sha": "157b818f8a980486ffff5a36ad3846e83db2ebab",
+      "updated_at": "2026-11-22T15:09:13Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/272"
+    },
+    {
+      "number": 268,
+      "title": "feat(panel): expose live health and tenant evidence ledger",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "feat/panel-health-ledger-20261120",
+      "head_sha": "85ebc04fb7337888c810b158b10128735a752162",
+      "updated_at": "2026-11-21T15:00:27Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/268"
+    },
+    {
+      "number": 267,
+      "title": "Reduce repeated Evidence payload parsing and keyring loads",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "fix/evidence-verify-reuse-20261120",
+      "head_sha": "1dbd06474ead213475cd058f7c036a2e70afaaad",
+      "updated_at": "2026-11-22T08:42:11Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/267"
+    },
+    {
+      "number": 265,
+      "title": "Scaffold non-custodial crypto payment monitor",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "feat/noncustodial-crypto-payment-monitor",
+      "head_sha": "42ba5be3924d7901099e899790e13afbcfbca155",
+      "updated_at": "2026-11-20T02:51:46Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/265"
+    },
+    {
+      "number": 263,
+      "title": "docs(portfolio): refresh repository catalog and metadata status",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "docs/portfolio-catalog-refresh-20261118",
+      "head_sha": "f28b12c56ee899c0cb4742bd26f97a9b0f4870e5",
+      "updated_at": "2026-11-19T08:14:18Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/263"
+    },
+    {
+      "number": 262,
+      "title": "integration: unify exact-SHA watchdog, release attestations and CI alerts",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "integration/watchdog-attestation-notifier-20261118",
+      "head_sha": "9d58e00a99d8ef23b555c14fb5d1b30a23d04864",
+      "updated_at": "2026-11-21T14:59:56Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/262"
+    },
+    {
+      "number": 256,
+      "title": "fix(nina): harden sandbox output and planner JSON contracts",
+      "state": "open",
+      "draft": true,
+      "base": "feat/nina-vercel-sandbox-adapter-20261117-main",
+      "base_sha": "4ffd30a051543720c3391b379b89be5016f6be48",
+      "head": "fix/nina-sandbox-contracts-stacked-2026-11-18",
+      "head_sha": "1572371636ca5ca65b7e93810dfd401b3bebe579",
+      "updated_at": "2026-11-21T15:00:31Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/256"
+    },
+    {
+      "number": 254,
+      "title": "docs(governance): complete agent profiles, license and evidence gates",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "docs/decision-profiles-governance-20261117",
+      "head_sha": "f5967c51308df823dfa1e94e28af8a9b3b27cb1b",
+      "updated_at": "2026-11-21T15:00:22Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/254"
+    },
+    {
+      "number": 252,
+      "title": "feat(nina): integrate bounded Vercel Sandbox adapter",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "feat/nina-vercel-sandbox-adapter-20261117-main",
+      "head_sha": "4ffd30a051543720c3391b379b89be5016f6be48",
+      "updated_at": "2026-11-21T15:00:29Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/252"
+    },
+    {
+      "number": 250,
+      "title": "fix(security): enforce monotonic Evidence V4 cutover and readiness",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "fix/evidence-v4-cutover-readiness-20261117",
+      "head_sha": "f2ca309047400cf68b7ed7f900923568a1afa404",
+      "updated_at": "2026-11-21T14:59:27Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/250"
+    },
+    {
+      "number": 246,
+      "title": "security: disable automatic CodeQL source exceptions",
+      "state": "open",
+      "draft": false,
+      "base": "fix/postgres-tenant-rls-context-20261113",
+      "base_sha": "c46b469836fc841638654850158c82d728164f3c",
+      "head": "security/codeql-exception-policy-hardening-20261117",
+      "head_sha": "179e3f84d1af13a136be841d7e9784ac8fc31772",
+      "updated_at": "2026-11-17T04:28:39Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/246"
+    },
+    {
+      "number": 244,
+      "title": "security: integrate E2.2 trusted PostgreSQL tenant context on current E2.1",
+      "state": "open",
+      "draft": true,
+      "base": "fix/postgres-tenant-rls-context-20261113",
+      "base_sha": "c46b469836fc841638654850158c82d728164f3c",
+      "head": "security/e2-2-trusted-context-20261117",
+      "head_sha": "d08faee24de92d50312c031bdb818aa3f8dc546e",
+      "updated_at": "2026-11-17T02:50:10Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/244"
+    },
+    {
+      "number": 237,
+      "title": "security: consolidate E2.2 trusted PostgreSQL tenant context on current main",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "security/e2-2-tenant-context-implementation-20261116",
+      "head_sha": "60d59508431a4ce66bf94ce7185e7f5e196ec406",
+      "updated_at": "2026-11-21T14:59:49Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/237"
+    },
+    {
+      "number": 233,
+      "title": "fix: enforce PostgreSQL tenant RLS and scoped API-key auth",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "bac2fcd2711b7d7a98d429b299a8933988ed6747",
+      "head": "fix/postgres-tenant-rls-context-20261113",
+      "head_sha": "c46b469836fc841638654850158c82d728164f3c",
+      "updated_at": "2026-11-17T02:50:06Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/233"
+    },
+    {
+      "number": 230,
+      "title": "docs(product): establish OLA Integrity Layer Decision Charter v1.0",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "e0b5ca8eefb58cb151f2dddf61552c201bacabad",
+      "head": "product/ola-integrity-decision-charter-v1",
+      "head_sha": "01f1ccdbbbd466abec2420be3c4b3ab56f130f52",
+      "updated_at": "2026-11-21T15:00:25Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/230"
+    },
+    {
+      "number": 228,
+      "title": "feat: add OLA Integrity Layer Decision Charter and DORA Evidence Manifest v0.1",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "e0b5ca8eefb58cb151f2dddf61552c201bacabad",
+      "head": "feat/ola-dora-audit-pack-v0.1-20261112",
+      "head_sha": "38c8dd1dca551ba124d15335ea171284a5652038",
+      "updated_at": "2026-11-21T15:00:23Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/228"
+    },
+    {
+      "number": 227,
+      "title": "security: add OCI digest-bound release attestation gate",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "e0b5ca8eefb58cb151f2dddf61552c201bacabad",
+      "head": "security/oci-release-chain-20261112",
+      "head_sha": "5fe999467b26995c3ad9147f7a9952c33be52812",
+      "updated_at": "2026-11-21T14:59:58Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/227"
+    },
+    {
+      "number": 222,
+      "title": "chore(deps): bump pytest from 9.0.3 to 9.2.0",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "dependabot/pip/pytest-9.2.0",
+      "head_sha": "e0a8480e266384a467e8277745524d07f25cc506",
+      "updated_at": "2026-11-21T02:15:57Z",
+      "labels": [
+        "dependencies",
+        "python"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/222"
+    },
+    {
+      "number": 221,
+      "title": "chore(deps): bump fastapi from 0.142.2 to 0.162.2",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "dependabot/pip/fastapi-0.162.0",
+      "head_sha": "14efb45845d32cb73c45f1040d177b864ff772b0",
+      "updated_at": "2026-11-17T06:31:49Z",
+      "labels": [
+        "dependencies",
+        "python"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/221"
+    },
+    {
+      "number": 220,
+      "title": "chore(deps): bump msgpack from 1.2.3 to 1.2.4",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "dependabot/pip/msgpack-1.2.4",
+      "head_sha": "11eb21d148db5dca19e71f1d28a37dea2b57bb4a",
+      "updated_at": "2026-11-17T06:31:46Z",
+      "labels": [
+        "dependencies",
+        "python"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/220"
+    },
+    {
+      "number": 219,
+      "title": "chore(deps): bump setuptools from 84.1.0 to 84.2.1",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "b3c649f8412fee9b0554863a9bba60fbe7d01550",
+      "head": "dependabot/pip/setuptools-84.2.1",
+      "head_sha": "6e0114c4e272a8135bd0b2f8220e43fce76504a1",
+      "updated_at": "2026-11-21T20:35:37Z",
+      "labels": [
+        "dependencies",
+        "python"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/219"
+    },
+    {
+      "number": 218,
+      "title": "chore(deps): bump github/codeql-action/analyze from 4.37.4 to 4.39.3",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "5e60c800b8135ad51aee6786396202e0c22d800e",
+      "head": "dependabot/github_actions/github/codeql-action/analyze-4.39.3",
+      "head_sha": "aca90d07c7110a03541075dd7513c28bd6b33107",
+      "updated_at": "2026-11-11T14:11:29Z",
+      "labels": [
+        "dependencies",
+        "github_actions"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/218"
+    },
+    {
+      "number": 217,
+      "title": "chore(deps): bump sqlalchemy from 2.1.1 to 2.1.8",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "dependabot/pip/sqlalchemy-2.1.8",
+      "head_sha": "a104b595312a35ae2f72a5911c5e10a0532bac8d",
+      "updated_at": "2026-11-17T06:31:49Z",
+      "labels": [
+        "dependencies",
+        "python"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/217"
+    },
+    {
+      "number": 216,
+      "title": "chore(deps): bump anchore/sbom-action from 0.24.2 to 0.24.3",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "5e60c800b8135ad51aee6786396202e0c22d800e",
+      "head": "dependabot/github_actions/anchore/sbom-action-0.24.3",
+      "head_sha": "1e3db14493a244013e89774ad1ecd2f4ae081e70",
+      "updated_at": "2026-11-11T14:11:21Z",
+      "labels": [
+        "dependencies",
+        "github_actions"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/216"
+    },
+    {
+      "number": 215,
+      "title": "chore(deps): bump actions/checkout from 4.2.2 to 7.0.1",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "dependabot/github_actions/actions/checkout-7.0.1",
+      "head_sha": "5832f86772a1dc90f681dab8e58dbd3c041a1939",
+      "updated_at": "2026-11-17T06:31:40Z",
+      "labels": [
+        "dependencies",
+        "github_actions"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/215"
+    },
+    {
+      "number": 214,
+      "title": "chore(deps): bump actions/upload-artifact from 7.0.1 to 7.0.2",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "8adf30cd5e41a18a5345f66e67f5ddcdbc164862",
+      "head": "dependabot/github_actions/actions/upload-artifact-7.0.2",
+      "head_sha": "350dec7652943fb22b0322ff321f67a6a01527d2",
+      "updated_at": "2026-11-17T06:31:34Z",
+      "labels": [
+        "dependencies",
+        "github_actions"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/214"
+    },
+    {
+      "number": 213,
+      "title": "chore(deps): bump ossf/scorecard-action from 2.4.4 to 2.5.0",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "5e60c800b8135ad51aee6786396202e0c22d800e",
+      "head": "dependabot/github_actions/ossf/scorecard-action-2.5.0",
+      "head_sha": "b64ae8b85322907cf0a5619a191e9632a71be819",
+      "updated_at": "2026-11-11T14:11:09Z",
+      "labels": [
+        "dependencies",
+        "github_actions"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/213"
+    },
+    {
+      "number": 210,
+      "title": "feat: add manifest-backed OLA specialist registry",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "0049098994836ad7998b1226f79190f0cc2e1056",
+      "head": "feat/zbook-agent-catalog-task-1",
+      "head_sha": "e9b98fb51995b80c60e78e9cdb3386b8135b16f4",
+      "updated_at": "2026-11-11T09:50:48Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/210"
+    },
+    {
+      "number": 205,
+      "title": "[WIP] Implement ZBook-local OLA agent runtime",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "0049098994836ad7998b1226f79190f0cc2e1056",
+      "head": "spec/zbook-local-agent-runtime-20261110",
+      "head_sha": "14ecec990342b7ebf673fe233266b12f47f95c67",
+      "updated_at": "2026-11-17T05:48:39Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/205"
+    },
+    {
+      "number": 203,
+      "title": "fix(revenue): distinguish report response from client acknowledgement",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "271ba2c72bb4dea1de9f6b850dcaeddd6b8c3280",
+      "head": "fix/report-client-ack-20261110",
+      "head_sha": "9819810f2cf929dc383e4b058253f473e3a3d13e",
+      "updated_at": "2026-11-11T01:37:39Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/203"
+    },
+    {
+      "number": 202,
+      "title": "test: reject unpaired surrogate before secure bridge nonce reservation",
+      "state": "open",
+      "draft": true,
+      "base": "integration/ola-first-five-closure-20261106",
+      "base_sha": "8e56b33df9a3e2806f3709fca90b07e4e595d28f",
+      "head": "fix/secure-bridge-utf8-validation-20261110",
+      "head_sha": "d93c83920e67c4a476331ba3b6c487f4f9d0425a",
+      "updated_at": "2026-11-10T12:59:59Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/202"
+    },
+    {
+      "number": 201,
+      "title": "fix(runtime): harden agent execution and evidence boundaries",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "271ba2c72bb4dea1de9f6b850dcaeddd6b8c3280",
+      "head": "fix/agent-runtime-hardening-20261110",
+      "head_sha": "45255bfa2bd77db0c12448c49bcdb3c2069ee097",
+      "updated_at": "2026-11-10T03:44:58Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/201"
+    },
+    {
+      "number": 200,
+      "title": "feat(security): add authenticated Ed25519 agent invocation bridge",
+      "state": "open",
+      "draft": true,
+      "base": "integration/ola-first-five-closure-20261106",
+      "base_sha": "8e56b33df9a3e2806f3709fca90b07e4e595d28f",
+      "head": "feat/secure-agent-bridge-ed25519-20261109",
+      "head_sha": "7d326f678a8729eb7f2cdb8a9070b11c50f89eff",
+      "updated_at": "2026-11-10T13:13:23Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/200"
+    },
+    {
+      "number": 199,
+      "title": "governance: establish CyFun 2025 high-trust portfolio baseline",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "fe32bf8c9710c4c04308ad17f1876fa4f80c01a2",
+      "head": "governance/cyfun-2025-portfolio-hardening-20261109",
+      "head_sha": "d79b9456318b3b2922af13ce020aebf18f1ebba6",
+      "updated_at": "2026-11-22T07:11:55Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/199"
+    },
+    {
+      "number": 198,
+      "title": "feat: add tenant-scoped Ed25519 Merkle evidence checkpoints",
+      "state": "open",
+      "draft": true,
+      "base": "integration/ola-first-five-closure-20261106",
+      "base_sha": "8e56b33df9a3e2806f3709fca90b07e4e595d28f",
+      "head": "feat/evidence-merkle-checkpoints-20261109",
+      "head_sha": "2b46a5cbd6acba718f9de88aeb9730ce44858883",
+      "updated_at": "2026-11-09T05:23:50Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/198"
+    },
+    {
+      "number": 197,
+      "title": "feat: add Certificate Apocalypse chaos scenario and DSL v0",
+      "state": "open",
+      "draft": true,
+      "base": "integration/ola-first-five-closure-20261106",
+      "base_sha": "8e56b33df9a3e2806f3709fca90b07e4e595d28f",
+      "head": "feat/chaos-certificate-apocalypse-v0-20261109",
+      "head_sha": "2d6057d2a666dbe0c9c8797ede0ec189cdf4f66a",
+      "updated_at": "2026-11-09T16:45:10Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/197"
+    },
+    {
+      "number": 195,
+      "title": "feat(staging): one-time BFF API-key bootstrap",
+      "state": "open",
+      "draft": true,
+      "base": "fix/railway-docker-source-sha-20261108",
+      "base_sha": "59320326e29d2294eae9af6044fd9a697c085a23",
+      "head": "feat/ola-staging-bootstrap-20261108",
+      "head_sha": "393cc56dcd8c1a749cf11d4306d1e247144139cb",
+      "updated_at": "2026-11-10T13:31:10Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/195"
+    },
+    {
+      "number": 194,
+      "title": "feat(ola): add protected staging console and server-side BFF",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "6dff9c43ccd5a6892a50d1f59363d232b07ceafb",
+      "head": "feat/ola-staging-console-bff-20261108",
+      "head_sha": "957e1ba7f8bf40dabc27630f694ce3c6eafeeffc",
+      "updated_at": "2026-11-09T03:25:43Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/194"
+    },
+    {
+      "number": 193,
+      "title": "chore(vercel): harden static revenue preview",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "6dff9c43ccd5a6892a50d1f59363d232b07ceafb",
+      "head": "chore/vercel-revenue-preview-hardening-20261108",
+      "head_sha": "1f7658438c161e92e6a8fcd6e77a3fb89ac6f116",
+      "updated_at": "2026-11-08T20:11:41Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/193"
+    },
+    {
+      "number": 192,
+      "title": "fix(build): bind Railway Docker image to exact Git source SHA",
+      "state": "open",
+      "draft": true,
+      "base": "fix/strict-payment-source-readiness-20261108",
+      "base_sha": "9485fd7a095b6bf945082c0d4cfdffb26aa4426b",
+      "head": "fix/railway-docker-source-sha-20261108",
+      "head_sha": "59320326e29d2294eae9af6044fd9a697c085a23",
+      "updated_at": "2026-11-08T20:40:30Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/192"
+    },
+    {
+      "number": 191,
+      "title": "fix: require immutable build identity for payment readiness",
+      "state": "open",
+      "draft": true,
+      "base": "integration/ola-first-five-closure-20261106",
+      "base_sha": "8e56b33df9a3e2806f3709fca90b07e4e595d28f",
+      "head": "fix/strict-payment-source-readiness-20261108",
+      "head_sha": "9485fd7a095b6bf945082c0d4cfdffb26aa4426b",
+      "updated_at": "2026-11-08T17:02:44Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/191"
+    },
+    {
+      "number": 190,
+      "title": "feat: add OIDC Human Gate and signed customer delivery",
+      "state": "open",
+      "draft": true,
+      "base": "integration/ola-first-five-closure-20261106",
+      "base_sha": "8e56b33df9a3e2806f3709fca90b07e4e595d28f",
+      "head": "feat/oidc-human-gate-customer-bundle-20261107",
+      "head_sha": "fbe2a19dc6c0a2a948f0a311cd7f91b798b97e07",
+      "updated_at": "2026-11-22T07:07:49Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/190"
+    },
+    {
+      "number": 168,
+      "title": "Add a verifiable runtime audit sample to the OLA offer",
+      "state": "open",
+      "draft": true,
+      "base": "fix/nina-human-gate-proof-20261103",
+      "base_sha": "8d56460f9f77ac8070eb4d21af9a71a7173e3758",
+      "head": "audit/portable-runtime-sample-20261104",
+      "head_sha": "0c8fbfdba2cd5db4f15a9d6d99458d2fefb32caf",
+      "updated_at": "2026-11-04T13:16:53Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/168"
+    },
+    {
+      "number": 163,
+      "title": "integration: verify signed OLA↔Vantage against CFR-18 + provenance hardened source",
+      "state": "open",
+      "draft": false,
+      "base": "feat/ola-vantage-signed-gate-20261103",
+      "base_sha": "65b7608eed5b20f54965bbcc3180a1184af48ab8",
+      "head": "integration/vantage-hardened-source-20261103",
+      "head_sha": "b1784ce9232f64cebefe1596ac2787c426d0c489",
+      "updated_at": "2026-11-09T01:14:03Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/163"
+    },
+    {
+      "number": 160,
+      "title": "feat: independently verify signed Vantage decision before guarded OLA execution",
+      "state": "open",
+      "draft": false,
+      "base": "feat/operator-verified-flow-20261103",
+      "base_sha": "cd661fbf9424ee1c7686124f67a24eab3b452ded",
+      "head": "feat/ola-vantage-signed-gate-20261103",
+      "head_sha": "65b7608eed5b20f54965bbcc3180a1184af48ab8",
+      "updated_at": "2026-11-18T13:46:49Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/160"
+    },
+    {
+      "number": 159,
+      "title": "feat: verified operator–NINA–IGOR evidence flow and identity contracts",
+      "state": "open",
+      "draft": false,
+      "base": "feat/core-readiness-20261103",
+      "base_sha": "69ecdee932c74636f8177e5723bbaf2d18d2b805",
+      "head": "feat/operator-verified-flow-20261103",
+      "head_sha": "cd661fbf9424ee1c7686124f67a24eab3b452ded",
+      "updated_at": "2026-11-03T01:40:26Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/159"
+    },
+    {
+      "number": 148,
+      "title": "fix: OLA agent evidence, secure auth fixtures, and executable Python CI",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "f9dce999ec4447d80b23ce5ac6aa5a840f7e6144",
+      "head": "fix/agent-run-scrypt-fixture-hashlib-20261102",
+      "head_sha": "896741988374d20de80b46350a3c541e50d0f42c",
+      "updated_at": "2026-11-17T00:46:41Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/148"
+    },
+    {
+      "number": 146,
+      "title": "Integrate Aurora fixes and scoped reviewer credential lifecycle",
+      "state": "open",
+      "draft": true,
+      "base": "ui/ola-command-center-live-20261014",
+      "base_sha": "5427b8693ffb7a5490422bdaafead41292239dfc",
+      "head": "codex/integration-20261022",
+      "head_sha": "ed214bf09664e06b71ee08ca08f087249a3a9311",
+      "updated_at": "2026-11-02T14:55:46Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/146"
+    },
+    {
+      "number": 145,
+      "title": "fix(draft): distinguish synthetic audit evidence from verified recovery",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "f9dce999ec4447d80b23ce5ac6aa5a840f7e6144",
+      "head": "fix/audit-simulation-truthfulness-20261101",
+      "head_sha": "0cd92a9b193264814cc3ed93c0a4baf735bd93e2",
+      "updated_at": "2026-11-01T09:07:13Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/145"
+    },
+    {
+      "number": 144,
+      "title": "security(draft): integrated OLA truth runtime + paid admission + signed delivery (NO_GO)",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "f9dce999ec4447d80b23ce5ac6aa5a840f7e6144",
+      "head": "fix/ola-truth-security-admission-20261101",
+      "head_sha": "481dd08c618b7165cd51932aa26ea0e486f7f5c0",
+      "updated_at": "2026-11-01T04:43:06Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/144"
+    },
+    {
+      "number": 143,
+      "title": "docs(ADR-001): accept AFE/Vantage security boundary, enforce L0 as release policy",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "f9dce999ec4447d80b23ce5ac6aa5a840f7e6144",
+      "head": "docs/adr-001-afe-vantage-20261030",
+      "head_sha": "5d5b1329857d23303451a56050b4caedff1dd872",
+      "updated_at": "2026-10-29T23:07:52Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/143"
+    },
+    {
+      "number": 142,
+      "title": "fix: truth-bound OLA runtime, fail-closed evidence and CI (NO_GO)",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "f9dce999ec4447d80b23ce5ac6aa5a840f7e6144",
+      "head": "fix/agent-run-gate-and-ci-20261028",
+      "head_sha": "c91ad486c037e22a8112ec5fa3f20bad1b09fd00",
+      "updated_at": "2026-11-11T10:04:25Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/142"
+    },
+    {
+      "number": 140,
+      "title": "fix(cfr18): fail-closed worker recovery and live Docker fault evidence",
+      "state": "open",
+      "draft": true,
+      "base": "cfr18-forensic",
+      "base_sha": "a435c711625d05ec5275caa3d6317d1c5dc69896",
+      "head": "fix/cfr18-docker-context-gate-20261027",
+      "head_sha": "810554ec174231c181b436f7058dd6a153acfe3d",
+      "updated_at": "2026-10-27T22:29:16Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/140"
+    },
+    {
+      "number": 139,
+      "title": "fix(draft): record NINA chat denials in trusted Evidence",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "f9dce999ec4447d80b23ce5ac6aa5a840f7e6144",
+      "head": "fix/chat-audit-evidence-20261027-333tests",
+      "head_sha": "240cc8015f800c080b4693787dfa318440284fc4",
+      "updated_at": "2026-10-27T17:53:12Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/139"
+    },
+    {
+      "number": 138,
+      "title": "security(draft): staged Stripe refund/dispute snapshot — no delivery",
+      "state": "open",
+      "draft": true,
+      "base": "fix/business-invoice-admission-20261027",
+      "base_sha": "dc785673432f8cf7589a657745b7f1441382a5a8",
+      "head": "fix/staged-payment-recheck-20261027",
+      "head_sha": "89a1bcf23c78dee869df9cdd6e0f9763d7a50a0c",
+      "updated_at": "2026-10-27T03:24:40Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/138"
+    },
+    {
+      "number": 137,
+      "title": "security(draft): gate invoice demo execution ingress (NO-GO)",
+      "state": "open",
+      "draft": true,
+      "base": "security/delivery-artifact-staging-20261026",
+      "base_sha": "4b2f30994b862aa19b331175aa395f80f19f5549",
+      "head": "fix/business-invoice-admission-20261027",
+      "head_sha": "bf0aa02c206c9bf5e52eb3e03a5cc89056635dc9",
+      "updated_at": "2026-10-27T03:23:28Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/137"
+    },
+    {
+      "number": 136,
+      "title": "security(draft): tenant-bound artifact staging after signed delivery reservation",
+      "state": "open",
+      "draft": true,
+      "base": "security/tenant-bound-payment-status-20261026",
+      "base_sha": "76f2958203a22864395bb2b14ff3f1934e224aa6",
+      "head": "security/delivery-artifact-staging-20261026",
+      "head_sha": "4b2f30994b862aa19b331175aa395f80f19f5549",
+      "updated_at": "2026-10-26T14:03:10Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/136"
+    },
+    {
+      "number": 135,
+      "title": "security(draft): authenticated tenant-scoped payment status with no report disclosure",
+      "state": "open",
+      "draft": true,
+      "base": "integration/release-guarded-flow-20261026",
+      "base_sha": "86a7a3454349f7402accb105135bc1006feb0bb1",
+      "head": "security/tenant-bound-payment-status-20261026",
+      "head_sha": "76f2958203a22864395bb2b14ff3f1934e224aa6",
+      "updated_at": "2026-11-11T10:06:51Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/135"
+    },
+    {
+      "number": 134,
+      "title": "integration(draft): reconcile PR130 /agent-run Safety Gate with Stripe delivery branch",
+      "state": "open",
+      "draft": true,
+      "base": "security/signed-delivery-reservation-20261026",
+      "base_sha": "1cf0b02a2c6074770fcf88048ca8a65802319256",
+      "head": "integration/release-guarded-flow-20261026",
+      "head_sha": "86a7a3454349f7402accb105135bc1006feb0bb1",
+      "updated_at": "2026-10-26T13:35:54Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/134"
+    },
+    {
+      "number": 133,
+      "title": "security(draft): independent signed delivery reservation, no customer dispatch",
+      "state": "open",
+      "draft": true,
+      "base": "security/stripe-fulfillment-admission-20261026",
+      "base_sha": "5871bc866ead75d451cbb611086935eb083f06c7",
+      "head": "security/signed-delivery-reservation-20261026",
+      "head_sha": "1cf0b02a2c6074770fcf88048ca8a65802319256",
+      "updated_at": "2026-10-26T10:34:49Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/133"
+    },
+    {
+      "number": 132,
+      "title": "security(draft): hold Stripe payment before agent execution — fail-closed admission",
+      "state": "open",
+      "draft": true,
+      "base": "fix/revenue-fail-closed-20261024",
+      "base_sha": "5d56aede2f78122e42ebaf08e366560298645cd9",
+      "head": "security/stripe-fulfillment-admission-20261026",
+      "head_sha": "5871bc866ead75d451cbb611086935eb083f06c7",
+      "updated_at": "2026-10-26T10:13:23Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/132"
+    },
+    {
+      "number": 131,
+      "title": "integration(draft): Vantage signed grader → tenant Evidence v2 (fail-closed)",
+      "state": "open",
+      "draft": true,
+      "base": "fix/agent-run-auth-fixture-20261026",
+      "base_sha": "a4bc5164abe2c227a9f82b45cc21c425c04b0db7",
+      "head": "integration/vantage-grade-evidence-20261026",
+      "head_sha": "21cd66b6814aed253d7a96e4a4482352ccf17ad6",
+      "updated_at": "2026-10-26T09:24:41Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/131"
+    },
+    {
+      "number": 130,
+      "title": "fix: restore /agent-run Evidence gate and CI integrity (NO-GO unsigned)",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "f9dce999ec4447d80b23ce5ac6aa5a840f7e6144",
+      "head": "fix/agent-run-auth-fixture-20261026",
+      "head_sha": "a4bc5164abe2c227a9f82b45cc21c425c04b0db7",
+      "updated_at": "2026-10-26T08:53:45Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/130"
+    },
+    {
+      "number": 129,
+      "title": "test: prove real Nina run through API and human gate (#127)",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "f9dce999ec4447d80b23ce5ac6aa5a840f7e6144",
+      "head": "nina-real-e2e",
+      "head_sha": "6f6f3e09cd2af67c58e8924bcf34cc8c42d87c39",
+      "updated_at": "2026-10-26T04:18:27Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/129"
+    },
+    {
+      "number": 122,
+      "title": "feat: opt-in Hugging Face GLM-5.3 provider for NINA and agent runtime",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "integrations/huggingface-glm53-20261025",
+      "head_sha": "65e9310b863ad122811a879b133675fefcc5588e",
+      "updated_at": "2026-10-26T03:23:31Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/122"
+    },
+    {
+      "number": 121,
+      "title": "feat: safe Scrudix export ingestion into OLA evidence",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "feat/scrudix-export-evidence-20261025",
+      "head_sha": "08a027ce074223d38588d9b172c97cab4393e8ee",
+      "updated_at": "2026-11-15T06:54:39Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/121"
+    },
+    {
+      "number": 119,
+      "title": "WIP: revenue fulfillment fail-closed before independent verification",
+      "state": "open",
+      "draft": true,
+      "base": "feat/nina-parallel-dag-engine-20261017",
+      "base_sha": "dde313ba8c2e0db1e5252990d9778bd4f0ad49e3",
+      "head": "fix/revenue-fail-closed-20261024",
+      "head_sha": "5d56aede2f78122e42ebaf08e366560298645cd9",
+      "updated_at": "2026-10-26T09:53:11Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/119"
+    },
+    {
+      "number": 114,
+      "title": "docs(legal): preserve Unlicense truth and establish future OLA licensing controls",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "governance/license-rights-review-20261018",
+      "head_sha": "4d0e464a021135d037e766a80cb1742f73d3a9da",
+      "updated_at": "2026-10-26T03:23:28Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/114"
+    },
+    {
+      "number": 108,
+      "title": "feat: OLA project continuity ledger and cross-chat anti-duplicate guard",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "feat/project-continuity-ledger-20261017",
+      "head_sha": "7c031b40cbf21756520a2ad303da660779c48356",
+      "updated_at": "2026-11-17T00:08:03Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/108"
+    },
+    {
+      "number": 107,
+      "title": "security: integrated production closure — safe key recovery and exact-source gates",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "security/production-closure-integrated-20261016",
+      "head_sha": "60378da7d49c908a9fdb99ad544c559fdc5207e1",
+      "updated_at": "2026-10-26T03:23:26Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/107"
+    },
+    {
+      "number": 106,
+      "title": "Connect AURORA ZBook preview to existing OLA API/Ollama with fail-closed live proof",
+      "state": "open",
+      "draft": true,
+      "base": "work/adr001-bound-review-integration-20261014",
+      "base_sha": "d3737de160492716c67c153002a2b10dce841d34",
+      "head": "integration/aurora-api-engine-zbook-20261016",
+      "head_sha": "7f4162df48c8b030fb9c9ba9382e823232609526",
+      "updated_at": "2026-10-26T03:23:25Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/106"
+    },
+    {
+      "number": 105,
+      "title": "ADR-001: bind source/policy/review and constrain local execution",
+      "state": "open",
+      "draft": false,
+      "base": "ui/ola-command-center-live-20261014",
+      "base_sha": "c78135d49afe519bcda55dfcfc3187e1bbb51cc1",
+      "head": "work/adr001-bound-review-integration-20261014",
+      "head_sha": "d3737de160492716c67c153002a2b10dce841d34",
+      "updated_at": "2026-10-26T03:23:24Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/105"
+    },
+    {
+      "number": 103,
+      "title": "OLA integrated staging — 16/16 CI PASS, signature & production gates NO-GO",
+      "state": "open",
+      "draft": true,
+      "base": "ci/ola-docker-cloud-reviewed-release-20261013",
+      "base_sha": "2507659bf648955f718cdc564cca9772c24f92d9",
+      "head": "ui/ola-command-center-live-20261014",
+      "head_sha": "5427b8693ffb7a5490422bdaafead41292239dfc",
+      "updated_at": "2026-10-26T03:23:24Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/103"
+    },
+    {
+      "number": 102,
+      "title": "ci(security): Docker Build Cloud build-only + manually gated signed image publishing",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "ci/ola-docker-cloud-reviewed-release-20261013",
+      "head_sha": "2507659bf648955f718cdc564cca9772c24f92d9",
+      "updated_at": "2026-10-26T03:23:23Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/102"
+    },
+    {
+      "number": 101,
+      "title": "security: bind Stripe LIVE mode to checkout, webhook and success evidence (NO-GO)",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "security/ola100-stripe-live-mode-guard-20261013",
+      "head_sha": "9641e15bac8369e5b2a369abce85d72d3cdfdf47",
+      "updated_at": "2026-10-26T03:23:22Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/101"
+    },
+    {
+      "number": 100,
+      "title": "DRAFT: owner-sign integration — PR #96 security + #99 Studio + #90 outbox",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "integration/ola96-99-90-owner-sign-20261012",
+      "head_sha": "09b7aaae7091dad36012ac7c8e5ae47ab2d735d1",
+      "updated_at": "2026-10-26T03:23:21Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/100"
+    },
+    {
+      "number": 99,
+      "title": "WIP: Integrate existing AI STUDIO 3.6.0 and OLA AURORA E2E console (main untouched)",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "integration/ai-studio-360-existing-runtime-20261012",
+      "head_sha": "431bcf43185e1a6885e62923c38ca4780fd81ed6",
+      "updated_at": "2026-10-26T03:23:21Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/99"
+    },
+    {
+      "number": 98,
+      "title": "security: serialize Human Gate approval under one evidence transaction",
+      "state": "open",
+      "draft": true,
+      "base": "security/combined-gated-candidate-20261012",
+      "base_sha": "7941bb8faec98510ece0240b912e1f43334c7827",
+      "head": "security/human-gate-atomic-approval-20261012",
+      "head_sha": "37b8c9df7c1053d857785d77db7edacd5e52adb3",
+      "updated_at": "2026-10-26T03:23:20Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/98"
+    },
+    {
+      "number": 97,
+      "title": "security: bind payment success to exact Stripe checkout session",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "security/stripe-session-binding-20261012",
+      "head_sha": "4f45bfbb318663497f2960a231bb331be22e444a",
+      "updated_at": "2026-10-26T03:23:20Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/97"
+    },
+    {
+      "number": 96,
+      "title": "security: integrated NO-GO candidate for signed production closure",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "security/combined-gated-candidate-20261012",
+      "head_sha": "cb22c66f90a6ee257b3a30a9273f0dedaff88224",
+      "updated_at": "2026-10-26T03:23:19Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/96"
+    },
+    {
+      "number": 95,
+      "title": "security: coordinated API key v2 KDF and offline credential rotation",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "security/api-key-v2-cutover-20261012",
+      "head_sha": "17aeb580cc1e7b50d5e5878ca2335100d6cf4ffd",
+      "updated_at": "2026-10-26T03:23:18Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/95"
+    },
+    {
+      "number": 94,
+      "title": "security: verify entire evidence chain and reject replay at Human Gate",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "security/human-approval-integrity-20261012",
+      "head_sha": "9ca60c275497c2d129d303544bb4d1117a7f3b26",
+      "updated_at": "2026-10-26T03:23:17Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/94"
+    },
+    {
+      "number": 93,
+      "title": "security: prevent tenant-generated evidence from forging internal approvals",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "security/evidence-write-boundary-20261012",
+      "head_sha": "d58199104e198cefab4ee5b95938deee98d366a6",
+      "updated_at": "2026-10-26T03:23:17Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/93"
+    },
+    {
+      "number": 92,
+      "title": "security: fail-closed IGOR when results or coherent LLM provenance are missing",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "fix/igor-failclosed-provenance-20261012",
+      "head_sha": "51ff6b3fe7ad5370d65e08e0db99bff15a7de2cc",
+      "updated_at": "2026-10-26T03:23:16Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/92"
+    },
+    {
+      "number": 91,
+      "title": "security: enforce tenant boundary in evidence hash-chain verification",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "fix/tenant-hashchain-isolation-20261012",
+      "head_sha": "543e4acc3a075e53ec999574b26a937e4b0eaba8",
+      "updated_at": "2026-10-26T03:23:15Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/91"
+    },
+    {
+      "number": 90,
+      "title": "WIP: integrate Events & Webhooks with evidence gates",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "integration/events-webhooks-20261012",
+      "head_sha": "69bf46036e4aaa34b5cb491a6321efeaf2284826",
+      "updated_at": "2026-10-26T03:23:15Z",
+      "labels": [
+        "enhancement"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/90"
+    },
+    {
+      "number": 89,
+      "title": "security: restore fail-closed signature verification and production manifest policy",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "1aadf7d2edc5abe345ec1d08a26d5331b51e5bc3",
+      "head": "security/restore-signature-production-gates-20261011",
+      "head_sha": "16e18cb1470ed851f809660c9e1280795f6a8ce3",
+      "updated_at": "2026-10-11T20:37:12Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/89"
+    },
+    {
+      "number": 88,
+      "title": "feat: authenticated OLA console with real task results and evidence",
+      "state": "open",
+      "draft": true,
+      "base": "integration/all-ola-20261010",
+      "base_sha": "de97939a531b07e49fa89fec5ffa653390f4aba4",
+      "head": "feat/verified-console-20261011",
+      "head_sha": "951c783fcb8c315d1d2463b527fe0cf36296955b",
+      "updated_at": "2026-10-11T17:40:06Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/88"
+    },
+    {
+      "number": 86,
+      "title": "feat: public-source CVE intelligence adapter (CISA KEV + FIRST EPSS)",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "feat/public-threat-intelligence-20261011",
+      "head_sha": "61e0d62152ffe57a99c0b16e74d949522d4f687a",
+      "updated_at": "2026-10-11T04:42:26Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/86"
+    },
+    {
+      "number": 85,
+      "title": "Security: reject malformed replay evidence records",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "hardening/replay-record-validation-20261011",
+      "head_sha": "fd38ac24d340fb6bb63c30a598754e31eb3c7764",
+      "updated_at": "2026-10-11T01:31:28Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/85"
+    },
+    {
+      "number": 84,
+      "title": "Security: strict human approval validation (fail closed)",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "hardening/human-gate-contract-20261011",
+      "head_sha": "be81319a19d5aefb537e840e1191f8510638c9a9",
+      "updated_at": "2026-10-11T01:29:16Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/84"
+    },
+    {
+      "number": 83,
+      "title": "Integrate Vantage advisory security gate into OLA",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "integrate/vantage-gate-20261011",
+      "head_sha": "04e1e18fad725700dc861d853bbe89f672e38044",
+      "updated_at": "2026-10-11T01:12:35Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/83"
+    },
+    {
+      "number": 82,
+      "title": "Potential fix for code scanning alert no. 1: Use of a broken or weak cryptographic hashing algorithm on sensitive data",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "alert-autofix-1",
+      "head_sha": "9f1e7ffea0678b722ac4b509a185a73a7ed6680b",
+      "updated_at": "2026-11-06T21:16:38Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/82"
+    },
+    {
+      "number": 80,
+      "title": "security: IGOR must reject mixed provenance within one run",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "security/igor-provenance-consistency-20261011",
+      "head_sha": "7479fbad5cbd09f25baa2de281f46b560a1f3697",
+      "updated_at": "2026-10-14T00:33:19Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/80"
+    },
+    {
+      "number": 79,
+      "title": "security: evidence hash v2 binds record identity and type (foundation only)",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "security/evidence-hash-v2-20261011",
+      "head_sha": "1ddcad615b7fff144be341cb69e26cf7069882b9",
+      "updated_at": "2026-10-10T22:41:01Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/79"
+    },
+    {
+      "number": 76,
+      "title": "Integrate 11 OLA PRs with tenant isolation and fail-closed evidence gates",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "integration/all-ola-20261010",
+      "head_sha": "41d3fde4c86c689eaaec08beae8118029cfc3145",
+      "updated_at": "2026-11-10T16:20:39Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/76"
+    },
+    {
+      "number": 75,
+      "title": "security: isolate Stripe checkout status and results by session and tenant",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "security/stripe-session-isolation-20261010",
+      "head_sha": "75a10881cf765471c42b5835e72d08641b07da6a",
+      "updated_at": "2026-10-10T22:34:14Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/75"
+    },
+    {
+      "number": 74,
+      "title": "security: block unverified high-risk execution approvals",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "security/approval-bypass-failclosed-20261010",
+      "head_sha": "5fb0b59d24f5e6cefd451df6d6c1103de54e9b39",
+      "updated_at": "2026-10-10T19:16:40Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/74"
+    },
+    {
+      "number": 73,
+      "title": "security: fail-closed CodeQL SARIF high-severity enforcement",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "5df5e5de1435ac088ce3a96365873807e2551911",
+      "head": "security/codeql-sarif-failclosed-20261010",
+      "head_sha": "ac4264d34212bd0c408587e196490b8e75790fb2",
+      "updated_at": "2026-10-10T19:13:39Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/73"
+    },
+    {
+      "number": 71,
+      "title": "fix: source-bound fail-closed watchdog on repeated 12h runtime failures",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "ae76f51bc6027ddbee2b9dc0302837aea83c0792",
+      "head": "fix/watchdog-failclosed-autoflow-20261010",
+      "head_sha": "a6677aa5306d1923895ed9befe1f9ff82a7f4a1b",
+      "updated_at": "2026-10-10T01:55:10Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/71"
+    },
+    {
+      "number": 64,
+      "title": "fix: fail-closed production evidence gate (SHA binding, stability, tamper)",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "ae76f51bc6027ddbee2b9dc0302837aea83c0792",
+      "head": "fix/production-gate-evidence-20261010",
+      "head_sha": "ca0ed485e7358cef82aa68de3903316e382a67b7",
+      "updated_at": "2026-10-14T02:42:31Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/64"
+    },
+    {
+      "number": 61,
+      "title": "TRACEFORGE v0: reproducible knowledge vertical slice",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "a59f8c12f8120a13cfe2627dfa9946d61a9116b8",
+      "head": "feat/traceforge-v0",
+      "head_sha": "7d2ec1b3b4e6770b0c8d5ce8552bc2fb599ad884",
+      "updated_at": "2026-10-06T20:08:41Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/61"
+    },
+    {
+      "number": 60,
+      "title": "forensic: enforce independence, authenticity and intermediate evidence states",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "a59f8c12f8120a13cfe2627dfa9946d61a9116b8",
+      "head": "forensic/semantic-closure-2026-10-02",
+      "head_sha": "8afdb7defd2d62f818ab92443772f31a3422498a",
+      "updated_at": "2026-10-04T15:47:36Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/60"
+    },
+    {
+      "number": 40,
+      "title": "CFR-18: live forensic gate",
+      "state": "open",
+      "draft": false,
+      "base": "main",
+      "base_sha": "426e781ba6e8bc2c17f6ed3bf1150372d673bc07",
+      "head": "cfr18-forensic",
+      "head_sha": "a435c711625d05ec5275caa3d6317d1c5dc69896",
+      "updated_at": "2026-09-26T18:55:26Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/40"
+    },
+    {
+      "number": 37,
+      "title": "feat: add OLA Decision Fabric with Jev strategy",
+      "state": "open",
+      "draft": true,
+      "base": "main",
+      "base_sha": "ba2ab72abb62b5838731808911cfcd128746e9cf",
+      "head": "feat/decision-fabric-jev",
+      "head_sha": "f176695b029114eb8b80afc6ceedb94a685641e1",
+      "updated_at": "2026-09-23T20:22:14Z",
+      "labels": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/pull/37"
+    }
+  ],
+  "issues": [
+    {
+      "number": 301,
+      "title": "P0: align paid-order PostgreSQL producer trigger with final gate requirements",
+      "state": "open",
+      "updated_at": "2026-11-22T15:09:15Z",
+      "labels": [
+        "P0",
+        "security"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/301"
+    },
+    {
+      "number": 296,
+      "title": "P1: establish independent CODEOWNERS and protected-main review gates",
+      "state": "open",
+      "updated_at": "2026-11-22T15:20:44Z",
+      "labels": [
+        "security",
+        "P1"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/296"
+    },
+    {
+      "number": 292,
+      "title": "P0: deliver operator-facing signed Human Gate and staging acceptance flow",
+      "state": "open",
+      "updated_at": "2026-11-22T15:20:47Z",
+      "labels": [
+        "P0",
+        "security"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/292"
+    },
+    {
+      "number": 243,
+      "title": "<!-- codex-review-receipt:v1 -->",
+      "state": "open",
+      "updated_at": "2026-11-17T00:30:01Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/243"
+    },
+    {
+      "number": 240,
+      "title": "<!-- codex-review-receipt:v1 -->",
+      "state": "open",
+      "updated_at": "2026-11-16T23:51:53Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/240"
+    },
+    {
+      "number": 209,
+      "title": "Agentos",
+      "state": "open",
+      "updated_at": "2026-11-11T08:44:57Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/209"
+    },
+    {
+      "number": 196,
+      "title": "GitHub profile and repository cleanup across both owner accounts",
+      "state": "open",
+      "updated_at": "2026-11-09T00:10:41Z",
+      "labels": [
+        "documentation"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/196"
+    },
+    {
+      "number": 172,
+      "title": "governance: separate admissibility, execution authority and closure in evidence ledger",
+      "state": "open",
+      "updated_at": "2026-11-22T04:51:27Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/172"
+    },
+    {
+      "number": 167,
+      "title": "NOVA",
+      "state": "open",
+      "updated_at": "2026-11-03T18:58:01Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/167"
+    },
+    {
+      "number": 166,
+      "title": "NOVA",
+      "state": "open",
+      "updated_at": "2026-11-03T18:57:28Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/166"
+    },
+    {
+      "number": 165,
+      "title": "Nova",
+      "state": "open",
+      "updated_at": "2026-11-03T18:56:53Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/165"
+    },
+    {
+      "number": 162,
+      "title": "NOVA: canonical multi-user real-time backend and operation_id evidence notification",
+      "state": "open",
+      "updated_at": "2026-11-03T02:08:01Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/162"
+    },
+    {
+      "number": 161,
+      "title": "Codex Bridge: connect canonical agent service to signed per-action OLA operation_id",
+      "state": "open",
+      "updated_at": "2026-11-03T02:44:44Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/161"
+    },
+    {
+      "number": 158,
+      "title": "Release blocker: production OLA di-OS needs persistent hosting, reviews and full module E2E",
+      "state": "open",
+      "updated_at": "2026-11-19T15:52:29Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/158"
+    },
+    {
+      "number": 153,
+      "title": "OLA di-OS 10/10 release gate — persistent runtime, TLS, independent review, NOVA×Codex E2E",
+      "state": "open",
+      "updated_at": "2026-11-05T06:19:30Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/153"
+    },
+    {
+      "number": 150,
+      "title": "Security governance: verify effective main-branch ruleset and independent review enforcement",
+      "state": "open",
+      "updated_at": "2026-11-22T14:24:17Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/150"
+    },
+    {
+      "number": 128,
+      "title": "sp",
+      "state": "open",
+      "updated_at": "2026-10-26T04:14:05Z",
+      "labels": [],
+      "assignees": [
+        "krzysztofcieciwa07-ship-it"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/128"
+    },
+    {
+      "number": 29,
+      "title": "AGENT-02 REACT — investigate and resolve CI contradictions",
+      "state": "open",
+      "updated_at": "2026-09-22T20:57:50Z",
+      "labels": [
+        "P0",
+        "agent"
+      ],
+      "assignees": [
+        "krzysztofcieciwa07-ship-it"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/29"
+    },
+    {
+      "number": 28,
+      "title": "AGENT-01 CODEACT — close runtime/provenance execution gap",
+      "state": "open",
+      "updated_at": "2026-09-22T20:57:48Z",
+      "labels": [
+        "P0",
+        "agent"
+      ],
+      "assignees": [
+        "krzysztofcieciwa07-ship-it"
+      ],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/28"
+    },
+    {
+      "number": 25,
+      "title": "P1 — Final Human Gate procedure",
+      "state": "open",
+      "updated_at": "2026-09-21T22:09:41Z",
+      "labels": [
+        "security",
+        "P1",
+        "governance"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/25"
+    },
+    {
+      "number": 24,
+      "title": "P1 — Close production revenue path",
+      "state": "open",
+      "updated_at": "2026-11-06T23:30:25Z",
+      "labels": [
+        "verification",
+        "P1",
+        "revenue"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/24"
+    },
+    {
+      "number": 23,
+      "title": "P1 — Complete OLA public product surface",
+      "state": "open",
+      "updated_at": "2026-09-21T22:09:36Z",
+      "labels": [
+        "P1",
+        "product",
+        "frontend"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/23"
+    },
+    {
+      "number": 22,
+      "title": "P0 — Configure OPENAI_API_KEY for real OLA runtime gate",
+      "state": "open",
+      "updated_at": "2026-09-21T22:09:33Z",
+      "labels": [
+        "P0",
+        "security",
+        "verification"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/22"
+    },
+    {
+      "number": 20,
+      "title": "AUDIT FINDING: current E2E does not prove real LLM or live revenue",
+      "state": "open",
+      "updated_at": "2026-11-17T19:30:53Z",
+      "labels": [],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/20"
+    },
+    {
+      "number": 19,
+      "title": "Repository consolidation: establish OLA as single source of truth",
+      "state": "open",
+      "updated_at": "2026-11-08T23:55:42Z",
+      "labels": [
+        "documentation"
+      ],
+      "assignees": [],
+      "url": "https://github.com/krzysztofcieciwa07-ship-it/OLA/issues/19"
+    }
+  ]
+}
