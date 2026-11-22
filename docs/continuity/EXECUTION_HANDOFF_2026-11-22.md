@@ -186,3 +186,11 @@ Do not claim the full plan completed within a time window if any checkpoint is s
 | Stable ID | Priority | Owner | Dependencies | Exact SHA | CI | Evidence | Review | Status | Next action |
 |---|---|---|---|---|---|---|---|---|---|
 | CI-P0-PAIDORDER-TRIGGER-2026-11-22 / #301 | P0 | coordinator + implementation lane | #272 | `157b818f8a980486ffff5a36ad3846e83db2ebab` | PostgreSQL run #45036320224 QUEUED; Python CI #45036320236 IN_PROGRESS; Final Gate #45036320241 QUEUED | failed-gate artifact #14759248609 (SHA above); producer/test changes on #272 | BLOCKED: independent write-enabled reviewer not verified | IN_PROGRESS | poll exact runs; validate trigger contract; then continue #272 audit evidence |
+
+
+## Governance candidate #300 exact-head refresh — 2026-11-22 15:06 CET
+
+- Issue #296 / PR #300 current head: `1806150bf2cdd1cc9abca310e4fced43c5874b42`.
+- Python package CI #45036328549 is PENDING; Final Production Gate #45036328502 is QUEUED; other producer checks are queued/in-progress. No exact-head PASS is claimed.
+- PR #300 has no reviews. Independent write-enabled CODEOWNER is still not verified; candidate remains non-mutating. Do not run `--apply`.
+- PR #295 remains exact-head CI PASS at `9a37726ca1257b4bb1d295b7d6e5e961d87d8174` (23/23 SUCCESS) but has no review; do not merge.
