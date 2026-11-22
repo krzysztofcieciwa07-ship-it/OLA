@@ -54,7 +54,7 @@ def resolve_human_gate_membership(
     resource_tenant_id: str,
     fingerprint_key: bytes,
     fingerprint_key_id: str,
-    required_role: str | None = None,
+    required_role: str,
 ) -> ResolvedMembership:
     """Resolve the verified (issuer, subject) to one active OLA membership.
 
@@ -68,7 +68,7 @@ def resolve_human_gate_membership(
     token_tenant_id = _canonical_uuid(verified_subject.tenant_id, "verified tenant claim")
     if token_tenant_id != tenant_id:
         raise HumanGateMembershipError("verified tenant claim does not match the resource tenant")
-    if required_role is not None and required_role not in ALLOWED_MEMBERSHIP_ROLES:
+    if required_role not in ALLOWED_MEMBERSHIP_ROLES:
         raise HumanGateMembershipError("required membership role is invalid")
 
     try:
@@ -102,7 +102,7 @@ def resolve_human_gate_membership(
         or row.role not in ALLOWED_MEMBERSHIP_ROLES
     ):
         raise HumanGateMembershipError("tenant membership is inactive or invalid")
-    if required_role is not None and row.role != required_role:
+    if row.role != required_role:
         raise HumanGateMembershipError("tenant membership role does not authorize this action")
 
     principal_id = _canonical_uuid(row.id, "principal_id")
