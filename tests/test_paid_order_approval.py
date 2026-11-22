@@ -668,17 +668,15 @@ def test_checkout_webhook_success_redirect_and_human_approval_form_one_bound_cha
         f"/internal/checkout-execution/{approval.json()['execution_job_id']}/run",
         headers={"X-OLA-Worker-Token": worker_token},
     )
-    assert execution.status_code == 200, execution.text
-    assert execution.json()["status"] == "EXECUTED_REVIEW_REQUIRED"
-    assert execution.json()["igor_status"] == "VERIFIED"
-    assert execution.json()["invocation_type"] == "local_deterministic_model"
-    assert execution.json()["real_llm_invoked"] is False
-    assert execution.json()["customer_delivery"] == "NOT_DELIVERED"
+    # The legacy API-key approval creates a queued record but is not an
+    # execution authorization. The shared worker must fail closed before NINA.
+    assert execution.status_code == 409, execution.text
+    assert "signed Human Gate envelope is required" in execution.text
 
-    executed_success = client.get("/payment-success", params={"session_id": session_id})
-    assert executed_success.status_code == 200, executed_success.text
-    assert executed_success.json()["status"] == "EXECUTED_REVIEW_REQUIRED"
-    assert executed_success.json()["customer_delivery"] == "NOT_DELIVERED"
+    blocked_success = client.get("/payment-success", params={"session_id": session_id})
+    assert blocked_success.status_code == 200, blocked_success.text
+    assert blocked_success.json()["status"] == "BLOCKED"
+    assert blocked_success.json()["customer_delivery"] == "NOT_DELIVERED"
 
     checkout_retry = client.post(
         "/checkout",
@@ -689,18 +687,23 @@ def test_checkout_webhook_success_redirect_and_human_approval_form_one_bound_cha
         json={"task": task},
     )
     assert checkout_retry.status_code == 200, checkout_retry.text
-    assert checkout_retry.json()["status"] == "EXECUTED_REVIEW_REQUIRED"
-    assert checkout_retry.json()["execution_job_status"] == "EXECUTED_REVIEW_REQUIRED"
+    assert checkout_retry.json()["status"] == "BLOCKED"
+    assert checkout_retry.json()["execution_job_status"] == "BLOCKED"
 
     with SessionLocal() as db:
         control = db.scalar(select(CheckoutOrderControl).where(
             CheckoutOrderControl.order_id == order_id
         ))
         order = db.get(CheckoutOrder, order_id)
-    assert order.status == "EXECUTED_REVIEW_REQUIRED"
+        job = db.scalar(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == order_id
+        ))
+    assert order.status == "BLOCKED"
     assert control.requester_id == requester_id
     assert control.approver_id == approver_id
     assert control.status == "APPROVED_FOR_EXECUTION"
+    assert job.status == "BLOCKED"
+    assert job.attempt_count == 0
 
 
 def test_payment_success_rejects_session_task_not_bound_to_reserved_order(monkeypatch):
