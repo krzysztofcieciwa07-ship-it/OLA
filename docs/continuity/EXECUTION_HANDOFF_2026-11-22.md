@@ -379,3 +379,24 @@ Continue only dependency-ready implementation/evidence tasks; preserve #301/#296
 2. #301/#272 integration requires authorized independent review and main alignment; do not duplicate trigger fix in #300/#282.
 3. Owner/admin must designate independent write-enabled CODEOWNER and configure effective main protection plus read-only governance token; #150/#296 remain BLOCKED.
 4. #292 remains blocked pending operator signed Human Gate and disposable staging rehearsal; shared Neon remains unchanged.
+
+
+## run.end — 2026-11-22 16:52 UTC / 17:52 CET
+
+### Fresh inventory and exact-head evidence
+- Paginated open-work refresh: **125 OPEN PRs / 26 OPEN non-PR Issues / 151 issue-endpoint objects** (PR pages 100+25; issue endpoint pages 100+51). Inventory refreshed in-place; inventory commit `d2820e7e684f8d6d635a388624ad84bab533970c`. Main ref read-back: `911c1cedf76dc6139f57b5d893d708b1a92245c6`.
+- PR #277 handoff branch head is now `d2820e7e684f8d6d635a388624ad84bab533970c`. Fresh exact-head checks: **3 SUCCESS / 1 SKIPPED / 25 pending**; no completed failure. Compare with main: **44 ahead / 7 behind / diverged**. No prior-head CI transfers.
+- PR #305 / Issue #150 exact head `2a764027e3c1cbfc2a6861710dd66d147f63e757`: **33 SUCCESS / 2 SKIPPED / 1 IN_PROGRESS**. Final Production Gate run `45045023894` is still at Verify required evidence gates; no completion claim.
+- PR #300 / Issue #296 exact head `f57e3bbd819fab529ec8105f5d32ba23e84947ac`: **34 SUCCESS / 2 SKIPPED / 1 FAILURE**; Final Production Gate `45041883904` failed closed for missing `OLA paid-order PostgreSQL contract`. Do not duplicate the producer fix from #272.
+- PR #272 exact head `904ffe2643512dbc9ccbf189cd2b07fc7014c7c3`: **35 SUCCESS / 2 SKIPPED**; paid-order PostgreSQL producer `45042158566` and Final Production Gate `45042158518` SUCCESS. Artifact `14762560080` SHA-256 `51883237c77f1f015bd47bfa587def8c5288c4c066c900c2a4e383bfffe53aeb`; manifest SHA-256 `58140fad67fe0995bada963a2f2bb83e5bb05661127239c3dc98f376845d07e1`; state `ATTESTED_PENDING_HUMAN`; source/image attestation checks SKIPPED. Branch is 26 ahead / 7 behind main; review stale/blocked.
+- PR #286 exact head `4fd30de0de10c28ef1605758a1d5e8372ddde622`: **17 SUCCESS / 1 SKIPPED**. NINA/IGOR run `44992546073` and Ollama runtime `44992546066` SUCCESS. Artifacts: `14742148714` digest `c9f597d4cac53040baa6f9113f8affea550f140fbe8b130035f34f03628dcdb7`; `14742233775` digest `22f06e3c7b2765edc793b8ae1c27546d6bd950294e12c14dcfb320725efcdd32`. Runtime boundary `in_process`; verifier boundary `separate_process`; per-agent process isolation/semantic correctness NOT_ESTABLISHED.
+- PR #284 exact head `7c64b5d7d060bd077c892fd6b91ab4d7043ef335` and #285 exact head `fe674c18c1b785a9df2229581741457d34e0ff13`: each **35 SUCCESS / 2 SKIPPED**; no current independent review is proven.
+- PR #298 / Issue #304 exact head `87d365e5a5ada21329d8ef8df535483e22bb86ad`: **35 SUCCESS / 2 SKIPPED**, review blocked. PR #295 exact head `8a85932e93ed9a4075d72248db48b3b6bb67c2f9`: **35 SUCCESS / 2 SKIPPED**, review absent.
+- Governance #150/#296 and operator Human Gate #292 remain BLOCKED. Main effective protection remains unproven; independent write-enabled CODEOWNER and authorized governance-token scope are absent/UNKNOWN. Neon shared staging remains untouched; no DDL/grants/migrations.
+
+### run.end decision
+- No merge, main ruleset mutation, production deploy, signer activation, shared DB change, payment, live order or public release.
+- **NO-GO** remains. Exact-head CI is partial/pending where noted; independent GitHub approval and separate signed application Human Gate are still required.
+
+### Next action
+Poll only the active exact-source final gates for #277/#305 after state changes; continue dependency-ready independent implementation/review evidence on #284/#285 without treating their skipped checks or missing reviews as acceptance.
