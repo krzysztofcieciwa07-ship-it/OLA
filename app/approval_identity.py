@@ -22,6 +22,10 @@ class VerifiedSubject:
     issuer: str
     subject: str
     tenant_id: str
+    auth_time: int | None = None
+    acr: str | None = None
+    amr: tuple[str, ...] = ()
+    session_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -205,11 +209,61 @@ def verify_subject_token(token: str, *, environ=None) -> VerifiedSubject:
         not isinstance(subject, str)
         or not subject
         or len(subject) > 256
-        or any(ord(ch) < 32 for ch in subject)
+        or any(ord(ch) < 32 or ord(ch) == 127 for ch in subject)
         or not isinstance(tenant_id, str)
         or not tenant_id
         or len(tenant_id) > 128
-        or any(ord(ch) < 32 for ch in tenant_id)
+        or any(ord(ch) < 32 or ord(ch) == 127 for ch in tenant_id)
     ):
         raise ApprovalIdentityError("required approval identity claims are invalid")
-    return VerifiedSubject(config.issuer, subject, tenant_id)
+
+    auth_time = claims.get("auth_time")
+    if auth_time is not None and (
+        not isinstance(auth_time, int)
+        or isinstance(auth_time, bool)
+        or auth_time <= 0
+    ):
+        raise ApprovalIdentityError("OIDC auth_time claim is invalid")
+
+    acr = claims.get("acr")
+    if acr is not None and (
+        not isinstance(acr, str)
+        or not acr
+        or len(acr) > 256
+        or any(ord(ch) < 32 or ord(ch) == 127 for ch in acr)
+    ):
+        raise ApprovalIdentityError("OIDC acr claim is invalid")
+
+    raw_amr = claims.get("amr", [])
+    if (
+        not isinstance(raw_amr, list)
+        or len(raw_amr) > 16
+        or any(
+            not isinstance(item, str)
+            or not item
+            or len(item) > 64
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in item)
+            for item in raw_amr
+        )
+        or len(set(raw_amr)) != len(raw_amr)
+    ):
+        raise ApprovalIdentityError("OIDC amr claim is invalid")
+
+    session_id = claims.get("sid")
+    if session_id is not None and (
+        not isinstance(session_id, str)
+        or not session_id
+        or len(session_id) > 256
+        or any(ord(ch) < 32 or ord(ch) == 127 for ch in session_id)
+    ):
+        raise ApprovalIdentityError("OIDC sid claim is invalid")
+
+    return VerifiedSubject(
+        config.issuer,
+        subject,
+        tenant_id,
+        auth_time=auth_time,
+        acr=acr,
+        amr=tuple(raw_amr),
+        session_id=session_id,
+    )
