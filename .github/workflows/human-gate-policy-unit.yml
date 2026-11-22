@@ -1,0 +1,27 @@
+name: Human Gate Policy Unit Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+      - "security/**"
+    paths:
+      - ".github/scripts/human-gate-policy.cjs"
+      - "tests/test_human_gate_policy.cjs"
+      - ".github/workflows/human-gate-approval.yml"
+      - ".github/PULL_REQUEST_TEMPLATE.md"
+
+permissions:
+  contents: read
+
+jobs:
+  policy-tests:
+    name: human-gate-policy-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run deterministic Human Gate policy tests
+        run: node --test tests/test_human_gate_policy.cjs
