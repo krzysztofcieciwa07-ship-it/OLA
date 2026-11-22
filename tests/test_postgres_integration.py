@@ -165,6 +165,11 @@ def test_postgres_evidence_run_filter_remains_tenant_scoped(postgres_db, monkeyp
         db.add_all([
             Tenant(id=tenant_a, name="PostgreSQL run filter tenant A"),
             Tenant(id=tenant_b, name="PostgreSQL run filter tenant B"),
+        ])
+        db.commit()
+
+    with database.SessionLocal() as db:
+        db.add_all([
             ApiKey(
                 id=str(uuid.uuid4()),
                 tenant_id=tenant_a,
