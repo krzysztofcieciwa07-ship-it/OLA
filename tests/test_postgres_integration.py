@@ -728,6 +728,7 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
 
 def test_postgres_membership_revocation_waits_for_runtime_authorization_lock(postgres_db):
     import threading
+    import time
     from concurrent.futures import ThreadPoolExecutor
     from sqlalchemy import text
     from app import database
@@ -759,7 +760,7 @@ def test_postgres_membership_revocation_waits_for_runtime_authorization_lock(pos
     lock_acquired = threading.Event()
     release_lock = threading.Event()
     update_started = threading.Event()
-    update_finished = threading.Event()
+    application_name = "ola_hg_membership_revoke_test"
 
     def hold_runtime_authorization_lock():
         with database.SessionLocal() as db:
@@ -774,28 +775,47 @@ def test_postgres_membership_revocation_waits_for_runtime_authorization_lock(pos
 
     def revoke_membership():
         assert lock_acquired.wait(timeout=5), "runtime did not acquire membership lock"
-        update_started.set()
-        with admin_engine.begin() as conn:
-            conn.execute(text(f'''
-                UPDATE "{schema}".human_gate_memberships
-                SET active = FALSE, revoked_at = 1795318201, membership_version = 2
-                WHERE id = :principal_id
-            '''), {"principal_id": principal_id})
-        update_finished.set()
+        with admin_engine.connect() as conn:
+            conn.exec_driver_sql(f"SET application_name = '{application_name}'")
+            conn.commit()
+            update_started.set()
+            with conn.begin():
+                conn.execute(text(f'''
+                    UPDATE "{schema}".human_gate_memberships
+                    SET active = FALSE, revoked_at = 1795318201, membership_version = 2
+                    WHERE id = :principal_id
+                '''), {"principal_id": principal_id})
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         worker_future = pool.submit(hold_runtime_authorization_lock)
         assert lock_acquired.wait(timeout=5), "runtime membership lock was not acquired"
         revoke_future = pool.submit(revoke_membership)
-        assert update_started.wait(timeout=5), "revocation did not start"
-        assert not update_finished.wait(timeout=0.25), (
-            "membership revocation bypassed the runtime authorization lock"
-        )
+        assert update_started.wait(timeout=5), "revocation transaction did not start"
+
+        # Prove PostgreSQL reached the trigger and is blocked on the advisory lock;
+        # do not infer blocking from a short sleep or unscheduled Python thread.
+        deadline = time.monotonic() + 5
+        observed_wait = False
+        while time.monotonic() < deadline:
+            with admin_engine.connect() as observer:
+                observed_wait = observer.execute(text("""
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pg_stat_activity
+                        WHERE application_name = :application_name
+                          AND wait_event_type = 'Lock'
+                          AND wait_event = 'advisory'
+                    )
+                """), {"application_name": application_name}).scalar_one()
+            if observed_wait:
+                break
+            time.sleep(0.05)
+        assert observed_wait, "revocation did not block on the tenant membership advisory lock"
+
         release_lock.set()
         worker_future.result(timeout=5)
         revoke_future.result(timeout=5)
 
-    assert update_finished.is_set()
     with admin_engine.begin() as conn:
         row = conn.execute(text(f'''
             SELECT active, membership_version
