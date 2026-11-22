@@ -15,7 +15,7 @@ def test_nina_run_route_exists():
     assert "/nina-run" in routes
 
 
-def test_nina_run_executes_chain_but_does_not_self_approve():
+def test_nina_run_executes_chain_but_does_not_self_approve_and_exposes_steps():
     commit = "a" * 40
     os.environ["OLA_RUNTIME_COMMIT"] = commit
 
@@ -63,6 +63,24 @@ def test_nina_run_executes_chain_but_does_not_self_approve():
     assert body["status"] == "REVIEW", body
     assert body["replay_verification"]["status"] == "VERIFIED", body
     assert len(body["replay"]) == 9  # run.start + six agents + run.end
+
+    expected_steps = [
+        (1, "codeact", "executed_safe_expression", "safe_expression"),
+        (2, "react", "reason_act_observe", "react_loop"),
+        (3, "agentic_rag", "retrieved_prior_evidence", "evidence_retriever"),
+        (4, "mcp_tool_use", "invoked_tool", "local_mcp_tool_registry.sha256"),
+        (5, "self_reflection", "checked_previous_output", "reflection_check"),
+        (6, "multi_agent", "aggregated_agent_outputs", "agent_aggregator"),
+    ]
+    steps = body["execution_steps"]
+    assert [
+        (step["sequence"], step["agent"], step["capability"], step["tool"])
+        for step in steps
+    ] == expected_steps
+    assert all(step["status"] == "RECORDED" for step in steps)
+    evidence_ids = [step["evidence_id"] for step in steps]
+    assert all(isinstance(evidence_id, str) and evidence_id for evidence_id in evidence_ids)
+    assert len(set(evidence_ids)) == 6
 
 
 def test_nina_run_explicit_llm_does_not_promote_deterministic_fallback(monkeypatch):
