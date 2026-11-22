@@ -2,12 +2,11 @@ name: Human Gate — GitHub Approval Enforcement
 
 on:
   pull_request_target:
-    branches:
-      - main
-      - "security/**"
     types: [opened, edited, reopened, synchronize, ready_for_review, labeled, unlabeled]
   pull_request_review:
     types: [submitted, dismissed]
+  issues:
+    types: [opened, edited, reopened, labeled, unlabeled]
   push:
     branches:
       - main
@@ -18,7 +17,7 @@ permissions:
   issues: read
 
 concurrency:
-  group: human-gate-\${{ github.event.pull_request.number || github.event.review.pull_request_url || github.run_id }}
+  group: human-gate-\${{ github.event.pull_request.number || github.event.issue.number || github.event.review.pull_request_url || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -30,7 +29,7 @@ jobs:
         if: \${{ github.event_name != 'push' }}
         uses: actions/checkout@v4
         with:
-          ref: \${{ github.event.pull_request.base.ref }}
+          ref: \${{ github.event.pull_request.base.ref || github.ref }}
           persist-credentials: false
           fetch-depth: 1
 
@@ -38,7 +37,7 @@ jobs:
         if: \${{ github.event_name == 'push' }}
         run: echo "POST_MERGE_AUDIT_ONLY — this run is not an approval and cannot authorize an operation."
 
-      - name: Evaluate Human Gate policy on exact HEAD
+      - name: Evaluate Human Gate policy for task Issues and PRs
         if: \${{ github.event_name != 'push' }}
         uses: actions/github-script@v7
         env:
@@ -46,128 +45,161 @@ jobs:
         with:
           script: |
             const policy = require("./.github/scripts/human-gate-policy.cjs");
-            const prNumber = context.payload.pull_request?.number;
-            if (!prNumber) {
-              core.setFailed("BLOCKED: review event did not contain a pull request payload");
-              return;
-            }
-
             const { owner, repo } = context.repo;
-            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-            const labelsResponse = await github.rest.issues.listLabelsOnIssue({
-              owner, repo, issue_number: prNumber, per_page: 100
-            });
-            const labels = labelsResponse.data.map((x) => x.name);
-            const files = await github.paginate(github.rest.pulls.listFiles, {
-              owner, repo, pull_number: prNumber, per_page: 100
-            });
 
-            if (!policy.isHighRisk(labels, files.map((f) => f.filename))) {
-              core.notice("NOT_APPLICABLE: PR is not marked or scoped as a Human Gate task.");
-              return;
+            async function evaluatePR(prNumber, expectedIssueNumber = null) {
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+              if (expectedIssueNumber && policy.extractTaskIssue(pr.body || "") !== expectedIssueNumber) {
+                return { status: "BLOCKED", reason: "PR_TASK_ID_DOES_NOT_MATCH_ISSUE", prNumber };
+              }
+
+              const labelResponse = await github.rest.issues.listLabelsOnIssue({
+                owner, repo, issue_number: prNumber, per_page: 100
+              });
+              const labels = labelResponse.data.map((x) => x.name);
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner, repo, pull_number: prNumber, per_page: 100
+              });
+              if (!policy.isHighRisk(labels, files.map((f) => f.filename))) {
+                return { status: "NOT_APPLICABLE", prNumber };
+              }
+
+              const taskIssueNumber = expectedIssueNumber || policy.extractTaskIssue(pr.body || "");
+              if (!taskIssueNumber) {
+                return { status: "BLOCKED", reason: "HUMAN_GATE_TASK_ISSUE_REFERENCE_MISSING", prNumber };
+              }
+              const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: taskIssueNumber });
+
+              const input = {
+                pullRequest: {
+                  state: pr.state,
+                  draft: pr.draft,
+                  body: pr.body || "",
+                  user: { login: pr.user.login },
+                  head: { sha: pr.head.sha },
+                },
+                pullRequestLabels: labels,
+                files,
+                issues: {
+                  [taskIssueNumber]: {
+                    state: issue.state,
+                    labels: issue.labels.map((x) => typeof x === "string" ? x : x.name),
+                  },
+                },
+              };
+
+              const { data: codeownersFile } = await github.rest.repos.getContent({
+                owner, repo, path: ".github/CODEOWNERS", ref: pr.base.ref
+              });
+              if (Array.isArray(codeownersFile) || codeownersFile.encoding !== "base64") {
+                return { status: "BLOCKED", reason: "TRUSTED_BASE_CODEOWNERS_UNAVAILABLE", prNumber };
+              }
+              input.codeowners = Buffer.from(codeownersFile.content, "base64").toString("utf8");
+              input.reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner, repo, pull_number: prNumber, per_page: 100
+              });
+
+              const rules = policy.parseCodeowners(input.codeowners);
+              const candidateUsers = new Set();
+              for (const file of files) {
+                const ownersForFile = policy.ownersForPath(file.filename, rules);
+                const author = String(pr.user.login).toLowerCase();
+                if (![...ownersForFile].some((login) => login !== author)) {
+                  return {
+                    status: "BLOCKED",
+                    reason: "NO_INDEPENDENT_CODEOWNER_FOR_PATH",
+                    path: file.filename,
+                    prNumber,
+                    taskIssueNumber,
+                  };
+                }
+                for (const login of ownersForFile) candidateUsers.add(login);
+              }
+
+              const governanceToken = process.env.HUMAN_GATE_GOVERNANCE_TOKEN;
+              if (!governanceToken) {
+                return {
+                  status: "BLOCKED",
+                  reason: "HUMAN_GATE_GOVERNANCE_TOKEN_MISSING",
+                  detail: "Configure a read-only fine-grained token with Administration:read; token values are never logged.",
+                  prNumber,
+                  taskIssueNumber,
+                };
+              }
+              const { Octokit } = require("@octokit/rest");
+              const governanceApi = new Octokit({ auth: governanceToken });
+              input.permissions = {};
+              for (const login of candidateUsers) {
+                try {
+                  const { data } = await governanceApi.rest.repos.getCollaboratorPermissionLevel({
+                    owner, repo, username: login
+                  });
+                  input.permissions[login] = data.permission;
+                } catch (error) {
+                  input.permissions[login] = "none";
+                  core.warning("CODEOWNER permission lookup failed for " + login + "; treated as none (fail-closed).");
+                }
+              }
+
+              input.reviewThreads = [];
+              let cursor = null;
+              do {
+                const query = [
+                  "query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {",
+                  "  repository(owner: $owner, name: $repo) {",
+                  "    pullRequest(number: $number) {",
+                  "      reviewThreads(first: 100, after: $cursor) {",
+                  "        nodes { isResolved }",
+                  "        pageInfo { hasNextPage endCursor }",
+                  "      }",
+                  "    }",
+                  "  }",
+                  "}"
+                ].join("\n");
+                const result = await github.graphql(query, { owner, repo, number: prNumber, cursor });
+                const connection = result.repository.pullRequest.reviewThreads;
+                input.reviewThreads.push(...connection.nodes);
+                cursor = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
+              } while (cursor);
+
+              return policy.evaluateHumanGate(input);
             }
 
-            const input = {
-              pullRequest: {
-                state: pr.state,
-                draft: pr.draft,
-                body: pr.body || "",
-                user: { login: pr.user.login },
-                head: { sha: pr.head.sha },
-              },
-              pullRequestLabels: labels,
-              files,
-            };
-
-            const taskIssueNumber = policy.extractTaskIssue(pr.body || "");
-            if (!taskIssueNumber) {
-              core.setFailed("BLOCKED: add exactly one Human Gate Task: #<issue> reference to the PR body.");
-              return;
-            }
-
-            const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: taskIssueNumber });
-            input.issues = {
-              [taskIssueNumber]: {
-                state: issue.state,
-                labels: issue.labels.map((x) => typeof x === "string" ? x : x.name),
-              },
-            };
-
-            const { data: codeownersFile } = await github.rest.repos.getContent({
-              owner, repo, path: ".github/CODEOWNERS", ref: pr.base.ref
-            });
-            if (Array.isArray(codeownersFile) || codeownersFile.encoding !== "base64") {
-              core.setFailed("BLOCKED: trusted base-branch CODEOWNERS file is unavailable.");
-              return;
-            }
-            input.codeowners = Buffer.from(codeownersFile.content, "base64").toString("utf8");
-
-            input.reviews = await github.paginate(github.rest.pulls.listReviews, {
-              owner, repo, pull_number: prNumber, per_page: 100
-            });
-
-            const rules = policy.parseCodeowners(input.codeowners);
-            const candidateUsers = new Set();
-            for (const file of files) {
-              for (const login of policy.ownersForPath(file.filename, rules)) candidateUsers.add(login);
-            }
-
-            const author = String(pr.user.login).toLowerCase();
-            for (const file of files) {
-              const owners = policy.ownersForPath(file.filename, rules);
-              if (![...owners].some((login) => login !== author)) {
-                core.setFailed("BLOCKED: no independent CODEOWNER covers " + file.filename);
+            if (context.eventName === "issues") {
+              const issue = context.payload.issue;
+              const labels = (issue.labels || []).map((x) => typeof x === "string" ? x : x.name);
+              if (!policy.isHighRisk(labels, [])) {
+                core.notice("NOT_APPLICABLE: Issue is not marked P0/P1/security/Human Gate.");
                 return;
               }
-            }
-
-            const governanceToken = process.env.HUMAN_GATE_GOVERNANCE_TOKEN;
-            if (!governanceToken) {
-              core.setFailed("BLOCKED: HUMAN_GATE_GOVERNANCE_TOKEN is not configured. It must be read-only and allow collaborator-permission verification (Administration:read).");
+              const openPRs = await github.paginate(github.rest.pulls.list, {
+                owner, repo, state: "open", per_page: 100
+              });
+              const linked = openPRs.filter((pr) => policy.extractTaskIssue(pr.body || "") === issue.number);
+              if (linked.length === 0) {
+                core.setFailed("HUMAN_GATE_BLOCKED: high-risk Issue #" + issue.number + " has no linked open PR.");
+                return;
+              }
+              const results = [];
+              for (const pr of linked) {
+                const result = await evaluatePR(pr.number, issue.number);
+                results.push({ pr: pr.number, ...result });
+              }
+              core.notice(JSON.stringify({ issue: issue.number, linkedPRs: results }));
+              const blocked = results.filter((x) => x.status !== "APPROVED");
+              if (blocked.length > 0) {
+                core.setFailed("HUMAN_GATE_BLOCKED: one or more linked PRs lack current independent approval.");
+              }
               return;
             }
-            const { Octokit } = require("@octokit/rest");
-            const governanceApi = new Octokit({ auth: governanceToken });
-            input.permissions = {};
-            for (const login of candidateUsers) {
-              try {
-                const { data } = await governanceApi.rest.repos.getCollaboratorPermissionLevel({
-                  owner, repo, username: login
-                });
-                input.permissions[login] = data.permission;
-              } catch (error) {
-                input.permissions[login] = "none";
-                core.warning("Permission lookup failed for CODEOWNER " + login + "; treated as none (fail-closed).");
-              }
+
+            const prNumber = context.payload.pull_request?.number;
+            if (!prNumber) {
+              core.setFailed("BLOCKED: event did not contain a pull request payload.");
+              return;
             }
-
-            input.reviewThreads = [];
-            let cursor = null;
-            do {
-              const query = [
-                "query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {",
-                "  repository(owner: $owner, name: $repo) {",
-                "    pullRequest(number: $number) {",
-                "      reviewThreads(first: 100, after: $cursor) {",
-                "        nodes { isResolved }",
-                "        pageInfo { hasNextPage endCursor }",
-                "      }",
-                "    }",
-                "  }",
-                "}"
-              ].join("\n");
-              const result = await github.graphql(query, { owner, repo, number: prNumber, cursor });
-              const connection = result.repository.pullRequest.reviewThreads;
-              input.reviewThreads.push(...connection.nodes);
-              cursor = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
-            } while (cursor);
-
-            const result = policy.evaluateHumanGate(input);
+            const result = await evaluatePR(prNumber);
             core.notice(JSON.stringify(result));
             if (result.status !== "APPROVED" && result.status !== "NOT_APPLICABLE") {
               core.setFailed("HUMAN_GATE_BLOCKED: " + result.reason);
-              return;
-            }
-            if (result.status === "APPROVED") {
-              core.notice("HUMAN_GATE_APPROVED: task #" + result.taskIssueNumber + ", exact SHA " + result.headSha);
             }
