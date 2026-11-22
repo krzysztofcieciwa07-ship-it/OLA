@@ -66,3 +66,13 @@ No production/staging migration, runtime DB grant, RLS change, secret access, Ra
 - PR #283 exact head `688fc9055f809eb26ea79c032beac295dc3275ad`: 19 SUCCESS, 1 SKIPPED (`igor-independent`), 0 FAILED, 0 IN_PROGRESS. All 17 workflow-run records completed SUCCESS. PostgreSQL contract run `44965673398` returned `9 passed in 1.60s` and asserted exact checkout SHA.
 - PR #282 exact head `7733cc2e231fe0f11f367bd8194d2408ff3b3f64`: 20 SUCCESS, 1 SKIPPED, 0 FAILED, 0 IN_PROGRESS; all 18 workflow-run records completed SUCCESS, including the real Ollama runtime gate.
 - These results do not replace independent review, route integration or production DB/RLS proof.
+
+
+## Checkpoint refresh — 2026-11-22 00:38 UTC
+
+- PR #282 membership resolver was hardened to require an explicit expected role; optional role matching is no longer possible at the resolver call boundary.
+- Code commit: `9edacf6f83cd84ecee2f898642b142bfddd40bf0`; test commit/head: `ae1d230630cf6f730dbaafda937fa2eb3cb87c0b`.
+- Tests updated to pass the required role explicitly for tenant mismatch, missing membership, revocation and fingerprint-key mismatch.
+- Exact-head GitHub check-runs for `ae1d230630cf6f730dbaafda937fa2eb3cb87c0b`: 20 queued; no PASS claim yet.
+- PR #282 remains draft, stacked on #280; no approval route integration, DB migration, deployment or production authorization is implied.
+- Review comment ID 7071681839 records the hardening and exact-head CI limitation.
