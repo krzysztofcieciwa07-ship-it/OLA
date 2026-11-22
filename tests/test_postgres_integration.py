@@ -167,3 +167,16 @@ def test_postgres_runtime_rejects_write_access_to_human_gate_memberships(postgre
             f'REVOKE INSERT ON TABLE "{schema}".human_gate_memberships FROM "{runtime_role}"'
         )
     database.verify_postgres_schema(runtime_engine)
+
+
+
+def test_postgres_schema_fails_closed_when_human_gate_approval_nonce_ledger_is_missing(postgres_db):
+    database, runtime_engine, _migration_engine, admin_engine, _runtime_role, schema = postgres_db
+
+    with admin_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f'DROP TABLE IF EXISTS "{schema}".human_gate_approval_nonce_ledger CASCADE'
+        )
+
+    with pytest.raises(RuntimeError, match="human_gate_approval_nonce_ledger"):
+        database.verify_postgres_schema(runtime_engine)
