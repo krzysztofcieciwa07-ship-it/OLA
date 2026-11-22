@@ -28,8 +28,8 @@ def _append_chat_evidence(tenant_id: str, record_type: str, payload: dict[str, A
 def _openai_endpoint() -> str:
     """Return a validated HTTPS endpoint using the shared OLA host/port allowlist."""
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    parsed_url = urlsplit(base_url)
     try:
+        parsed_url = urlsplit(base_url)
         endpoint_host = (parsed_url.hostname or "").rstrip(".").lower()
         endpoint_port = parsed_url.port if parsed_url.port is not None else 443
         if endpoint_port < 1:
