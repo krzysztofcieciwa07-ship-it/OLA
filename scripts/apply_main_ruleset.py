@@ -5,6 +5,7 @@ Default is read-only. Requires gh CLI logged in as repository administrator.
 Never handles a private signing key, signs a commit, or approves a PR.
 """
 import argparse
+import base64
 import json
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from datetime import datetime
 REPO = "krzysztofcieciwa07-ship-it/OLA"
 NAME = "ola-production-main-guard-v1"
 GITHUB_ACTIONS_INTEGRATION_ID = 15368
+CODEOWNER_REQUIRED_PATHS = ("*", "/.github/", "/scripts/", "/app/")
 
 # These are the exact successful check-run contexts observed on main SHA
 # 64fcf3a1a1b620620555b647faa71fb5e6a109ba. Keep context names exact:
@@ -73,7 +75,7 @@ def policy():
                 "parameters": {
                     "allowed_merge_methods": ["merge", "squash"],
                     "dismiss_stale_reviews_on_push": True,
-                    "require_code_owner_review": False,
+                    "require_code_owner_review": True,
                     "require_last_push_approval": True,
                     "required_approving_review_count": 1,
                     "required_review_thread_resolution": True,
@@ -162,6 +164,91 @@ def gh(method, path, data=None):
         raise RuntimeError(f"GitHub API returned invalid JSON for {method} {path}") from exc
 
 
+
+
+def _parse_codeowners(content):
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("CODEOWNERS file is missing or empty")
+    parsed = {}
+    for raw_line in content.splitlines():
+        line = raw_line.partition("#")[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        pattern = parts[0]
+        if pattern not in CODEOWNER_REQUIRED_PATHS:
+            continue
+        owners = set()
+        for token in parts[1:]:
+            if not token.startswith("@"):
+                continue
+            login = token[1:]
+            if "/" in login:
+                raise RuntimeError(
+                    "team CODEOWNERS are not supported for this personal repository; "
+                    "use an individually permission-verified reviewer"
+                )
+            if login:
+                owners.add(login.lower())
+        parsed[pattern] = owners
+    return parsed
+
+
+def _codeowners_users(content):
+    parsed = _parse_codeowners(content)
+    users = set()
+    for owners in parsed.values():
+        users.update(owners)
+    return sorted(users)
+
+
+def validate_independent_codeowners(content, owner_login, permissions):
+    """Require a distinct write-enabled CODEOWNER for every sensitive path."""
+    if not isinstance(owner_login, str) or not owner_login.strip():
+        raise RuntimeError("repository owner login is unavailable")
+    if not isinstance(permissions, dict):
+        raise RuntimeError("CODEOWNERS permission map is malformed")
+
+    parsed = _parse_codeowners(content)
+    missing_rules = [path for path in CODEOWNER_REQUIRED_PATHS if path not in parsed]
+    if missing_rules:
+        raise RuntimeError(
+            "CODEOWNERS missing required sensitive-path rules: "
+            + ", ".join(missing_rules)
+        )
+
+    owner = owner_login.lower()
+    normalized_permissions = {
+        str(login).lower(): str(permission).lower()
+        for login, permission in permissions.items()
+    }
+    accepted = set()
+    allowed = {"write", "maintain", "admin"}
+    for path in CODEOWNER_REQUIRED_PATHS:
+        candidates = parsed[path] - {owner}
+        eligible = {
+            login for login in candidates
+            if normalized_permissions.get(login) in allowed
+        }
+        if not eligible:
+            read_only = sorted(
+                login for login in candidates
+                if normalized_permissions.get(login) in {"read", "triage"}
+            )
+            if read_only:
+                raise RuntimeError(
+                    "CODEOWNER reviewer lacks write permission for "
+                    + path + ": " + ", ".join(read_only)
+                )
+            raise RuntimeError(
+                "each sensitive path requires an independent write-enabled CODEOWNER: "
+                + path
+            )
+        accepted.update(eligible)
+    return sorted(accepted)
+
 def _rule_map(rules):
     return {item.get("type"): item for item in rules if isinstance(item, dict)}
 
@@ -207,12 +294,16 @@ def verify_ruleset(detail, effective_rules, expected_sha):
     if not stored_checks.get("strict_required_status_checks_policy"):
         raise RuntimeError("strict required status checks are not enabled")
 
-    review = stored["pull_request"].get("parameters", {})
-    if (review.get("required_approving_review_count") != 1
-            or not review.get("dismiss_stale_reviews_on_push")
-            or not review.get("require_last_push_approval")
-            or not review.get("required_review_thread_resolution")):
-        raise RuntimeError("independent review requirements differ from the reviewed policy")
+    stored_review = stored["pull_request"].get("parameters", {})
+    effective_review = effective["pull_request"].get("parameters", {})
+    for label, review in (("stored", stored_review), ("effective", effective_review)):
+        if review.get("require_code_owner_review") is not True:
+            raise RuntimeError(f"{label} ruleset does not require CODEOWNERS review")
+        if (review.get("required_approving_review_count") != 1
+                or not review.get("dismiss_stale_reviews_on_push")
+                or not review.get("require_last_push_approval")
+                or not review.get("required_review_thread_resolution")):
+            raise RuntimeError(f"{label} independent review requirements differ from the reviewed policy")
 
     if detail.get("target") != "branch":
         raise RuntimeError("ruleset target is not branch")
@@ -227,6 +318,32 @@ def verify_ruleset(detail, effective_rules, expected_sha):
 
 
 def apply():
+    repository = gh("GET", f"repos/{REPO}")
+    owner_login = (repository.get("owner") or {}).get("login")
+    if not owner_login:
+        raise RuntimeError("repository owner identity is unavailable")
+
+    codeowners_response = gh("GET", f"repos/{REPO}/contents/.github/CODEOWNERS?ref=main")
+    if codeowners_response.get("encoding") != "base64" or not codeowners_response.get("content"):
+        raise RuntimeError("could not read the main-branch CODEOWNERS file")
+    try:
+        codeowners_content = base64.b64decode(
+            codeowners_response["content"], validate=True
+        ).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise RuntimeError("CODEOWNERS content is not valid base64 UTF-8") from exc
+
+    permissions = {}
+    for login in _codeowners_users(codeowners_content):
+        if login == owner_login.lower():
+            permissions[login] = "admin"
+            continue
+        result = gh("GET", f"repos/{REPO}/collaborators/{login}/permission")
+        permissions[login] = result.get("permission", "none")
+    independent_codeowners = validate_independent_codeowners(
+        codeowners_content, owner_login, permissions
+    )
+
     branch = gh("GET", f"repos/{REPO}/branches/main")
     if branch.get("name") != "main":
         raise RuntimeError("Target main branch not verified")
@@ -250,6 +367,7 @@ def apply():
     effective = gh("GET", f"repos/{REPO}/rules/branches/main")
     result = verify_ruleset(detail, effective, target_sha)
     result["check_preflight"] = check_proof
+    result["independent_codeowners"] = independent_codeowners
     print(json.dumps(result, sort_keys=True))
 
 
