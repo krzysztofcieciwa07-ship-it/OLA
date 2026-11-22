@@ -519,3 +519,91 @@ def test_ollama_loopback_nondefault_port_accepts_explicit_allowlist(monkeypatch)
     result = _invoke_llm("codeact", "calculate 1+1", {})
     assert result["output"] == "custom local ollama"
     assert calls[0][1]["follow_redirects"] is False
+
+
+
+def test_openai_rejects_malformed_port_before_network(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com:abc/v1")
+    monkeypatch.setenv("OLA_LLM_ALLOWED_HOSTS", "api.openai.com")
+
+    with pytest.raises(RuntimeError, match="approved HTTPS"):
+        _invoke_llm("codeact", "calculate 1+1", {})
+
+
+def test_ollama_rejects_malformed_port_before_network(monkeypatch):
+    import pytest
+    from app.agent_runtime import _invoke_llm
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.internal.example:abc")
+    monkeypatch.setenv("OLA_OLLAMA_ALLOWED_HOSTS", "ollama.internal.example")
+
+    with pytest.raises(RuntimeError, match="approved Ollama endpoint"):
+        _invoke_llm("codeact", "calculate 1+1", {})
+
+
+def test_ollama_ipv6_loopback_default_port_is_allowed_without_redirects(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": {"content": "ipv6 loopback"}}
+
+    calls = []
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://[::1]:11434")
+    monkeypatch.delenv("OLA_OLLAMA_ALLOWED_HOSTS", raising=False)
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = _invoke_llm("codeact", "calculate 1+1", {})
+    assert calls[0][0] == "http://[::1]:11434/api/chat"
+    assert calls[0][1]["follow_redirects"] is False
+    assert result["output"] == "ipv6 loopback"
+
+
+def test_ollama_ipv6_loopback_custom_port_requires_bracketed_allowlist(monkeypatch):
+    import httpx
+    from app.agent_runtime import _invoke_llm
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": {"content": "ipv6 custom port"}}
+
+    calls = []
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setenv("OLA_LLM_MODE", "required")
+    monkeypatch.setenv("OLA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("OLA_LLM_MODEL", "test-model")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://[::1]:8000")
+    monkeypatch.setenv("OLA_OLLAMA_ALLOWED_HOSTS", "[::1]:8000")
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    result = _invoke_llm("codeact", "calculate 1+1", {})
+    assert calls[0][0] == "http://[::1]:8000/api/chat"
+    assert calls[0][1]["follow_redirects"] is False
+    assert result["output"] == "ipv6 custom port"
