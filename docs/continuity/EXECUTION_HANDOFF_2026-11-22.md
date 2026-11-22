@@ -417,3 +417,9 @@ Poll only the active exact-source final gates for #277/#305 after state changes;
 ### run.end decision
 - No merge, production deployment, shared DB mutation, secret access, permission change, payment or external side effect.
 - #304 status remains IN_PROGRESS / HUMAN_GATE. Next action: poll only #285 exact-head build-linux, inspect its result, and continue from a state change.
+
+
+## run.end follow-up — 2026-11-22 17:57 CET
+- PR #285 current exact head `557c9328b0e3db5af5f1718cfaa9e020b71c7ca0`: **5 SUCCESS / 15 pending / 0 completed failure / 0 SKIPPED**. Pending jobs include two build-linux check-runs; no rerun was requested. Exact source unchanged.
+- PR #277 pre-follow-up handoff head `b5a4ff6b6d24084274801bc2b8fa4192fd8064e1`: **0 SUCCESS / 26 pending / 0 failure / 0 SKIPPED**; fresh head is pending, not a gate pass.
+- No new issue/PR created; the inventory snapshot from 17:55 remains current for open counts and PR heads. CI status is maintained in this handoff and PR checkpoint comments.
