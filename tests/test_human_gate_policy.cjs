@@ -65,7 +65,7 @@ test("closed or absent task issue blocks", () => {
 
 test("task issue without a high-risk label blocks", () => {
   const result = policy.evaluateHumanGate(input({
-    issues: { 292: { state: "open", labels: [{ name: "documentation" }] },
+    issues: { 292: { state: "open", labels: [{ name: "documentation" }] } },
   }));
   assert.equal(result.reason, "TASK_ISSUE_NOT_MARKED_HIGH_RISK");
 });
@@ -118,6 +118,7 @@ test("newer CHANGES_REQUESTED supersedes an older approval", () => {
 test("CODEOWNER must cover every changed high-risk path", () => {
   const result = policy.evaluateHumanGate(input({
     files: ["scripts/release.py"],
+    codeowners: "* @task-author\n/app/ @task-author @independent-reviewer\n/.github/ @task-author @independent-reviewer",
   }));
   assert.equal(result.reason, "NO_INDEPENDENT_CODEOWNER_FOR_PATH");
 });
