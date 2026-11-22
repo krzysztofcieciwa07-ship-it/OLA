@@ -34,9 +34,9 @@ input:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px soli
 .execution-step-heading strong{font-size:13px;color:#eeeaff;overflow-wrap:anywhere}
 .execution-step-meta{font-size:12px;color:#afb7cf;margin:7px 0}
 .execution-step-proof{font-size:11px;color:#8e9ab8;margin:0;overflow-wrap:anywhere}
-footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px;width:100%}
-@media(max-width:790px){header{margin-bottom:32px}.team,.workspace{grid-template-columns:1fr}.card .symbol{margin-bottom:10px}.card{padding:18px}}
+footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px;width:100%}.health-panel{border:1px solid #303650;border-radius:14px;padding:14px;margin:16px 0;background:#090f1e}.health-panel h3{font-size:16px;margin:0 0 8px}.health-panel button{margin-top:8px}.ledger-record{padding:10px 0;border-bottom:1px solid #303650}.ledger-record:last-child{border:0}.ledger-record p{font-size:12px;margin:5px 0;overflow-wrap:anywhere}.ledger-record pre{font:12px ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#afb7cf}.workflow-report-card{padding:10px 0;border-bottom:1px solid #303650}.workflow-report-card:last-child{border:0}.workflow-report-output{font-size:12px;color:#afb7cf;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0 0}.workflow-report-card button{margin-top:8px;width:100%}
 @media(max-width:560px){.execution-list{grid-template-columns:1fr}}
+@media(max-width:790px){header{margin-bottom:32px}.team,.workspace{grid-template-columns:1fr}.card .symbol{margin-bottom:10px}.card{padding:18px}}
 </style>
 </head>
 <body>
@@ -62,6 +62,31 @@ footer{font-size:12px;color:#8993ae;margin-top:22px}aside button{margin-top:18px
     <p class="hint">RECORDED oznacza zapis etapu w Evidence. Sam zapis nie jest niezależnym potwierdzeniem poprawności ani zgodą Human Gate.</p>
   </section>
 </div><aside><h2>Dowód wykonania</h2>
+  <section class="health-panel" aria-labelledby="health-panel-title">
+    <h3 id="health-panel-title">Stan CORE — odczyt</h3>
+    <div class="detail"><span>Liveness</span><span id="health-status" class="status">UNKNOWN</span></div>
+    <div class="detail"><span>Core readiness</span><span id="readiness-status" class="status">UNKNOWN</span></div>
+    <div class="detail"><span>Zakres</span><strong id="readiness-scope">local_core_only · system_acceptance=NOT_VERIFIED</strong></div>
+    <p id="health-detail" class="hint">Stan nie został jeszcze odczytany.</p>
+    <button type="button" id="health-refresh">Odśwież health / readiness</button>
+  </section>
+  <section class="health-panel" aria-labelledby="ledger-title">
+    <h3 id="ledger-title">Tenant Evidence Ledger</h3>
+    <div class="detail"><span>Ledger</span><span id="ledger-status" class="status">KEY_REQUIRED</span></div>
+    <p id="ledger-tip" class="hint">Tip i liczba rekordów nie zostały odczytane.</p>
+    <button type="button" id="ledger-button" disabled>Odczytaj ledger (maks. 20)</button>
+    <div id="ledger-records" aria-live="polite"></div>
+  </section>
+  <section class="health-panel" aria-labelledby="workflow-report-title">
+    <h3 id="workflow-report-title">Raport workflow — IGOR</h3>
+    <p class="hint">Wprowadź UUID run_id. Serwer ponownie weryfikuje tenant-scoped evidence. To wyłącznie GET — Human Gate nie jest zatwierdzany.</p>
+    <label for="workflow-run-id">Run ID (UUID)</label>
+    <input id="workflow-run-id" type="text" maxlength="36" autocomplete="off" inputmode="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" aria-describedby="workflow-run-id-hint">
+    <p id="workflow-run-id-hint" class="hint">Raport jest odczytywany tylko dla tenanta uwierzytelnionego kluczem API.</p>
+    <div class="detail"><span>Raport</span><span id="workflow-status" class="status">NOT_CHECKED</span></div>
+    <button type="button" id="workflow-report-button" disabled>Otwórz raport IGOR</button>
+    <p id="workflow-output" class="workflow-report-output" aria-live="polite">Nie pobrano raportu z serwera.</p>
+  </section>
   <div class="detail"><span>Wykonanie</span><span id="runtime-status" class="status">NOT_RUN</span></div>
   <div class="detail"><span>IGOR</span><span id="igor-status" class="status">UNKNOWN</span></div>
   <div class="detail"><span>Human Gate</span><span id="gate-status" class="status warn">NOT_APPROVED</span></div>
@@ -246,6 +271,159 @@ async function loadEvidence() {
   } catch (_) { line("BŁĄD", "Nie udało się pobrać wszystkich rekordów Evidence."); }
   finally { busy(false); }
 }
+function panelBadge(selector, value, tone) {
+  const target = el(selector);
+  target.textContent = value;
+  target.className = "status" + (tone ? " " + tone : "");
+}
+async function refreshCoreHealth() {
+  const button = el("#health-refresh");
+  button.disabled = true;
+  panelBadge("#health-status", "CHECKING", "warn");
+  panelBadge("#readiness-status", "CHECKING", "warn");
+  try {
+    const [healthResponse, readinessResponse] = await Promise.all([
+      fetch("/health", {cache:"no-store"}),
+      fetch("/readyz", {cache:"no-store"})
+    ]);
+    const healthBody = await readJson(healthResponse);
+    const readinessBody = await readJson(readinessResponse);
+    panelBadge("#health-status", healthResponse.ok && healthBody.status === "ok" ? "LIVE" : "UNAVAILABLE",
+      healthResponse.ok && healthBody.status === "ok" ? "good" : "bad");
+    const coreStatus = readinessBody.core_status || "UNKNOWN";
+    panelBadge("#readiness-status", readinessResponse.ok ? coreStatus : coreStatus === "BLOCKED" ? "BLOCKED" : "UNAVAILABLE",
+      readinessResponse.ok && coreStatus === "READY" ? "good" : "bad");
+    el("#readiness-scope").textContent = String(readinessBody.scope || "UNKNOWN") +
+      " · system_acceptance=" + String(readinessBody.system_acceptance || "UNKNOWN");
+    const failedChecks = Array.isArray(readinessBody.failed_checks) ? readinessBody.failed_checks.join(", ") : "";
+    el("#health-detail").textContent = "Odczyt: " + new Date().toISOString() +
+      (failedChecks ? " · failed_checks: " + failedChecks : "") +
+      " · HTTP health=" + healthResponse.status + " readiness=" + readinessResponse.status;
+  } catch (_) {
+    panelBadge("#health-status", "UNREACHABLE", "bad");
+    panelBadge("#readiness-status", "UNKNOWN", "warn");
+    el("#readiness-scope").textContent = "local_core_only · system_acceptance=NOT_VERIFIED";
+    el("#health-detail").textContent = "Odczyt nieudany: " + new Date().toISOString();
+  } finally { button.disabled = false; }
+}
+const workflowRunInput = el("#workflow-run-id");
+const workflowReportButton = el("#workflow-report-button");
+function validWorkflowRunId(value) {
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value.trim());
+}
+function updateWorkflowReportButton() {
+  workflowReportButton.disabled = !keyInput.value.trim() || !validWorkflowRunId(workflowRunInput.value);
+}
+async function loadWorkflowReport() {
+  const key = keyInput.value.trim(), runId = workflowRunInput.value.trim();
+  const status = el("#workflow-status"), output = el("#workflow-output");
+  if (!validWorkflowRunId(runId)) {
+    status.textContent = "INVALID_RUN_ID";
+    status.className = "status warn";
+    output.textContent = "Wprowadź poprawny UUID run_id.";
+    updateWorkflowReportButton();
+    return;
+  }
+  if (!key) {
+    status.textContent = "KEY_REQUIRED";
+    status.className = "status warn";
+    output.textContent = "Wpisz klucz API właściwego tenanta.";
+    updateWorkflowReportButton();
+    return;
+  }
+  workflowReportButton.disabled = true;
+  status.textContent = "FETCHING";
+  status.className = "status warn";
+  output.textContent = "Serwer ponownie weryfikuje dowody workflow…";
+  try {
+    const response = await fetch(`/nina-workflow/${encodeURIComponent(runId)}/report`, {
+      headers:{"Authorization":`Bearer ${key}`},
+      cache:"no-store"
+    });
+    const body = await readJson(response);
+    if (!response.ok) {
+      status.textContent = response.status === 401 ? "AUTH_REQUIRED" :
+        response.status === 409 ? "UNVERIFIED" : `BLOCKED · HTTP ${response.status}`;
+      status.className = "status" + (response.status === 401 ? " bad" : " warn");
+      output.textContent = "Raport nie został potwierdzony przez serwer: " +
+        String(body.detail || `HTTP ${response.status}`);
+      return;
+    }
+    status.textContent = body.status === "VERIFIED" ? "VERIFIED" : "UNVERIFIED";
+    status.className = "status" + (body.status === "VERIFIED" ? " good" : " warn");
+    output.textContent = [
+      "run_id: " + runId,
+      "IGOR: " + String(body.status || "UNKNOWN"),
+      "trust_scope: " + String(body.trust_scope || "UNKNOWN"),
+      "tip_hash: " + String(body.tip_hash || "UNKNOWN"),
+      "report_digest: " + String(body.report_digest || "UNKNOWN"),
+      "Human Gate: " + String(body.human_gate || "UNKNOWN"),
+      "production_authorized: " + String(body.production_authorized === true)
+    ].join("\n");
+  } catch (_) {
+    status.textContent = "UNAVAILABLE";
+    status.className = "status bad";
+    output.textContent = "Nie udało się połączyć z endpointem raportu. Nie ponawiaj automatycznie.";
+  } finally {
+    updateWorkflowReportButton();
+  }
+}
+async function loadTenantLedger() {
+  const key = keyInput.value.trim();
+  const button = el("#ledger-button");
+  if (!key) {
+    panelBadge("#ledger-status", "KEY_REQUIRED", "warn");
+    return;
+  }
+  button.disabled = true;
+  panelBadge("#ledger-status", "FETCHING", "warn");
+  el("#ledger-records").replaceChildren();
+  try {
+    const headers = {"X-API-Key":key};
+    const [tipResponse, recordsResponse] = await Promise.all([
+      fetch("/evidence/tip", {headers, cache:"no-store"}),
+      fetch("/evidence?limit=20", {headers, cache:"no-store"})
+    ]);
+    const tipBody = await readJson(tipResponse);
+    const recordsBody = await readJson(recordsResponse);
+    if (!tipResponse.ok || !recordsResponse.ok) {
+      panelBadge("#ledger-status", "BLOCKED · HTTP " + (!tipResponse.ok ? tipResponse.status : recordsResponse.status), "bad");
+      el("#ledger-tip").textContent = "Tenant-scoped read denied or unavailable.";
+      return;
+    }
+    const count = Number.isInteger(tipBody.record_count) ? tipBody.record_count : "UNKNOWN";
+    const tipHash = typeof tipBody.tip_hash === "string" ? tipBody.tip_hash : "UNKNOWN";
+    el("#ledger-tip").textContent = "Record count: " + count + " · tip: " + tipHash;
+    const records = Array.isArray(recordsBody.records) ? recordsBody.records.slice(0, 20) : [];
+    for (const record of records) {
+      const article = document.createElement("article");
+      const title = document.createElement("strong");
+      const details = document.createElement("p");
+      const payload = document.createElement("pre");
+      article.className = "ledger-record";
+      title.textContent = "seq " + String(record.seq ?? "UNKNOWN") + " · " + String(record.record_type ?? "UNKNOWN");
+      details.textContent = "id: " + String(record.id ?? "UNKNOWN") + " · record_hash: " + String(record.record_hash ?? "UNKNOWN");
+      payload.textContent = JSON.stringify(record.payload ?? {}, null, 2).slice(0, 1600);
+      article.append(title, details, payload);
+      el("#ledger-records").appendChild(article);
+    }
+    panelBadge("#ledger-status", "READ_ONLY · " + records.length + " RECORDS", "good");
+  } catch (_) {
+    panelBadge("#ledger-status", "UNAVAILABLE", "bad");
+    el("#ledger-tip").textContent = "Nie udało się pobrać tenant-scoped Evidence Ledger.";
+  } finally { button.disabled = !keyInput.value.trim(); }
+}
+workflowReportButton.addEventListener("click", loadWorkflowReport);
+workflowRunInput.addEventListener("input", updateWorkflowReportButton);
+el("#health-refresh").addEventListener("click", refreshCoreHealth);
+el("#ledger-button").addEventListener("click", loadTenantLedger);
+keyInput.addEventListener("input", () => {
+  el("#ledger-button").disabled = !keyInput.value.trim();
+  updateWorkflowReportButton();
+  if (!keyInput.value.trim()) panelBadge("#ledger-status", "KEY_REQUIRED", "warn");
+});
+updateWorkflowReportButton();
+refreshCoreHealth();
 el("#task-form").addEventListener("submit", sendChat);
 runButton.addEventListener("click", runNina);
 evidenceButton.addEventListener("click", loadEvidence);
