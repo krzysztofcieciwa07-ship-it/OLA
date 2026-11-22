@@ -9,14 +9,14 @@ from app.database import SessionLocal
 from app.main import app
 from app.models import CheckoutExecutionJob, CheckoutReportReview, CheckoutOrder, EvidenceRecord
 from app.paid_order_execution import execute_paid_order_job
-from test_paid_order_approval import _seed_paid_order, _approve
+from test_paid_order_approval import _seed_paid_order, _approve, _approve_signed
 
 
 def _completed_order(monkeypatch):
     from app import nina_execution
 
     ctx = _seed_paid_order(monkeypatch)
-    approved = _approve(ctx)
+    approved = _approve_signed(ctx, monkeypatch)
     assert approved.status_code == 200, approved.text
     with SessionLocal() as db:
         job = db.scalar(select(CheckoutExecutionJob).where(
