@@ -336,7 +336,7 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
     import json
     import time
     import uuid
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timezone
 
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
