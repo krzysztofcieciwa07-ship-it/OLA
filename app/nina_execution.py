@@ -18,6 +18,36 @@ def append_record(tenant_id, record_type, payload, *, deduplicate=False):
     return append_evidence_atomic(tenant_id, record_type, payload, deduplicate=deduplicate)
 
 
+def _execution_steps(execution, evidence_ids):
+    """Expose only safe, evidence-linked labels for the actual executed agents."""
+    if not isinstance(execution, list):
+        return []
+    recorded_ids = evidence_ids if isinstance(evidence_ids, list) else []
+    steps = []
+    for index, event in enumerate(execution):
+        if not isinstance(event, dict):
+            continue
+
+        def public_label(field):
+            value = event.get(field)
+            return value[:120] if isinstance(value, str) and value else "UNKNOWN"
+
+        evidence_id = (
+            recorded_ids[index]
+            if index < len(recorded_ids) and isinstance(recorded_ids[index], str)
+            else None
+        )
+        steps.append({
+            "sequence": index + 1,
+            "agent": public_label("agent"),
+            "capability": public_label("capability"),
+            "tool": public_label("tool"),
+            "status": public_label("status"),
+            "evidence_id": evidence_id,
+        })
+    return steps
+
+
 def run_nina_task(tenant_id, requester_id, task_text, requested_tools, *, execution_context=None):
     if not isinstance(task_text, str) or not task_text.strip():
         raise ValueError("task is required")
@@ -31,6 +61,7 @@ def run_nina_task(tenant_id, requester_id, task_text, requested_tools, *, execut
         return {
             "task_id": nina_task.task_id,
             "nina": {"status": plan.status, "reason": plan.reason},
+            "execution_steps": [],
             "igor": {"status": "UNKNOWN", "reason": "execution did not start"},
             "provenance": {"status": "NOT_CREATED"},
             "replay": [],
@@ -42,6 +73,10 @@ def run_nina_task(tenant_id, requester_id, task_text, requested_tools, *, execut
     runtime = nina.execute(nina_task)
     run_id = runtime["runtime"]["run_id"]
     execution = runtime["runtime"].get("execution", [])
+    execution_steps = _execution_steps(
+        execution,
+        runtime["runtime"].get("evidence_ids", []),
+    )
     runtime_commit = runtime_source_commit()
     provider = execution[0].get("provider") if execution else None
     model = execution[0].get("model") if execution else None
@@ -195,6 +230,7 @@ def run_nina_task(tenant_id, requester_id, task_text, requested_tools, *, execut
     return {
         "task_id": nina_task.task_id,
         "run_id": run_id,
+        "execution_steps": execution_steps,
         "tip_hash": tip_hash,
         "nina": nina_summary,
         "igor": igor_summary,
