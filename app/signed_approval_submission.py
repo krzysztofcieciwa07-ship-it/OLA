@@ -8,6 +8,7 @@ single execution outbox job. It does not execute the job or consume its nonce.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -120,9 +121,10 @@ def _required_step_up_policy() -> tuple[str, frozenset[str]]:
     return acr, amr
 
 
-def _actor_matches_membership(actor: dict, membership: HumanGateMembership, *, tenant_id: str, role: str):
+def _actor_matches_membership(actor: dict, membership: HumanGateMembership | None, *, tenant_id: str, role: str):
     if (
-        membership.id != actor["principal_id"]
+        membership is None
+        or membership.id != actor["principal_id"]
         or membership.tenant_id != tenant_id
         or actor["tenant_id"] != tenant_id
         or membership.issuer != actor["issuer"]
