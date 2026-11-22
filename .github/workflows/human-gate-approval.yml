@@ -13,7 +13,6 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
-  administration: read
 
 concurrency:
   group: human-gate-${{ github.event.pull_request.number || github.event.issue.number || github.event.review.pull_request_url || github.run_id }}
@@ -24,6 +23,7 @@ jobs:
     name: human-gate-approval
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: human-gate-governance
     steps:
       - name: Check out trusted default-branch policy only
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -34,6 +34,8 @@ jobs:
 
       - name: Evaluate Human Gate policy for task Issues and PRs
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          HUMAN_GATE_GOVERNANCE_TOKEN: ${{ secrets.HUMAN_GATE_GOVERNANCE_TOKEN }}
         with:
           script: |
             const policy = require("./.github/scripts/human-gate-policy.cjs");
@@ -111,10 +113,23 @@ jobs:
                 for (const login of ownersForFile) candidateUsers.add(login);
               }
 
+              const governanceToken = process.env.HUMAN_GATE_GOVERNANCE_TOKEN;
+              if (!governanceToken) {
+                return {
+                  status: "BLOCKED",
+                  reason: "HUMAN_GATE_GOVERNANCE_TOKEN_MISSING",
+                  detail: "Configure a read-only fine-grained token with Administration:read in the human-gate-governance environment; token values are never logged.",
+                  prNumber,
+                  taskIssueNumber,
+                };
+              }
+              const { Octokit } = require("@octokit/rest");
+              const governanceApi = new Octokit({ auth: governanceToken });
+
               input.permissions = {};
               for (const login of candidateUsers) {
                 try {
-                  const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  const { data } = await governanceApi.rest.repos.getCollaboratorPermissionLevel({
                     owner, repo, username: login
                   });
                   input.permissions[login] = data.permission;
