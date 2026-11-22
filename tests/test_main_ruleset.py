@@ -111,10 +111,20 @@ def test_policy_requires_codeowner_review_for_main():
     assert rules["pull_request"]["parameters"]["require_code_owner_review"] is True
 
 
+def _codeowners_text(owner, reviewer=None):
+    owners = f"@{owner}" + (f" @{reviewer}" if reviewer else "")
+    return (
+        f"* {owners}\n"
+        f"/.github/ {owners}\n"
+        f"/scripts/ {owners}\n"
+        f"/app/ {owners}\n"
+    )
+
+
 def test_independent_codeowners_rejects_owner_only_mapping():
     with pytest.raises(RuntimeError, match="independent write-enabled CODEOWNER"):
         module.validate_independent_codeowners(
-            "* @krzysztofcieciwa07-ship-it\\n/app/ @krzysztofcieciwa07-ship-it\\n",
+            _codeowners_text("krzysztofcieciwa07-ship-it"),
             owner_login="krzysztofcieciwa07-ship-it",
             permissions={"krzysztofcieciwa07-ship-it": "admin"},
         )
@@ -123,7 +133,7 @@ def test_independent_codeowners_rejects_owner_only_mapping():
 def test_independent_codeowners_rejects_read_only_reviewer():
     with pytest.raises(RuntimeError, match="write permission"):
         module.validate_independent_codeowners(
-            "* @krzysztofcieciwa07-ship-it @reviewer\\n/app/ @reviewer\\n",
+            _codeowners_text("krzysztofcieciwa07-ship-it", "reviewer"),
             owner_login="krzysztofcieciwa07-ship-it",
             permissions={"krzysztofcieciwa07-ship-it": "admin", "reviewer": "read"},
         )
@@ -131,7 +141,7 @@ def test_independent_codeowners_rejects_read_only_reviewer():
 
 def test_independent_codeowners_accepts_distinct_write_enabled_reviewer():
     result = module.validate_independent_codeowners(
-        "* @krzysztofcieciwa07-ship-it @reviewer\\n/app/ @reviewer\\n",
+        _codeowners_text("krzysztofcieciwa07-ship-it", "reviewer"),
         owner_login="krzysztofcieciwa07-ship-it",
         permissions={"krzysztofcieciwa07-ship-it": "admin", "reviewer": "write"},
     )
