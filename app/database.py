@@ -326,8 +326,16 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
                        has_table_privilege(current_user, 'evidence_records', 'DELETE'),
                        has_table_privilege(current_user, 'evidence_records', 'TRUNCATE')
             """)).one()
+            membership_privileges = conn.execute(text("""
+                SELECT has_table_privilege(current_user, 'human_gate_memberships', 'SELECT'),
+                       has_table_privilege(current_user, 'human_gate_memberships', 'INSERT'),
+                       has_table_privilege(current_user, 'human_gate_memberships', 'UPDATE'),
+                       has_table_privilege(current_user, 'human_gate_memberships', 'DELETE'),
+                       has_table_privilege(current_user, 'human_gate_memberships', 'TRUNCATE')
+            """)).one()
         else:
-            evidence_privileges = (False, False)
+            evidence_privileges = (False, False, False)
+            membership_privileges = (True, False, False, False, False)
     if applied is None:
         raise RuntimeError("PostgreSQL schema migration version is missing")
     if membership_migration is None:
@@ -383,6 +391,12 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         )
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
+    if enforce_runtime_privileges and (
+        not membership_privileges[0] or any(membership_privileges[1:])
+    ):
+        raise RuntimeError(
+            "PostgreSQL Human Gate membership table must be read-only (SELECT only) for runtime role"
+        )
     definitions = {row[0]: (row[1], row[2], row[3]) for row in trigger_rows}
     expected = {"evidence_no_update": "BEFORE UPDATE", "evidence_no_delete": "BEFORE DELETE"}
     for name, action in expected.items():
