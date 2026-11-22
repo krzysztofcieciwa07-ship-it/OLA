@@ -1,47 +1,39 @@
 name: Human Gate — GitHub Approval Enforcement
 
 on:
+  # zizmor: ignore[dangerous-triggers] — trusted policy only: checks out main, never checks out or executes PR code, uses read-only GITHUB_TOKEN.
   pull_request_target:
     types: [opened, edited, reopened, synchronize, ready_for_review, converted_to_draft, labeled, unlabeled]
   pull_request_review:
     types: [submitted, edited, dismissed]
   issues:
     types: [opened, edited, reopened, labeled, unlabeled, assigned, unassigned, milestoned, demilestoned]
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
   pull-requests: read
   issues: read
+  administration: read
 
 concurrency:
-  group: human-gate-\${{ github.event.pull_request.number || github.event.issue.number || github.event.review.pull_request_url || github.run_id }}
+  group: human-gate-${{ github.event.pull_request.number || github.event.issue.number || github.event.review.pull_request_url || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   approval-policy:
     name: human-gate-approval
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Check out trusted base-branch policy only
-        if: \${{ github.event_name != 'push' }}
+      - name: Check out trusted default-branch policy only
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          ref: \${{ github.event.pull_request.base.ref || github.ref }}
+          ref: main
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Record main push as post-merge audit only
-        if: \${{ github.event_name == 'push' }}
-        run: echo "POST_MERGE_AUDIT_ONLY — this run is not an approval and cannot authorize an operation."
-
       - name: Evaluate Human Gate policy for task Issues and PRs
-        if: \${{ github.event_name != 'push' }}
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        env:
-          HUMAN_GATE_GOVERNANCE_TOKEN: \${{ secrets.HUMAN_GATE_GOVERNANCE_TOKEN }}
         with:
           script: |
             const policy = require("./.github/scripts/human-gate-policy.cjs");
@@ -50,11 +42,7 @@ jobs:
             async function evaluatePR(prNumber, expectedIssueNumber = null) {
               const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
               if (!pr.head.repo || pr.head.repo.full_name !== owner + "/" + repo) {
-                return {
-                  status: "BLOCKED",
-                  reason: "HUMAN_GATE_REQUIRES_INTERNAL_REVIEW_BRANCH",
-                  prNumber,
-                };
+                return { status: "BLOCKED", reason: "HUMAN_GATE_REQUIRES_INTERNAL_REVIEW_BRANCH", prNumber };
               }
               if (expectedIssueNumber && policy.extractTaskIssue(pr.body || "") !== expectedIssueNumber) {
                 return { status: "BLOCKED", reason: "PR_TASK_ID_DOES_NOT_MATCH_ISSUE", prNumber };
@@ -99,7 +87,7 @@ jobs:
                 owner, repo, path: ".github/CODEOWNERS", ref: "main"
               });
               if (Array.isArray(codeownersFile) || codeownersFile.encoding !== "base64") {
-                return { status: "BLOCKED", reason: "TRUSTED_BASE_CODEOWNERS_UNAVAILABLE", prNumber };
+                return { status: "BLOCKED", reason: "TRUSTED_MAIN_CODEOWNERS_UNAVAILABLE", prNumber };
               }
               input.codeowners = Buffer.from(codeownersFile.content, "base64").toString("utf8");
               input.reviews = await github.paginate(github.rest.pulls.listReviews, {
@@ -123,22 +111,10 @@ jobs:
                 for (const login of ownersForFile) candidateUsers.add(login);
               }
 
-              const governanceToken = process.env.HUMAN_GATE_GOVERNANCE_TOKEN;
-              if (!governanceToken) {
-                return {
-                  status: "BLOCKED",
-                  reason: "HUMAN_GATE_GOVERNANCE_TOKEN_MISSING",
-                  detail: "Configure a read-only fine-grained token with Administration:read; token values are never logged.",
-                  prNumber,
-                  taskIssueNumber,
-                };
-              }
-              const { Octokit } = require("@octokit/rest");
-              const governanceApi = new Octokit({ auth: governanceToken });
               input.permissions = {};
               for (const login of candidateUsers) {
                 try {
-                  const { data } = await governanceApi.rest.repos.getCollaboratorPermissionLevel({
+                  const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
                     owner, repo, username: login
                   });
                   input.permissions[login] = data.permission;
