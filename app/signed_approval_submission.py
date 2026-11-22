@@ -384,6 +384,15 @@ def prepare_signed_paid_order_approval_challenge(
         "record_type": payment_proof["record_type"],
         "record_hash": payment_proof["record_hash"],
     }
+    reviewer_actor = {
+        "principal_id": resolved_reviewer.principal_id,
+        "tenant_id": resolved_reviewer.tenant_id,
+        "issuer": resolved_reviewer.issuer,
+        "subject_fingerprint": resolved_reviewer.subject_fingerprint,
+        "fingerprint_key_id": resolved_reviewer.fingerprint_key_id,
+        "role": resolved_reviewer.role,
+        "membership_version": resolved_reviewer.membership_version,
+    }
     payload = {
         "schema": "ola.signed-approval/v1",
         "approval_id": str(uuid.uuid4()),
@@ -404,7 +413,7 @@ def prepare_signed_paid_order_approval_challenge(
         "effect_authorized": True,
         "execution_observed": "NOT_STARTED",
         "author": actor(author_membership),
-        "reviewer": actor(db.get(HumanGateMembership, resolved_reviewer.principal_id)),
+        "reviewer": reviewer_actor,
         "prior_approvers": [],
         "reviewer_authentication": {
             "auth_time": auth_time_text,
