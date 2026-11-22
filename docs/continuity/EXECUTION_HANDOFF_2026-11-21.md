@@ -198,3 +198,32 @@ This supersedes the operational status above where it conflicts with later exact
 3. Reconcile writer universe and tenant isolation against actual infrastructure, including external DB/IAM/network attestations and zero-mismatch telemetry sample.
 4. Sandbox/network allowlists, stress/recovery, supply-chain and reproducibility gates, effective branch protection, lifecycle audit, release manifest and full E2E.
 5. Production GO remains blocked until all required exact-SHA and independent external proofs are present.
+
+
+## Fresh exact-SHA checkpoint — 2026-11-22 08:07 UTC
+
+Main verified from GitHub API: `911c1cedf76dc6139f57b5d893d708b1a92245c6` (merge commit for #280).
+
+### Current PR checks (exact head)
+
+- **#286 capability enforcement** — `4fd30de0de10c28ef1605758a1d5e8372ddde622`: 18 check-runs, **17 SUCCESS / 1 SKIPPED / 0 FAILURE**. Exact check-runs: [API](https://api.github.com/repos/krzysztofcieciwa07-ship-it/OLA/commits/4fd30de0de10c28ef1605758a1d5e8372ddde622/check-runs). Draft, stacked on #283; not merged. Checks cover E2E, PostgreSQL contract, staging, stress, continuity, provenance mutation, Ollama runtime and build.
+- **#295 final-gate trigger/scope fix** — `9a37726ca1257b4bb1d295b7d6e5e961d87d8174`: 37 check-runs, **35 SUCCESS / 2 SKIPPED / 0 FAILURE / 0 pending**. Exact check-runs: [API](https://api.github.com/repos/krzysztofcieciwa07-ship-it/OLA/commits/9a37726ca1257b4bb1d295b7d6e5e961d87d8174/check-runs). Base main `911c1cedf76dc6139f57b5d893d708b1a92245c6`; non-draft, not merged. No independent review recorded.
+- **#294 membership-revocation serialization** — `b238d2b4f47adc75a1d946a67a8f11d7aab67c4f`: 21 check-runs, **20 SUCCESS / 1 SKIPPED / 0 FAILURE**. Exact check-runs: [API](https://api.github.com/repos/krzysztofcieciwa07-ship-it/OLA/commits/b238d2b4f47adc75a1d946a67a8f11d7aab67c4f/check-runs). Draft, stacked on #293; not merged.
+- **#287 runtime read-only membership privileges** — `906962469526eb64840e2132bfb063769ab6766f`: 22 check-runs, **20 SUCCESS / 1 SKIPPED / 1 CANCELLED**. Cancelled build-linux job `137080337047` was rerun successfully submitted; result pending. Exact check-runs: [API](https://api.github.com/repos/krzysztofcieciwa07-ship-it/OLA/commits/906962469526eb64840e2132bfb063769ab6766f/check-runs).
+- **#283 PostgreSQL durable replay ledger** — `688fc9055f809eb26ea79c032beac295dc3275ad`: 21 check-runs, **19 SUCCESS / 1 SKIPPED / 1 CANCELLED**. Cancelled build-linux job `137073833821` was rerun successfully submitted; result pending. Exact check-runs: [API](https://api.github.com/repos/krzysztofcieciwa07-ship-it/OLA/commits/688fc9055f809eb26ea79c032beac295dc3275ad/check-runs).
+- **#293 current-tip guard** — `162b9665eb6deb99478915976f26d5a8fae4a07b`: 17/17 workflows SUCCESS according to PR exact-source evidence; independent approval recorded from `krzys167-crypto`. It remains open and unmerged.
+
+### Reviewer-request limitation
+
+A request for review from `krzys167-crypto` on #286, #294, #295, #283 and #287 returned HTTP 422: GitHub requires requested reviewers to be repository collaborators. No reviewer/access changes were made. Owner/admin must arrange eligible review access or nominate an authorized collaborator.
+
+### Current dependency/closure state
+
+- #280 is merged into main; the signed-approval **contract** is not production Human Gate wiring.
+- #286 is green on its exact SHA but still draft and stacked on #283. Issuer and verifier remain in the same process; this candidate does not establish external signer custody or production authorization.
+- #295 exact-head CI is green, but it is not merged; no independent review.
+- #294 exact-head CI is green, but it remains draft and requires #293 plus independent review.
+- #287/#283 cancelled jobs are rerunning; no PASS is attributed to those reruns until their terminal result.
+- Production GO remains blocked by reviewer/governance HUMAN_GATE, staging signer/OIDC/DB-owner controls, and full integration/runtime acceptance.
+
+No merge, production deployment, migration, permission or secret change was performed in this checkpoint.
