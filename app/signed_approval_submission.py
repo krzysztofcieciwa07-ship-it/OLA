@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 import re
-import time
 import uuid
 from datetime import datetime, timezone
 
@@ -36,7 +35,6 @@ from .models import (
     ApiKey,
     CheckoutExecutionJob,
     CheckoutOrderControl,
-    EvidenceRecord,
     HumanGateMembership,
 )
 from .order_approval import _validate_paid_order
@@ -267,6 +265,32 @@ def accept_signed_paid_order_approval(
         {"auth_time", "acr", "amr", "session_fingerprint"},
         "reviewer authentication",
     )
+    _strict_object(payload["policy"], {"version", "sha256"}, "policy")
+    _strict_object(payload["evidence"], {"tip_hash", "records"}, "evidence")
+    _strict_object(payload["runtime"], {"source_commit"}, "runtime")
+    _strict_object(
+        payload["closure"],
+        {"operational", "epistemic", "remedial"},
+        "closure",
+    )
+    if not isinstance(payload["prior_approvers"], list):
+        raise SignedApprovalSubmissionRejected(400, "signed approval prior_approvers must be an array")
+    for index, actor in enumerate(payload["prior_approvers"]):
+        _strict_object(actor, _ACTOR_KEYS, f"prior approver {index}")
+    if not isinstance(payload["evidence"]["records"], list):
+        raise SignedApprovalSubmissionRejected(400, "signed approval evidence records must be an array")
+    for index, record in enumerate(payload["evidence"]["records"]):
+        _strict_object(
+            record,
+            {"id", "sequence", "record_type", "record_hash"},
+            f"evidence record {index}",
+        )
+    if (
+        not isinstance(payload["reason"], str)
+        or not payload["reason"].strip()
+        or len(payload["reason"]) > _MAX_REASON_CHARS
+    ):
+        raise SignedApprovalSubmissionRejected(400, "signed approval reason is invalid")
 
     try:
         validate_approval_semantics(payload, now=current)
@@ -479,16 +503,19 @@ def accept_signed_paid_order_approval(
         "record_hash": approval_record["record_hash"],
         "payload_json": json.dumps(approval_payload, sort_keys=True, separators=(",", ":")),
     }]
-    verify_paid_order_signed_approval(
-        db,
-        envelope_json=control.signed_approval_envelope_json,
-        order=order,
-        control=control,
-        job=job,
-        evidence_rows=updated_records,
-        approval_evidence_payload=approval_payload,
-        current_source_commit=current_source,
-    )
+    try:
+        verify_paid_order_signed_approval(
+            db,
+            envelope_json=control.signed_approval_envelope_json,
+            order=order,
+            control=control,
+            job=job,
+            evidence_rows=updated_records,
+            approval_evidence_payload=approval_payload,
+            current_source_commit=current_source,
+        )
+    except SignedApprovalRuntimeRejected as exc:
+        raise SignedApprovalSubmissionRejected(409, str(exc)) from None
     db.commit()
     return {
         "status": "APPROVED_FOR_EXECUTION",
