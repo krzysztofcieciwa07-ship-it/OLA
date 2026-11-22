@@ -76,3 +76,14 @@ No production/staging migration, runtime DB grant, RLS change, secret access, Ra
 - Exact-head GitHub check-runs for `ae1d230630cf6f730dbaafda937fa2eb3cb87c0b`: 20 queued; no PASS claim yet.
 - PR #282 remains draft, stacked on #280; no approval route integration, DB migration, deployment or production authorization is implied.
 - Review comment ID 7071681839 records the hardening and exact-head CI limitation.
+
+
+## Checkpoint refresh — 2026-11-22 11:25 CET
+
+- `main` exact SHA remains `911c1cedf76dc6139f57b5d893d708b1a92245c6` (PR #280 merged).
+- #287 head `6187426574990edbe33be3d522557e09b91590e3`: 17/17 workflow-run records SUCCESS; still DRAFT.
+- #288 head `e791065ceb0f52614e0677bb443c15ecf34ee0c6`: 17/17 SUCCESS, but compare with #287 head is DIVERGED (ahead 7 / behind 17; merge-base `ae1d230630cf6f730dbaafda937fa2eb3cb87c0b`). Reconciliation required; no merge attempted.
+- #297 head `92ec9a4b5eb583a02f340c8a205b2166821ed52c`: 17/17 SUCCESS; remains stacked on #288 and draft.
+- #289 head `83f4044244b87d5095ea658a17bc4eb9fbfddc2a`: 17/17 SUCCESS; #290 head `e48c17d7f9df8d9af3f65432ab165d6324a5754d`: 17/17 SUCCESS. Both remain draft; signed ingress/worker integration still depends on the nonce stack and independent review.
+- Independent P1 candidate PR #298: `447914420dac2ed5ec26d49e01c1c8a7978f97b2`. HTTPS non-default ports require explicit host:port allowlist entries; both OpenAI/Ollama POSTs explicitly disable redirects. Latest CI snapshot: 8 SUCCESS, 14 IN_PROGRESS, 0 QUEUED, 0 FAILURE. Pending checks are not PASS.
+- Governance: independent reviewer/DB-owner and effective branch protection remain HUMAN_GATE; no production deployment, migration, grant, payment or external effect performed.
