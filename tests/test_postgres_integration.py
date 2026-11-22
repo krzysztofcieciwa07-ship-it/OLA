@@ -345,17 +345,11 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
 
     from app import approval_identity, main, database
     from app.api_key_hashing import api_key_fingerprint
-    from app.approval_contract_v1 import (
-        oidc_session_fingerprint,
-        oidc_subject_fingerprint,
-        signing_input,
-        validate_approval_semantics,
-    )
+    from app.approval_contract_v1 import oidc_subject_fingerprint, signing_input
     from app.models import (
         ApiKey, CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl,
         EvidenceRecord, HumanGateApprovalNonce, HumanGateMembership, Tenant,
     )
-    from app.runtime_provenance import runtime_source_commit
     from app.signed_approval_runtime import signed_envelope_sha256
 
     database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
@@ -519,95 +513,55 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
     )
     monkeypatch.setattr(approval_identity, "verify_subject_token", lambda token: verified)
 
+    client = TestClient(main.app)
+    reason = "Independent approver reviewed the exact paid order and task digest."
+    challenge_response = client.post(
+        f"/checkout-orders/{ctx['order_id']}/signed-approval/challenge",
+        headers={"Authorization": "Bearer verified-oidc-token"},
+        json={"reason": reason},
+    )
+    assert challenge_response.status_code == 200, challenge_response.text
+    challenge = challenge_response.json()
+    assert challenge["status"] == "CHALLENGE_READY"
+    assert challenge["requires_external_signature"] is True
+    assert challenge["private_key_available_in_ola"] is False
+    assert signer_key_id in challenge["signing"]["key_ids"]
+    payload = challenge["payload"]
+    signing_bytes = base64.urlsafe_b64decode(
+        challenge["signing"]["input"]
+        + "=" * ((4 - len(challenge["signing"]["input"]) % 4) % 4)
+    )
+    assert signing_bytes == signing_input(payload)
+    assert hashlib.sha256(signing_bytes).hexdigest() == challenge["signing"]["input_sha256"]
+    operation_id = payload["operation_id"]
+
+    # A challenge is read-only: it does not create an approval, job or consume nonce.
     with database.SessionLocal() as db:
-        order = db.get(CheckoutOrder, ctx["order_id"])
-        evidence_rows = db.scalars(
-            select(EvidenceRecord)
-            .where(EvidenceRecord.tenant_id == ctx["tenant_id"])
-            .order_by(EvidenceRecord.seq.asc())
-        ).all()
-        checkout = next(row for row in evidence_rows if row.record_type == "stripe.checkout_created")
-        payment = next(row for row in evidence_rows if row.record_type == "stripe.payment_confirmed")
-        assert evidence_rows[-1].record_hash == payment.record_hash == ctx["tip_hash"]
-        operation_id = str(uuid.uuid4())
+        challenge_control = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == ctx["order_id"]
+        ))
+        assert challenge_control.status == "PAID_PENDING_REVIEW"
+        assert challenge_control.approver_id is None
+        assert challenge_control.signed_approval_envelope_json is None
+        assert db.scalar(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == ctx["order_id"]
+        )) is None
+        assert db.scalars(select(HumanGateApprovalNonce).where(
+            HumanGateApprovalNonce.tenant_id == ctx["tenant_id"]
+        )).all() == []
+        assert db.scalars(select(EvidenceRecord).where(
+            EvidenceRecord.tenant_id == ctx["tenant_id"],
+            EvidenceRecord.record_type == "human.revenue_execution_approval",
+        )).all() == []
 
-    def actor(principal_id, role, fingerprint):
-        return {
-            "principal_id": principal_id,
-            "tenant_id": ctx["tenant_id"],
-            "issuer": issuer,
-            "subject_fingerprint": fingerprint,
-            "fingerprint_key_id": fingerprint_key_id,
-            "role": role,
-            "membership_version": 1,
-        }
-
-    auth_time_text = datetime.fromtimestamp(
-        auth_time, tz=timezone.utc,
-    ).isoformat(timespec="seconds").replace("+00:00", "Z")
-    payload = {
-        "schema": "ola.signed-approval/v1",
-        "approval_id": str(uuid.uuid4()),
-        "tenant_id": ctx["tenant_id"],
-        "operation_id": operation_id,
-        "request": {
-            "action": "EXECUTE_PAID_ORDER",
-            "resource_type": "checkout_order",
-            "resource_id": order.id,
-            "sha256": order.request_hash,
-        },
-        "effect": {
-            "action": "QUEUE_SINGLE_EXECUTION",
-            "target_id": order.id,
-            "target_sha256": order.request_hash,
-        },
-        "decision": "ALLOW",
-        "effect_authorized": True,
-        "execution_observed": "NOT_STARTED",
-        "author": actor(ctx["requester_id"], "requester", requester_fp),
-        "reviewer": actor(ctx["approver_id"], "execution_approver", reviewer_fp),
-        "prior_approvers": [],
-        "reviewer_authentication": {
-            "auth_time": auth_time_text,
-            "acr": verified.acr,
-            "amr": list(verified.amr),
-            "session_fingerprint": oidc_session_fingerprint(
-                fingerprint_key, fingerprint_key_id, ctx["tenant_id"],
-                issuer, reviewer_subject, session_id,
-            )["value"],
-        },
-        "policy": {"version": "human-gate-v1", "sha256": "c" * 64},
-        "evidence": {
-            "tip_hash": payment.record_hash,
-            "records": [
-                {
-                    "id": checkout.id, "sequence": checkout.seq,
-                    "record_type": checkout.record_type, "record_hash": checkout.record_hash,
-                },
-                {
-                    "id": payment.id, "sequence": payment.seq,
-                    "record_type": payment.record_type, "record_hash": payment.record_hash,
-                },
-            ],
-        },
-        "runtime": {"source_commit": runtime_source_commit()},
-        "reason": "Independent approver reviewed the paid order and exact task digest.",
-        "nonce": str(uuid.uuid4()),
-        "issued_at": now.isoformat(timespec="seconds").replace("+00:00", "Z"),
-        "expires_at": (now + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z"),
-        "closure": {"operational": "OPEN", "epistemic": "OPEN", "remedial": "OPEN"},
-    }
-    validate_approval_semantics(payload, now=now)
     signature = base64.urlsafe_b64encode(
-        private_key.sign(signing_input(payload))
+        private_key.sign(signing_bytes)
     ).rstrip(b"=").decode("ascii")
     envelope = {
         "payload": payload,
         "signature": {"algorithm": "Ed25519", "key_id": signer_key_id, "value": signature},
     }
     envelope_digest = signed_envelope_sha256(envelope)
-
-    client = TestClient(main.app)
 
     # Altered signature must fail before touching the order.
     invalid_signature = {
