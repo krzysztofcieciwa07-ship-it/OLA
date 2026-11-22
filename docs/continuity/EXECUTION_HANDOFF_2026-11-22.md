@@ -325,3 +325,19 @@ Status vocabulary:
 ### H. Hard release rule
 
 NO-GO until C0–C8 pass. No merge to main, production deployment, shared database mutation, payment, order execution, signing-key activation, customer delivery or public publication. GitHub human approval is necessary but does not replace the application's cryptographically signed Human Gate for terminal operations.
+
+
+## run.end — 2026-11-22 16:35 UTC
+
+### Canonical read-back snapshot
+- Current main SHA: `911c1cedf76dc6139f57b5d893d708b1a92245c6`; GitHub reports `protected=false`. Issue #150 remains BLOCKED.
+- Inventory refreshed in-place: **124 open PRs / 25 open non-PR Issues**; pagination complete (PR pages 100+24; issue endpoint pages 100+49, 149 objects including PR records). Inventory commit: `fb1ca6d0c7fcb493bfb5fafc79520ac290b85e68`.
+- PR #272 exact head `904ffe2643512dbc9ccbf189cd2b07fc7014c7c3`: 35 SUCCESS / 2 SKIPPED / 0 FAILURE / 0 pending. PostgreSQL contract `45042158566` and Final Production Gate `45042158518` SUCCESS. Final artifact `14762560080`, SHA-256 `51883237c77f1f015bd47bfa587def8c5288c4c066c900c2a4e383bfffe53aeb`; manifest SHA-256 `58140fad67fe0995bada963a2f2bb83e5bb05661127239c3dc98f376845d07e1`. Manifest `ATTESTED_PENDING_HUMAN`; source/image attestations SKIPPED. Exact candidate is diverged from main (26 ahead / 7 behind; merge-base `8adf30cd5e41a18a5345f66e67f5ddcdbc164862`). Historical approvals are stale; no independent current-head write-enabled CODEOWNER approval. Issue #301 remains IN_PROGRESS, not closed.
+- PR #300 head `f57e3bbd819fab529ec8105f5d32ba23e84947ac`: human-gate-policy-tests SUCCESS; 34 SUCCESS / 2 SKIPPED / 1 IN_PROGRESS (`final-production`, run `45041883904`). Candidate remains DRAFT and ineffective on main. Independent CODEOWNER and governance token permission proof remain BLOCKED/UNKNOWN.
+- PR #277 current head `d190f35ab1799a7c4ee8b0caeeff7c8712baf0c3`: 33 SUCCESS / 2 SKIPPED / 1 FAILURE (`final-production`, run `45038313132`); compare to main is diverged (35 ahead / 7 behind). Do not merge.
+- PR #303 exact head `f90b801e840ba1690a4c0b25b0188fe4cfa3e460`: 33 SUCCESS / 2 SKIPPED / 1 FAILURE (`final-production`, run `45036612590`). Earlier 12h aggregator completed after the gate's polling timeout; no pass is transferred. No staging mutation.
+- #292 signed operator flow, #296 independent CODEOWNERS and #150 effective main governance remain OPEN/BLOCKED. Local Windows Ollama remains UNKNOWN/NOT_EXECUTED. Git clone in this Linux environment was unavailable due DNS; no local repository changes were made.
+- No merge, deployment, shared DB mutation, secret access, payment, signer activation or terminal effect.
+
+### Next action
+Continue only dependency-ready implementation/evidence tasks; preserve #301/#296/#150 HUMAN_GATE. For #272, current exact-SHA CI is candidate evidence, not integrated-main proof; rebase/integration and independent current-head review are still required. Owner/admin action is required to designate a write-enabled independent CODEOWNER and establish effective branch protection. Issue #292 still requires authorized operator and disposable staging acceptance.
