@@ -2,6 +2,208 @@ import pytest
 from app.main import app
 
 
+
+def _approve_signed(ctx, *, key=None, tip_hash=None, reason="Reviewed payment and order scope"):
+    """Create a test-only Ed25519 envelope and matching trusted approval evidence."""
+    import base64
+    import json
+    import os
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding
+    from cryptography.hazmat.primitives.serialization import PublicFormat
+    from sqlalchemy import select
+
+    from app.approval_contract_v1 import oidc_subject_fingerprint, signing_input, validate_approval_semantics
+    from app.database import SessionLocal, begin_write_transaction
+    from app.evidence_writer import append_evidence_v4_locked
+    from app.models import (
+        CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl, EvidenceRecord,
+        HumanGateMembership,
+    )
+    from app.runtime_provenance import runtime_source_commit
+    from app.signed_approval_runtime import signed_envelope_sha256
+    from test_paid_order_approval import _approve
+
+    response = _approve(ctx, key=key, tip_hash=tip_hash, reason=reason)
+    if response.status_code != 200:
+        return response
+
+    issuer = "https://login.example.test/tenant"
+    fingerprint_key = b"ola-test-only-fingerprint-key-material-32-bytes!"
+    fingerprint_key_id = "ci-identity-k1"
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    private_key = Ed25519PrivateKey.generate()
+    public_raw = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    key_id = "ci-human-approval-k1"
+    public_b64 = base64.urlsafe_b64encode(public_raw).rstrip(b"=").decode("ascii")
+    os.environ["OLA_APPROVAL_ED25519_TRUSTED_KEYS_JSON"] = json.dumps({key_id: public_b64})
+    os.environ["OLA_APPROVAL_POLICY_VERSION"] = "human-gate-v1"
+    os.environ["OLA_APPROVAL_POLICY_SHA256"] = "c" * 64
+
+    with SessionLocal() as db:
+        order = db.get(CheckoutOrder, ctx["order_id"])
+        control = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == ctx["order_id"]
+        ))
+        job = db.scalar(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == ctx["order_id"]
+        ))
+        requester_fp = oidc_subject_fingerprint(
+            fingerprint_key, fingerprint_key_id, ctx["tenant_id"],
+            issuer, f"requester:{ctx['requester_id']}",
+        )["value"]
+        approver_fp = oidc_subject_fingerprint(
+            fingerprint_key, fingerprint_key_id, ctx["tenant_id"],
+            issuer, f"approver:{ctx['approver_id']}",
+        )["value"]
+        db.add_all([
+            HumanGateMembership(
+                id=ctx["requester_id"], tenant_id=ctx["tenant_id"], issuer=issuer,
+                subject_fingerprint=requester_fp, fingerprint_key_id=fingerprint_key_id,
+                role="requester", membership_version=1, active=True, revoked_at=None,
+            ),
+            HumanGateMembership(
+                id=ctx["approver_id"], tenant_id=ctx["tenant_id"], issuer=issuer,
+                subject_fingerprint=approver_fp, fingerprint_key_id=fingerprint_key_id,
+                role="execution_approver", membership_version=1, active=True, revoked_at=None,
+            ),
+        ])
+        db.commit()
+
+        order = db.get(CheckoutOrder, ctx["order_id"])
+        job = db.scalar(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == ctx["order_id"]
+        ))
+        evidence_rows = db.scalars(select(EvidenceRecord).where(
+            EvidenceRecord.tenant_id == ctx["tenant_id"]
+        ).order_by(EvidenceRecord.seq.asc())).all()
+        checkout = next(row for row in evidence_rows if row.record_type == "stripe.checkout_created")
+        payment = next(row for row in evidence_rows if row.record_type == "stripe.payment_confirmed")
+
+        def actor(principal_id, role, fingerprint):
+            return {
+                "principal_id": principal_id,
+                "tenant_id": ctx["tenant_id"],
+                "issuer": issuer,
+                "subject_fingerprint": fingerprint,
+                "fingerprint_key_id": fingerprint_key_id,
+                "role": role,
+                "membership_version": 1,
+            }
+
+        issued_at = now.isoformat(timespec="seconds").replace("+00:00", "Z")
+        auth_time = (now - timedelta(seconds=10)).isoformat(timespec="seconds").replace("+00:00", "Z")
+        payload = {
+            "schema": "ola.signed-approval/v1",
+            "approval_id": str(uuid.uuid4()),
+            "tenant_id": ctx["tenant_id"],
+            "operation_id": job.id,
+            "request": {
+                "action": "EXECUTE_PAID_ORDER",
+                "resource_type": "checkout_order",
+                "resource_id": order.id,
+                "sha256": order.request_hash,
+            },
+            "effect": {
+                "action": "QUEUE_SINGLE_EXECUTION",
+                "target_id": order.id,
+                "target_sha256": order.request_hash,
+            },
+            "decision": "ALLOW",
+            "effect_authorized": True,
+            "execution_observed": "NOT_STARTED",
+            "author": actor(ctx["requester_id"], "requester", requester_fp),
+            "reviewer": actor(ctx["approver_id"], "execution_approver", approver_fp),
+            "prior_approvers": [],
+            "reviewer_authentication": {
+                "auth_time": auth_time,
+                "acr": "urn:example:loa:2",
+                "amr": ["webauthn", "mfa"],
+                "session_fingerprint": "d" * 64,
+            },
+            "policy": {"version": "human-gate-v1", "sha256": "c" * 64},
+            "evidence": {
+                "tip_hash": payment.record_hash,
+                "records": [
+                    {
+                        "id": checkout.id, "sequence": checkout.seq,
+                        "record_type": checkout.record_type, "record_hash": checkout.record_hash,
+                    },
+                    {
+                        "id": payment.id, "sequence": payment.seq,
+                        "record_type": payment.record_type, "record_hash": payment.record_hash,
+                    },
+                ],
+            },
+            "runtime": {"source_commit": runtime_source_commit()},
+            "reason": reason,
+            "nonce": str(uuid.uuid4()),
+            "issued_at": issued_at,
+            "expires_at": (now + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "closure": {"operational": "OPEN", "epistemic": "OPEN", "remedial": "OPEN"},
+        }
+        validate_approval_semantics(payload, now=now)
+        signature = base64.urlsafe_b64encode(private_key.sign(signing_input(payload))).rstrip(b"=").decode("ascii")
+        envelope = {
+            "payload": payload,
+            "signature": {"algorithm": "Ed25519", "key_id": key_id, "value": signature},
+        }
+        envelope_json = json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        envelope_digest = signed_envelope_sha256(envelope)
+        begin_write_transaction(db, tenant_id=ctx["tenant_id"])
+        approval_record = append_evidence_v4_locked(
+            db, ctx["tenant_id"], "human.revenue_execution_approval", {
+                "event": "human.revenue_execution_approval",
+                "order_id": order.id,
+                "tenant_id": ctx["tenant_id"],
+                "requester_id": ctx["requester_id"],
+                "approver_id": ctx["approver_id"],
+                "approver_role": "execution_approver",
+                "reason": reason,
+                "checkout_session_id": order.stripe_session_id,
+                "stripe_event_id": order.payment_event_id,
+                "checkout_evidence_id": checkout.id,
+                "checkout_evidence_hash": checkout.record_hash,
+                "payment_evidence_id": payment.id,
+                "payment_evidence_hash": payment.record_hash,
+                "request_hash": order.request_hash,
+                "approved_tip_hash": payment.record_hash,
+                "source_commit": runtime_source_commit(),
+                "approved_at": int(now.timestamp()),
+                "decision": "APPROVED_FOR_EXECUTION",
+                "execution_authorized": True,
+                "deployment_authorized": False,
+                "production_authorized": False,
+                "signed_approval_envelope_sha256": envelope_digest,
+                "approval_id": payload["approval_id"],
+                "operation_id": payload["operation_id"],
+                "nonce": payload["nonce"],
+            }, producer_id="ola_runtime",
+        )
+        control = db.get(CheckoutOrderControl, control.id)
+        control.signed_approval_envelope_json = envelope_json
+        control.approval_record_hash = approval_record["record_hash"]
+        control.approved_tip_hash = payment.record_hash
+        job.approval_record_hash = approval_record["record_hash"]
+        db.commit()
+    return response
+
+
+@pytest.fixture(autouse=True)
+def _sqlite_worker_nonce_adapter(monkeypatch, request):
+    """Unit tests stub the PostgreSQL insert; one explicit test checks SQLite fail-closed."""
+    if request.node.name == "test_worker_fails_closed_when_sqlite_nonce_ledger_is_unavailable":
+        return
+    from app.approval_nonce_ledger import PostgresApprovalNonceLedger
+    monkeypatch.setattr(
+        PostgresApprovalNonceLedger, "consume",
+        lambda self, db, **kwargs: "test-only-postgres-nonce-consumed",
+    )
+
+
 def test_internal_paid_order_execution_worker_route_is_registered():
     routes = {route.path for route in app.routes}
     assert "/internal/checkout-execution/{job_id}/run" in routes
