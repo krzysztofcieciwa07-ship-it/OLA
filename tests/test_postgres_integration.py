@@ -140,3 +140,73 @@ def test_postgres_concurrent_evidence_appends_are_serialized_and_immutable(postg
             f'REVOKE UPDATE, TRUNCATE ON TABLE "{_schema}".evidence_records FROM "{runtime_role}"'
         )
     database.verify_postgres_schema(runtime_engine)
+
+
+
+def test_postgres_evidence_run_filter_remains_tenant_scoped(postgres_db, monkeypatch):
+    database, runtime_engine, _migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    from app import main
+    from app.api_key_hashing import api_key_fingerprint
+    from app.models import ApiKey, Tenant
+
+    # Exercise the real PostgreSQL JSONB branch of GET /evidence while retaining
+    # the restricted runtime role and isolated schema from the postgres_db fixture.
+    monkeypatch.setattr(main, "SessionLocal", database.SessionLocal)
+    monkeypatch.setattr(main, "engine", runtime_engine)
+
+    tenant_a = str(uuid.uuid4())
+    tenant_b = str(uuid.uuid4())
+    key_a = "postgres-run-filter-" + uuid.uuid4().hex
+    key_b = "postgres-run-filter-" + uuid.uuid4().hex
+    run_id = str(uuid.uuid4())
+    other_run_id = str(uuid.uuid4())
+
+    with database.SessionLocal() as db:
+        db.add_all([
+            Tenant(id=tenant_a, name="PostgreSQL run filter tenant A"),
+            Tenant(id=tenant_b, name="PostgreSQL run filter tenant B"),
+            ApiKey(
+                id=str(uuid.uuid4()),
+                tenant_id=tenant_a,
+                key_hash=api_key_fingerprint(key_a),
+                role="tenant",
+            ),
+            ApiKey(
+                id=str(uuid.uuid4()),
+                tenant_id=tenant_b,
+                key_hash=api_key_fingerprint(key_b),
+                role="tenant",
+            ),
+        ])
+        db.commit()
+
+    first = database.append_evidence_atomic(
+        tenant_a, "integration.run.started", {"run_id": run_id, "step": 1},
+    )
+    database.append_evidence_atomic(
+        tenant_a, "integration.run.other", {"run_id": other_run_id, "step": 2},
+    )
+    second = database.append_evidence_atomic(
+        tenant_a, "integration.run.completed", {"run_id": run_id, "step": 3},
+    )
+    database.append_evidence_atomic(
+        tenant_b, "integration.run.completed", {"run_id": run_id, "step": 4},
+    )
+
+    body = main.list_evidence(
+        limit=20, before_seq=None, run_id=run_id, x_api_key=key_a,
+    )
+
+    assert body["run_id"] == run_id
+    assert body["scope"] == "run_subset"
+    assert body["chain_status"] == "NOT_VERIFIED"
+    assert body["count"] == 2
+    assert [row["id"] for row in body["records"]] == [second["id"], first["id"]]
+    assert all(row["tenant_id"] == tenant_a for row in body["records"])
+    assert all(row["payload"]["run_id"] == run_id for row in body["records"])
+
+    other_tenant = main.list_evidence(
+        limit=20, before_seq=None, run_id=run_id, x_api_key=key_b,
+    )
+    assert other_tenant["count"] == 1
+    assert all(row["tenant_id"] == tenant_b for row in other_tenant["records"])
