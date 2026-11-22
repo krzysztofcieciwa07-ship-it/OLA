@@ -327,3 +327,249 @@ def test_human_gate_approval_nonce_ledger_fails_closed_without_postgresql():
                 )
     finally:
         engine.dispose()
+
+
+
+def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgres_db, monkeypatch):
+    import base64
+    import json
+    import time
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    from fastapi.testclient import TestClient
+    from sqlalchemy import select
+
+    from app import approval_identity, main, revenue, stripe_webhook
+    from app.approval_contract_v1 import (
+        oidc_session_fingerprint,
+        oidc_subject_fingerprint,
+        signing_input,
+        validate_approval_semantics,
+    )
+    from app.models import (
+        CheckoutExecutionJob, CheckoutOrder, CheckoutOrderControl,
+        EvidenceRecord, HumanGateApprovalNonce, HumanGateMembership,
+    )
+    from app.runtime_provenance import runtime_source_commit
+    from app.signed_approval_runtime import signed_envelope_sha256
+    from app import database
+    from test_paid_order_approval import _seed_paid_order
+    import test_paid_order_approval
+
+    database, runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+
+    # All order seed and endpoint DB access must use the restricted test runtime role.
+    monkeypatch.setattr(main, "SessionLocal", database.SessionLocal)
+    monkeypatch.setattr(revenue, "SessionLocal", database.SessionLocal)
+    monkeypatch.setattr(stripe_webhook, "SessionLocal", database.SessionLocal)
+    monkeypatch.setattr(test_paid_order_approval, "SessionLocal", database.SessionLocal)
+
+    ctx = _seed_paid_order(monkeypatch)
+    issuer = "https://login.example.test/tenant"
+    reviewer_subject = f"approver:{ctx['approver_id']}"
+    requester_subject = f"requester:{ctx['requester_id']}"
+    fingerprint_key = b"postgres-test-fingerprint-key-material-32-bytes!"
+    fingerprint_key_id = "pg-identity-k1"
+    fingerprint_key_b64 = base64.urlsafe_b64encode(fingerprint_key).rstrip(b"=").decode("ascii")
+    monkeypatch.setenv("OLA_APPROVAL_IDENTITY_FINGERPRINT_KEY_B64", fingerprint_key_b64)
+    monkeypatch.setenv("OLA_APPROVAL_IDENTITY_FINGERPRINT_KEY_ID", fingerprint_key_id)
+    monkeypatch.setenv("OLA_APPROVAL_POLICY_VERSION", "human-gate-v1")
+    monkeypatch.setenv("OLA_APPROVAL_POLICY_SHA256", "c" * 64)
+    monkeypatch.setenv("OLA_APPROVAL_REQUIRED_ACR", "urn:example:loa:2")
+    monkeypatch.setenv("OLA_APPROVAL_REQUIRED_AMR", "webauthn,mfa")
+
+    private_key = Ed25519PrivateKey.generate()
+    public_raw = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    signer_key_id = "pg-approval-k1"
+    public_b64 = base64.urlsafe_b64encode(public_raw).rstrip(b"=").decode("ascii")
+    monkeypatch.setenv(
+        "OLA_APPROVAL_ED25519_TRUSTED_KEYS_JSON",
+        json.dumps({signer_key_id: public_b64}),
+    )
+
+    reviewer_fp = oidc_subject_fingerprint(
+        fingerprint_key, fingerprint_key_id, ctx["tenant_id"], issuer, reviewer_subject,
+    )["value"]
+    requester_fp = oidc_subject_fingerprint(
+        fingerprint_key, fingerprint_key_id, ctx["tenant_id"], issuer, requester_subject,
+    )["value"]
+
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql(
+            """
+            INSERT INTO human_gate_memberships
+                (id, tenant_id, issuer, subject_fingerprint, fingerprint_key_id,
+                 role, membership_version, active, revoked_at, created_at)
+            VALUES (%s, %s, %s, %s, %s, 'requester', 1, TRUE, NULL, %s)
+            """,
+            (ctx["requester_id"], ctx["tenant_id"], issuer, requester_fp,
+             fingerprint_key_id, int(time.time())),
+        )
+        conn.exec_driver_sql(
+            """
+            INSERT INTO human_gate_memberships
+                (id, tenant_id, issuer, subject_fingerprint, fingerprint_key_id,
+                 role, membership_version, active, revoked_at, created_at)
+            VALUES (%s, %s, %s, %s, %s, 'execution_approver', 1, TRUE, NULL, %s)
+            """,
+            (ctx["approver_id"], ctx["tenant_id"], issuer, reviewer_fp,
+             fingerprint_key_id, int(time.time())),
+        )
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    auth_time = int(now.timestamp()) - 15
+    session_id = "oidc-session-pg-intake-001"
+    verified = approval_identity.VerifiedSubject(
+        issuer=issuer,
+        subject=reviewer_subject,
+        tenant_id=ctx["tenant_id"],
+        auth_time=auth_time,
+        acr="urn:example:loa:2",
+        amr=("webauthn", "mfa"),
+        session_id=session_id,
+    )
+    monkeypatch.setattr(approval_identity, "verify_subject_token", lambda token: verified)
+
+    with database.SessionLocal() as db:
+        order = db.get(CheckoutOrder, ctx["order_id"])
+        evidence_rows = db.scalars(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.tenant_id == ctx["tenant_id"])
+            .order_by(EvidenceRecord.seq.asc())
+        ).all()
+        checkout = next(row for row in evidence_rows if row.record_type == "stripe.checkout_created")
+        payment = next(row for row in evidence_rows if row.record_type == "stripe.payment_confirmed")
+        assert evidence_rows[-1].record_hash == payment.record_hash == ctx["tip_hash"]
+        operation_id = str(uuid.uuid4())
+
+    def actor(principal_id, role, fingerprint):
+        return {
+            "principal_id": principal_id,
+            "tenant_id": ctx["tenant_id"],
+            "issuer": issuer,
+            "subject_fingerprint": fingerprint,
+            "fingerprint_key_id": fingerprint_key_id,
+            "role": role,
+            "membership_version": 1,
+        }
+
+    auth_time_text = datetime.fromtimestamp(
+        auth_time, tz=timezone.utc,
+    ).isoformat(timespec="seconds").replace("+00:00", "Z")
+    payload = {
+        "schema": "ola.signed-approval/v1",
+        "approval_id": str(uuid.uuid4()),
+        "tenant_id": ctx["tenant_id"],
+        "operation_id": operation_id,
+        "request": {
+            "action": "EXECUTE_PAID_ORDER",
+            "resource_type": "checkout_order",
+            "resource_id": order.id,
+            "sha256": order.request_hash,
+        },
+        "effect": {
+            "action": "QUEUE_SINGLE_EXECUTION",
+            "target_id": order.id,
+            "target_sha256": order.request_hash,
+        },
+        "decision": "ALLOW",
+        "effect_authorized": True,
+        "execution_observed": "NOT_STARTED",
+        "author": actor(ctx["requester_id"], "requester", requester_fp),
+        "reviewer": actor(ctx["approver_id"], "execution_approver", reviewer_fp),
+        "prior_approvers": [],
+        "reviewer_authentication": {
+            "auth_time": auth_time_text,
+            "acr": verified.acr,
+            "amr": list(verified.amr),
+            "session_fingerprint": oidc_session_fingerprint(
+                fingerprint_key, fingerprint_key_id, ctx["tenant_id"],
+                issuer, reviewer_subject, session_id,
+            )["value"],
+        },
+        "policy": {"version": "human-gate-v1", "sha256": "c" * 64},
+        "evidence": {
+            "tip_hash": payment.record_hash,
+            "records": [
+                {
+                    "id": checkout.id, "sequence": checkout.seq,
+                    "record_type": checkout.record_type, "record_hash": checkout.record_hash,
+                },
+                {
+                    "id": payment.id, "sequence": payment.seq,
+                    "record_type": payment.record_type, "record_hash": payment.record_hash,
+                },
+            ],
+        },
+        "runtime": {"source_commit": runtime_source_commit()},
+        "reason": "Independent approver reviewed the paid order and exact task digest.",
+        "nonce": str(uuid.uuid4()),
+        "issued_at": now.isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "expires_at": (now + timedelta(minutes=5)).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "closure": {"operational": "OPEN", "epistemic": "OPEN", "remedial": "OPEN"},
+    }
+    validate_approval_semantics(payload, now=now)
+    signature = base64.urlsafe_b64encode(
+        private_key.sign(signing_input(payload))
+    ).rstrip(b"=").decode("ascii")
+    envelope = {
+        "payload": payload,
+        "signature": {"algorithm": "Ed25519", "key_id": signer_key_id, "value": signature},
+    }
+    envelope_digest = signed_envelope_sha256(envelope)
+
+    client = TestClient(main.app)
+    response = client.post(
+        f"/checkout-orders/{ctx['order_id']}/signed-approval",
+        headers={"Authorization": "Bearer verified-oidc-token"},
+        json={"envelope": envelope},
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["status"] == "APPROVED_FOR_EXECUTION"
+    assert result["execution_job_id"] == operation_id
+    assert result["execution_job_status"] == "QUEUED"
+    assert result["production_authorized"] is False
+    assert result["deployment_authorized"] is False
+
+    with database.SessionLocal() as db:
+        control = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == ctx["order_id"]
+        ))
+        job = db.get(CheckoutExecutionJob, operation_id)
+        approvals = db.scalars(select(EvidenceRecord).where(
+            EvidenceRecord.tenant_id == ctx["tenant_id"],
+            EvidenceRecord.record_type == "human.revenue_execution_approval",
+        )).all()
+        nonces = db.scalars(select(HumanGateApprovalNonce).where(
+            HumanGateApprovalNonce.tenant_id == ctx["tenant_id"]
+        )).all()
+        event_payload = json.loads(approvals[0].payload_json)
+
+    assert control.status == "APPROVED_FOR_EXECUTION"
+    assert control.approver_id == ctx["approver_id"]
+    assert json.loads(control.signed_approval_envelope_json) == envelope
+    assert job is not None and job.status == "QUEUED" and job.attempt_count == 0
+    assert job.approval_record_hash == approvals[0].record_hash
+    assert approvals[0].prev_hash == payment.record_hash
+    assert event_payload["signed_approval_envelope_sha256"] == envelope_digest
+    assert event_payload["approval_id"] == payload["approval_id"]
+    assert nonces == []  # Human nonce is consumed only at the worker effect boundary.
+
+    duplicate = client.post(
+        f"/checkout-orders/{ctx['order_id']}/signed-approval",
+        headers={"Authorization": "Bearer verified-oidc-token"},
+        json={"envelope": envelope},
+    )
+    assert duplicate.status_code == 409, duplicate.text
+    with database.SessionLocal() as db:
+        assert db.scalar(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == ctx["order_id"]
+        )).id == operation_id
+        assert len(db.scalars(select(EvidenceRecord).where(
+            EvidenceRecord.tenant_id == ctx["tenant_id"],
+            EvidenceRecord.record_type == "human.revenue_execution_approval",
+        )).all()) == 1
