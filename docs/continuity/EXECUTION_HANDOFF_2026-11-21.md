@@ -227,3 +227,13 @@ A request for review from `krzys167-crypto` on #286, #294, #295, #283 and #287 r
 - Production GO remains blocked by reviewer/governance HUMAN_GATE, staging signer/OIDC/DB-owner controls, and full integration/runtime acceptance.
 
 No merge, production deployment, migration, permission or secret change was performed in this checkpoint.
+
+
+## Integration update — 2026-11-22 08:07 UTC
+
+- PR #293 was merged **into the #291 feature branch only**, preserving dependency order; merge commit `96f9afab7f1b7b458ec6a02fa670cf3b1b4a1a96`. It is not a main merge.
+- #293 exact head `162b9665eb6deb99478915976f26d5a8fae4a07b` had 20 SUCCESS, 1 SKIPPED and 1 historical CANCELLED build-linux attempt; the duplicate build-linux attempt succeeded. Independent review was APPROVED at the same exact head.
+- #294 remains stacked on #293 branch head `162b9665...`; current head `b238d2b4f47adc75a1d946a67a8f11d7aab67c4f`. GitHub raw PR API reports `mergeable=true`, `mergeable_state=clean`. Its 20 SUCCESS / 1 SKIPPED CI belongs to this exact head; it remains draft and has no independent review.
+- Reruns of the cancelled build-linux jobs for #287 and #283 were accepted and are currently IN_PROGRESS. No terminal PASS is attributed yet.
+- Handoff commit `d3b4d487f6533f43a1b43be49ead9cf84cc5106a` has its own build-linux CI IN_PROGRESS.
+- Review-request API returned HTTP 422 for `krzys167-crypto` on #286/#294/#295/#283/#287 because requested reviewers must be repository collaborators. No access or permission change was made.
