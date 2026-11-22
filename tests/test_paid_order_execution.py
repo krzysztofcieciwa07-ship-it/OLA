@@ -143,7 +143,7 @@ def test_nina_failure_is_terminal_and_does_not_auto_retry(monkeypatch):
     from app.main import app
     from app.database import SessionLocal
     from app.models import CheckoutExecutionJob, EvidenceRecord
-    from test_paid_order_approval import _seed_paid_order, _approve
+    from test_paid_order_approval import _seed_paid_order, _approve, _approve_signed
     import app.nina_execution as nina_execution
     ctx = _seed_paid_order(monkeypatch)
     assert _approve_signed(ctx, monkeypatch).status_code == 200
@@ -188,7 +188,7 @@ def test_paid_order_worker_executes_real_nina_and_igor_runtime(monkeypatch):
     from app.database import SessionLocal
     from app.models import CheckoutExecutionJob, CheckoutOrder, EvidenceRecord
     from app.paid_order_execution import execute_paid_order_job
-    from test_paid_order_approval import _seed_paid_order, _approve
+    from test_paid_order_approval import _seed_paid_order, _approve, _approve_signed
 
     monkeypatch.setenv("OLA_LLM_PROVIDER", "openai")
     monkeypatch.setenv("OLA_LLM_MODE", "deterministic")
@@ -226,7 +226,7 @@ def test_worker_blocks_changed_task_scope_before_running_nina(monkeypatch):
     from app.database import SessionLocal
     from app.models import CheckoutExecutionJob, CheckoutOrder
     from app.paid_order_execution import execute_paid_order_job, PaidOrderExecutionRejected
-    from test_paid_order_approval import _seed_paid_order, _approve
+    from test_paid_order_approval import _seed_paid_order, _approve, _approve_signed
     ctx = _seed_paid_order(monkeypatch)
     assert _approve_signed(ctx, monkeypatch).status_code == 200
     with SessionLocal() as db:
@@ -294,7 +294,7 @@ def test_concurrent_worker_invocations_claim_one_execution_only(monkeypatch):
     from app.models import CheckoutExecutionJob
     from app.paid_order_execution import execute_paid_order_job, PaidOrderExecutionRejected
     from sqlalchemy import select
-    from test_paid_order_approval import _seed_paid_order, _approve
+    from test_paid_order_approval import _seed_paid_order, _approve, _approve_signed
 
     ctx = _seed_paid_order(monkeypatch)
     assert _approve_signed(ctx, monkeypatch).status_code == 200
@@ -339,7 +339,7 @@ def test_worker_rechecks_execution_approver_role_before_running_nina(monkeypatch
     from app.database import SessionLocal
     from app.models import ApiKey, CheckoutExecutionJob, CheckoutOrder
     from app.paid_order_execution import execute_paid_order_job, PaidOrderExecutionRejected
-    from test_paid_order_approval import _seed_paid_order, _approve
+    from test_paid_order_approval import _seed_paid_order, _approve, _approve_signed
 
     ctx = _seed_paid_order(monkeypatch)
     approved = _approve_signed(ctx, monkeypatch)
@@ -407,7 +407,7 @@ def test_worker_fails_closed_when_sqlite_nonce_ledger_is_unavailable(monkeypatch
     from app.database import SessionLocal
     from app.models import CheckoutExecutionJob
     from app.paid_order_execution import execute_paid_order_job, PaidOrderExecutionRejected
-    from test_paid_order_approval import _seed_paid_order
+    from test_paid_order_approval import _seed_paid_order, _approve_signed
 
     ctx = _seed_paid_order(monkeypatch)
     approved = _approve_signed(ctx, monkeypatch)
