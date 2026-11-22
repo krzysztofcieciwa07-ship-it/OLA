@@ -501,6 +501,58 @@ def test_postgres_human_gate_approval_nonce_rls_is_tenant_scoped_and_fails_close
         db.rollback()
 
 
+
+def test_nonce_ledger_refuses_tenant_scope_switch_inside_same_transaction(postgres_db):
+    from app.approval_nonce_ledger import (
+        ApprovalNonceLedgerUnavailable,
+        PostgresApprovalNonceLedger,
+    )
+    from app.models import HumanGateApprovalNonce, Tenant
+
+    database, _runtime_engine, migration_engine, _admin_engine, _runtime_role, _schema = postgres_db
+    tenant_a, tenant_b = str(uuid.uuid4()), str(uuid.uuid4())
+    with migration_engine.begin() as conn:
+        conn.execute(Tenant.__table__.insert(), [
+            {"id": tenant_a, "name": "Nonce transaction tenant A"},
+            {"id": tenant_b, "name": "Nonce transaction tenant B"},
+        ])
+
+    ledger = PostgresApprovalNonceLedger()
+    envelope_sha256 = "c" * 64
+
+    def values(tenant_id):
+        return {
+            "tenant_id": tenant_id,
+            "approval_id": str(uuid.uuid4()),
+            "nonce": str(uuid.uuid4()),
+            "operation_id": str(uuid.uuid4()),
+            "action": "EXECUTE_PAID_ORDER",
+            "resource_type": "checkout_order",
+            "resource_id": str(uuid.uuid4()),
+            "envelope_sha256": envelope_sha256,
+            "consumed_at": 1795318200,
+        }
+
+    with database.SessionLocal() as db:
+        ledger.consume(db, **values(tenant_a))
+        with pytest.raises(
+            ApprovalNonceLedgerUnavailable,
+            match="tenant scope cannot change within this transaction",
+        ):
+            ledger.consume(db, **values(tenant_b))
+        db.rollback()
+
+    # The failed cross-tenant switch must not leave the first nonce claim committed.
+    with migration_engine.begin() as conn:
+        remaining = conn.execute(
+            text(
+                "SELECT count(*) FROM human_gate_approval_nonce_ledger "
+                "WHERE tenant_id = :tenant_id"
+            ),
+            {"tenant_id": tenant_a},
+        ).scalar_one()
+    assert remaining == 0
+
 def test_postgres_nonce_ledger_rls_verifier_rejects_extra_policy_and_bypassrls(postgres_db):
     database, runtime_engine, migration_engine, admin_engine, runtime_role, _schema = postgres_db
     with migration_engine.begin() as conn:
