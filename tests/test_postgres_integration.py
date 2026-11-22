@@ -609,6 +609,61 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
 
     client = TestClient(main.app)
 
+    # Altered signature must fail before touching the order.
+    invalid_signature = {
+        "payload": envelope["payload"],
+        "signature": {
+            **envelope["signature"],
+            "value": "A" * 86,
+        },
+    }
+    invalid_signature_response = client.post(
+        f"/checkout-orders/{ctx['order_id']}/signed-approval",
+        headers={"Authorization": "Bearer verified-oidc-token"},
+        json={"envelope": invalid_signature},
+    )
+    assert invalid_signature_response.status_code == 401, invalid_signature_response.text
+
+    # A currently revoked or re-roled reviewer membership cannot submit.
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE human_gate_memberships SET role = 'report_reviewer' WHERE id = %s",
+            (ctx["approver_id"],),
+        )
+    wrong_role_response = client.post(
+        f"/checkout-orders/{ctx['order_id']}/signed-approval",
+        headers={"Authorization": "Bearer verified-oidc-token"},
+        json={"envelope": envelope},
+    )
+    assert wrong_role_response.status_code == 403, wrong_role_response.text
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE human_gate_memberships SET role = 'execution_approver', membership_version = 2 WHERE id = %s",
+            (ctx["approver_id"],),
+        )
+    changed_version_response = client.post(
+        f"/checkout-orders/{ctx['order_id']}/signed-approval",
+        headers={"Authorization": "Bearer verified-oidc-token"},
+        json={"envelope": envelope},
+    )
+    assert changed_version_response.status_code == 403, changed_version_response.text
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE human_gate_memberships SET membership_version = 1, active = FALSE, revoked_at = %s WHERE id = %s",
+            (int(time.time()), ctx["approver_id"]),
+        )
+    revoked_response = client.post(
+        f"/checkout-orders/{ctx['order_id']}/signed-approval",
+        headers={"Authorization": "Bearer verified-oidc-token"},
+        json={"envelope": envelope},
+    )
+    assert revoked_response.status_code == 403, revoked_response.text
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE human_gate_memberships SET active = TRUE, revoked_at = NULL WHERE id = %s",
+            (ctx["approver_id"],),
+        )
+
     # Same tenant and reviewer, but a different live OIDC sid must not bind.
     wrong_session = approval_identity.VerifiedSubject(
         issuer=issuer,
