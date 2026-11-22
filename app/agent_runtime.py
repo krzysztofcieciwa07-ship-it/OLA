@@ -56,7 +56,9 @@ def _validate_ollama_base_url(base_url):
         for item in os.getenv("OLA_OLLAMA_ALLOWED_HOSTS", "").split(",")
         if item.strip()
     }
-    effective_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    effective_port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
+    if effective_port < 1:
+        raise RuntimeError("OLLAMA_BASE_URL is not an approved Ollama endpoint")
     host_port = f"[{host}]:{effective_port}" if ":" in host else f"{host}:{effective_port}"
     host_allowlisted = host in allowed_hosts and effective_port == 443
     host_port_allowlisted = host_port in allowed_hosts
@@ -173,7 +175,9 @@ def _invoke_llm(agent, task, context):
         parsed_url = urlsplit(base_url)
         try:
             endpoint_host = (parsed_url.hostname or "").rstrip(".").lower()
-            endpoint_port = parsed_url.port or 443
+            endpoint_port = parsed_url.port if parsed_url.port is not None else 443
+            if endpoint_port < 1:
+                raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint")
         except ValueError:
             raise RuntimeError("OPENAI_BASE_URL is not an approved HTTPS LLM endpoint") from None
         allowed_hosts = {
