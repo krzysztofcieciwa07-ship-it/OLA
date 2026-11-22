@@ -12,6 +12,19 @@ from app.paid_order_execution import execute_paid_order_job
 from test_paid_order_approval import _seed_paid_order, _approve, _approve_signed
 
 
+
+
+
+@pytest.fixture(autouse=True)
+def _sqlite_report_worker_nonce_adapter(monkeypatch):
+    """Report-review unit tests run on SQLite; PostgreSQL nonce is proven separately."""
+    from app.approval_nonce_ledger import PostgresApprovalNonceLedger
+    monkeypatch.setattr(
+        PostgresApprovalNonceLedger, "consume",
+        lambda self, db, **kwargs: "test-only-postgres-nonce-consumed",
+    )
+
+
 def _completed_order(monkeypatch):
     from app import nina_execution
 
