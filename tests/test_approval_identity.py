@@ -274,3 +274,36 @@ def test_jwk_verify_only_key_ops_is_accepted(keypair):
 def test_jwk_private_rsa_material_is_rejected(keypair, private_parameter):
     candidate = dict(keypair[2], **{private_parameter: "private-material"})
     assert ai._key_for_kid({"keys": [candidate]}, "fixture-kid") is None
+
+
+
+def test_verified_subject_retains_oidc_step_up_and_session_claims(monkeypatch, env, keypair):
+    mock_fetch(monkeypatch, keypair[2])
+    auth_time = int(time.time()) - 15
+    verified = ai.verify_subject_token(
+        token(
+            keypair[0],
+            auth_time=auth_time,
+            acr="urn:example:loa:2",
+            amr=["webauthn", "mfa"],
+            sid="session-opaque-123",
+        ),
+        environ=env,
+    )
+    assert verified.auth_time == auth_time
+    assert verified.acr == "urn:example:loa:2"
+    assert verified.amr == ("webauthn", "mfa")
+    assert verified.session_id == "session-opaque-123"
+
+
+@pytest.mark.parametrize("claims", [
+    {"auth_time": True, "acr": "urn:example:loa:2", "amr": ["webauthn"], "sid": "sid-1"},
+    {"auth_time": 123, "acr": "", "amr": ["webauthn"], "sid": "sid-1"},
+    {"auth_time": 123, "acr": "urn:example:loa:2", "amr": ["webauthn", "webauthn"], "sid": "sid-1"},
+    {"auth_time": 123, "acr": "urn:example:loa:2", "amr": "webauthn", "sid": "sid-1"},
+    {"auth_time": 123, "acr": "urn:example:loa:2", "amr": ["webauthn"], "sid": ""},
+])
+def test_invalid_step_up_claims_rejected(monkeypatch, env, keypair, claims):
+    mock_fetch(monkeypatch, keypair[2])
+    with pytest.raises(ai.ApprovalIdentityError):
+        ai.verify_subject_token(token(keypair[0], **claims), environ=env)
