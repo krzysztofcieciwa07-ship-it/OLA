@@ -742,6 +742,10 @@ def test_postgres_membership_revocation_waits_for_runtime_authorization_lock(pos
         db.commit()
 
     with admin_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
         conn.execute(text(f'''
             INSERT INTO "{schema}".human_gate_memberships
                 (id, tenant_id, issuer, subject_fingerprint, fingerprint_key_id,
@@ -764,6 +768,7 @@ def test_postgres_membership_revocation_waits_for_runtime_authorization_lock(pos
 
     def hold_runtime_authorization_lock():
         with database.SessionLocal() as db:
+            database.set_human_gate_tenant_scope(db, tenant_id)
             database.lock_tenant_human_gate_memberships(db, tenant_id)
             active = db.execute(text(
                 "SELECT active FROM human_gate_memberships WHERE id = :principal_id"
@@ -780,6 +785,10 @@ def test_postgres_membership_revocation_waits_for_runtime_authorization_lock(pos
             conn.commit()
             update_started.set()
             with conn.begin():
+                conn.execute(
+                    text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+                    {"tenant_id": tenant_id},
+                )
                 conn.execute(text(f'''
                     UPDATE "{schema}".human_gate_memberships
                     SET active = FALSE, revoked_at = 1795318201, membership_version = 2
@@ -817,6 +826,10 @@ def test_postgres_membership_revocation_waits_for_runtime_authorization_lock(pos
         revoke_future.result(timeout=5)
 
     with admin_engine.begin() as conn:
+        conn.execute(
+            text("SELECT set_config('ola.human_gate_tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
         row = conn.execute(text(f'''
             SELECT active, membership_version
             FROM "{schema}".human_gate_memberships
