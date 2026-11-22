@@ -170,3 +170,19 @@ No distinct local Windows agent is currently connected. Automation environment s
 - **CP8 — Final decision:** NO-GO until each P0 is VERIFIED on integrated main and all independent approvals/effects are authorized.
 
 Do not claim the full plan completed within a time window if any checkpoint is still IN_PROGRESS/BLOCKED. At each run: fetch the current task SHA and checks, update only changed rows, preserve completed/skipped history, and perform one dependency-ready action. No public publish, merge, database mutation, payment or terminal execution is permitted without the appropriate GitHub and application Human Gate.
+
+
+## Checkpoint — P0 CI producer trigger defect, 2026-11-22 15:05 CET
+
+- Stable task: Issue #301 / `CI-P0-PAIDORDER-TRIGGER-2026-11-22`; status `IN_PROGRESS`, review `BLOCKED` (no eligible independent write-enabled reviewer verified).
+- Root evidence: PR #272 exact source `f5a1a89d38c886361b12d64bc377cd2c06ae8fa1`, Final Production Gate run [45027175751](https://github.com/krzysztofcieciwa07-ship-it/OLA/actions/runs/45027175751), attempt 2. Job failed at required-evidence verification because `OLA paid-order PostgreSQL contract` was **missing**, not failed. Artifact #14759248609 SHA-256 `5468af781514c5885e3efb36badb46aa2c7e13acb9a68906bac81929c6bfb7ff`; manifest SHA-256 `d9a456677bbe1bb70d43ef8007386b785d450ca48ed3bc5b62cf21a2b431deaf`.
+- Root cause: `.github/workflows/paid-order-postgres.yml` had PR path filters, while `final-production-gate.yml` requires the producer on every main-targeted PR.
+- Fix was applied directly to existing PR #272 branch, avoiding a redundant stacked PR: PR trigger now runs on all PRs targeting main; main-push trigger remains path-scoped. Added `tests/test_paid_order_contract_trigger.py` for both trigger invariants.
+- New exact head: `157b818f8a980486ffff5a36ad3846e83db2ebab`. Exact-SHA workflow runs are now present: paid-order PostgreSQL contract run #45036320224 is QUEUED; Python package CI #45036320236 is IN_PROGRESS; Final Production Gate #45036320241 is QUEUED. No PASS is claimed yet.
+- PR #302 was superseded by the direct change on #272 and will be closed as redundant; Issue #301 remains open and is linked to PR #272.
+- No staging/production DB mutation, migration/grant, payment, deployment, secret access or external effect.
+
+### Task record
+| Stable ID | Priority | Owner | Dependencies | Exact SHA | CI | Evidence | Review | Status | Next action |
+|---|---|---|---|---|---|---|---|---|---|
+| CI-P0-PAIDORDER-TRIGGER-2026-11-22 / #301 | P0 | coordinator + implementation lane | #272 | `157b818f8a980486ffff5a36ad3846e83db2ebab` | PostgreSQL run #45036320224 QUEUED; Python CI #45036320236 IN_PROGRESS; Final Gate #45036320241 QUEUED | failed-gate artifact #14759248609 (SHA above); producer/test changes on #272 | BLOCKED: independent write-enabled reviewer not verified | IN_PROGRESS | poll exact runs; validate trigger contract; then continue #272 audit evidence |
