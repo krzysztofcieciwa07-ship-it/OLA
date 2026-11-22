@@ -523,6 +523,54 @@ def test_signed_approval_ingress_binds_live_oidc_session_and_queues_once(postgre
     envelope_digest = signed_envelope_sha256(envelope)
 
     client = TestClient(main.app)
+
+    # Same tenant and reviewer, but a different live OIDC sid must not bind.
+    wrong_session = approval_identity.VerifiedSubject(
+        issuer=issuer,
+        subject=reviewer_subject,
+        tenant_id=ctx["tenant_id"],
+        auth_time=auth_time,
+        acr=verified.acr,
+        amr=verified.amr,
+        session_id="different-oidc-session",
+    )
+    monkeypatch.setattr(approval_identity, "verify_subject_token", lambda token: wrong_session)
+    wrong_session_response = client.post(
+        f"/checkout-orders/{ctx['order_id']}/signed-approval",
+        headers={"Authorization": "Bearer verified-oidc-token"},
+        json={"envelope": envelope},
+    )
+    assert wrong_session_response.status_code == 403, wrong_session_response.text
+
+    # Stale step-up auth_time is independently rejected before any DB write.
+    stale_session = approval_identity.VerifiedSubject(
+        issuer=issuer,
+        subject=reviewer_subject,
+        tenant_id=ctx["tenant_id"],
+        auth_time=auth_time - 600,
+        acr=verified.acr,
+        amr=verified.amr,
+        session_id=session_id,
+    )
+    monkeypatch.setattr(approval_identity, "verify_subject_token", lambda token: stale_session)
+    stale_response = client.post(
+        f"/checkout-orders/{ctx['order_id']}/signed-approval",
+        headers={"Authorization": "Bearer verified-oidc-token"},
+        json={"envelope": envelope},
+    )
+    assert stale_response.status_code == 401, stale_response.text
+
+    with database.SessionLocal() as db:
+        unchanged_control = db.scalar(select(CheckoutOrderControl).where(
+            CheckoutOrderControl.order_id == ctx["order_id"]
+        ))
+        assert unchanged_control.status == "PAID_PENDING_REVIEW"
+        assert unchanged_control.approver_id is None
+        assert db.scalar(select(CheckoutExecutionJob).where(
+            CheckoutExecutionJob.order_id == ctx["order_id"]
+        )) is None
+
+    monkeypatch.setattr(approval_identity, "verify_subject_token", lambda token: verified)
     response = client.post(
         f"/checkout-orders/{ctx['order_id']}/signed-approval",
         headers={"Authorization": "Bearer verified-oidc-token"},
