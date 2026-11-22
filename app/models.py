@@ -82,7 +82,8 @@ class CheckoutOrderControl(Base):
     approval_reason = Column(Text, nullable=True)
     approved_tip_hash = Column(String(64), nullable=True)
     approval_record_hash = Column(String(64), nullable=True)
-    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    signed_approval_envelope_json = Column(Text, nullable=True)
+    created_at = Column(Integer, nullable=False, default=lambda: int(time.time())
     approved_at = Column(Integer, nullable=True)
 
 
