@@ -194,7 +194,7 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         "checkout_order_controls": {
             "id", "order_id", "tenant_id", "requester_id", "status",
             "payment_evidence_id", "approver_id", "approval_reason", "approved_tip_hash",
-            "approval_record_hash", "created_at", "approved_at",
+            "approval_record_hash", "signed_approval_envelope_json", "created_at", "approved_at",
         },
         "checkout_execution_jobs": {
             "id", "tenant_id", "order_id", "approval_record_hash", "task", "status",
@@ -271,6 +271,9 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         approval_nonce_migration = conn.execute(text(
             "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
         ), {"version": "ola_human_gate_approval_nonce_v1"}).first()
+        signed_approval_migration = conn.execute(text(
+            "SELECT 1 FROM ola_schema_migrations WHERE version = :version"
+        ), {"version": "ola_signed_human_gate_approval_v1"}).first()
         trigger_rows = conn.execute(text("""
             SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid), p.proname,
                    pg_get_functiondef(p.oid)
@@ -312,6 +315,8 @@ def verify_postgres_schema(bind, *, enforce_runtime_privileges=True):
         raise RuntimeError("PostgreSQL Human Gate membership migration version is missing")
     if approval_nonce_migration is None:
         raise RuntimeError("PostgreSQL Human Gate approval nonce migration version is missing")
+    if signed_approval_migration is None:
+        raise RuntimeError("PostgreSQL signed Human Gate approval migration version is missing")
     if enforce_runtime_privileges and any(evidence_privileges):
         raise RuntimeError("PostgreSQL runtime role must not have UPDATE, DELETE or TRUNCATE on evidence_records")
     if enforce_runtime_privileges and (
@@ -370,11 +375,18 @@ def _migrate_sqlite_private_order_tasks(bind):
     inspector = inspect(bind)
     order_columns = {column["name"] for column in inspector.get_columns("checkout_orders")}
     api_key_columns = {column["name"] for column in inspector.get_columns("api_keys")}
+    control_columns = {
+        column["name"] for column in inspector.get_columns("checkout_order_controls")
+    }
     with bind.begin() as conn:
         if "task" not in order_columns:
             conn.exec_driver_sql("ALTER TABLE checkout_orders ADD COLUMN task TEXT")
         if "role" not in api_key_columns:
             conn.exec_driver_sql("ALTER TABLE api_keys ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'tenant'")
+        if "signed_approval_envelope_json" not in control_columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE checkout_order_controls ADD COLUMN signed_approval_envelope_json TEXT"
+            )
         conn.exec_driver_sql("""
             UPDATE checkout_orders
             SET task = (
@@ -421,6 +433,9 @@ def migrate_postgres_schema(target_engine):
         Base.metadata.create_all(bind=conn)
         conn.execute(text("ALTER TABLE checkout_orders ADD COLUMN IF NOT EXISTS task TEXT"))
         conn.execute(text("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS role VARCHAR(32) NOT NULL DEFAULT 'tenant'"))
+        conn.execute(text(
+            "ALTER TABLE checkout_order_controls ADD COLUMN IF NOT EXISTS signed_approval_envelope_json TEXT"
+        ))
         conn.execute(text("""
             UPDATE checkout_orders AS orders
             SET task = events.task
@@ -469,6 +484,14 @@ def migrate_postgres_schema(target_engine):
         """), {
             "version": "ola_human_gate_approval_nonce_v1",
             "description": "Add append-only PostgreSQL ledger for one-time signed Human Gate approval nonce consumption",
+        })
+        conn.execute(text("""
+            INSERT INTO ola_schema_migrations(version, description)
+            VALUES (:version, :description)
+            ON CONFLICT (version) DO NOTHING
+        """), {
+            "version": "ola_signed_human_gate_approval_v1",
+            "description": "Persist immutable Signed Approval v1 envelope on each paid-order Human Gate control",
         })
     verify_postgres_schema(target_engine, enforce_runtime_privileges=False)
 
