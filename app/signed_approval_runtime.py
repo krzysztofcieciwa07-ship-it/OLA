@@ -19,6 +19,7 @@ from .approval_contract_v1 import (
     validate_approval_semantics,
     verify_signed_approval_envelope,
 )
+from .database import set_human_gate_tenant_scope
 from .models import ApiKey, HumanGateMembership
 
 
@@ -87,6 +88,14 @@ def signed_envelope_sha256(envelope: dict) -> str:
 
 
 def _current_membership(db, actor, *, expected_tenant, expected_role, label):
+    # Establish transaction-local tenant context before the PK read; explicit
+    # row and actor tenant comparisons remain a second independent binding.
+    try:
+        set_human_gate_tenant_scope(db, expected_tenant)
+    except (ValueError, RuntimeError):
+        raise SignedApprovalRuntimeRejected(
+            "current Human Gate tenant RLS scope could not be established"
+        ) from None
     row = db.get(HumanGateMembership, actor["principal_id"])
     if (
         row is None
