@@ -75,6 +75,7 @@ def test_token_tenant_claim_must_match_resource_tenant(db):
         resolve_human_gate_membership(
             db, verified(other), resource_tenant_id=TENANT,
             fingerprint_key=KEY, fingerprint_key_id=KEY_ID,
+            required_role="execution_approver",
         )
 
 
@@ -83,6 +84,7 @@ def test_missing_membership_fails_closed(db):
         resolve_human_gate_membership(
             db, verified(), resource_tenant_id=TENANT,
             fingerprint_key=KEY, fingerprint_key_id=KEY_ID,
+            required_role="execution_approver",
         )
 
 
@@ -102,6 +104,7 @@ def test_revoked_membership_fails_closed(db):
         resolve_human_gate_membership(
             db, verified(), resource_tenant_id=TENANT,
             fingerprint_key=KEY, fingerprint_key_id=KEY_ID,
+            required_role="execution_approver",
         )
 
 
@@ -121,6 +124,7 @@ def test_fingerprint_key_id_is_bound_to_membership(db):
         resolve_human_gate_membership(
             db, verified(), resource_tenant_id=TENANT,
             fingerprint_key=KEY, fingerprint_key_id="identity-k2",
+            required_role="execution_approver",
         )
 
 
