@@ -11,7 +11,8 @@ import pytest
 
 from app.api_key_hashing import api_key_fingerprint
 from app.database import SessionLocal
-from app.igor_evidence_verifier import trusted_record, verify_chain
+from app.evidence_v4 import V4_META_KEY
+from app.igor_evidence_verifier import evidence_version, trusted_record, verify_chain
 from app.main import app, read_tenant_evidence
 from app.models import ApiKey, Tenant
 
@@ -38,7 +39,7 @@ def _chat(tenant_id, message="private customer prompt"):
     )
 
 
-def _one_trusted_record(tenant_id, result, expected_type):
+def _one_evidenced_record(tenant_id, result, expected_type):
     rows = read_tenant_evidence(tenant_id)
     assert verify_chain(rows) == (True, "ok")
     assert len(rows) == 1
@@ -46,7 +47,12 @@ def _one_trusted_record(tenant_id, result, expected_type):
     assert row["tenant_id"] == tenant_id
     assert row["id"] == result["evidence_id"]
     assert row["record_type"] == expected_type
-    assert trusted_record(row)
+    assert evidence_version(row) == 4
+    metadata = json.loads(row["payload_json"])[V4_META_KEY]
+    assert metadata["record_type"] == expected_type
+    assert metadata["producer"] == "ola_runtime"
+    if expected_type == "decision.chat":
+        assert trusted_record(row)
     return json.loads(row["payload_json"])
 
 
@@ -60,7 +66,7 @@ def test_missing_provider_key_records_tenant_scoped_trusted_block(monkeypatch):
     assert result["status"] == "BLOCK"
     assert result["reason"] == "OPENAI_API_KEY is not configured"
 
-    payload = _one_trusted_record(tenant_id, result, "decision.chat")
+    payload = _one_evidenced_record(tenant_id, result, "decision.chat")
     assert payload["decision"] == "BLOCK"
     assert payload["reason"] == result["reason"]
     assert payload["message_count"] == 1
@@ -83,7 +89,7 @@ def test_provider_transport_failure_records_block_before_returning(monkeypatch):
     assert result["status"] == "BLOCK"
     assert result["reason"] == "LLM request failed: URLError"
 
-    payload = _one_trusted_record(tenant_id, result, "decision.chat")
+    payload = _one_evidenced_record(tenant_id, result, "decision.chat")
     assert payload["decision"] == "BLOCK"
     assert "test-only-placeholder" not in row_json(payload)
 
@@ -106,7 +112,7 @@ def test_successful_chat_is_completion_not_execution_verification(monkeypatch):
     assert result["message"] == "hello from provider"
     assert result["model"]
 
-    payload = _one_trusted_record(tenant_id, result, "chat.completed")
+    payload = _one_evidenced_record(tenant_id, result, "chat.completed")
     assert payload["message_count"] == 1
     assert payload["response_digest"] == hashlib.sha256(
         b"hello from provider"
