@@ -7,5 +7,5 @@ msgpack==1.2.3
 setuptools==84.1.0
 urllib3==2.8.0
 wheel==0.48.0
-psycopg[binary]==3.3.9
+psycopg[binary]==3.3.8
 PyJWT[crypto]==2.15.1
