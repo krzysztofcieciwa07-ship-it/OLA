@@ -1,0 +1,92 @@
+# Design patch for review. Do not apply with `git apply` without rebasing the context
+# onto the current `final-production-gate.yml` and running the listed tests.
+
+*** ADD: scripts/release_gate.py
++ Add the pure functions from source SHA 62044a46:
++ - filter_pull_request_runs(runs, pr_number, target_sha, base_ref, base_sha)
++ - filter_expected_workflow_paths(runs, expected_paths)
++ - filter_main_runs(runs, target_sha, allowed_events)
++ - REQUIRED_WORKFLOW_PATHS
++ - REFERENCE_WORKFLOW_PATHS
++
++ Preserve fail-closed validation of SHA, PR number, base ref, event allowlist,
++ canonical `.github/workflows/*.yml|yaml` paths and unique expected paths.
+
+*** ADD: tests/test_release_gate_pr_scope.py
++ Port the focused negative tests from source SHA 62044a46 unchanged first.
++ Add one compatibility fixture test using a captured sanitized Actions API payload
++ before integration is approved.
+
+*** UPDATE: .github/workflows/final-production-gate.yml
+@@ Verify required evidence gates / env
+           GH_TOKEN: ${{ github.token }}
++          PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
++          PR_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
++          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+@@ embedded Python imports
+           import json
++          import os
+           import sys
++          from scripts.release_gate import (
++              REFERENCE_WORKFLOW_PATHS,
++              REQUIRED_WORKFLOW_PATHS,
++              filter_expected_workflow_paths,
++              filter_main_runs,
++              filter_pull_request_runs,
++          )
+@@ after loading required-runs.json and reference-runs.json
++          event_name = os.environ.get("GITHUB_EVENT_NAME", "")
++          target_sha = os.environ.get("TARGET_SOURCE_SHA", "")
++          if event_name == "pull_request":
++              exact_data["workflow_runs"] = filter_pull_request_runs(
++                  exact_data.get("workflow_runs", []),
++                  pr_number=int(os.environ.get("PR_NUMBER", "0")),
++                  target_sha=target_sha,
++                  base_ref=os.environ.get("PR_BASE_REF", ""),
++                  base_sha=os.environ.get("PR_BASE_SHA", ""),
++              )
++          elif event_name == "push":
++              exact_data["workflow_runs"] = filter_main_runs(
++                  exact_data.get("workflow_runs", []),
++                  target_sha=target_sha,
++                  allowed_events={"push"},
++              )
++          else:
++              exact_data["workflow_runs"] = filter_main_runs(
++                  exact_data.get("workflow_runs", []),
++                  target_sha=target_sha,
++                  allowed_events={"workflow_dispatch"},
++              )
++
++          exact_data["workflow_runs"] = filter_expected_workflow_paths(
++              exact_data["workflow_runs"], REQUIRED_WORKFLOW_PATHS,
++          )
++          reference_data["workflow_runs"] = filter_expected_workflow_paths(
++              filter_main_runs(
++                  reference_data.get("workflow_runs", []),
++                  target_sha=<RESOLVE_MAIN_REFERENCE_SHA_EXPLICITLY>,
++                  allowed_events={"push"},
++              ),
++              REFERENCE_WORKFLOW_PATHS,
++          )
++
++# IMPORTANT: the placeholder above is intentionally unresolved. The current
++# API query fetches recent main runs without an exact reference SHA. Do not
++# implement this section until the expected main-reference identity contract
++# is explicitly defined. Leaving a placeholder prevents accidental unsafe use.
+
+*** UPDATE: .github/workflows/final-production-gate.yml
+@@ after exact-source security checkout contract
++      - name: Enforce release evidence identity and path contract
++        run: python -m unittest discover -s tests -p "test_release_gate_pr_scope.py"
+
+*** REQUIRED PRE-MERGE TESTS
++ python -m unittest tests.test_release_gate_pr_scope
++ python -m unittest tests.test_release_source_binding
++ parse `.github/workflows/final-production-gate.yml`
++ run targeted final-production-gate CI on the exact candidate SHA
++
+*** DECISION
++ This is a reviewable design patch, not an apply-ready patch, because the
++ current main-reference workflow does not yet expose an explicit reference SHA
++ to `filter_main_runs`. Resolve that contract before code mutation.
