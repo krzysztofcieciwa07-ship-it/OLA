@@ -6,7 +6,7 @@ This file records cleanup disposition for branches that are not being deleted ye
 - `KEEP` — active/canonical branch that must remain.
 - `WORKING` — branch used by the current controlled cleanup.
 - `SECURITY-HOLD` — security/evidence/provenance work; removal blocked until reconciled with current `main`.
-- `SALVAGE-FIRST` — branch may contain unique useful material; salvage and regression validation required before deletion.
+- `SALVAGE-FIRST` — branch contains or may contain unique useful material; salvage and regression validation required before deletion.
 - `HOLD-DEPENDENCY` — branch has a direct PR or integration dependency and cannot be deleted yet.
 - `DELETE-VERIFIED` — analysis says the branch reference is redundant and safe to remove when branch deletion is available.
 - `REVIEW` — insufficient evidence for deletion; retain until analyzed.
@@ -16,7 +16,7 @@ This file records cleanup disposition for branches that are not being deleted ye
 ### `main`
 Status: `KEEP`
 Reason: canonical source of truth for CLN-001.
-Baseline recorded for this batch: `92f2b0d2696583e6a7a75ce44c5fc5296d24e695`.
+Baseline: `92f2b0d2696583e6a7a75ce44c5fc5296d24e695`.
 
 ### `cleanup/cln-001-safe-20261126`
 Status: `WORKING`
@@ -24,12 +24,11 @@ Reason: controlled cleanup branch containing baseline and risk documentation. Do
 
 ### `cleanup/cln-001-safe`
 Status: `REVIEW`
-Reason: initially duplicated the CLN-001 baseline. Retain until its lack of unique commits/references is explicitly confirmed, then move to `DELETE-VERIFIED`.
+Reason: initially duplicated the CLN-001 baseline. Retain until its lack of unique commits/references is explicitly confirmed.
 
 ## Agent-runtime duplicate group
 
-The following branches all resolve to commit `c87cb3c8a798fece4ee18f73ecc648e397b23c24`:
-
+Branches:
 - `fix/agent-runtime-minimal-2`
 - `fix/agent-runtime-minimal-3`
 - `fix/agent-runtime-minimal-4`
@@ -40,14 +39,24 @@ The following branches all resolve to commit `c87cb3c8a798fece4ee18f73ecc648e397
 - `fix/agent-runtime-minimal-10`
 - `fix/agent-runtime-minimal-11`
 
-Status: `DELETE-VERIFIED`
-Reason: same branch tip; no direct PR dependency found for the nine names; the commit added only `tests/test_agent_runtime.py`; current `main` contains that path in a materially expanded form. Detail is recorded in `docs/BRANCH_RISK_AGENT_RUNTIME_DUPLICATES.md`.
+Shared tip: `c87cb3c8a798fece4ee18f73ecc648e397b23c24`.
+Status: `DELETE-VERIFIED`.
+Reason: same branch tip; no direct PR dependency found for the nine names; commit added only `tests/test_agent_runtime.py`; current `main` contains that path in a materially expanded form. See `docs/BRANCH_RISK_AGENT_RUNTIME_DUPLICATES.md`.
 
-These branches are retained temporarily only because deletion of branch references is not being performed by the current cleanup tool path.
+## Crypto-monitor duplicate group
+
+Branches:
+- `fix/crypto-monitor-canonical-reconciliation`
+- `fix/crypto-monitor-e2e-hardening`
+- `feat/noncustodial-crypto-payment-monitor`
+
+Shared recorded tip: `42ba5be3924d7901099e899790e13afbcfbca155`.
+Status: `SALVAGE-FIRST` for all three.
+Reason: default-branch search did not prove the shared tip reachable from current `main`; the branch tree contains the `crypto_payment_monitor/` package and current `main` does not contain `crypto_payment_monitor/tests/test_monitor.py`. The feature branch is also associated with closed draft PR #265. No branch in this group is delete-approved yet. See `docs/BRANCH_RISK_CRYPTO_MONITOR_DUPLICATES.md`.
 
 ## Direct open-PR dependencies: retain
 
-The branches below are directly referenced as heads by open pull requests and are therefore retained until the corresponding PR is reconciled:
+The branches below are directly referenced as heads by open pull requests and are retained until the corresponding PR is reconciled:
 
 - `security/ola100-stripe-live-mode-guard-20261013` — `HOLD-DEPENDENCY`, PR #101.
 - `integration/ola96-99-90-owner-sign-20261012` — `HOLD-DEPENDENCY`, PR #100.
@@ -81,34 +90,31 @@ The branches below are directly referenced as heads by open pull requests and ar
 - `cfr18-forensic` — `SECURITY-HOLD`, PR #40.
 - `feat/decision-fabric-jev` — `SALVAGE-FIRST`, PR #37.
 
-## Same-tip duplicate candidates awaiting dependency reconciliation
+## Duplicate candidates awaiting analysis
 
-These are retained until their PR/history dependencies and unique-value status are checked:
-
-- `fix/crypto-monitor-canonical-reconciliation`
-- `fix/crypto-monitor-e2e-hardening`
-- `feat/noncustodial-crypto-payment-monitor`
-  - Same recorded tip: `42ba5be3924d7901099e899790e13afbcfbca155`.
-  - Status: `REVIEW`.
-
+### Final-production-gate pair
 - `fix/final-production-gate-20261006`
 - `fix/final-production-gate-stage-20261006`
-  - Same recorded tip: `9990e9f990cee87bc0d00c5c99566d4e436238f0`.
-  - Status: `REVIEW`.
+Shared recorded tip: `9990e9f990cee87bc0d00c5c99566d4e436238f0`.
+Status: `REVIEW`.
 
+### Staging/integration pair
 - `feat/ola-staging-bff-bootstrap-clean-20261108`
 - `integration/jev-decision-fabric-20261106`
-  - Same recorded tip: `6dff9c43ccd5a6892a50d1f59363d232b07ceafb`.
-  - Status: `REVIEW`.
+Shared recorded tip: `6dff9c43ccd5a6892a50d1f59363d232b07ceafb`.
+Status: `REVIEW`.
 
+### Runtime-attestation/integration group
 - `feat/runtime-image-attestation-20261107`
 - `integration/ola-first-five-closure-20261106`
 - `integration/replit-bff-recovery-20261107`
-  - Same recorded tip: `8e56b33df9a3e2806f3709fca90b07e4e595d28f`.
-  - Status: `REVIEW`.
+Shared recorded tip: `8e56b33df9a3e2806f3709fca90b07e4e595d28f`.
+Status: `REVIEW`.
 
-## Default rule for every other branch
+## Completeness boundary
 
-Status: `REVIEW` until inspected.
+This annotation set is complete for the branch groups and direct open-PR heads analyzed so far, but it is not a claim that every repository branch has completed individual risk analysis.
+
+Default status for every other branch: `REVIEW`.
 
 No branch outside an explicitly documented `DELETE-VERIFIED` set may be deleted. For every remaining branch, cleanup must record HEAD SHA, PR/reference dependency, reachability from current `main`, unique files/tests, security/evidence/provenance content, migrations, CI/workflow dependencies, operations/deployment material and documentation before deciding `KEEP`, `SALVAGE-FIRST`, `SECURITY-HOLD` or `DELETE-VERIFIED`.
