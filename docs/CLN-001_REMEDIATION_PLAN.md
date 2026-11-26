@@ -3,70 +3,66 @@
 ## Objective
 Clean and simplify the existing OLA repository without creating a second system, adding product functionality, or weakening existing behavior.
 
-Canonical baseline for this cleanup: `main` at `92f2b0d2696583e6a7a75ce44c5fc5296d24e695`.
+Baseline: `main` at `92f2b0d2696583e6a7a75ce44c5fc5296d24e695`.
 Working branch: `cleanup/cln-001-safe-20261126`.
 
-## Non-negotiable rules
-1. Existing executable code and tests are the source of truth.
-2. No branch deletion before risk/dependency review.
-3. `UNKNOWN` means retain and annotate.
-4. Unique useful material is salvaged only when it belongs to the existing product; cleanup must not introduce a new module or product surface.
-5. Security/evidence/provenance/migrations remain on hold until reconciled with current `main`.
-6. Work in small batches; new regression means NO-GO and rollback.
-7. No force-push to `main`.
-8. A successful rollback does not convert a failed cleanup into GO.
+## Safety rules
+- No deletion before HEAD, PR/history, reachability, unique code/files/tests, security/evidence, migrations, CI/workflow, operations/deployment and docs checks.
+- `UNKNOWN`/insufficient evidence means retain and annotate.
+- SALVAGE only narrowly scoped fixes that belong to the existing product.
+- No product expansion through cleanup.
+- New regression means NO-GO and rollback.
 
 ## Phase A — Branch reduction
-### A1. DELETE-VERIFIED sets
-- Agent-runtime duplicate group (`c87cb3c8...`): delete branch references when deletion operation is available.
-- Final-production-gate duplicate pair (`9990e9f...`): delete branch references when deletion operation is available.
+### Completed risk qualification
+`DELETE-VERIFIED` groups:
+1. obsolete `cleanup/cln-001-safe` baseline branch;
+2. agent-runtime minimal duplicate group `c87cb3c8...`;
+3. final-production-gate duplicate pair `9990e9f...`;
+4. staging/integration duplicate pair `6dff9c43...`;
+5. runtime-attestation/integration duplicate group `8e56b33...`.
 
-### A2. Duplicate groups still under review
-- staging/integration pair (`6dff9c43...`).
-- runtime-attestation/integration group (`8e56b33...`).
+### Identical-tip discovery continues
+Branches pages 1-3 have been inspected for exact HEAD duplicates. Next confirmed group:
+- `fix/agent-runtime-source-binding-20261105`
+- `verify/pr170-final-head-20261105`
+Shared tip: `3f39ff8c1b705b501d86fcfa9572604596906e65`.
+The source-binding branch has historical closed draft PR #170. Full risk analysis is next.
 
-For each: HEAD, PR/history dependency, reachability from `main`, unique files/tests, security/evidence, migrations, CI/workflows, operations/deployment and docs.
+Queued after it:
+- `fix/release-gate-workflow-path-binding-20261118` + `verify/release-gate-path-binding-final-20261118` at `62044a46b2971f061a0866d552a2c5460d92df5f`.
+- `fix/supply-chain-exact-source-attestation-20261118` + `verify/supply-chain-exact-source-attestation-20261118` at `ded7a5f7f31b7dc078588f4d7cbcf692a4b72c5a`.
 
-## Phase B — SALVAGE-FIRST reconciliation
-Current hold set:
-- crypto-monitor duplicate group: unique package absent from current `main`; do not merge as cleanup.
-- PR #99 AI Studio/Aurora: split security fix analysis from UI/Studio product material.
-- PR #90 Events/Webhooks: isolated outbox is not approved to become a parallel runtime/persistence path during cleanup.
-- PR #88 Verified Console: compare file-by-file with current `main`; salvage only existing-system fixes that remain missing.
-- PR #86 Public CVE intelligence: product-scope hold.
-- PR #61 TRACEFORGE: product-scope hold.
-- PR #37 Decision Fabric/Jev: security/product hold.
+All queued groups remain `REVIEW` until the full delete gate passes.
 
-## Phase C — Security and evidence reconciliation
-Review open security/evidence PR heads against current `main`. For each, classify:
-- `ALREADY-IN-MAIN` -> PR/branch may become superseded after evidence check.
-- `MISSING-FIX` -> isolate only the required fix on cleanup branch, run existing regression/security tests, then review.
-- `OBSOLETE` -> annotate reason; no salvage.
-- `UNCERTAIN` -> `SECURITY-HOLD`.
+## Phase B — SALVAGE-FIRST
+Held until the current duplicate-discovery batch is reconciled:
+- crypto-monitor group;
+- PR #99 AI Studio/Aurora, with Human Gate fix isolated from Studio/UI material;
+- PR #90 Events/Webhooks;
+- PR #88 Verified Console;
+- PR #86 Public CVE intelligence;
+- PR #61 TRACEFORGE;
+- PR #37 Decision Fabric/Jev.
+
+## Phase C — Security/evidence reconciliation
+Classify each security/evidence item as `ALREADY-IN-MAIN`, `MISSING-FIX`, `OBSOLETE`, or `SECURITY-HOLD`.
 
 ## Phase D — CI/workflow cleanup
-Inventory current workflows and map each to an existing required gate. Do not remove a workflow because of age/name alone. Remove/consolidate only after proving its required check is duplicated or obsolete and branch/ruleset references no longer depend on it.
+Map workflow -> required check -> evidence -> ruleset/deployment dependency; consolidate/delete only after dependency proof.
 
-## Phase E — Files and documentation
-Classify files as `USED`, `DEAD`, `GENERATED`, `DUPLICATE`, or `UNKNOWN`. Delete only `DEAD`/`GENERATED` items after dependency checks. Documentation must describe current executable behavior, not proposals.
+## Phase E — Files/docs
+Classify `USED`, `DEAD`, `GENERATED`, `DUPLICATE`, `UNKNOWN`; delete only proven dead/generated artifacts.
 
-## Phase F — Regression and closure
-Run existing repository tests/build/security/evidence gates against cleanup branch and compare to baseline. Required outcome: no new failures, no lost required feature, no weaker security/evidence behavior. Only then prepare final GO/NO-GO for merge.
+## Phase F — Regression/closure
+Run existing relevant tests/build/security/evidence gates after mutating cleanup batches. Final merge requires no new failure, no lost required behavior and no weaker security/evidence posture.
 
-## Current execution queue
-1. Analyze staging/integration same-tip pair `6dff9c43...`.
-2. Analyze runtime-attestation/integration same-tip group `8e56b33...`.
-3. Compare PR #99 Human Gate change against current `main` independently of AI Studio/Aurora material.
-4. Compare PR #88 console behavior against current `main`.
-5. Reconcile remaining security/evidence PRs.
-6. Audit workflow duplication and required-check dependencies.
-7. Dead-file/document cleanup.
-8. Full regression and final GO/NO-GO.
-
-## Evidence documents
-- `docs/CLEANUP_BASELINE_CLN-001.md`
-- `docs/BRANCH_RETENTION_ANNOTATIONS.md`
-- `docs/BRANCH_RISK_AGENT_RUNTIME_DUPLICATES.md`
-- `docs/BRANCH_RISK_CRYPTO_MONITOR_DUPLICATES.md`
-- `docs/BRANCH_RISK_FINAL_PRODUCTION_GATE_DUPLICATES.md`
-- `docs/SALVAGE_FIRST_STATUS.md`
+## Current ordered queue
+1. Analyze same-tip pair `3f39ff8c...`.
+2. Analyze same-tip pair `62044a46...`.
+3. Analyze same-tip pair `ded7a5f7...`.
+4. Continue remaining identical-tip discovery.
+5. Narrow SALVAGE-FIRST analysis beginning with PR #99 Human Gate change.
+6. Security/evidence reconciliation.
+7. Workflow/file cleanup.
+8. Full regression and GO/NO-GO.
