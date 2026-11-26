@@ -5,9 +5,15 @@ This registry controls branch cleanup. It does not introduce product functionali
 ## Canonical
 - `main` — `KEEP`; CLN-001 baseline `92f2b0d2696583e6a7a75ce44c5fc5296d24e695`.
 - `cleanup/cln-001-safe-20261126` — `WORKING`.
-- `cleanup/cln-001-safe` — `REVIEW` pending final unique-reference check.
 
 ## DELETE-VERIFIED
+
+### Obsolete cleanup branch
+- `cleanup/cln-001-safe`
+Tip: `92f2b0d2696583e6a7a75ce44c5fc5296d24e695`, exactly the recorded CLN-001 baseline.
+PR dependency: none found.
+Unique cleanup commits/files: none; its tip is the baseline itself, while the dated working branch contains the actual CLN-001 documentation commits.
+Disposition: `DELETE-VERIFIED`. Delete the branch reference only; preserve `main` and `cleanup/cln-001-safe-20261126`.
 
 ### Agent-runtime duplicates — `c87cb3c8a798fece4ee18f73ecc648e397b23c24`
 - `fix/agent-runtime-minimal-2`
@@ -35,7 +41,6 @@ Report: `docs/BRANCH_RISK_STAGING_INTEGRATION_DUPLICATES.md`.
 - `feat/runtime-image-attestation-20261107`
 - `integration/ola-first-five-closure-20261106`
 - `integration/replit-bff-recovery-20261107`
-Reason: shared tip changes only `.github/workflows/paid-order-postgres.yml`; exact commit is reachable from default-branch history; current `main` retains the exact candidate SHA checkout/assertion behavior and PostgreSQL tests. No PR head was found for the first or third branch. The middle branch is associated only with closed PR #189, preserving its historical reference.
 Report: `docs/BRANCH_RISK_RUNTIME_ATTESTATION_DUPLICATES.md`.
 
 ## SALVAGE-FIRST
@@ -51,13 +56,13 @@ Report: `docs/BRANCH_RISK_RUNTIME_ATTESTATION_DUPLICATES.md`.
 See `docs/SALVAGE_FIRST_STATUS.md`.
 
 ## SECURITY-HOLD / HOLD-DEPENDENCY
-Existing security/evidence/provenance heads remain retained until individual reconciliation. See the prior registry history and `docs/CLN-001_EXECUTION_MAP.md`; no such branch is delete-approved by this update.
+Existing security/evidence/provenance heads remain retained until individual reconciliation. See `docs/CLN-001_EXECUTION_MAP.md`; no such branch is delete-approved by this update.
 
 ## Next work in plan
-1. Verify `cleanup/cln-001-safe` unique references and disposition.
-2. Continue branch duplicate discovery beyond the already analyzed identical-tip groups.
-3. Then execute SALVAGE-FIRST narrow comparisons, starting with the Human Gate change inside PR #99 separately from its Studio/UI material.
-4. Continue security/evidence reconciliation before workflow/file cleanup.
+1. Continue branch duplicate discovery beyond analyzed identical-tip groups.
+2. Execute SALVAGE-FIRST narrow comparisons, starting with the Human Gate change inside PR #99 separately from Studio/UI material.
+3. Continue security/evidence reconciliation.
+4. Only then proceed to workflow/file cleanup and full regression.
 
 ## Completeness rule
 Every other branch remains `REVIEW` until individually or as a proven identical-tip group analyzed. No branch outside `DELETE-VERIFIED` may be deleted.
